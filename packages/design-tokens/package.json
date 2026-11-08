@@ -1,0 +1,37 @@
+{
+  "name": "@techdrona/design-tokens",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tech Drona LMS design tokens: colours (light/dark), risk levels, chart palette, typography, spacing, radii, shadows, motion, breakpoints, z-index. Tailwind v3/v4 preset and CSS variables.",
+  "license": "UNLICENSED",
+  "main": "tailwind-preset.js",
+  "files": [
+    "tokens.json",
+    "tokens.css",
+    "tailwind-preset.js",
+    "tailwind-v4.css",
+    "scripts"
+  ],
+  "exports": {
+    ".": "./tailwind-preset.js",
+    "./tailwind-preset": "./tailwind-preset.js",
+    "./tailwind-preset.js": "./tailwind-preset.js",
+    "./tokens.json": "./tokens.json",
+    "./tokens.css": "./tokens.css",
+    "./tailwind-v4.css": "./tailwind-v4.css"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/check-contrast.mjs",
+    "test": "node scripts/build.mjs && node scripts/check-contrast.mjs"
+  },
+  "peerDependencies": {
+    "tailwindcss": ">=3.4 <5"
+  },
+  "peerDependenciesMeta": {
+    "tailwindcss": { "optional": true }
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

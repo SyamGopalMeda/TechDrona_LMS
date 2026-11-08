@@ -1,0 +1,3 @@
+bucket         = "td-tfstate-000000000000"
+dynamodb_table = "td-tfstate-lock"
+kms_key_id     = "alias/td-tfstate"

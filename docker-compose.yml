@@ -1,0 +1,449 @@
+# =============================================================================
+# Tech Drona LMS — local development stack (LOCAL / CI ONLY; never deployed)
+# See docs/local-development.md and docs/deployment-and-operations.md §1.1.
+#
+#   docker compose up -d                      # data services only (default)
+#   docker compose --profile app up -d --build   # + migrate, api, api-webhooks, worker,
+#                                                #   worker-maintenance, scheduler, worker-judge,
+#                                                #   audit-sealer, web  (api :18000, api-webhooks :18001,
+#                                                #   web :13000)
+#   docker compose --profile errors-local up -d  # + GlitchTip (ADR-0014), opt-in
+#
+# Host ports are overridable (e.g. when 5432/6379 are already used on the host)
+# via a root .env file or the shell: TD_PG_HOST_PORT, TD_REDIS_CACHE_HOST_PORT,
+# TD_REDIS_QUEUE_HOST_PORT, TD_SMTP_HOST_PORT, TD_MAILPIT_UI_HOST_PORT,
+# TD_S3_HOST_PORT, TD_API_HOST_PORT, TD_API_WEBHOOKS_HOST_PORT, TD_WEB_HOST_PORT. Keep DATABASE_URL /
+# REDIS_*_URL / S3_ENDPOINT_URL in .env consistent with them.
+#
+# Bootstrap superuser: techdrona / techdrona_dev (local only). Application roles
+# td_owner, td_app, td_readonly, td_audit_sealer, td_maintenance and the
+# techdrona_test database are created by scripts/db-init/ on first start.
+# =============================================================================
+
+name: techdrona
+
+x-app-env: &app-env
+  # Container-network overrides of the localhost URLs in .env
+  DATABASE_URL: postgresql+asyncpg://td_app:local_app_pw_REPLACE@postgres:5432/techdrona
+  DATABASE_READ_URL: postgresql+asyncpg://td_readonly:local_ro_pw_REPLACE@postgres:5432/techdrona
+  DATABASE_MIGRATION_URL: postgresql+psycopg://td_owner:local_owner_pw_REPLACE@postgres:5432/techdrona
+  DATABASE_MAINTENANCE_URL: postgresql+psycopg://td_maintenance:local_maint_pw_REPLACE@postgres:5432/techdrona
+  DATABASE_AUDIT_SEALER_URL: postgresql+asyncpg://td_audit_sealer:local_sealer_pw_REPLACE@postgres:5432/techdrona
+  REDIS_CACHE_URL: redis://redis:6379/0
+  REDIS_QUEUE_URL: redis://redis-queue:6379/0
+  SMTP_HOST: mailpit
+  SMTP_PORT: "1025"
+  S3_ENDPOINT_URL: http://s3:8333
+  APP_ENV: local
+  TZ: UTC
+  # Browser origin of the containerised web (host port) in addition to the host-run dev loop
+  TD_PUBLIC_BASE_URL: http://localhost:${TD_WEB_HOST_PORT:-13000}
+  TD_ALLOWED_ORIGINS: http://localhost:${TD_WEB_HOST_PORT:-13000},http://localhost:3000
+  # The dedicated audit-sealer service seals the chain (as in AWS); beat does not.
+  TD_AUDIT_SEALER_BEAT_ENABLED: "false"
+
+x-app-depends: &app-depends
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  redis-queue:
+    condition: service_healthy
+  # COM-23: buckets exist before the app starts, and `up --wait` treats the one-shot s3-init
+  # (like migrate) as a completed dependency instead of a stopped service.
+  s3-init:
+    condition: service_completed_successfully
+
+services:
+  # ---------------------------------------------------------------------------
+  # Data services (default profile)
+  # ---------------------------------------------------------------------------
+  postgres:
+    build:
+      context: ./infra/docker/postgres
+    image: techdrona/postgres-local:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: techdrona
+      POSTGRES_USER: techdrona
+      POSTGRES_PASSWORD: techdrona_dev
+      TZ: UTC
+      PGTZ: UTC
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - log_min_duration_statement=500ms
+      - -c
+      - idle_in_transaction_session_timeout=60s
+      # Room for api workers x (DB_POOL_SIZE + DB_MAX_OVERFLOW) plus workers, tests and tools.
+      - -c
+      - max_connections=${TD_PG_MAX_CONNECTIONS:-200}
+    ports:
+      - "${TD_PG_HOST_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U techdrona -d techdrona && psql -U techdrona -d techdrona_test -tAc 'select 1' >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  # `cache` cluster mirror (sessions read-through copy, rate limits, locks)
+  redis:
+    image: redis:7.4-bookworm
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--save", ""]
+    ports:
+      - "${TD_REDIS_CACHE_HOST_PORT:-6379}:6379"
+    volumes:
+      - redis-cache-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # `queue` cluster mirror (Celery broker, Streams, deadline ZSET) — never evicts
+  redis-queue:
+    image: redis:7.4-bookworm
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
+    ports:
+      - "${TD_REDIS_QUEUE_HOST_PORT:-6380}:6379"
+    volumes:
+      - redis-queue-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # SMTP sink + web UI (http://localhost:8025)
+  mailpit:
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: "5000"
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    ports:
+      - "${TD_SMTP_HOST_PORT:-1025}:1025"
+      - "${TD_MAILPIT_UI_HOST_PORT:-8025}:8025"
+    volumes:
+      - mailpit-data:/data
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  # Local S3 emulator (SeaweedFS). MinIO images are no longer published on Docker Hub.
+  # Credentials = AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY placeholders from .env.example.
+  s3:
+    image: chrislusf/seaweedfs:3.80
+    restart: unless-stopped
+    command: >-
+      server -dir=/data -ip.bind=0.0.0.0 -volume.max=0 -master.volumeSizeLimitMB=256
+      -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json
+    ports:
+      - "${TD_S3_HOST_PORT:-9000}:8333"
+    volumes:
+      - s3-data:/data
+      - ./infra/docker/s3/s3.json:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8333/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  s3-init:
+    image: amazon/aws-cli:2.22.35
+    depends_on:
+      s3:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: local-minio-REPLACE
+      AWS_SECRET_ACCESS_KEY: local-minio-secret-REPLACE
+      AWS_DEFAULT_REGION: ap-south-1
+      S3_ENDPOINT: http://s3:8333
+    entrypoint: ["/bin/sh", "/init/create-buckets.sh"]
+    volumes:
+      - ./infra/docker/s3/create-buckets.sh:/init/create-buckets.sh:ro
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # Application containers (profile `app`, optional locally — the usual loop is
+  # scripts/run-api.ps1 + scripts/run-web.ps1 on the host). Same entrypoints as ECS:
+  #   migrate · api · api-webhooks · worker (celery) · worker-maintenance · scheduler (beat)
+  #   worker-judge (python -m app.modules.coding.worker) · audit-sealer · web
+  # Host ports: api ${TD_API_HOST_PORT:-18000}, api-webhooks ${TD_API_WEBHOOKS_HOST_PORT:-18001},
+  # web ${TD_WEB_HOST_PORT:-13000} (8000/3000 are
+  # often taken locally and are what the host-run dev loop uses).
+  # Demo data: the image ships no demo seeds (G-21) — run scripts/seed-dev.ps1|.sh from the host.
+  # ---------------------------------------------------------------------------
+  migrate:
+    profiles: ["app"]
+    build:
+      context: ./apps/api
+      target: runtime
+    image: techdrona/td-api:local
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *app-env
+      TD_SERVICE_NAME: migrate
+    command: ["alembic", "upgrade", "heads"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    profiles: ["app"]
+    image: techdrona/td-api:local
+    build:
+      context: ./apps/api
+      target: runtime
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *app-env
+      TD_SERVICE_NAME: api
+      TD_ROUTER_SET: user
+      # Local sizing (B1/perf): uvicorn workers and the per-worker SQLAlchemy pool. Connections
+      # needed at peak = workers x (pool + overflow) = 4 x 25 = 100 (< max_connections above).
+      # Prefer a large warm pool over overflow: overflow connections are closed on return, and
+      # every new backend pays asyncpg type introspection + statement re-prepare (0.5-1.8 s
+      # under load), which caused the pool-timeout stalls seen in the k6 smoke.
+      # Override with TD_API_* in the shell or the root .env; .env's DB_POOL_* apply to host runs.
+      UVICORN_WORKERS: ${TD_API_WORKERS:-4}
+      DB_POOL_SIZE: ${TD_API_DB_POOL_SIZE:-20}
+      DB_MAX_OVERFLOW: ${TD_API_DB_MAX_OVERFLOW:-5}
+      DB_POOL_TIMEOUT_SECONDS: ${TD_API_DB_POOL_TIMEOUT_SECONDS:-5}
+      # Pre-ping costs 3 round trips per checkout (~15-20 % of an autosave); the local DB is stable
+      # and scripts/reset-dev-data.ps1 restarts the app after dropping the database. AWS keeps it on.
+      DB_POOL_PRE_PING: ${TD_API_DB_POOL_PRE_PING:-false}
+    ports:
+      - "${TD_API_HOST_PORT:-18000}:8000"
+    depends_on:
+      <<: *app-depends
+      migrate:
+        condition: service_completed_successfully
+    healthcheck: &api-healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).status == 200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  api-webhooks:
+    profiles: ["app"]
+    image: techdrona/td-api:local
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *app-env
+      TD_SERVICE_NAME: api-webhooks
+      TD_ROUTER_SET: webhooks
+    # COM-24: reachable from the host for provider-webhook replays (e.g. a tunnel or curl).
+    ports:
+      - "${TD_API_WEBHOOKS_HOST_PORT:-18001}:8000"
+    depends_on:
+      <<: *app-depends
+      migrate:
+        condition: service_completed_successfully
+    healthcheck: *api-healthcheck
+    restart: unless-stopped
+
+  worker:
+    profiles: ["app"]
+    image: techdrona/td-api:local
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *app-env
+      TD_SERVICE_NAME: worker-default
+      TD_CELERY_NODE: default
+      TD_WORKER_HEALTH_FILE: /tmp/td-celery-worker.alive
+      CELERY_QUEUES: critical,default,notifications,analytics,reports
+    # Celery app: app.worker.celery_app (apps/api/app/worker.py); override with TD_CELERY_APP
+    command: ["sh", "-c", "exec celery -A $${TD_CELERY_APP:-app.worker.celery_app} worker -n $${TD_CELERY_NODE}@%h -Q $${CELERY_QUEUES} -c $${CELERY_CONCURRENCY:-4} --loglevel=INFO"]
+    depends_on:
+      <<: *app-depends
+      migrate:
+        condition: service_completed_successfully
+    # E2E-06: liveness = the worker's own timer keeps TD_WORKER_HEALTH_FILE fresh
+    # (app.core.celery_ops). A stat() instead of spawning a celery client every 30 s.
+    healthcheck: &celery-healthcheck
+      test: ["CMD", "python", "-c", "import os,sys,time; p=os.environ.get('TD_WORKER_HEALTH_FILE') or '/tmp/td-celery-worker.alive'; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p) < 90 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  worker-maintenance:
+    profiles: ["app"]
+    image: techdrona/td-api:local
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *app-env
+      TD_SERVICE_NAME: worker-maintenance
+      TD_CELERY_NODE: maintenance
+      TD_WORKER_HEALTH_FILE: /tmp/td-celery-worker.alive
+      CELERY_QUEUES: maintenance
+    command: ["sh", "-c", "exec celery -A $${TD_CELERY_APP:-app.worker.celery_app} worker -n $${TD_CELERY_NODE}@%h -Q $${CELERY_QUEUES} -c 2 --loglevel=INFO"]
+    depends_on:
+      <<: *app-depends
+      migrate:
+        condition: service_completed_successfully
+    healthcheck: *celery-healthcheck
+    restart: unless-stopped
+
+  scheduler:
+    profiles: ["app"]
+    image: techdrona/td-api:local
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *app-env
+      TD_SERVICE_NAME: scheduler
+    command: ["sh", "-c", "exec celery -A $${TD_CELERY_APP:-app.worker.celery_app} beat --loglevel=INFO --schedule /tmp/celerybeat-schedule"]
+    # No HTTP port: replace the image's /healthz HEALTHCHECK with a PID-1 liveness probe
+    healthcheck: &proc-healthcheck
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      <<: *app-depends
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Coding judge (judge-gateway). JUDGE_PROVIDER=fake locally (no Judge0 credentials).
+  worker-judge:
+    profiles: ["app"]
+    image: techdrona/td-api:local
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *app-env
+      TD_SERVICE_NAME: worker-judge
+    command: ["python", "-m", "app.modules.coding.worker"]
+    healthcheck: *proc-healthcheck
+    depends_on:
+      <<: *app-depends
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Dedicated audit chain sealer (role td_audit_sealer); beat sealing is disabled in x-app-env.
+  audit-sealer:
+    profiles: ["app"]
+    image: techdrona/td-api:local
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *app-env
+      TD_SERVICE_NAME: audit-sealer
+    command: ["python", "-m", "app.modules.audit.sealer"]
+    healthcheck: *proc-healthcheck
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  web:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_BASE_URL: http://localhost:${TD_WEB_HOST_PORT:-13000}
+    image: techdrona/td-web:local
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      TD_API_INTERNAL_URL: http://api:8000
+      REDIS_CACHE_URL: redis://redis:6379/0
+      TD_PUBLIC_BASE_URL: http://localhost:${TD_WEB_HOST_PORT:-13000}
+      # The standalone server runs with NODE_ENV=production, so the BFF uses __Host- cookies
+      # (browsers allow Secure cookies on http://localhost) and rejects *REPLACE* placeholder
+      # CSRF keys. Local-container-only value; override with TD_WEB_CONTAINER_CSRF_KEY.
+      TD_CSRF_KEY: ${TD_WEB_CONTAINER_CSRF_KEY:-local-compose-only-csrf-key-not-a-secret-0001}
+    ports:
+      - "${TD_WEB_HOST_PORT:-13000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Opt-in: local GlitchTip (ADR-0014). Needs database `glitchtip`:
+  #   docker compose exec postgres createdb -U techdrona glitchtip
+  # UI on http://localhost:8001. SDKs stay disabled unless SENTRY_DSN is set.
+  # ---------------------------------------------------------------------------
+  glitchtip-web:
+    profiles: ["errors-local"]
+    image: glitchtip/glitchtip:v4.2
+    environment: &glitchtip-env
+      DATABASE_URL: postgres://techdrona:techdrona_dev@postgres:5432/glitchtip
+      REDIS_URL: redis://redis:6379/5
+      SECRET_KEY: local-glitchtip-secret-REPLACE
+      GLITCHTIP_DOMAIN: http://localhost:8001
+      DEFAULT_FROM_EMAIL: glitchtip@localhost
+      EMAIL_URL: smtp://mailpit:1025
+      GLITCHTIP_MAX_EVENT_LIFE_DAYS: "90"
+      ENABLE_USER_REGISTRATION: "true"
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  glitchtip-worker:
+    profiles: ["errors-local"]
+    image: glitchtip/glitchtip:v4.2
+    command: ./bin/run-celery-with-beat.sh
+    environment: *glitchtip-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redis-cache-data:
+  redis-queue-data:
+  mailpit-data:
+  s3-data:

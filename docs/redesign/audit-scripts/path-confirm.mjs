@@ -1,0 +1,24 @@
+// Confirms the path-player defect: Mark as read works only after selecting the step in the rail.
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { chromium, roleContext, watch, BASE, SHOTS, STATE, sleep } from "./lib.mjs";
+const who = JSON.parse(readFileSync(path.join(STATE, "audit-student.cred.json"), "utf8"));
+const browser = await chromium.launch();
+const ctx = await roleContext(browser, "auditstudent", who);
+const b = watch(ctx);
+const page = await ctx.newPage();
+await page.goto(`${BASE}/app/path/my/01a1b636-fb08-758c-8924-56587115a093`);
+await page.waitForLoadState("networkidle").catch(() => undefined);
+await sleep(1500);
+const reqs = [];
+page.on("request", (r) => { if (r.method() === "POST" && r.url().includes("/me/paths/")) reqs.push(r.url().split("/steps/")[1]); });
+await page.getByRole("button", { name: /AUDIT reading step/ }).first().click();
+await sleep(2000);
+b.reset();
+await page.getByRole("button", { name: "Mark as read" }).first().click();
+await sleep(2500);
+await page.reload(); await page.waitForLoadState("networkidle").catch(() => undefined); await sleep(1500);
+console.log("posts:", reqs, "errors:", b.http);
+console.log((await page.locator("main").innerText()).replace(/\s+/g, " ").slice(0, 250));
+await page.screenshot({ path: path.join(SHOTS, "journey-participate__path_after_select_mark.png") });
+await browser.close();

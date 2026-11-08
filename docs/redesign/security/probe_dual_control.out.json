@@ -1,0 +1,57 @@
+[
+ [
+  "maker step-up",
+  200,
+  null
+ ],
+ [
+  "maker proposes policy change (playback.otp_ttl_seconds=301)",
+  202,
+  "approval_pending"
+ ],
+ [
+  "maker approves own policy change via admin/approvals",
+  403,
+  "sod_violation"
+ ],
+ [
+  "maker rejects own policy change via admin/approvals",
+  403,
+  "sod_violation"
+ ],
+ [
+  "maker requests super_admin grant for AUDIT user",
+  202,
+  "approval_pending"
+ ],
+ [
+  "maker approves own grant via rbac/approval-requests",
+  403,
+  "sod_violation"
+ ],
+ [
+  "maker approves own grant via admin/approvals",
+  403,
+  "sod_violation"
+ ],
+ [
+  "checker step-up",
+  200,
+  null
+ ],
+ [
+  "checker (different admin) rejects policy change",
+  200,
+  "rejected"
+ ],
+ [
+  "checker (different admin) rejects grant",
+  200,
+  "rejected"
+ ],
+ [
+  "trainer lists admin approvals",
+  200,
+  null
+ ]
+]

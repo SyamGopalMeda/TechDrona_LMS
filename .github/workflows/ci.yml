@@ -1,0 +1,496 @@
+# =============================================================================
+# Tech Drona LMS — CI (pull requests + main + nightly)
+# Implements the CI gates feasible at Stage 3 from docs/testing-and-acceptance-criteria.md §10
+# and docs/deployment-and-operations.md §8.1 (that doc calls this workflow `pr.yml`; it is
+# `ci.yml` here and also runs on main and nightly).
+#
+#   G-01 lint/types ........ api: ruff, ruff format, mypy · web: eslint, tsc
+#   G-02 coverage .......... coverage fail-under (line+branch) + diff-cover on PRs
+#   G-03 suites ............ pytest (real Postgres 16 from docker-compose, runs as td_app)
+#   G-04 migrations ........ upgrade heads on empty DB, downgrade base / upgrade round-trip, alembic check
+#   G-05 route guard ....... explicit pytest selection -k route_guard (must exist and pass)
+#   G-09 SAST .............. Semgrep + CodeQL
+#   G-10 SCA ............... pip-audit, npm audit (high+), OSV-Scanner
+#   G-11 image scan ........ Docker build (no push) + Trivy (critical blocks)
+#   G-12 IaC ............... terraform fmt/validate + Checkov
+#   G-13 secrets ........... gitleaks (full history)
+#   E2E .................... Playwright on main pushes and nightly only: compose `app` profile
+#                            (api :18000, web :13000) + scripts/seed-dev.sh + @integration specs
+#
+# Not yet wired (planned, need artefacts that do not exist yet): import-linter contracts (G-07),
+# oasdiff/OpenAPI client diff (G-06), squawk, RLS+FORCE lint script, G-14/G-15/G-16/G-22.
+# Third-party actions: pin to full commit SHAs before the repo goes public (Renovate does this).
+# =============================================================================
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "30 20 * * *" # 02:00 IST nightly
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+  # G-02 thresholds (testing-and-acceptance-criteria §10). Per-package 95 % branch gates for
+  # core/authz, security, sessions, entitlements, commerce/webhooks are enforced by
+  # tools/coverage_gates.py once those modules exist.
+  COVERAGE_FAIL_UNDER: "85"
+  DIFF_COVERAGE_FAIL_UNDER: "90"
+  # Local docker-compose credentials (synthetic, CI-only — not secrets).
+  # APP_ENV must be one of the Settings literals (local|test|dev|staging|prod|production).
+  APP_ENV: test
+  TZ: UTC
+  DATABASE_URL: postgresql+asyncpg://td_app:local_app_pw_REPLACE@localhost:5432/techdrona
+  DATABASE_MIGRATION_URL: postgresql+psycopg://td_owner:local_owner_pw_REPLACE@localhost:5432/techdrona
+  DATABASE_AUDIT_SEALER_URL: postgresql+asyncpg://td_audit_sealer:local_sealer_pw_REPLACE@localhost:5432/techdrona
+  # tests/conftest.py swaps the database name to TD_TEST_DB_NAME for every role
+  TD_TEST_DB_NAME: techdrona_test
+  TEST_DATABASE_URL: postgresql+asyncpg://td_app:local_app_pw_REPLACE@localhost:5432/techdrona_test
+  TEST_DATABASE_MIGRATION_URL: postgresql+psycopg://td_owner:local_owner_pw_REPLACE@localhost:5432/techdrona_test
+  REDIS_CACHE_URL: redis://localhost:6379/0
+  REDIS_QUEUE_URL: redis://localhost:6380/0
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # hashFiles() is not allowed in job-level `if`, so presence of each app is detected here.
+  detect:
+    name: detect components
+    runs-on: ubuntu-24.04
+    outputs:
+      api: ${{ steps.d.outputs.api }}
+      migrations: ${{ steps.d.outputs.migrations }}
+      web: ${{ steps.d.outputs.web }}
+      terraform: ${{ steps.d.outputs.terraform }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: d
+        run: |
+          has() { if [ -e "$1" ]; then echo true; else echo false; fi; }
+          {
+            echo "api=$(has apps/api/pyproject.toml)"
+            echo "migrations=$(has apps/api/migrations/env.py)"
+            echo "web=$(has apps/web/package.json)"
+            echo "terraform=$(has infra/terraform/envs/dev/main.tf)"
+          } | tee -a "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  repo-hygiene:
+    name: repo hygiene (actionlint, hadolint, compose)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          ./actionlint -color
+      - name: hadolint
+        run: |
+          for f in apps/api/Dockerfile apps/web/Dockerfile infra/docker/postgres/Dockerfile; do
+            [ -f "$f" ] || continue
+            echo "::group::hadolint $f"
+            docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold error - < "$f"
+            echo "::endgroup::"
+          done
+      - name: docker compose config
+        run: docker compose --profile app --profile errors-local config -q
+
+  # ---------------------------------------------------------------------------
+  api:
+    name: api (lint, types, tests, coverage, route guard)
+    runs-on: ubuntu-24.04
+    needs: [detect]
+    if: needs.detect.outputs.api == 'true'
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # diff-cover needs the merge base
+      - name: Start Postgres 16 + Redis (same images/init as local)
+        working-directory: .
+        run: |
+          docker compose up -d --build --wait postgres redis redis-queue
+          docker compose ps
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: apps/api/pyproject.toml
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" diff-cover
+      - name: ruff (lint)
+        run: ruff check --output-format=github .
+      - name: ruff (format)
+        run: ruff format --check .
+      - name: mypy
+        run: mypy
+      - name: alembic upgrade heads (techdrona_test)
+        env:
+          DATABASE_MIGRATION_URL: ${{ env.TEST_DATABASE_MIGRATION_URL }}
+        run: alembic upgrade heads
+      - name: pytest + coverage
+        run: |
+          coverage run -m pytest --junitxml=junit-api.xml
+          coverage xml
+          coverage report --fail-under="${COVERAGE_FAIL_UNDER}"
+      - name: G-05 route guard test (must exist and pass)
+        run: |
+          set +e
+          pytest -q -k "route_guard or route_guards" -p no:cacheprovider
+          rc=$?
+          if [ "$rc" -eq 5 ]; then
+            echo "::error::G-05: no route-guard test collected (expected a test named *route_guard*)"; exit 1
+          fi
+          exit $rc
+      - name: diff coverage (PR only)
+        if: github.event_name == 'pull_request'
+        run: diff-cover coverage.xml --compare-branch="origin/${{ github.base_ref }}" --fail-under="${DIFF_COVERAGE_FAIL_UNDER}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: api-test-reports
+          path: |
+            apps/api/junit-api.xml
+            apps/api/coverage.xml
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  migrations:
+    name: migrations check (G-04)
+    runs-on: ubuntu-24.04
+    needs: [detect]
+    if: needs.detect.outputs.migrations == 'true'
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start Postgres 16
+        working-directory: .
+        run: docker compose up -d --build --wait postgres
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: apps/api/pyproject.toml
+      - run: pip install -e ".[dev]"
+      - name: upgrade heads on empty database
+        run: alembic upgrade heads
+      - name: show heads (one per module branch, conventions §4)
+        run: alembic heads --verbose
+      - name: downgrade base / upgrade heads round-trip
+        run: |
+          alembic downgrade base
+          alembic upgrade heads
+      - name: alembic check (models match migrations)
+        run: alembic check
+      - name: td_app is not owner and has no BYPASSRLS; every tenant table has RLS + FORCE
+        working-directory: .
+        run: |
+          docker compose exec -T postgres psql -U techdrona -d techdrona -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'td_app' AND (rolsuper OR rolbypassrls)) THEN
+              RAISE EXCEPTION 'td_app must not be superuser or BYPASSRLS';
+            END IF;
+            IF EXISTS (SELECT 1 FROM pg_tables WHERE tableowner = 'td_app') THEN
+              RAISE EXCEPTION 'td_app owns tables';
+            END IF;
+          END $$;
+          -- Report (non-blocking until the tenant-table registry exists): tables without FORCE RLS
+          SELECT n.nspname || '.' || c.relname AS table_without_force_rls
+          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE c.relkind IN ('r', 'p') AND NOT c.relforcerowsecurity
+            AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'partman')
+            AND c.relname <> 'alembic_version'
+          ORDER BY 1;
+          SQL
+
+  # ---------------------------------------------------------------------------
+  web:
+    name: web (lint, typecheck, vitest, build)
+    runs-on: ubuntu-24.04
+    needs: [detect]
+    if: needs.detect.outputs.web == 'true'
+    defaults:
+      run:
+        working-directory: apps/web
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: eslint
+        run: npm run lint
+      - name: typecheck
+        run: npm run typecheck
+      # Coverage gate (G-02 web) needs @vitest/coverage-v8 in devDependencies — not added yet.
+      - name: vitest
+        run: npm test
+      - name: build
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-coverage
+          path: apps/web/coverage
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: e2e (compose app profile + seeds + Playwright)
+    runs-on: ubuntu-24.04
+    needs: [api, web]
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    timeout-minutes: 60
+    env:
+      APP_ENV: local
+      TD_API_HOST_PORT: "18000"
+      TD_WEB_HOST_PORT: "13000"
+    steps:
+      - uses: actions/checkout@v4
+      - name: .env from template (synthetic placeholders only)
+        run: cp .env.example .env
+      - name: Build images and start the full stack (profile app; migrate runs first)
+        run: |
+          docker compose --profile app up -d --build --wait --wait-timeout 600 || {
+            docker compose --profile app ps -a; docker compose --profile app logs --tail=200; exit 1; }
+          docker compose --profile app ps
+          curl -fsS http://127.0.0.1:18000/healthz
+          curl -fsS -o /dev/null http://127.0.0.1:13000/
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: apps/api/pyproject.toml
+      - name: Seed demo data (host venv; the api image ships no demo seeds, G-21)
+        run: |
+          python -m venv apps/api/.venv
+          apps/api/.venv/bin/pip install -q -e apps/api
+          # bash explicitly: the exec bit is not guaranteed on checkouts made with core.fileMode=false (COM-23)
+          bash scripts/seed-dev.sh | tee seed.log
+          pw="$(sed -n 's|^DEV/DEMO users ready. Password for all: ||p' seed.log)"
+          echo "::add-mask::$pw"
+          totp() { sed -n "s|.*TOTP secret for $1@dev.techdrona.local: ||p" seed.log; }
+          {
+            echo "E2E_STUDENT_IDENTIFIER=student@dev.techdrona.local"
+            echo "E2E_STUDENT_PASSWORD=$pw"
+            echo "E2E_EVALUATOR_IDENTIFIER=evaluator@dev.techdrona.local"
+            echo "E2E_EVALUATOR_PASSWORD=$pw"
+            echo "E2E_EVALUATOR_TOTP_SECRET=$(totp evaluator)"
+            echo "E2E_TRAINER_IDENTIFIER=trainer@dev.techdrona.local"
+            echo "E2E_TRAINER_PASSWORD=$pw"
+            echo "E2E_TRAINER_TOTP_SECRET=$(totp trainer)"
+          } >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Playwright (smoke + @integration against the containers)
+        working-directory: apps/web
+        env:
+          E2E_BASE_URL: http://localhost:13000
+          E2E_INTEGRATION: "1"
+          MAILPIT_URL: http://localhost:8025
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          npx playwright test --project=chromium
+      - name: Container logs
+        if: always()
+        run: docker compose --profile app logs --no-color > compose.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            compose.log
+            seed.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  secrets-scan:
+    name: secret scan (gitleaks, G-13)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks (full history)
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.24.3 \
+            git /repo --redact --verbose --exit-code 1
+
+  dependency-scan:
+    name: dependency scan (pip-audit, npm audit, OSV, G-10)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: pip-audit
+        if: ${{ hashFiles('apps/api/pyproject.toml') != '' }}
+        working-directory: apps/api
+        run: |
+          pip install pip-audit
+          pip install -e .
+          pip-audit --skip-editable --strict --progress-spinner off
+      - uses: actions/setup-node@v4
+        if: ${{ hashFiles('apps/web/package-lock.json') != '' }}
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: npm audit (production deps, high+)
+        if: ${{ hashFiles('apps/web/package-lock.json') != '' }}
+        working-directory: apps/web
+        run: npm audit --omit=dev --audit-level=high
+      - name: OSV-Scanner (all lockfiles)
+        run: |
+          docker run --rm -v "$PWD:/src" ghcr.io/google/osv-scanner:v2.0.2 scan source -r /src || {
+            echo "::warning::OSV-Scanner reported findings (blocking only via pip-audit/npm audit until waivers file exists)"; }
+
+  sast:
+    name: SAST (Semgrep, G-09)
+    runs-on: ubuntu-24.04
+    container:
+      image: semgrep/semgrep:1.119.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: semgrep (block on ERROR = high)
+        run: |
+          set -- --config p/python --config p/typescript --config p/react --config p/secrets \
+            --config p/dockerfile --config p/terraform
+          # custom rules from threat model §6 (missing require_active_principal, etc.) once added
+          if [ -d tools/semgrep ]; then set -- "$@" --config tools/semgrep; fi
+          semgrep scan "$@" --severity ERROR --error --metrics off
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+      - uses: github/codeql-action/analyze@v3
+
+  trivy-fs:
+    name: Trivy filesystem + IaC misconfig
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/trivy-action@0.30.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  images:
+    name: container build (no push) + Trivy image scan (G-11)
+    runs-on: ubuntu-24.04
+    needs: [repo-hygiene]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: td-api
+            context: apps/api
+            dockerfile: apps/api/Dockerfile
+            marker: apps/api/pyproject.toml
+          - image: td-web
+            context: .
+            dockerfile: apps/web/Dockerfile
+            marker: apps/web/package.json
+    steps:
+      - uses: actions/checkout@v4
+      - name: skip if source missing
+        id: present
+        run: |
+          if [ -f "${{ matrix.marker }}" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; fi
+      - uses: docker/setup-buildx-action@v3
+        if: steps.present.outputs.ok == 'true'
+      - name: build
+        if: steps.present.outputs.ok == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: true
+          tags: ${{ matrix.image }}:ci-${{ github.sha }}
+          build-args: TD_RELEASE=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+      - name: G-21 demo seeds/tests absent from api image (only the rbac reference loader stays)
+        if: steps.present.outputs.ok == 'true' && matrix.image == 'td-api'
+        run: |
+          docker run --rm --entrypoint sh "${{ matrix.image }}:ci-${{ github.sha }}" -c \
+            'test -z "$(ls /srv/api/app/seeds | grep -v -e "^__init__.py$" -e "^rbac_seed.py$")" && test ! -e /srv/api/tests && test "$(id -u)" = 10001'
+      - name: trivy image (critical blocks)
+        if: steps.present.outputs.ok == 'true'
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: ${{ matrix.image }}:ci-${{ github.sha }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  iac:
+    name: IaC (terraform fmt/validate, Checkov, G-12)
+    runs-on: ubuntu-24.04
+    needs: [detect]
+    if: needs.detect.outputs.terraform == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: terraform fmt
+        run: terraform fmt -check -recursive infra/terraform
+      - name: terraform validate (each env, no backend)
+        run: |
+          for env in dev staging prod; do
+            echo "::group::validate $env"
+            terraform -chdir=infra/terraform/envs/$env init -backend=false -input=false
+            terraform -chdir=infra/terraform/envs/$env validate
+            echo "::endgroup::"
+          done
+      - name: Checkov (block high)
+        run: |
+          pip install checkov==3.2.400
+          checkov -d infra/terraform --framework terraform --quiet --compact \
+            --skip-path infra/terraform/envs --soft-fail-on LOW,MEDIUM

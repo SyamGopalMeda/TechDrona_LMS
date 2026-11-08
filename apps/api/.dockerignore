@@ -1,0 +1,26 @@
+# td-api build context (apps/api)
+.venv/
+venv/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.egg-info/
+build/
+dist/
+tests/
+# Demo seeds never ship (G-21). rbac_seed.py is reference data imported by migration rbac_0002.
+app/seeds/*
+!app/seeds/__init__.py
+!app/seeds/rbac_seed.py
+.env
+.env.*
+*.db
+*.log
+Dockerfile
+.dockerignore

@@ -1,0 +1,101 @@
+# =============================================================================
+# Tech Drona LMS — .gitignore
+# research/, research_notes/, reports/ and docs/ are TRACKED on purpose.
+# =============================================================================
+
+# --- Secrets / local env (never commit; .env.example IS tracked) -------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.tfvars.local
+secrets/
+
+# --- Python -------------------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+.hypothesis/
+.tox/
+.nox/
+
+# --- Node / Next.js --------------------------------------------------------------
+node_modules/
+.next/
+out/
+.turbo/
+.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tsbuildinfo
+next-env.d.ts
+
+# --- Test output / coverage ------------------------------------------------------
+coverage/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+junit*.xml
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+.vitest/
+.lighthouseci/
+
+# --- Local databases / data -------------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.sql.gz
+
+# --- Terraform ---------------------------------------------------------------------
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfplan
+tfplan
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# .terraform.lock.hcl IS committed
+
+# --- Tooling / editors / OS ----------------------------------------------------------
+.codegraph/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.log
+logs/
+tmp/
+.cache/
+backups/

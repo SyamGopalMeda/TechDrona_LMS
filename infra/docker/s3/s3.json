@@ -1,0 +1,14 @@
+{
+  "identities": [
+    {
+      "name": "local-dev",
+      "credentials": [
+        {
+          "accessKey": "local-minio-REPLACE",
+          "secretKey": "local-minio-secret-REPLACE"
+        }
+      ],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

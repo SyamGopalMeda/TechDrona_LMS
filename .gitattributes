@@ -1,0 +1,61 @@
+# Tech Drona LMS — normalise line endings. Repo stores LF; Windows checkouts keep LF for
+# everything that runs in Linux containers/CI. Only Windows-native scripts use CRLF.
+* text=auto eol=lf
+
+*.sh      text eol=lf
+*.bash    text eol=lf
+*.py      text eol=lf
+*.pyi     text eol=lf
+*.ts      text eol=lf
+*.tsx     text eol=lf
+*.js      text eol=lf
+*.mjs     text eol=lf
+*.cjs     text eol=lf
+*.jsx     text eol=lf
+*.json    text eol=lf
+*.css     text eol=lf
+*.md      text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.toml    text eol=lf
+*.ini     text eol=lf
+*.cfg     text eol=lf
+*.sql     text eol=lf
+*.tf      text eol=lf
+*.tfvars  text eol=lf
+*.hcl     text eol=lf
+*.env.example text eol=lf
+Dockerfile   text eol=lf
+*.dockerfile text eol=lf
+Makefile     text eol=lf
+.editorconfig  text eol=lf
+.gitattributes text eol=lf
+.gitignore     text eol=lf
+
+# Windows-native scripts
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+
+# Binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.zip  binary
+*.gz   binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+
+# Generated (collapsed in diffs)
+package-lock.json linguist-generated=true -diff
+pnpm-lock.yaml    linguist-generated=true -diff
+uv.lock           linguist-generated=true -diff

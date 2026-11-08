@@ -1,0 +1,192 @@
+# =============================================================================
+# Tech Drona LMS — deploy (SKELETON — DISABLED)
+#
+# STATUS: DISABLED. No AWS accounts, OIDC roles, ECR repositories or ECS clusters exist yet.
+# The only trigger is a manual workflow_dispatch, and every job is additionally gated on the
+# repository variable DEPLOY_ENABLED == 'true' (Settings → Variables). Do NOT set it until:
+#   1. infra/terraform/envs/{shared,staging,prod} are applied (ECR, ECS, ci-oidc module),
+#   2. the role ARNs below are stored as repository/environment variables,
+#   3. GitHub Environments `staging` and `production` exist with required reviewers
+#      (production: 2 approvers, one not the author; deployment-and-operations §8).
+#
+# Flow (deployment-and-operations §8.2): build once → Trivy + SBOM → cosign sign → push to ECR
+# (td-shared, immutable tags) → staging: verify signature → migrate task → deploy → smoke →
+# MANUAL APPROVAL (GitHub Environment `production`) → prod: verify → migrate (expand) → deploy.
+# Images are promoted BY DIGEST; task definitions reference @sha256 digests, never tags.
+# Auth: GitHub OIDC → per-env deploy role. No long-lived AWS keys anywhere.
+# =============================================================================
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git tag to deploy (v*)"
+        required: true
+        type: string
+      override_freeze:
+        description: "Override drive / month-end freeze window (reason required, audited)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write # GitHub OIDC → AWS STS AssumeRoleWithWebIdentity
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-south-1
+  # PLACEHOLDERS — set as repository variables once infra exists (never secrets in this file):
+  #   vars.AWS_SHARED_ACCOUNT_ID       td-shared (ECR, OIDC build role)
+  #   vars.AWS_BUILD_ROLE_ARN          arn:aws:iam::<td-shared>:role/td-gha-build
+  #   vars.AWS_STAGING_DEPLOY_ROLE_ARN arn:aws:iam::<td-staging>:role/td-gha-deploy-staging
+  #   vars.AWS_PROD_DEPLOY_ROLE_ARN    arn:aws:iam::<td-prod>:role/td-gha-deploy-prod
+  ECR_REGISTRY: ${{ vars.AWS_SHARED_ACCOUNT_ID }}.dkr.ecr.ap-south-1.amazonaws.com
+  ECS_CLUSTER_STAGING: td-staging
+  ECS_CLUSTER_PROD: td-prod
+
+jobs:
+  guard:
+    name: guard (deploys disabled until infra exists)
+    runs-on: ubuntu-24.04
+    outputs:
+      enabled: ${{ steps.g.outputs.enabled }}
+    steps:
+      - id: g
+        run: |
+          if [ "${{ vars.DEPLOY_ENABLED }}" != "true" ]; then
+            echo "::notice::Deploy is DISABLED (vars.DEPLOY_ENABLED != 'true'). Nothing was deployed."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            case "${{ inputs.ref }}" in v*) ;; *) echo "::error::only v* tags may be deployed"; exit 1;; esac
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: build, scan, sign, push (by digest)
+    needs: [guard]
+    if: needs.guard.outputs.enabled == 'true'
+    runs-on: ubuntu-24.04
+    outputs:
+      api_digest: ${{ steps.push-api.outputs.digest }}
+      web_digest: ${{ steps.push-web.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }} # PLACEHOLDER
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: build + push td-api (linux/arm64 Graviton + amd64)
+        id: push-api
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/api
+          file: apps/api/Dockerfile
+          platforms: linux/arm64,linux/amd64
+          push: true
+          provenance: mode=max
+          sbom: true
+          build-args: TD_RELEASE=${{ inputs.ref }}
+          tags: ${{ env.ECR_REGISTRY }}/td-api:${{ inputs.ref }}
+      - name: build + push td-web
+        id: push-web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          platforms: linux/arm64,linux/amd64
+          push: true
+          provenance: mode=max
+          sbom: true
+          build-args: TD_RELEASE=${{ inputs.ref }}
+          tags: ${{ env.ECR_REGISTRY }}/td-web:${{ inputs.ref }}
+      - name: Trivy (critical blocks)
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/td-api@${{ steps.push-api.outputs.digest }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - uses: sigstore/cosign-installer@v3
+      - name: cosign sign (keyless, GitHub OIDC)
+        run: |
+          cosign sign --yes "${ECR_REGISTRY}/td-api@${{ steps.push-api.outputs.digest }}"
+          cosign sign --yes "${ECR_REGISTRY}/td-web@${{ steps.push-web.outputs.digest }}"
+
+  staging:
+    name: deploy staging
+    needs: [build]
+    runs-on: ubuntu-24.04
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_STAGING_DEPLOY_ROLE_ARN }} # PLACEHOLDER
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: sigstore/cosign-installer@v3
+      - name: verify signatures (identity = this repo's deploy workflow)
+        run: |
+          for img in "td-api@${{ needs.build.outputs.api_digest }}" "td-web@${{ needs.build.outputs.web_digest }}"; do
+            cosign verify "${ECR_REGISTRY}/${img}" \
+              --certificate-identity-regexp "^https://github.com/${{ github.repository }}/.github/workflows/deploy.yml@" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          done
+      - name: run migrate one-off task (exit code gates the rest)
+        run: |
+          echo "TODO(infra): aws ecs run-task --cluster $ECS_CLUSTER_STAGING --task-definition td-staging-migrate ... (image @digest), wait, check exitCode"
+          exit 1 # skeleton: refuse to continue until implemented
+      - name: deploy services (CodeDeploy blue/green web/api/api-webhooks; rolling workers)
+        run: |
+          echo "TODO(infra) - register task defs with @sha256 digests, then aws deploy create-deployment"
+      - name: smoke tests
+        run: |
+          echo "TODO - /healthz per service, synthetic logins per role, signed test webhook replay"
+
+  production:
+    name: deploy production (manual approval)
+    needs: [build, staging]
+    runs-on: ubuntu-24.04
+    # GitHub Environment `production` carries the manual approval (2 reviewers) and
+    # restricts deployment to protected v* tags.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: freeze-window check (drives ±2 h, month-end billing)
+        run: |
+          if [ -n "${{ inputs.override_freeze }}" ]; then
+            echo "::warning::freeze override: ${{ inputs.override_freeze }}"
+          fi
+          echo "TODO: query prod (td_readonly) for scheduled drives; fail unless override_freeze is set"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PROD_DEPLOY_ROLE_ARN }} # PLACEHOLDER
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: sigstore/cosign-installer@v3
+      - name: verify signatures
+        run: |
+          for img in "td-api@${{ needs.build.outputs.api_digest }}" "td-web@${{ needs.build.outputs.web_digest }}"; do
+            cosign verify "${ECR_REGISTRY}/${img}" \
+              --certificate-identity-regexp "^https://github.com/${{ github.repository }}/.github/workflows/deploy.yml@" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          done
+      - name: migrate (expand only) + canary deploy
+        run: |
+          echo "TODO(infra): migrate task; CodeDeployDefault.ECSCanary10Percent10Minutes for web/api; all-at-once api-webhooks; rolling workers"
+          exit 1 # skeleton
+      - name: post-deploy smoke + canary alarms (auto-rollback)
+        run: |
+          echo "TODO - smoke against prod synthetic accounts; rollback alarms"

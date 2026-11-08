@@ -1,0 +1,75 @@
+# Fixes — weblearn (learner + public web)
+
+The work was split into slices: A (public pages), B (tests, coding and analytics) and C (learner account). The lead did commerce, Retry-After, FE-24, the E2E items, the commerce and assess follow-ups, and the final integration. All slices are complete. The full gates were run at the end (see the last section).
+
+| ID(s) | Severity | Fix summary | Files | Regression test | Result |
+|---|---|---|---|---|---|
+| FE-01, FE-02, INV-18 (legal) | High | All 14 public placeholders are built. The legal pages are derived from the docs and show a "Draft — pending legal review" banner. The effective date is shown as not yet set. | app/(public)/legal/*, features/public/** | features/public/components/public.test.tsx, features/public/public-pages.test.ts | Fixed+tested |
+| FE-01, FE-14 | Med | Help centre and grievance page. The docs do not name an officer, so the page says so and does not invent one. | app/(public)/help/** | public.test.tsx | Fixed+tested |
+| FE-01 | Med | The status page uses a live `health/ready` probe and says honestly which services are not monitored. | app/(public)/status | public.test.tsx | Fixed+tested |
+| FE-01, INV-13 | Med | Placement and free-resources pages read the real APIs. Companies and colleges pages show honest states, because CAT-03/04 do not exist. | app/(public)/{placement,free-resources,companies,colleges} | public.test.tsx | Fixed+tested |
+| FE-03, INV-01 | Critical/High | `/invite/[token]` calls GET and accept (with an Idempotency-Key). It shows the data-sharing notice and lets the invitee create or link an account. | app/(public)/invite/[token], features/invite/** | features/invite/components/invite.test.tsx | Fixed+tested |
+| FE-10, FE-22 | Med/Low | `?next=` now survives signup. After signup, focus moves to the result heading. | signup/page.tsx, SignupForm.tsx, LoginForm.tsx | features/auth/components/signup-next.test.tsx | Fixed+tested |
+| FE-11 | Med | The footer matches the sitemap. The header CTA depends on the session, and Sign up was added. | components/shell/PublicShell.tsx | public.test.tsx | Fixed+tested |
+| FE-13 | Med | Added a `/verify` GET form. | app/(public)/verify/page.tsx | features/catalog/components/markdown-verify.test.tsx | Fixed+tested |
+| FE-21 | Low | Pricing uses a safe Markdown renderer that builds React elements only, with no raw HTML. | features/catalog/components/SafeMarkdown.tsx, PricingPlans.tsx | markdown-verify.test.tsx | Fixed+tested |
+| FE-33 | Low | Added a branded 404, global-error, `(public)/loading`, `app/app/loading`, robots and sitemap. Visible screen IDs are removed from every learner, public and auth page (including access, assignments, billing, certificates, learning, assignment detail and course overview). `/app/courses` is only a redirect, so it needs no metadata. | app/**, features/learning/components/{Assignments,CourseOverview}.tsx | public-pages.test.ts, e2e/public-pages.spec.ts (not run) | Fixed+tested |
+| FE-12 | Med | openapi has no passkey, WebAuthn or Google endpoints. | — | — | Deferred: backend missing |
+| FE-06 | High | CodingQuestion is wired into QuestionView. The answer is saved as `{submission_id}`. | assessment/components/QuestionView.tsx, coding/** | assessment/components/runner-learning.test.tsx, coding/coding-signals.test.tsx | Fixed+tested |
+| FE-07 | High | The activity tracker is mounted on practice, test attempts (real `test_attempt_id`) and coding. | PracticeSession, AttemptRunner, CodingWorkspace, lib/analytics | lib/analytics/learning-signals.test.ts, practice.test.tsx | Fixed+tested |
+| FE-08 | Med | VdoCipher events are mapped to `video.*` events and to `played_ranges`. | player/**, LessonView.tsx, lib/analytics/video.ts | player.test.tsx, video.test.ts | Fixed+tested |
+| FE-16, E2E-05 (web) | Med | Added `practice.question_viewed`, `coding.editor_focus` / `coding.editor_blur`, the editor heartbeat and `heartbeat.reading.max_scroll_depth_pct`. All are checked against the API payload models. The tracker never sends `batch_id`; the server derives it (BE-02). | lib/analytics/**, MonacoEditor, LessonView | learning-signals.test.ts, assessment/lib/assess-followups.test.tsx | Fixed+tested |
+| FE-17 | Low | Sign-out warns about unsynced answers, then clears the td-assessment IndexedDB data and the `td.attempt.*` keys. | components/shell/SignOutButton.tsx, assessment/lib/device-cleanup.ts | SignOutButton.test.tsx, device-cleanup.test.ts | Fixed+tested |
+| FE-18 | Low | The runner action bar wraps at 360 px. | AttemptRunner.tsx | runner-learning.test.tsx | Fixed+tested |
+| FE-19 | Low | `pagehide` now sends a keepalive stop. | player/lib/use-playback-session.ts | player.test.tsx | Fixed+tested |
+| FE-20 | Low | The time's-up dialog is truly modal, the portal chrome is inert, and the question palette has a neutral title. | AttemptRunner.tsx | runner-learning.test.tsx | Fixed+tested |
+| INV-09 | Med | Built the `/app/attempts/[id]/appeal` page. There is no appeal API, so it routes into a support ticket. | app/app/attempts/[attempt_id]/appeal, AppealView.tsx | appeal.test.tsx | Fixed+tested |
+| FE-04, INV-02 | High | `/app/account-status` shows the restriction, case details (`/me/security/cases/{ref}`), limits and history, plus links to the unblock request, support and privacy. | features/unblock/components/AccountStatus.tsx, RestrictedStatus.tsx, app/app/account-status | unblock.test.tsx | Fixed+tested |
+| FE-15, INV-12 | Med | The unblock request autosaves a draft on the device for 7 days. The declaration tick is never saved. Attachments are not built because UNB-03 is a backend stub that returns 503. | features/unblock/lib/draft.ts, UnblockRequestForm.tsx | unblock.test.tsx | Draft: Fixed+tested. Attachments: Request |
+| FE-29, INV-08 | Med/High | Privacy settings now support data export (with download), account deletion (explicit tick, step-up, 14-day cooling-off that can be cancelled), withdrawing a request and showing data kept by law. Per-college sharing uses `/me/orgs`. | features/privacy/**, PrivacySettings.tsx | features/privacy/privacy.test.tsx | Fixed+tested |
+| INV-07 | High | Notifications inbox: filter, mark read, mark all read, load more. Links are limited to same-site paths. An unread bell was added to the learner header. | features/notifications/**, PortalShell.tsx, app/app/notifications | notifications.test.tsx | Fixed+tested |
+| INV-10 (pages + not-me link) | Med | Added `/app/settings/security/mfa` and `/app/guardian-consent`. The session-replay notice now links to the not-me page. | app/app/settings/security/mfa, app/app/guardian-consent, GuardianPending.tsx, notifications/lib/templates.ts | account-extra.test.tsx, notifications.test.tsx | Fixed+tested |
+| INV-19 (learner) | Low | The device-policy card and sign-in history are shown in settings. | SecurityActivity.tsx, SecuritySettings.tsx | account-extra.test.tsx | Fixed+tested |
+| FE-05 | Med | Onboarding, diagnostic, learning path, interview prep and college pages are built on real APIs. Analytics redirects to Progress. Bookmarks shows an honest "no API" state. | features/dashboard/components/LearnerHubs.tsx, app/app/* | hubs.test.tsx | Fixed+tested. Goals and bookmarks: Deferred (no API) |
+| FE-23 | Low | Added an "Upcoming tests" card to the dashboard. | StudentDashboard.tsx | hubs.test.tsx | Fixed+tested. First-run onboarding redirect: Deferred (no goals API) |
+| FE-30 | Low | Support ticket ids are URL-encoded. | StudentSupport.tsx | support.test.tsx | Fixed+tested |
+| FE-31 | Low | ME-03/04 are not in openapi. The résumé PDF is in features/mentor, which is not owned here. | — | — | Deferred / Request |
+| FE-32 | Low | Learner bottom tab bar below lg, plus a portal switcher based on `/me/grants`. | components/shell/{MobileTabBar,PortalSwitcher}.tsx, PortalShell.tsx | components/shell/shell.test.tsx | Fixed+tested. Deep-link `next` lost in the PortalShell redirect: Request |
+| FE-09 | Med | `retryAfterSeconds` falls back to the `Retry-After` header. The audit probe was converted into a regression test. | features/auth/lib/errors.ts | features/auth/lib/errors.test.ts | Fixed+tested |
+| FE-26 | Med | The resume page takes payment using `checkout` from `GET /commerce/orders/{id}`. The copy is honest when the order can't be resumed or the bank is still confirming. | OrderStatus.tsx | commerce/components/checkout-resume.test.tsx | Fixed+tested |
+| FE-27 | Med | After the order is created, the URL becomes `/app/checkout/{order_id}`. This uses `history.replaceState`, which Next keeps in sync, so the payment step stays mounted, and a reload resumes the same order. A `resumed: true` response is treated as success, with a note that the earlier unpaid order was reused. | Checkout.tsx, lib/types.ts | checkout-resume.test.tsx | Fixed+tested |
+| FE-28 | Low | A never-paid order shows "Awaiting payment" with a link to resume. The Billing grace-period copy no longer promises an action that doesn't exist. | OrderStatus.tsx, Billing.tsx | checkout-resume.test.tsx | Fixed+tested |
+| INV-15 (web) | Med | Recurring prices go to the subscription flow. This triggers when the quote returns `not_one_time` or the order returns `recurring_price`; no order is posted. The flow is `POST /commerce/subscriptions` with billing, then the Razorpay subscription window, then `/confirm`. With the fake gateway, the page says plainly that it is test mode. | Checkout.tsx, SubscriptionPaymentStep.tsx, lib/payment-provider.ts | checkout-resume.test.tsx | Fixed+tested |
+| E2E-04 (web) | Med | When an order fails with `consent_required` and a `grant` pointing at `me/consents`, the page shows the API's title and detail, plus a "Turn on and continue" button. The button grants the consent (with `notice_version`) and retries the order without asking for billing details again. | Checkout.tsx | checkout-resume.test.tsx | Fixed+tested |
+| SEC-04 (checkout `return_to`) | Med | Checkout now uses the hardened `safeNextPath` from features/auth. | app/app/checkout/new/page.tsx | validation.test.ts | Fixed |
+| BE-21 (web) | Low | The ATT-13 list follows `page.next_cursor` (up to 20 pages). Coding lists still use `meta`, which the backend has not changed. | assessment/lib/api.ts | assess-followups.test.tsx | Fixed+tested |
+| BE-23 (web) | Low | Coding review items show the learner's own code, the verdict, the cases passed, and per-case verdicts (hidden cases are marked). | ResultsView.tsx, assessment/lib/types.ts | assess-followups.test.tsx | Fixed+tested |
+| INV-10 (`stream_url`) | Med | Removed `stream_url` from the coding types and fixtures. | coding/lib/types.ts | coding.test.tsx | Fixed+tested |
+| BE-09 (web) | Med | On a 429, autosave on attempt routes waits at least `Retry-After` before retrying. | assessment/lib/autosave-queue.ts | assess-followups.test.tsx | Fixed+tested |
+| E2E-07 | Low | The table scroll region is now `relative`, so its sr-only caption can't widen the page at 360 px. | components/ui/Table.tsx | components/ui/ui.test.tsx | Fixed+tested |
+| E2E-08 | Low | On mobile, the contents panel is wrapped in `<nav aria-label="Course contents">`, and the inner list has no duplicate landmark. | LessonView.tsx | e2e learning-commerce.integration.spec.ts:46 (not run) | Fixed (e2e not run) |
+| E2E-02 | Med | Device cookies are stored under `.e2e-devices/<project>/<account>.json`, so the mobile project never reuses the desktop device. | e2e/support/auth.ts | e2e suite (not run) | Fixed (e2e not run) |
+| E2E-10 | Low | The OTP helper takes the newest unused mail created after `after - 1 s`, and remembers which mails it has already used. | e2e/support/auth.ts | e2e suite (not run) | Fixed (e2e not run) |
+| E2E-11 | Low | Root cause is the first compile under load. Specs now wait (30 s) for the `Loading …` status regions to clear before asserting. | e2e/support/wait.ts, a11y + learning-commerce specs | e2e suite (not run) | Fixed (e2e not run) |
+| E2E-13 | Low | The web form already defaults `preferred_contact` to `in_app` and validates it. Listing only trusted devices and the server-side default are backend changes. | — | — | Not reproduced on web; Request (security) |
+| FE-24 | Low | Root cause: key-by-key typing of long text re-rendered the form on every keystroke. Replaced it with click + paste in the auth and unblock tests, and gave the practice test a findBy budget suited to cold loads. The full suite (577 tests) now passes. | auth.test.tsx, unblock.test.tsx, practice.test.tsx | the tests themselves | Fixed+tested. `security-admin.test.tsx` belongs to webstaff |
+| FE-34 | Low | Merging the three `use-resource` copies would cross slices. The mentor coupling and `recovery_url` belong to other owners. | — | — | Deferred |
+
+## Requests
+1. **core (`lib/nav/portals.ts`, middleware):** Harden `safeNextPath` (SEC-04), or re-export the one from features/auth. Remove the duplicate `/app/analytics` nav entry. Add Notifications, Learning path and My college to the nav. Hide unbuilt screens. Keep the deep link in the PortalShell redirect (it needs the request path from middleware).
+2. **security (backend):** Make unblock attachments real (UNB-03/16) or mark them Planned. Point `disown_url` at `/app/settings/security/not-me/{ref}`. E2E-13: list only trusted devices in the unblock form, and default `preferred_contact` to `in_app`.
+3. **coding API:** Accept a problem id, or include `coding_problem_slug` in QuestionDelivery. Allow access to problems that are part of an in-progress attempt.
+4. **support web:** Prefill `topic` and `attempt_id` in NewTicketForm for the appeal flow. Optionally add an appeal API.
+5. **backend, missing endpoints:** ME-03/04 (contact change), passkeys and Google sign-in, NTF-04/05 preferences, PLC-28/29 goals, bookmarks, CAT-03/04, public sample questions, the SUP-16 contact form, health signals, and the FE-34 `recovery_url`.
+6. **mentor owner:** Résumé PDF export (FE-31).
+7. **webstaff:** At the time of the mid-run checks, `security-admin` was failing typecheck and tests, and `finance-catalog.test.tsx` was timing out. Both were green by the final run.
+8. **product/legal:** Name the grievance officer and DPO, approve the policy texts, and set the effective date (`draft: false` in `legal.ts`).
+9. **openapi:** `apps/web/openapi/openapi.json` was regenerated from `create_app().openapi()`, merged so that env-dependent routes such as `/webhooks/{provider}` are kept, then `npm run gen:api` was run. `apps/api/openapi.json` (the backend's copy) is stale and should be re-dumped by its owner.
+
+## Test commands (apps/web, final run)
+- `npm run lint`: clean, 0 warnings.
+- `npm run typecheck`: clean.
+- `npx vitest run`: 61 files, 577 tests, all passed.
+- `npm run build`: exit 0 ("Compiled successfully").
+- Not run: Playwright e2e (needs the full stack and seeded accounts).
+- The superseded audit probe `src/__audit_scratch__/fe-retry-after.probe.test.ts` was removed. It asserted the old buggy behaviour and was replaced by `features/auth/lib/errors.test.ts`.

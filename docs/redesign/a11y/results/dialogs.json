@@ -1,0 +1,74 @@
+[
+ {
+  "role": "content",
+  "url": "/studio/question-banks",
+  "opener": "/^New bank$/",
+  "vp": "desktop",
+  "found": true,
+  "afterOpen": {
+   "open": true,
+   "kind": "dialog modal=true labelledby=true",
+   "focusInside": true,
+   "active": "input ",
+   "fits": "fits"
+  },
+  "tabLeavesDialog": "body Skip to contentTech DronaConte",
+  "closedByEscape": true,
+  "focusReturnedToOpener": true,
+  "activeAfterClose": "button New bank"
+ },
+ {
+  "role": "content",
+  "url": "/studio/question-banks",
+  "opener": "/^New bank$/",
+  "vp": "mobile",
+  "found": true,
+  "afterOpen": {
+   "open": true,
+   "kind": "dialog modal=true labelledby=true",
+   "focusInside": true,
+   "active": "input ",
+   "fits": "fits"
+  },
+  "tabLeavesDialog": "body Skip to contentTech DronaConte",
+  "closedByEscape": true,
+  "focusReturnedToOpener": true,
+  "activeAfterClose": "button New bank"
+ },
+ {
+  "role": "content",
+  "url": "/studio/tests",
+  "opener": "/New test/i",
+  "vp": "desktop",
+  "found": true,
+  "afterOpen": {
+   "open": true,
+   "kind": "dialog modal=true labelledby=true",
+   "focusInside": true,
+   "active": "input ",
+   "fits": "fits"
+  },
+  "tabLeavesDialog": "body Skip to contentTech DronaConte",
+  "closedByEscape": true,
+  "focusReturnedToOpener": false,
+  "activeAfterClose": "body Skip to contentTech DronaConte"
+ },
+ {
+  "role": "trainer",
+  "url": "/trainer/assignments",
+  "opener": "/New assignment/i",
+  "vp": "desktop",
+  "found": true,
+  "afterOpen": {
+   "open": true,
+   "kind": "dialog modal=true labelledby=true",
+   "focusInside": true,
+   "active": "input ",
+   "fits": "fits"
+  },
+  "tabLeavesDialog": "body Skip to contentTech DronaTrain",
+  "closedByEscape": true,
+  "focusReturnedToOpener": true,
+  "activeAfterClose": "button New assignment"
+ }
+]

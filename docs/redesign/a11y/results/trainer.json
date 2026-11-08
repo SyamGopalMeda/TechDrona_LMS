@@ -1,0 +1,1050 @@
+[
+ {
+  "key": "trn-home",
+  "url": "/trainer",
+  "finalUrl": "/trainer",
+  "viewport": "mobile",
+  "axe": [
+   {
+    "id": "aria-prohibited-attr",
+    "impact": "serious",
+    "help": "Elements must only use permitted ARIA attributes",
+    "tags": [
+     "wcag2a",
+     "wcag412"
+    ],
+    "nodes": 1,
+    "targets": [
+     ".space-y-2"
+    ],
+    "html": [
+     "<div aria-busy=\"true\" aria-label=\"Loading your batches\" class=\"space-y-2\">"
+    ]
+   }
+  ],
+  "dom": {
+   "hOverflow": 0,
+   "overflowEls": [],
+   "landmarks": {
+    "main": 1,
+    "nav": 2,
+    "header": 2,
+    "footer": 0
+   },
+   "headings": [
+    {
+     "l": 1,
+     "t": "Trainer dashboard"
+    }
+   ],
+   "h1count": 1,
+   "headingSkips": [],
+   "interactive": 13,
+   "targetsUnder24": 2,
+   "targetsUnder24Samples": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\" 24x16",
+    "summary.cursor-pointer.text-sm.font-medium.text-fg \"Menu\" 358x20"
+   ],
+   "targetsUnder44": 11,
+   "targetsUnder44Samples": [
+    "a.font-display.text-base.font-bold.text-fg \"Tech Drona\" 85x24",
+    "button.inline-flex.items-center.justify-center.gap-2 \"Sign out\" 77x32",
+    "a.block.rounded-md.px-3.py-2 \"Dashboard\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Courses\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Tests\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Assignments\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Grading\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Integrity flags\" 358x36"
+   ],
+   "fixed": [
+    "sticky header.sticky.top-0.z-topbar.flex \"Tech DronaTrainerSign out\" top=0 h=56 area=6.6%",
+    "fixed div.pointer-events-none.fixed.inset-x-0.bottom-0 top=812 h=32 area=3.8%"
+   ],
+   "clippedText": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\""
+   ],
+   "imgNoAlt": [],
+   "svgUnlabelled": 0,
+   "fieldsNoName": [],
+   "fieldsPlaceholderOnly": 0,
+   "skipLink": "Skip to content",
+   "lang": "en-IN",
+   "title": "Trainer dashboard · Tech Drona"
+  },
+  "tab": {
+   "stops": 30,
+   "noRing": [],
+   "noRingCount": 0,
+   "offscreen": 0,
+   "covered": [],
+   "zeroSize": [],
+   "possibleTrap": false,
+   "first5": [
+    "a|Tech Drona|font-display.text-base.font-bold",
+    "button|Sign out|inline-flex.items-center.justify-center",
+    "summary|Menu|cursor-pointer.text-sm.font-medium",
+    "body",
+    "a|Skip to content|sr-only.z-skip-link.rounded-md"
+   ]
+  },
+  "menu": {
+   "found": false,
+   "candidates": 1
+  }
+ },
+ {
+  "key": "trn-home",
+  "url": "/trainer",
+  "finalUrl": "/trainer",
+  "viewport": "tablet",
+  "axe": [
+   {
+    "id": "landmark-unique",
+    "impact": "moderate",
+    "help": "Landmarks should have a unique role or role/label/title (i.e. accessible name) combination",
+    "tags": [],
+    "nodes": 1,
+    "targets": [
+     "section[aria-labelledby=\"tests-h\"]"
+    ],
+    "html": [
+     "<section aria-labelledby=\"tests-h\" class=\"space-y-3\">"
+    ]
+   }
+  ],
+  "dom": {
+   "hOverflow": 0,
+   "overflowEls": [],
+   "landmarks": {
+    "main": 1,
+    "nav": 2,
+    "header": 4,
+    "footer": 0
+   },
+   "headings": [
+    {
+     "l": 1,
+     "t": "Trainer dashboard"
+    },
+    {
+     "l": 2,
+     "t": "Grading queue"
+    },
+    {
+     "l": 2,
+     "t": "Integrity review"
+    },
+    {
+     "l": 2,
+     "t": "Live tests"
+    },
+    {
+     "l": 2,
+     "t": "Tests"
+    }
+   ],
+   "h1count": 1,
+   "headingSkips": [],
+   "interactive": 30,
+   "targetsUnder24": 6,
+   "targetsUnder24Samples": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\" 24x16",
+    "summary.cursor-pointer.text-sm.font-medium.text-fg \"Menu\" 788x20",
+    "a.text-fg-link.underline \"CSE 2027 (demo)\" 105x19",
+    "a.text-sm.text-fg-link.underline \"Grade\" 37x20",
+    "a.text-sm.text-fg-link.underline \"Review\" 43x20",
+    "a.text-fg-link.underline \"Demo Batch Weekly Test (sample)\" 208x19"
+   ],
+   "targetsUnder44": 24,
+   "targetsUnder44Samples": [
+    "a.font-display.text-base.font-bold.text-fg \"Tech Drona\" 85x24",
+    "button.inline-flex.items-center.justify-center.gap-2 \"Sign out\" 77x32",
+    "a.block.rounded-md.px-3.py-2 \"Dashboard\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Courses\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Tests\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Assignments\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Grading\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Integrity flags\" 788x36"
+   ],
+   "fixed": [
+    "sticky header.sticky.top-0.z-topbar.flex \"Tech DronaTrainerSign out\" top=0 h=56 area=4.7%",
+    "fixed div.pointer-events-none.fixed.inset-x-0.bottom-0 top=1148 h=32 area=2.7%"
+   ],
+   "clippedText": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\"",
+    "span.sr-only \"Actions\""
+   ],
+   "imgNoAlt": [],
+   "svgUnlabelled": 0,
+   "fieldsNoName": [],
+   "fieldsPlaceholderOnly": 0,
+   "skipLink": "Skip to content",
+   "lang": "en-IN",
+   "title": "Trainer dashboard · Tech Drona"
+  },
+  "tab": {
+   "stops": 30,
+   "noRing": [],
+   "noRingCount": 0,
+   "offscreen": 0,
+   "covered": [],
+   "zeroSize": [],
+   "possibleTrap": false,
+   "first5": [
+    "a|Tech Drona|font-display.text-base.font-bold",
+    "button|Sign out|inline-flex.items-center.justify-center",
+    "summary|Menu|cursor-pointer.text-sm.font-medium",
+    "div|My batches|relative.overflow-x-auto.rounded-xl",
+    "a|CSE 2027 (demo)|text-fg-link.underline"
+   ]
+  }
+ },
+ {
+  "key": "trn-home",
+  "url": "/trainer",
+  "finalUrl": "/trainer",
+  "viewport": "desktop",
+  "axe": [
+   {
+    "id": "landmark-unique",
+    "impact": "moderate",
+    "help": "Landmarks should have a unique role or role/label/title (i.e. accessible name) combination",
+    "tags": [],
+    "nodes": 1,
+    "targets": [
+     "section[aria-labelledby=\"tests-h\"]"
+    ],
+    "html": [
+     "<section aria-labelledby=\"tests-h\" class=\"space-y-3\">"
+    ]
+   }
+  ],
+  "dom": {
+   "hOverflow": 0,
+   "overflowEls": [],
+   "landmarks": {
+    "main": 1,
+    "nav": 2,
+    "header": 4,
+    "footer": 0
+   },
+   "headings": [
+    {
+     "l": 1,
+     "t": "Trainer dashboard"
+    },
+    {
+     "l": 2,
+     "t": "Grading queue"
+    },
+    {
+     "l": 2,
+     "t": "Integrity review"
+    },
+    {
+     "l": 2,
+     "t": "Live tests"
+    },
+    {
+     "l": 2,
+     "t": "Tests"
+    }
+   ],
+   "h1count": 1,
+   "headingSkips": [],
+   "interactive": 29,
+   "targetsUnder24": 7,
+   "targetsUnder24Samples": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\" 24x16",
+    "a.text-fg-link.underline \"CSE 2027 (demo)\" 105x19",
+    "a.text-sm.text-fg-link.underline \"Grade\" 37x20",
+    "a.text-sm.text-fg-link.underline \"Review\" 43x20",
+    "a.text-fg-link.underline \"Demo Batch Weekly Test (sample)\" 208x19",
+    "a.text-fg-link.underline \"Demo Batch Weekly Test (sample)\" 208x19",
+    "a.text-fg-link.underline \"Demo College Weekly Test (sample)\" 220x19"
+   ],
+   "targetsUnder44": 22,
+   "targetsUnder44Samples": [
+    "a.font-display.text-base.font-bold.text-fg \"Tech Drona\" 85x24",
+    "button.inline-flex.items-center.justify-center.gap-2 \"Sign out\" 77x32",
+    "a.block.rounded-md.px-3.py-2 \"Dashboard\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Courses\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Tests\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Assignments\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Grading\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Integrity flags\" 239x36"
+   ],
+   "fixed": [
+    "sticky header.sticky.top-0.z-topbar.flex \"Tech DronaTrainerSign out\" top=0 h=56 area=6.2%",
+    "fixed div.pointer-events-none.fixed.inset-x-0.bottom-0 top=868 h=32 area=3.6%"
+   ],
+   "clippedText": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\"",
+    "span.sr-only \"Actions\""
+   ],
+   "imgNoAlt": [],
+   "svgUnlabelled": 0,
+   "fieldsNoName": [],
+   "fieldsPlaceholderOnly": 0,
+   "skipLink": "Skip to content",
+   "lang": "en-IN",
+   "title": "Trainer dashboard · Tech Drona"
+  },
+  "tab": {
+   "stops": 30,
+   "noRing": [],
+   "noRingCount": 0,
+   "offscreen": 0,
+   "covered": [],
+   "zeroSize": [],
+   "possibleTrap": false,
+   "first5": [
+    "a|Tech Drona|font-display.text-base.font-bold",
+    "button|Sign out|inline-flex.items-center.justify-center",
+    "a|Dashboard|block.rounded-md.px-3",
+    "a|Courses|block.rounded-md.px-3",
+    "a|Tests|block.rounded-md.px-3"
+   ]
+  }
+ },
+ {
+  "key": "trn-tests",
+  "url": "/trainer/tests",
+  "finalUrl": "/trainer/tests",
+  "viewport": "mobile",
+  "axe": [],
+  "dom": {
+   "hOverflow": 0,
+   "overflowEls": [],
+   "landmarks": {
+    "main": 1,
+    "nav": 2,
+    "header": 2,
+    "footer": 0
+   },
+   "headings": [
+    {
+     "l": 1,
+     "t": "Tests"
+    }
+   ],
+   "h1count": 1,
+   "headingSkips": [],
+   "interactive": 26,
+   "targetsUnder24": 2,
+   "targetsUnder24Samples": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\" 24x16",
+    "summary.cursor-pointer.text-sm.font-medium.text-fg \"Menu\" 358x20"
+   ],
+   "targetsUnder44": 22,
+   "targetsUnder44Samples": [
+    "a.font-display.text-base.font-bold.text-fg \"Tech Drona\" 85x24",
+    "button.inline-flex.items-center.justify-center.gap-2 \"Sign out\" 77x32",
+    "a.block.rounded-md.px-3.py-2 \"Dashboard\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Courses\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Tests\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Assignments\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Grading\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Integrity flags\" 358x36"
+   ],
+   "fixed": [
+    "sticky header.sticky.top-0.z-topbar.flex \"Tech DronaTrainerSign out\" top=0 h=56 area=6.6%",
+    "fixed div.pointer-events-none.fixed.inset-x-0.bottom-0 top=812 h=32 area=3.8%"
+   ],
+   "clippedText": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\"",
+    "span.sr-only \"Actions\""
+   ],
+   "imgNoAlt": [],
+   "svgUnlabelled": 0,
+   "fieldsNoName": [],
+   "fieldsPlaceholderOnly": 0,
+   "skipLink": "Skip to content",
+   "lang": "en-IN",
+   "title": "Tests · Tech Drona"
+  },
+  "tab": {
+   "stops": 30,
+   "noRing": [],
+   "noRingCount": 0,
+   "offscreen": 0,
+   "covered": [],
+   "zeroSize": [],
+   "possibleTrap": false,
+   "first5": [
+    "a|Tech Drona|font-display.text-base.font-bold",
+    "button|Sign out|inline-flex.items-center.justify-center",
+    "summary|Menu|cursor-pointer.text-sm.font-medium",
+    "button|New test|inline-flex.items-center.justify-center",
+    "div|Tests|relative.overflow-x-auto.rounded-xl"
+   ]
+  },
+  "menu": {
+   "found": false,
+   "candidates": 1
+  }
+ },
+ {
+  "key": "trn-tests",
+  "url": "/trainer/tests",
+  "finalUrl": "/trainer/tests",
+  "viewport": "tablet",
+  "axe": [],
+  "dom": {
+   "hOverflow": 0,
+   "overflowEls": [],
+   "landmarks": {
+    "main": 1,
+    "nav": 2,
+    "header": 2,
+    "footer": 0
+   },
+   "headings": [
+    {
+     "l": 1,
+     "t": "Tests"
+    }
+   ],
+   "h1count": 1,
+   "headingSkips": [],
+   "interactive": 26,
+   "targetsUnder24": 2,
+   "targetsUnder24Samples": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\" 24x16",
+    "summary.cursor-pointer.text-sm.font-medium.text-fg \"Menu\" 788x20"
+   ],
+   "targetsUnder44": 24,
+   "targetsUnder44Samples": [
+    "a.font-display.text-base.font-bold.text-fg \"Tech Drona\" 85x24",
+    "button.inline-flex.items-center.justify-center.gap-2 \"Sign out\" 77x32",
+    "a.block.rounded-md.px-3.py-2 \"Dashboard\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Courses\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Tests\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Assignments\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Grading\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Integrity flags\" 788x36"
+   ],
+   "fixed": [
+    "sticky header.sticky.top-0.z-topbar.flex \"Tech DronaTrainerSign out\" top=0 h=56 area=4.7%",
+    "fixed div.pointer-events-none.fixed.inset-x-0.bottom-0 top=1148 h=32 area=2.7%"
+   ],
+   "clippedText": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\"",
+    "span.sr-only \"Actions\""
+   ],
+   "imgNoAlt": [],
+   "svgUnlabelled": 0,
+   "fieldsNoName": [],
+   "fieldsPlaceholderOnly": 0,
+   "skipLink": "Skip to content",
+   "lang": "en-IN",
+   "title": "Tests · Tech Drona"
+  },
+  "tab": {
+   "stops": 30,
+   "noRing": [],
+   "noRingCount": 0,
+   "offscreen": 0,
+   "covered": [],
+   "zeroSize": [],
+   "possibleTrap": false,
+   "first5": [
+    "a|Tech Drona|font-display.text-base.font-bold",
+    "button|Sign out|inline-flex.items-center.justify-center",
+    "summary|Menu|cursor-pointer.text-sm.font-medium",
+    "button|New test|inline-flex.items-center.justify-center",
+    "div|Tests|relative.overflow-x-auto.rounded-xl"
+   ]
+  }
+ },
+ {
+  "key": "trn-tests",
+  "url": "/trainer/tests",
+  "finalUrl": "/trainer/tests",
+  "viewport": "desktop",
+  "axe": [],
+  "dom": {
+   "hOverflow": 0,
+   "overflowEls": [],
+   "landmarks": {
+    "main": 1,
+    "nav": 2,
+    "header": 2,
+    "footer": 0
+   },
+   "headings": [
+    {
+     "l": 1,
+     "t": "Tests"
+    }
+   ],
+   "h1count": 1,
+   "headingSkips": [],
+   "interactive": 25,
+   "targetsUnder24": 3,
+   "targetsUnder24Samples": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\" 24x16",
+    "a.text-fg-link.underline \"Demo Batch Weekly Test (sample)\" 208x19",
+    "a.text-fg-link.underline \"Demo College Weekly Test (sample)\" 220x19"
+   ],
+   "targetsUnder44": 22,
+   "targetsUnder44Samples": [
+    "a.font-display.text-base.font-bold.text-fg \"Tech Drona\" 85x24",
+    "button.inline-flex.items-center.justify-center.gap-2 \"Sign out\" 77x32",
+    "a.block.rounded-md.px-3.py-2 \"Dashboard\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Courses\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Tests\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Assignments\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Grading\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Integrity flags\" 239x36"
+   ],
+   "fixed": [
+    "sticky header.sticky.top-0.z-topbar.flex \"Tech DronaTrainerSign out\" top=0 h=56 area=6.2%",
+    "fixed div.pointer-events-none.fixed.inset-x-0.bottom-0 top=868 h=32 area=3.6%"
+   ],
+   "clippedText": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\"",
+    "span.sr-only \"Actions\""
+   ],
+   "imgNoAlt": [],
+   "svgUnlabelled": 0,
+   "fieldsNoName": [],
+   "fieldsPlaceholderOnly": 0,
+   "skipLink": "Skip to content",
+   "lang": "en-IN",
+   "title": "Tests · Tech Drona"
+  },
+  "tab": {
+   "stops": 30,
+   "noRing": [],
+   "noRingCount": 0,
+   "offscreen": 0,
+   "covered": [],
+   "zeroSize": [],
+   "possibleTrap": false,
+   "first5": [
+    "a|Tech Drona|font-display.text-base.font-bold",
+    "button|Sign out|inline-flex.items-center.justify-center",
+    "a|Dashboard|block.rounded-md.px-3",
+    "a|Courses|block.rounded-md.px-3",
+    "a|Tests|block.rounded-md.px-3"
+   ]
+  }
+ },
+ {
+  "key": "trn-grading",
+  "url": "/trainer/grading",
+  "finalUrl": "/trainer/grading",
+  "viewport": "mobile",
+  "axe": [],
+  "dom": {
+   "hOverflow": 0,
+   "overflowEls": [],
+   "landmarks": {
+    "main": 1,
+    "nav": 2,
+    "header": 3,
+    "footer": 0
+   },
+   "headings": [
+    {
+     "l": 1,
+     "t": "Grading"
+    },
+    {
+     "l": 2,
+     "t": "Structured assignments"
+    }
+   ],
+   "h1count": 1,
+   "headingSkips": [],
+   "interactive": 15,
+   "targetsUnder24": 3,
+   "targetsUnder24Samples": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\" 24x16",
+    "summary.cursor-pointer.text-sm.font-medium.text-fg \"Menu\" 358x20",
+    "a.text-sm.font-medium.text-fg-link.hover:text-fg-link-hover \"Evaluate [DEMO] DBMS short answers\" 53x20"
+   ],
+   "targetsUnder44": 12,
+   "targetsUnder44Samples": [
+    "a.font-display.text-base.font-bold.text-fg \"Tech Drona\" 85x24",
+    "button.inline-flex.items-center.justify-center.gap-2 \"Sign out\" 77x32",
+    "a.block.rounded-md.px-3.py-2 \"Dashboard\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Courses\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Tests\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Assignments\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Grading\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Integrity flags\" 358x36"
+   ],
+   "fixed": [
+    "sticky header.sticky.top-0.z-topbar.flex \"Tech DronaTrainerSign out\" top=0 h=56 area=6.6%",
+    "fixed div.pointer-events-none.fixed.inset-x-0.bottom-0 top=812 h=32 area=3.8%"
+   ],
+   "clippedText": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\"",
+    "span.sr-only \"[DEMO] DBMS short answers\""
+   ],
+   "imgNoAlt": [],
+   "svgUnlabelled": 0,
+   "fieldsNoName": [],
+   "fieldsPlaceholderOnly": 0,
+   "skipLink": "Skip to content",
+   "lang": "en-IN",
+   "title": "Grading · Tech Drona"
+  },
+  "tab": {
+   "stops": 30,
+   "noRing": [],
+   "noRingCount": 0,
+   "offscreen": 0,
+   "covered": [],
+   "zeroSize": [],
+   "possibleTrap": false,
+   "first5": [
+    "a|Tech Drona|font-display.text-base.font-bold",
+    "button|Sign out|inline-flex.items-center.justify-center",
+    "summary|Menu|cursor-pointer.text-sm.font-medium",
+    "a|Evaluate [DEMO] DBMS short answers|text-sm.font-medium.text-fg-link",
+    "select|Choose an assignment|block.w-full.rounded-md"
+   ]
+  },
+  "menu": {
+   "found": false,
+   "candidates": 1
+  }
+ },
+ {
+  "key": "trn-grading",
+  "url": "/trainer/grading",
+  "finalUrl": "/trainer/grading",
+  "viewport": "tablet",
+  "axe": [],
+  "dom": {
+   "hOverflow": 0,
+   "overflowEls": [],
+   "landmarks": {
+    "main": 1,
+    "nav": 2,
+    "header": 3,
+    "footer": 0
+   },
+   "headings": [
+    {
+     "l": 1,
+     "t": "Grading"
+    },
+    {
+     "l": 2,
+     "t": "Structured assignments"
+    }
+   ],
+   "h1count": 1,
+   "headingSkips": [],
+   "interactive": 15,
+   "targetsUnder24": 3,
+   "targetsUnder24Samples": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\" 24x16",
+    "summary.cursor-pointer.text-sm.font-medium.text-fg \"Menu\" 788x20",
+    "a.text-sm.font-medium.text-fg-link.hover:text-fg-link-hover \"Evaluate [DEMO] DBMS short answers\" 53x20"
+   ],
+   "targetsUnder44": 12,
+   "targetsUnder44Samples": [
+    "a.font-display.text-base.font-bold.text-fg \"Tech Drona\" 85x24",
+    "button.inline-flex.items-center.justify-center.gap-2 \"Sign out\" 77x32",
+    "a.block.rounded-md.px-3.py-2 \"Dashboard\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Courses\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Tests\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Assignments\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Grading\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Integrity flags\" 788x36"
+   ],
+   "fixed": [
+    "sticky header.sticky.top-0.z-topbar.flex \"Tech DronaTrainerSign out\" top=0 h=56 area=4.7%",
+    "fixed div.pointer-events-none.fixed.inset-x-0.bottom-0 top=1148 h=32 area=2.7%"
+   ],
+   "clippedText": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\"",
+    "span.sr-only \"[DEMO] DBMS short answers\""
+   ],
+   "imgNoAlt": [],
+   "svgUnlabelled": 0,
+   "fieldsNoName": [],
+   "fieldsPlaceholderOnly": 0,
+   "skipLink": "Skip to content",
+   "lang": "en-IN",
+   "title": "Grading · Tech Drona"
+  },
+  "tab": {
+   "stops": 30,
+   "noRing": [],
+   "noRingCount": 0,
+   "offscreen": 0,
+   "covered": [],
+   "zeroSize": [],
+   "possibleTrap": false,
+   "first5": [
+    "a|Tech Drona|font-display.text-base.font-bold",
+    "button|Sign out|inline-flex.items-center.justify-center",
+    "summary|Menu|cursor-pointer.text-sm.font-medium",
+    "a|Evaluate [DEMO] DBMS short answers|text-sm.font-medium.text-fg-link",
+    "select|Choose an assignment|block.w-full.rounded-md"
+   ]
+  }
+ },
+ {
+  "key": "trn-grading",
+  "url": "/trainer/grading",
+  "finalUrl": "/trainer/grading",
+  "viewport": "desktop",
+  "axe": [],
+  "dom": {
+   "hOverflow": 0,
+   "overflowEls": [],
+   "landmarks": {
+    "main": 1,
+    "nav": 2,
+    "header": 3,
+    "footer": 0
+   },
+   "headings": [
+    {
+     "l": 1,
+     "t": "Grading"
+    },
+    {
+     "l": 2,
+     "t": "Structured assignments"
+    }
+   ],
+   "h1count": 1,
+   "headingSkips": [],
+   "interactive": 14,
+   "targetsUnder24": 2,
+   "targetsUnder24Samples": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\" 24x16",
+    "a.text-sm.font-medium.text-fg-link.hover:text-fg-link-hover \"Evaluate [DEMO] DBMS short answers\" 53x20"
+   ],
+   "targetsUnder44": 12,
+   "targetsUnder44Samples": [
+    "a.font-display.text-base.font-bold.text-fg \"Tech Drona\" 85x24",
+    "button.inline-flex.items-center.justify-center.gap-2 \"Sign out\" 77x32",
+    "a.block.rounded-md.px-3.py-2 \"Dashboard\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Courses\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Tests\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Assignments\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Grading\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Integrity flags\" 239x36"
+   ],
+   "fixed": [
+    "sticky header.sticky.top-0.z-topbar.flex \"Tech DronaTrainerSign out\" top=0 h=56 area=6.2%",
+    "fixed div.pointer-events-none.fixed.inset-x-0.bottom-0 top=868 h=32 area=3.6%"
+   ],
+   "clippedText": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\"",
+    "span.sr-only \"[DEMO] DBMS short answers\""
+   ],
+   "imgNoAlt": [],
+   "svgUnlabelled": 0,
+   "fieldsNoName": [],
+   "fieldsPlaceholderOnly": 0,
+   "skipLink": "Skip to content",
+   "lang": "en-IN",
+   "title": "Grading · Tech Drona"
+  },
+  "tab": {
+   "stops": 30,
+   "noRing": [],
+   "noRingCount": 0,
+   "offscreen": 0,
+   "covered": [],
+   "zeroSize": [],
+   "possibleTrap": false,
+   "first5": [
+    "a|Tech Drona|font-display.text-base.font-bold",
+    "button|Sign out|inline-flex.items-center.justify-center",
+    "a|Dashboard|block.rounded-md.px-3",
+    "a|Courses|block.rounded-md.px-3",
+    "a|Tests|block.rounded-md.px-3"
+   ]
+  }
+ },
+ {
+  "key": "trn-assignments",
+  "url": "/trainer/assignments",
+  "finalUrl": "/trainer/assignments",
+  "viewport": "mobile",
+  "axe": [
+   {
+    "id": "heading-order",
+    "impact": "moderate",
+    "help": "Heading levels should only increase by one",
+    "tags": [],
+    "nodes": 1,
+    "targets": [
+     "h3"
+    ],
+    "html": [
+     "<h3 class=\"font-display text-base font-semibold text-fg\">[DEMO] DBMS short answers</h3>"
+    ]
+   }
+  ],
+  "dom": {
+   "hOverflow": 0,
+   "overflowEls": [],
+   "landmarks": {
+    "main": 1,
+    "nav": 2,
+    "header": 2,
+    "footer": 0
+   },
+   "headings": [
+    {
+     "l": 1,
+     "t": "Assignments"
+    },
+    {
+     "l": 3,
+     "t": "[DEMO] DBMS short answers"
+    }
+   ],
+   "h1count": 1,
+   "headingSkips": [
+    "h1→h3 \"[DEMO] DBMS short answers\""
+   ],
+   "interactive": 20,
+   "targetsUnder24": 2,
+   "targetsUnder24Samples": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\" 24x16",
+    "summary.cursor-pointer.text-sm.font-medium.text-fg \"Menu\" 358x20"
+   ],
+   "targetsUnder44": 18,
+   "targetsUnder44Samples": [
+    "a.font-display.text-base.font-bold.text-fg \"Tech Drona\" 85x24",
+    "button.inline-flex.items-center.justify-center.gap-2 \"Sign out\" 77x32",
+    "a.block.rounded-md.px-3.py-2 \"Dashboard\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Courses\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Tests\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Assignments\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Grading\" 358x36",
+    "a.block.rounded-md.px-3.py-2 \"Integrity flags\" 358x36"
+   ],
+   "fixed": [
+    "sticky header.sticky.top-0.z-topbar.flex \"Tech DronaTrainerSign out\" top=0 h=56 area=6.6%",
+    "fixed div.pointer-events-none.fixed.inset-x-0.bottom-0 top=812 h=32 area=3.8%"
+   ],
+   "clippedText": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\""
+   ],
+   "imgNoAlt": [],
+   "svgUnlabelled": 0,
+   "fieldsNoName": [],
+   "fieldsPlaceholderOnly": 0,
+   "skipLink": "Skip to content",
+   "lang": "en-IN",
+   "title": "Assignments · Tech Drona"
+  },
+  "tab": {
+   "stops": 30,
+   "noRing": [],
+   "noRingCount": 0,
+   "offscreen": 0,
+   "covered": [],
+   "zeroSize": [],
+   "possibleTrap": false,
+   "first5": [
+    "a|Tech Drona|font-display.text-base.font-bold",
+    "button|Sign out|inline-flex.items-center.justify-center",
+    "summary|Menu|cursor-pointer.text-sm.font-medium",
+    "button|Sections & questions|-mb-px.whitespace-nowrap.border-b-2",
+    "div|Build assignments from sections and bank|pt-4.focus-visible:shadow-focus.focus-visible:outline-none"
+   ]
+  },
+  "menu": {
+   "found": false,
+   "candidates": 1
+  }
+ },
+ {
+  "key": "trn-assignments",
+  "url": "/trainer/assignments",
+  "finalUrl": "/trainer/assignments",
+  "viewport": "tablet",
+  "axe": [
+   {
+    "id": "heading-order",
+    "impact": "moderate",
+    "help": "Heading levels should only increase by one",
+    "tags": [],
+    "nodes": 1,
+    "targets": [
+     "h3"
+    ],
+    "html": [
+     "<h3 class=\"font-display text-base font-semibold text-fg\">[DEMO] DBMS short answers</h3>"
+    ]
+   }
+  ],
+  "dom": {
+   "hOverflow": 0,
+   "overflowEls": [],
+   "landmarks": {
+    "main": 1,
+    "nav": 2,
+    "header": 2,
+    "footer": 0
+   },
+   "headings": [
+    {
+     "l": 1,
+     "t": "Assignments"
+    },
+    {
+     "l": 3,
+     "t": "[DEMO] DBMS short answers"
+    }
+   ],
+   "h1count": 1,
+   "headingSkips": [
+    "h1→h3 \"[DEMO] DBMS short answers\""
+   ],
+   "interactive": 20,
+   "targetsUnder24": 2,
+   "targetsUnder24Samples": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\" 24x16",
+    "summary.cursor-pointer.text-sm.font-medium.text-fg \"Menu\" 788x20"
+   ],
+   "targetsUnder44": 18,
+   "targetsUnder44Samples": [
+    "a.font-display.text-base.font-bold.text-fg \"Tech Drona\" 85x24",
+    "button.inline-flex.items-center.justify-center.gap-2 \"Sign out\" 77x32",
+    "a.block.rounded-md.px-3.py-2 \"Dashboard\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Courses\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Tests\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Assignments\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Grading\" 788x36",
+    "a.block.rounded-md.px-3.py-2 \"Integrity flags\" 788x36"
+   ],
+   "fixed": [
+    "sticky header.sticky.top-0.z-topbar.flex \"Tech DronaTrainerSign out\" top=0 h=56 area=4.7%",
+    "fixed div.pointer-events-none.fixed.inset-x-0.bottom-0 top=1148 h=32 area=2.7%"
+   ],
+   "clippedText": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\""
+   ],
+   "imgNoAlt": [],
+   "svgUnlabelled": 0,
+   "fieldsNoName": [],
+   "fieldsPlaceholderOnly": 0,
+   "skipLink": "Skip to content",
+   "lang": "en-IN",
+   "title": "Assignments · Tech Drona"
+  },
+  "tab": {
+   "stops": 30,
+   "noRing": [],
+   "noRingCount": 0,
+   "offscreen": 0,
+   "covered": [],
+   "zeroSize": [],
+   "possibleTrap": false,
+   "first5": [
+    "a|Tech Drona|font-display.text-base.font-bold",
+    "button|Sign out|inline-flex.items-center.justify-center",
+    "summary|Menu|cursor-pointer.text-sm.font-medium",
+    "button|Sections & questions|-mb-px.whitespace-nowrap.border-b-2",
+    "div|Build assignments from sections and bank|pt-4.focus-visible:shadow-focus.focus-visible:outline-none"
+   ]
+  }
+ },
+ {
+  "key": "trn-assignments",
+  "url": "/trainer/assignments",
+  "finalUrl": "/trainer/assignments",
+  "viewport": "desktop",
+  "axe": [
+   {
+    "id": "heading-order",
+    "impact": "moderate",
+    "help": "Heading levels should only increase by one",
+    "tags": [],
+    "nodes": 1,
+    "targets": [
+     "h3"
+    ],
+    "html": [
+     "<h3 class=\"font-display text-base font-semibold text-fg\">[DEMO] DBMS short answers</h3>"
+    ]
+   }
+  ],
+  "dom": {
+   "hOverflow": 0,
+   "overflowEls": [],
+   "landmarks": {
+    "main": 1,
+    "nav": 2,
+    "header": 2,
+    "footer": 0
+   },
+   "headings": [
+    {
+     "l": 1,
+     "t": "Assignments"
+    },
+    {
+     "l": 3,
+     "t": "[DEMO] DBMS short answers"
+    }
+   ],
+   "h1count": 1,
+   "headingSkips": [
+    "h1→h3 \"[DEMO] DBMS short answers\""
+   ],
+   "interactive": 19,
+   "targetsUnder24": 1,
+   "targetsUnder24Samples": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\" 24x16"
+   ],
+   "targetsUnder44": 18,
+   "targetsUnder44Samples": [
+    "a.font-display.text-base.font-bold.text-fg \"Tech Drona\" 85x24",
+    "button.inline-flex.items-center.justify-center.gap-2 \"Sign out\" 77x32",
+    "a.block.rounded-md.px-3.py-2 \"Dashboard\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Courses\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Tests\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Assignments\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Grading\" 239x36",
+    "a.block.rounded-md.px-3.py-2 \"Integrity flags\" 239x36"
+   ],
+   "fixed": [
+    "sticky header.sticky.top-0.z-topbar.flex \"Tech DronaTrainerSign out\" top=0 h=56 area=6.2%",
+    "fixed div.pointer-events-none.fixed.inset-x-0.bottom-0 top=868 h=32 area=3.6%"
+   ],
+   "clippedText": [
+    "a.sr-only.z-skip-link.rounded-md.bg-surface \"Skip to content\""
+   ],
+   "imgNoAlt": [],
+   "svgUnlabelled": 0,
+   "fieldsNoName": [],
+   "fieldsPlaceholderOnly": 0,
+   "skipLink": "Skip to content",
+   "lang": "en-IN",
+   "title": "Assignments · Tech Drona"
+  },
+  "tab": {
+   "stops": 30,
+   "noRing": [],
+   "noRingCount": 0,
+   "offscreen": 0,
+   "covered": [],
+   "zeroSize": [],
+   "possibleTrap": false,
+   "first5": [
+    "a|Tech Drona|font-display.text-base.font-bold",
+    "button|Sign out|inline-flex.items-center.justify-center",
+    "a|Dashboard|block.rounded-md.px-3",
+    "a|Courses|block.rounded-md.px-3",
+    "a|Tests|block.rounded-md.px-3"
+   ]
+  }
+ }
+]

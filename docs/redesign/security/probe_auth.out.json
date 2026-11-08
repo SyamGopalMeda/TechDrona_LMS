@@ -1,0 +1,429 @@
+[
+ {
+  "tag": "login unknown identifier, wrong password",
+  "status": 401,
+  "code": "invalid_credentials",
+  "keys": [
+   "code",
+   "detail",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ],
+  "body_sha": 325368,
+  "ms": 456
+ },
+ {
+  "tag": "login known identifier, wrong password",
+  "status": 401,
+  "code": "invalid_credentials",
+  "keys": [
+   "code",
+   "detail",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ],
+  "body_sha": 325368,
+  "ms": 297
+ },
+ {
+  "tag": "forgot-password unknown",
+  "status": 202,
+  "code": null,
+  "keys": [
+   "detail",
+   "status"
+  ],
+  "text": "{\"status\":\"accepted\",\"detail\":\"If an account exists, we've sent instructions.\"}"
+ },
+ {
+  "tag": "forgot-password known",
+  "status": 202,
+  "code": null,
+  "keys": [
+   "detail",
+   "status"
+  ],
+  "text": "{\"status\":\"accepted\",\"detail\":\"If an account exists, we've sent instructions.\"}"
+ },
+ {
+  "tag": "signup existing email",
+  "status": 403,
+  "code": "consent_required",
+  "keys": [
+   "code",
+   "detail",
+   "notice_version",
+   "purposes",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ],
+  "text": "{\"type\":\"https://techdrona.in/problems/consent-required\",\"title\":\"Please review and accept the updated terms\",\"status\":403,\"code\":\"consent_required\",\"detail\":\"Please review and accept the updated term"
+ },
+ {
+  "tag": "signup new email",
+  "status": 403,
+  "code": "consent_required",
+  "keys": [
+   "code",
+   "detail",
+   "notice_version",
+   "purposes",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ],
+  "text": "{\"type\":\"https://techdrona.in/problems/consent-required\",\"title\":\"Please review and accept the updated terms\",\"status\":403,\"code\":\"consent_required\",\"detail\":\"Please review and accept the updated term"
+ },
+ {
+  "tag": "CSRF: no x-csrf-token",
+  "status": 403,
+  "code": "csrf_failed",
+  "keys": [
+   "code",
+   "detail",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ]
+ },
+ {
+  "tag": "CSRF: cross-site fetch metadata + valid token",
+  "status": 403,
+  "code": "csrf_failed",
+  "keys": [
+   "code",
+   "detail",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ]
+ },
+ {
+  "tag": "CSRF: evil Origin, no fetch metadata, valid token",
+  "status": 403,
+  "code": "csrf_failed",
+  "keys": [
+   "code",
+   "detail",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ]
+ },
+ {
+  "tag": "CSRF: token minted for a different session",
+  "status": 403,
+  "code": "csrf_failed",
+  "keys": [
+   "code",
+   "detail",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ]
+ },
+ {
+  "tag": "CSRF: text/plain body (simple request)",
+  "status": 415,
+  "code": "unsupported_media_type",
+  "keys": [
+   "allowed",
+   "code",
+   "detail",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ]
+ },
+ {
+  "tag": "CSRF: valid (control)",
+  "status": 200,
+  "code": null,
+  "keys": [
+   "marked"
+  ]
+ },
+ {
+  "tag": "direct API /me: X-TD-Session only",
+  "status": 401,
+  "code": "unauthenticated",
+  "keys": [
+   "code",
+   "detail",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ]
+ },
+ {
+  "tag": "direct API /me: td_session cookie only",
+  "status": 401,
+  "code": "unauthenticated",
+  "keys": [
+   "code",
+   "detail",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ]
+ },
+ {
+  "tag": "direct API /me: __Host-td_session cookie only",
+  "status": 401,
+  "code": "unauthenticated",
+  "keys": [
+   "code",
+   "detail",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ]
+ },
+ {
+  "tag": "direct API /me: wrong service token + X-TD-Session",
+  "status": 401,
+  "code": "unauthenticated",
+  "keys": [
+   "code",
+   "detail",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ]
+ },
+ {
+  "tag": "direct API webhooks path via main api",
+  "status": 404,
+  "code": "not_found",
+  "keys": [
+   "code",
+   "detail",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ]
+ },
+ {
+  "tag": "fresh login (synthetic student)",
+  "status": 200,
+  "code": "authenticated",
+  "keys": [
+   "redirect",
+   "result",
+   "session"
+  ],
+  "set_cookie": [
+   "__Host-td_session; Path=/; Max-Age=86399; Secure; HttpOnly; SameSite=Lax",
+   "__Host-td_device; Path=/; Max-Age=34560000; Secure; HttpOnly; SameSite=Lax",
+   "__Host-td_csrf; Path=/; Secure; SameSite=Strict"
+  ]
+ },
+ {
+  "tag": "me after login",
+  "status": 200,
+  "code": null,
+  "keys": [
+   "mfa",
+   "portals",
+   "profile",
+   "restriction",
+   "session",
+   "user"
+  ],
+  "session": {
+   "id": "01a1b64e-0a85-7692-bc78-18898338d5e6",
+   "status": "active",
+   "tier": "student",
+   "scope": "full",
+   "aal": 1,
+   "created_via": "password",
+   "auth_time": "2026-11-07T13:58:50.242Z",
+   "idle_expires_at": "2026-11-07T14:58:50.306Z",
+   "absolute_expires_at": "2026-11-08T13:58:50.242Z",
+   "remember_device": false,
+   "last_step_up_at": null
+  }
+ },
+ {
+  "tag": "logout",
+  "status": 200,
+  "code": "logged_out",
+  "keys": [
+   "result"
+  ],
+  "set_cookie": [
+   "__Host-td_session; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax",
+   "__Host-td_device; Path=/; Max-Age=34560000; Secure; HttpOnly; SameSite=Lax",
+   "__Host-td_csrf; Path=/; Secure; SameSite=Strict"
+  ]
+ },
+ {
+  "tag": "replay pre-logout session cookie",
+  "status": 401,
+  "code": "session_revoked",
+  "keys": [
+   "code",
+   "detail",
+   "reason",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ]
+ },
+ {
+  "tag": "staff me",
+  "status": 200,
+  "code": null,
+  "keys": [
+   "mfa",
+   "portals",
+   "profile",
+   "restriction",
+   "session",
+   "user"
+  ],
+  "session": {
+   "id": "01a1b640-636c-73c9-a591-ed2808cd235d",
+   "status": "active",
+   "tier": "privileged",
+   "scope": "full",
+   "aal": 2,
+   "created_via": "password",
+   "auth_time": "2026-11-07T13:43:55.497Z",
+   "idle_expires_at": "2026-11-07T14:04:04.245Z",
+   "absolute_expires_at": "2026-11-07T21:43:55.497Z",
+   "remember_device": false,
+   "last_step_up_at": "2026-11-07T13:49:02.341Z"
+  }
+ },
+ {
+  "tag": "step-up totp first use",
+  "status": 200,
+  "code": null,
+  "keys": [
+   "last_step_up_at",
+   "valid_for_seconds"
+  ]
+ },
+ {
+  "tag": "step-up same totp replayed",
+  "status": 400,
+  "code": "otp_invalid",
+  "keys": [
+   "attempts_remaining",
+   "code",
+   "detail",
+   "reason",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ]
+ },
+ {
+  "tag": "step-up wrong totp",
+  "status": 400,
+  "code": "otp_invalid",
+  "keys": [
+   "attempts_remaining",
+   "code",
+   "detail",
+   "request_id",
+   "status",
+   "title",
+   "type"
+  ]
+ },
+ {
+  "tag": "step-up valid fresh totp",
+  "status": 200,
+  "code": null,
+  "keys": [
+   "last_step_up_at",
+   "valid_for_seconds"
+  ]
+ },
+ {
+  "tag": "enquiry #1 same email",
+  "status": 202,
+  "code": null,
+  "keys": [
+   "status"
+  ]
+ },
+ {
+  "tag": "enquiry #2 same email",
+  "status": 202,
+  "code": null,
+  "keys": [
+   "status"
+  ]
+ },
+ {
+  "tag": "enquiry #3 same email",
+  "status": 202,
+  "code": null,
+  "keys": [
+   "status"
+  ]
+ },
+ {
+  "tag": "enquiry #4 same email",
+  "status": 429,
+  "code": "rate_limited",
+  "keys": [
+   "code",
+   "detail",
+   "request_id",
+   "retry_after_seconds",
+   "status",
+   "title",
+   "type"
+  ]
+ },
+ {
+  "tag": "enquiry #5 same email",
+  "status": 429,
+  "code": "rate_limited",
+  "keys": [
+   "code",
+   "detail",
+   "request_id",
+   "retry_after_seconds",
+   "status",
+   "title",
+   "type"
+  ]
+ },
+ {
+  "tag": "page headers /login",
+  "status": 200,
+  "headers": {
+   "content-security-policy": "default-src 'self'; script-src 'self' 'nonce-a9rW4hJu9T20yHsfd8M7Iw==' 'strict-dynamic' ht",
+   "x-frame-options": "DENY",
+   "x-content-type-options": "nosniff",
+   "referrer-policy": "strict-origin-when-cross-origin",
+   "strict-transport-security": "",
+   "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(self)",
+   "cross-origin-opener-policy": "same-origin"
+  }
+ }
+]

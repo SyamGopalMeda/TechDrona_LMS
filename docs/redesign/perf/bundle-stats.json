@@ -1,0 +1,1518 @@
+{
+ "routeCount": 185,
+ "shared": [
+  {
+   "chunk": "static/chunks/webpack-f8b2a91f9cc8f2e7.js",
+   "rawKB": 3.5,
+   "gzKB": 1.8,
+   "usedByEntries": 204,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/4bd1b696-100b9d70ed4e49c1.js",
+   "rawKB": 169,
+   "gzKB": 53,
+   "usedByEntries": 204,
+   "hints": [
+    "react-dom"
+   ]
+  },
+  {
+   "chunk": "static/chunks/1255-60d8dc7c8c9309a1.js",
+   "rawKB": 170.6,
+   "gzKB": 45.2,
+   "usedByEntries": 204,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/main-app-d90d662e60040b84.js",
+   "rawKB": 0.5,
+   "gzKB": 0.2,
+   "usedByEntries": 204,
+   "hints": []
+  }
+ ],
+ "routes": [
+  {
+   "route": "/trainer/assignments/[id]",
+   "firstLoadJsGzKB": 173.5,
+   "rawKB": 555.5,
+   "cssGzKB": 12.4,
+   "files": 21
+  },
+  {
+   "route": "/trainer/engage/[activity_id]/edit",
+   "firstLoadJsGzKB": 172.7,
+   "rawKB": 549.1,
+   "cssGzKB": 12.4,
+   "files": 23
+  },
+  {
+   "route": "/trainer/engage/new",
+   "firstLoadJsGzKB": 172.7,
+   "rawKB": 549.1,
+   "cssGzKB": 12.4,
+   "files": 23
+  },
+  {
+   "route": "/studio/question-banks/[bank_id]",
+   "firstLoadJsGzKB": 161.4,
+   "rawKB": 515.3,
+   "cssGzKB": 12.4,
+   "files": 21
+  },
+  {
+   "route": "/app/tests/[test_id]",
+   "firstLoadJsGzKB": 159.8,
+   "rawKB": 514.6,
+   "cssGzKB": 12.4,
+   "files": 18
+  },
+  {
+   "route": "/app/attempts/[attempt_id]/submitted",
+   "firstLoadJsGzKB": 158,
+   "rawKB": 509.3,
+   "cssGzKB": 12.4,
+   "files": 18
+  },
+  {
+   "route": "/app/attempts/[attempt_id]",
+   "firstLoadJsGzKB": 156.6,
+   "rawKB": 505.9,
+   "cssGzKB": 12.4,
+   "files": 18
+  },
+  {
+   "route": "/app/attempts/[attempt_id]/resume",
+   "firstLoadJsGzKB": 156.6,
+   "rawKB": 505.9,
+   "cssGzKB": 12.4,
+   "files": 18
+  },
+  {
+   "route": "/trainer",
+   "firstLoadJsGzKB": 155.2,
+   "rawKB": 503.2,
+   "cssGzKB": 12.4,
+   "files": 19
+  },
+  {
+   "route": "/trainer/tests",
+   "firstLoadJsGzKB": 155.2,
+   "rawKB": 503.2,
+   "cssGzKB": 12.4,
+   "files": 19
+  },
+  {
+   "route": "/trainer/paths/articles",
+   "firstLoadJsGzKB": 151.7,
+   "rawKB": 485.1,
+   "cssGzKB": 12.4,
+   "files": 20
+  },
+  {
+   "route": "/trainer/paths/articles/[id]",
+   "firstLoadJsGzKB": 151.7,
+   "rawKB": 485,
+   "cssGzKB": 12.4,
+   "files": 20
+  },
+  {
+   "route": "/studio/question-banks",
+   "firstLoadJsGzKB": 151,
+   "rawKB": 483.5,
+   "cssGzKB": 12.4,
+   "files": 18
+  },
+  {
+   "route": "/app/path/my",
+   "firstLoadJsGzKB": 150.1,
+   "rawKB": 481.9,
+   "cssGzKB": 12.4,
+   "files": 19
+  },
+  {
+   "route": "/app/path/my/[allocationId]",
+   "firstLoadJsGzKB": 150.1,
+   "rawKB": 481.8,
+   "cssGzKB": 12.4,
+   "files": 19
+  },
+  {
+   "route": "/evaluator/tests",
+   "firstLoadJsGzKB": 149.1,
+   "rawKB": 484.8,
+   "cssGzKB": 12.4,
+   "files": 17
+  },
+  {
+   "route": "/studio/tests",
+   "firstLoadJsGzKB": 147,
+   "rawKB": 477.7,
+   "cssGzKB": 12.4,
+   "files": 17
+  },
+  {
+   "route": "/studio/tests/[test_id]",
+   "firstLoadJsGzKB": 147,
+   "rawKB": 477.7,
+   "cssGzKB": 12.4,
+   "files": 17
+  },
+  {
+   "route": "/trainer/tests/[test_id]/edit",
+   "firstLoadJsGzKB": 147,
+   "rawKB": 477.7,
+   "cssGzKB": 12.4,
+   "files": 17
+  },
+  {
+   "route": "/app/assignments",
+   "firstLoadJsGzKB": 146.4,
+   "rawKB": 479.1,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/app/assignments/[id]",
+   "firstLoadJsGzKB": 146.4,
+   "rawKB": 479,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/studio/coding/[problem_id]",
+   "firstLoadJsGzKB": 146.3,
+   "rawKB": 480.5,
+   "cssGzKB": 12.4,
+   "files": 17
+  },
+  {
+   "route": "/studio/coding",
+   "firstLoadJsGzKB": 146.3,
+   "rawKB": 480.5,
+   "cssGzKB": 12.4,
+   "files": 17
+  },
+  {
+   "route": "/studio/questions",
+   "firstLoadJsGzKB": 146,
+   "rawKB": 479.1,
+   "cssGzKB": 12.4,
+   "files": 17
+  },
+  {
+   "route": "/studio/questions/[question_id]",
+   "firstLoadJsGzKB": 146,
+   "rawKB": 479,
+   "cssGzKB": 12.4,
+   "files": 17
+  },
+  {
+   "route": "/studio/review",
+   "firstLoadJsGzKB": 146,
+   "rawKB": 479,
+   "cssGzKB": 12.4,
+   "files": 17
+  },
+  {
+   "route": "/security/cases/[case_id]",
+   "firstLoadJsGzKB": 145.6,
+   "rawKB": 474.2,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/studio/companies",
+   "firstLoadJsGzKB": 143.9,
+   "rawKB": 472.6,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/trainer/paths",
+   "firstLoadJsGzKB": 143.8,
+   "rawKB": 462.8,
+   "cssGzKB": 12.4,
+   "files": 18
+  },
+  {
+   "route": "/app/learn/[course_slug]/[lesson_id]",
+   "firstLoadJsGzKB": 143.2,
+   "rawKB": 465.1,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/evaluator",
+   "firstLoadJsGzKB": 142.7,
+   "rawKB": 462.3,
+   "cssGzKB": 12.4,
+   "files": 17
+  },
+  {
+   "route": "/studio/taxonomy",
+   "firstLoadJsGzKB": 142.7,
+   "rawKB": 466.6,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/trainer/grading",
+   "firstLoadJsGzKB": 142.7,
+   "rawKB": 462.3,
+   "cssGzKB": 12.4,
+   "files": 17
+  },
+  {
+   "route": "/trainer/assignments",
+   "firstLoadJsGzKB": 142.6,
+   "rawKB": 462.2,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/evaluator/tests/[test_id]/evaluation",
+   "firstLoadJsGzKB": 142.5,
+   "rawKB": 460.1,
+   "cssGzKB": 12.4,
+   "files": 17
+  },
+  {
+   "route": "/trainer/tests/[test_id]/evaluation",
+   "firstLoadJsGzKB": 142.5,
+   "rawKB": 460.1,
+   "cssGzKB": 12.4,
+   "files": 17
+  },
+  {
+   "route": "/studio",
+   "firstLoadJsGzKB": 141.6,
+   "rawKB": 464.2,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/trainer/batches/[batch_id]",
+   "firstLoadJsGzKB": 141.4,
+   "rawKB": 460.7,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/finance/invoices",
+   "firstLoadJsGzKB": 141.2,
+   "rawKB": 463.2,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/finance",
+   "firstLoadJsGzKB": 141.2,
+   "rawKB": 463.2,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/finance/orders",
+   "firstLoadJsGzKB": 141.2,
+   "rawKB": 463.2,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/finance/reconciliation",
+   "firstLoadJsGzKB": 141.2,
+   "rawKB": 463.2,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/finance/refunds",
+   "firstLoadJsGzKB": 141.2,
+   "rawKB": 463.2,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/trainer/courses",
+   "firstLoadJsGzKB": 141,
+   "rawKB": 462.3,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/app/coding/[slug]",
+   "firstLoadJsGzKB": 140.9,
+   "rawKB": 456.5,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/studio/courses/[course_id]",
+   "firstLoadJsGzKB": 140.8,
+   "rawKB": 461.9,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/studio/courses",
+   "firstLoadJsGzKB": 140.8,
+   "rawKB": 461.9,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/trainer/courses/[course_id]/edit",
+   "firstLoadJsGzKB": 140.8,
+   "rawKB": 461.9,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/desk",
+   "firstLoadJsGzKB": 140.2,
+   "rawKB": 457.3,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/desk/tickets/[ticket_id]",
+   "firstLoadJsGzKB": 140.2,
+   "rawKB": 457.3,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/desk/users/[user_id]",
+   "firstLoadJsGzKB": 140.2,
+   "rawKB": 457.3,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/desk/unblock-requests",
+   "firstLoadJsGzKB": 140.2,
+   "rawKB": 457.3,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/app/practice/sessions/[session_id]",
+   "firstLoadJsGzKB": 139.8,
+   "rawKB": 454.2,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/evaluator/integrity",
+   "firstLoadJsGzKB": 139.6,
+   "rawKB": 454.4,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/evaluator/grading/[submission_id]",
+   "firstLoadJsGzKB": 139.6,
+   "rawKB": 454.4,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/trainer/grading/[submission_id]",
+   "firstLoadJsGzKB": 139.6,
+   "rawKB": 454.4,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/trainer/integrity",
+   "firstLoadJsGzKB": 139.6,
+   "rawKB": 454.4,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/security/users/[user_id]/timeline",
+   "firstLoadJsGzKB": 139.3,
+   "rawKB": 453.7,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/app",
+   "firstLoadJsGzKB": 139.1,
+   "rawKB": 452.5,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/admin/batches",
+   "firstLoadJsGzKB": 138.9,
+   "rawKB": 453.9,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/admin/batches/[batch_id]",
+   "firstLoadJsGzKB": 138.9,
+   "rawKB": 454,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/trainer/engage/runs/[run_id]/present",
+   "firstLoadJsGzKB": 138.9,
+   "rawKB": 449,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/app/account-status",
+   "firstLoadJsGzKB": 138.5,
+   "rawKB": 448.2,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/trainer/paths/[id]",
+   "firstLoadJsGzKB": 138.5,
+   "rawKB": 450.7,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/app/billing",
+   "firstLoadJsGzKB": 138,
+   "rawKB": 451,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/evaluator/grading/assignments/[id]",
+   "firstLoadJsGzKB": 138,
+   "rawKB": 452.5,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/trainer/grading/assignments/[id]",
+   "firstLoadJsGzKB": 138,
+   "rawKB": 452.5,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/security/reports",
+   "firstLoadJsGzKB": 137.7,
+   "rawKB": 447.4,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/security/reports/[report_key]",
+   "firstLoadJsGzKB": 137.7,
+   "rawKB": 447.4,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/finance/coupons",
+   "firstLoadJsGzKB": 137.2,
+   "rawKB": 452.2,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/finance/products",
+   "firstLoadJsGzKB": 137.2,
+   "rawKB": 452.2,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/finance/subscriptions",
+   "firstLoadJsGzKB": 137.2,
+   "rawKB": 452.2,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/trainer/engage/[activity_id]",
+   "firstLoadJsGzKB": 137,
+   "rawKB": 443.5,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/admin",
+   "firstLoadJsGzKB": 136.5,
+   "rawKB": 447.5,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/admin/audit",
+   "firstLoadJsGzKB": 136.5,
+   "rawKB": 447.5,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/admin/feature-flags",
+   "firstLoadJsGzKB": 136.5,
+   "rawKB": 447.5,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/admin/roles",
+   "firstLoadJsGzKB": 136.5,
+   "rawKB": 447.5,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/admin/break-glass",
+   "firstLoadJsGzKB": 136.5,
+   "rawKB": 447.5,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/admin/privacy-requests",
+   "firstLoadJsGzKB": 136.5,
+   "rawKB": 447.5,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/app/mentoring",
+   "firstLoadJsGzKB": 136.5,
+   "rawKB": 446,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/admin/ai",
+   "firstLoadJsGzKB": 136.4,
+   "rawKB": 442.9,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/app/support/[ticket_id]",
+   "firstLoadJsGzKB": 136.1,
+   "rawKB": 440.2,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/app/support",
+   "firstLoadJsGzKB": 136.1,
+   "rawKB": 440.2,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/app/support/new",
+   "firstLoadJsGzKB": 136.1,
+   "rawKB": 440.2,
+   "cssGzKB": 12.4,
+   "files": 16
+  },
+  {
+   "route": "/security/restrictions",
+   "firstLoadJsGzKB": 135.8,
+   "rawKB": 442.4,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/security/cases",
+   "firstLoadJsGzKB": 134.9,
+   "rawKB": 438.4,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/security",
+   "firstLoadJsGzKB": 134.8,
+   "rawKB": 438.7,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/admin/policies",
+   "firstLoadJsGzKB": 134.6,
+   "rawKB": 438,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/security/policies",
+   "firstLoadJsGzKB": 134.6,
+   "rawKB": 438,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/app/settings/security",
+   "firstLoadJsGzKB": 134.3,
+   "rawKB": 437.6,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/app/settings/security/mfa",
+   "firstLoadJsGzKB": 134.3,
+   "rawKB": 437.6,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/app/settings/security/not-me/[event_ref]",
+   "firstLoadJsGzKB": 134.3,
+   "rawKB": 437.5,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/security/unblock-requests",
+   "firstLoadJsGzKB": 134.2,
+   "rawKB": 436.6,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/app/engage/runs/[run_id]",
+   "firstLoadJsGzKB": 134.1,
+   "rawKB": 436.7,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/mentor/students",
+   "firstLoadJsGzKB": 134.1,
+   "rawKB": 438.8,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/mentor",
+   "firstLoadJsGzKB": 134.1,
+   "rawKB": 438.8,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/mentor/students/[user_id]",
+   "firstLoadJsGzKB": 134.1,
+   "rawKB": 438.8,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/mentor/sessions/[session_id]",
+   "firstLoadJsGzKB": 134.1,
+   "rawKB": 438.8,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/evaluator/tests/[test_id]/report",
+   "firstLoadJsGzKB": 133.7,
+   "rawKB": 436.5,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/trainer/tests/[test_id]/overrides",
+   "firstLoadJsGzKB": 133.7,
+   "rawKB": 436.5,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/trainer/tests/[test_id]/attempts",
+   "firstLoadJsGzKB": 133.7,
+   "rawKB": 436.6,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/trainer/tests/[test_id]/report",
+   "firstLoadJsGzKB": 133.7,
+   "rawKB": 436.5,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/app/progress",
+   "firstLoadJsGzKB": 133.6,
+   "rawKB": 435.8,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/checkout/new",
+   "firstLoadJsGzKB": 133.5,
+   "rawKB": 436.7,
+   "cssGzKB": 12.4,
+   "files": 13
+  },
+  {
+   "route": "/app/resume",
+   "firstLoadJsGzKB": 133.4,
+   "rawKB": 434.9,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/admin/approvals",
+   "firstLoadJsGzKB": 133.3,
+   "rawKB": 434.1,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/security/approvals",
+   "firstLoadJsGzKB": 133.3,
+   "rawKB": 434.1,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/admin/users",
+   "firstLoadJsGzKB": 133,
+   "rawKB": 433.6,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/admin/users/[user_id]",
+   "firstLoadJsGzKB": 133,
+   "rawKB": 433.6,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/trainer/engage",
+   "firstLoadJsGzKB": 133,
+   "rawKB": 433.4,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/trainer/paths/allocations/[allocationId]",
+   "firstLoadJsGzKB": 133,
+   "rawKB": 432.5,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/app/engage/join/[code]",
+   "firstLoadJsGzKB": 132.9,
+   "rawKB": 432.7,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/app/engage",
+   "firstLoadJsGzKB": 132.9,
+   "rawKB": 432.8,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/security/rules",
+   "firstLoadJsGzKB": 132.8,
+   "rawKB": 433.4,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/tests/[test_id]/results/[attempt_id]",
+   "firstLoadJsGzKB": 132.7,
+   "rawKB": 434,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/checkout/[order_id]",
+   "firstLoadJsGzKB": 132.5,
+   "rawKB": 433.1,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/app/orders/[order_id]",
+   "firstLoadJsGzKB": 132.5,
+   "rawKB": 433.1,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/desk/enquiries",
+   "firstLoadJsGzKB": 132.5,
+   "rawKB": 431.5,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/desk/enquiries/[enquiry_id]",
+   "firstLoadJsGzKB": 132.5,
+   "rawKB": 431.5,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/studio/media",
+   "firstLoadJsGzKB": 132.3,
+   "rawKB": 431.2,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/security/incidents",
+   "firstLoadJsGzKB": 132.2,
+   "rawKB": 430.8,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/settings/devices",
+   "firstLoadJsGzKB": 131.6,
+   "rawKB": 432,
+   "cssGzKB": 12.4,
+   "files": 13
+  },
+  {
+   "route": "/mentor/resume-reviews",
+   "firstLoadJsGzKB": 131.6,
+   "rawKB": 429.5,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/mentor/slots",
+   "firstLoadJsGzKB": 131.6,
+   "rawKB": 429,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/trainer/engage/runs/[run_id]/results",
+   "firstLoadJsGzKB": 131.5,
+   "rawKB": 429,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/app/companies/[slug]",
+   "firstLoadJsGzKB": 131.2,
+   "rawKB": 428.4,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/studio/reports/errors",
+   "firstLoadJsGzKB": 131.1,
+   "rawKB": 427.7,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/practice/[subject]",
+   "firstLoadJsGzKB": 131,
+   "rawKB": 427.5,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/settings/privacy",
+   "firstLoadJsGzKB": 131,
+   "rawKB": 429.3,
+   "cssGzKB": 12.4,
+   "files": 13
+  },
+  {
+   "route": "/app/practice/review",
+   "firstLoadJsGzKB": 130.9,
+   "rawKB": 427.3,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/coding/[slug]/submissions",
+   "firstLoadJsGzKB": 130.7,
+   "rawKB": 427.8,
+   "cssGzKB": 12.4,
+   "files": 13
+  },
+  {
+   "route": "/app/courses/[slug]",
+   "firstLoadJsGzKB": 130.6,
+   "rawKB": 426.5,
+   "cssGzKB": 12.4,
+   "files": 15
+  },
+  {
+   "route": "/app/settings/profile",
+   "firstLoadJsGzKB": 130.6,
+   "rawKB": 425.8,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/access",
+   "firstLoadJsGzKB": 130.1,
+   "rawKB": 425.1,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/interview-prep",
+   "firstLoadJsGzKB": 130,
+   "rawKB": 425.6,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/onboarding",
+   "firstLoadJsGzKB": 130,
+   "rawKB": 425.6,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/path",
+   "firstLoadJsGzKB": 130,
+   "rawKB": 425.7,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/diagnostic",
+   "firstLoadJsGzKB": 129.9,
+   "rawKB": 425.6,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/practice",
+   "firstLoadJsGzKB": 129.9,
+   "rawKB": 424,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/learning",
+   "firstLoadJsGzKB": 129.7,
+   "rawKB": 423.9,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/attempts/[attempt_id]/appeal",
+   "firstLoadJsGzKB": 129.5,
+   "rawKB": 423.3,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/guardian-consent",
+   "firstLoadJsGzKB": 129.3,
+   "rawKB": 422.6,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/tests",
+   "firstLoadJsGzKB": 129.3,
+   "rawKB": 423.1,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/coding",
+   "firstLoadJsGzKB": 128.9,
+   "rawKB": 422.3,
+   "cssGzKB": 12.4,
+   "files": 13
+  },
+  {
+   "route": "/app/certificates",
+   "firstLoadJsGzKB": 128.5,
+   "rawKB": 420,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/(public)/unblock-request",
+   "firstLoadJsGzKB": 127.1,
+   "rawKB": 415.7,
+   "cssGzKB": 12.4,
+   "files": 13
+  },
+  {
+   "route": "/admin/notifications",
+   "firstLoadJsGzKB": 126.3,
+   "rawKB": 414.9,
+   "cssGzKB": 12.4,
+   "files": 13
+  },
+  {
+   "route": "/app/bookmarks",
+   "firstLoadJsGzKB": 126.3,
+   "rawKB": 414.9,
+   "cssGzKB": 12.4,
+   "files": 13
+  },
+  {
+   "route": "/studio/questions/import",
+   "firstLoadJsGzKB": 126.3,
+   "rawKB": 414.9,
+   "cssGzKB": 12.4,
+   "files": 13
+  },
+  {
+   "route": "/(public)/account/restricted",
+   "firstLoadJsGzKB": 126.2,
+   "rawKB": 413.3,
+   "cssGzKB": 12.4,
+   "files": 14
+  },
+  {
+   "route": "/app/companies",
+   "firstLoadJsGzKB": 124.6,
+   "rawKB": 410.4,
+   "cssGzKB": 12.4,
+   "files": 13
+  },
+  {
+   "route": "/app/notifications",
+   "firstLoadJsGzKB": 124.3,
+   "rawKB": 410,
+   "cssGzKB": 12.4,
+   "files": 13
+  },
+  {
+   "route": "/app/analytics",
+   "firstLoadJsGzKB": 124.2,
+   "rawKB": 409.9,
+   "cssGzKB": 12.4,
+   "files": 13
+  },
+  {
+   "route": "/app/courses",
+   "firstLoadJsGzKB": 124.2,
+   "rawKB": 409.9,
+   "cssGzKB": 12.4,
+   "files": 13
+  },
+  {
+   "route": "/read/[id]",
+   "firstLoadJsGzKB": 123.4,
+   "rawKB": 405.9,
+   "cssGzKB": 12.4,
+   "files": 12
+  },
+  {
+   "route": "/(public)/signup",
+   "firstLoadJsGzKB": 122.6,
+   "rawKB": 404.4,
+   "cssGzKB": 12.4,
+   "files": 12
+  },
+  {
+   "route": "/(public)/login/verify-device",
+   "firstLoadJsGzKB": 122,
+   "rawKB": 401.5,
+   "cssGzKB": 12.4,
+   "files": 12
+  },
+  {
+   "route": "/(public)/login/session-choice",
+   "firstLoadJsGzKB": 121.3,
+   "rawKB": 399.3,
+   "cssGzKB": 12.4,
+   "files": 12
+  },
+  {
+   "route": "/(public)/guardian-consent/[token]",
+   "firstLoadJsGzKB": 121,
+   "rawKB": 398.3,
+   "cssGzKB": 12.4,
+   "files": 12
+  },
+  {
+   "route": "/(public)/login",
+   "firstLoadJsGzKB": 120.8,
+   "rawKB": 397.7,
+   "cssGzKB": 12.4,
+   "files": 12
+  },
+  {
+   "route": "/(public)/login/mfa",
+   "firstLoadJsGzKB": 120.7,
+   "rawKB": 397.2,
+   "cssGzKB": 12.4,
+   "files": 12
+  },
+  {
+   "route": "/(public)/enquiries",
+   "firstLoadJsGzKB": 120.3,
+   "rawKB": 396.1,
+   "cssGzKB": 12.4,
+   "files": 12
+  },
+  {
+   "route": "/(public)/forgot-password",
+   "firstLoadJsGzKB": 120,
+   "rawKB": 395.7,
+   "cssGzKB": 12.4,
+   "files": 12
+  },
+  {
+   "route": "/(public)/reset-password/[token]",
+   "firstLoadJsGzKB": 120,
+   "rawKB": 395.7,
+   "cssGzKB": 12.4,
+   "files": 12
+  },
+  {
+   "route": "/(public)/verify/email/[token]",
+   "firstLoadJsGzKB": 119.5,
+   "rawKB": 394.5,
+   "cssGzKB": 12.4,
+   "files": 12
+  },
+  {
+   "route": "/(public)/verify/mobile",
+   "firstLoadJsGzKB": 119.5,
+   "rawKB": 394.5,
+   "cssGzKB": 12.4,
+   "files": 12
+  },
+  {
+   "route": "/(public)/pricing",
+   "firstLoadJsGzKB": 118.2,
+   "rawKB": 392,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)/courses/[slug]",
+   "firstLoadJsGzKB": 117.8,
+   "rawKB": 390.5,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)/free-resources",
+   "firstLoadJsGzKB": 117.1,
+   "rawKB": 388.2,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)",
+   "firstLoadJsGzKB": 115.5,
+   "rawKB": 384.2,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)/courses",
+   "firstLoadJsGzKB": 115.5,
+   "rawKB": 384.2,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)/companies",
+   "firstLoadJsGzKB": 115.5,
+   "rawKB": 384.2,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)/companies/[slug]",
+   "firstLoadJsGzKB": 115.5,
+   "rawKB": 384.2,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)/placement/[subject]/[topic]",
+   "firstLoadJsGzKB": 115.5,
+   "rawKB": 384.2,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)/status",
+   "firstLoadJsGzKB": 115.5,
+   "rawKB": 384.1,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)/verify",
+   "firstLoadJsGzKB": 115.5,
+   "rawKB": 384.1,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)/placement",
+   "firstLoadJsGzKB": 115.5,
+   "rawKB": 384.2,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)/verify/[certificate_id]",
+   "firstLoadJsGzKB": 115.5,
+   "rawKB": 384.2,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)/help/[article]",
+   "firstLoadJsGzKB": 113.5,
+   "rawKB": 379.2,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)/help",
+   "firstLoadJsGzKB": 113.5,
+   "rawKB": 379.2,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)/legal/device-policy",
+   "firstLoadJsGzKB": 113.5,
+   "rawKB": 379.2,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)/legal/terms",
+   "firstLoadJsGzKB": 113.5,
+   "rawKB": 379.2,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)/legal/privacy",
+   "firstLoadJsGzKB": 113.5,
+   "rawKB": 379.2,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/(public)/legal/refund-policy",
+   "firstLoadJsGzKB": 113.5,
+   "rawKB": 379.2,
+   "cssGzKB": 12.4,
+   "files": 11
+  },
+  {
+   "route": "/_not-found",
+   "firstLoadJsGzKB": 110,
+   "rawKB": 370.6,
+   "cssGzKB": 12.4,
+   "files": 9
+  }
+ ],
+ "topChunks": [
+  {
+   "chunk": "static/chunks/8939.4f628e8e61c91164.js",
+   "rawKB": 385.6,
+   "gzKB": 111.9,
+   "usedByEntries": 0,
+   "hints": [
+    "recharts",
+    "immer",
+    "redux"
+   ]
+  },
+  {
+   "chunk": "static/chunks/framework-89908e50a5567dba.js",
+   "rawKB": 185.3,
+   "gzKB": 58.4,
+   "usedByEntries": 0,
+   "hints": [
+    "react-dom"
+   ]
+  },
+  {
+   "chunk": "static/chunks/4bd1b696-100b9d70ed4e49c1.js",
+   "rawKB": 169,
+   "gzKB": 53,
+   "usedByEntries": 204,
+   "hints": [
+    "react-dom"
+   ]
+  },
+  {
+   "chunk": "static/chunks/1255-60d8dc7c8c9309a1.js",
+   "rawKB": 170.6,
+   "gzKB": 45.2,
+   "usedByEntries": 204,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/polyfills-42372ed130431b0a.js",
+   "rawKB": 110,
+   "gzKB": 38.6,
+   "usedByEntries": 0,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/main-2af3df7a0d8d6353.js",
+   "rawKB": 120.2,
+   "gzKB": 35.1,
+   "usedByEntries": 0,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/6721-19d4df6310e98a84.js",
+   "rawKB": 45.7,
+   "gzKB": 14.5,
+   "usedByEntries": 4,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/5047-fca2f27b34fa95e6.js",
+   "rawKB": 49.3,
+   "gzKB": 14.4,
+   "usedByEntries": 2,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/app/trainer/assignments/[id]/page-aa8b5c5ed88087e4.js",
+   "rawKB": 40.4,
+   "gzKB": 12.3,
+   "usedByEntries": 1,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/9424-a1289730b82bb285.js",
+   "rawKB": 35.4,
+   "gzKB": 10.8,
+   "usedByEntries": 2,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/1317-a0c28ca8237167d7.js",
+   "rawKB": 35.1,
+   "gzKB": 9.8,
+   "usedByEntries": 12,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/9314-254b5e83f8bc383b.js",
+   "rawKB": 34.4,
+   "gzKB": 9.7,
+   "usedByEntries": 6,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/app/app/checkout/new/page-51e95784e99dfa90.js",
+   "rawKB": 27,
+   "gzKB": 9.4,
+   "usedByEntries": 1,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/3781-93c77045e6090d4a.js",
+   "rawKB": 32.6,
+   "gzKB": 9.3,
+   "usedByEntries": 3,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/8445-9cbf035216cf9101.js",
+   "rawKB": 27.9,
+   "gzKB": 8.6,
+   "usedByEntries": 6,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/1281-49c2fd1e3fc0b409.js",
+   "rawKB": 27,
+   "gzKB": 8,
+   "usedByEntries": 3,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/3754-ad90200d8d1b9fde.js",
+   "rawKB": 26.1,
+   "gzKB": 7.9,
+   "usedByEntries": 4,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/4210-26c5f7fc175f05c8.js",
+   "rawKB": 23.9,
+   "gzKB": 7.9,
+   "usedByEntries": 2,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/6491-c600ed93a6988223.js",
+   "rawKB": 29.1,
+   "gzKB": 7.9,
+   "usedByEntries": 5,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/app/trainer/paths/[id]/page-b8bf76c76bdf669c.js",
+   "rawKB": 23.7,
+   "gzKB": 7.7,
+   "usedByEntries": 1,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/7813-4e75e730e6a4cc8f.js",
+   "rawKB": 25.9,
+   "gzKB": 7.5,
+   "usedByEntries": 4,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/app/app/settings/devices/page-6cd57a635ee47bd1.js",
+   "rawKB": 22.4,
+   "gzKB": 7.5,
+   "usedByEntries": 1,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/app/security/cases/[case_id]/page-17c0298554d6cfe1.js",
+   "rawKB": 21.8,
+   "gzKB": 7,
+   "usedByEntries": 1,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/app/app/learn/[course_slug]/[lesson_id]/page-17ce748824077177.js",
+   "rawKB": 21.3,
+   "gzKB": 7,
+   "usedByEntries": 1,
+   "hints": []
+  },
+  {
+   "chunk": "static/chunks/4661-172318ca7d46d75d.js",
+   "rawKB": 22,
+   "gzKB": 6.9,
+   "usedByEntries": 7,
+   "hints": []
+  }
+ ],
+ "totalStaticJsGzKB": 1052.5
+}

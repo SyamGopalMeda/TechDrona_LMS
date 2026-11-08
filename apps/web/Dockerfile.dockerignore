@@ -1,0 +1,16 @@
+# BuildKit per-Dockerfile ignore for apps/web/Dockerfile (context = repo root). Only packages/ and apps/web are sent.
+**
+!packages/
+!packages/**
+!apps/web/
+!apps/web/**
+**/node_modules/
+**/.next/
+**/out/
+**/coverage/
+**/playwright-report/
+**/test-results/
+**/.turbo/
+**/.env
+**/.env.*
+**/*.log
