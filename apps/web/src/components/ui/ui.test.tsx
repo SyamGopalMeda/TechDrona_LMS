@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api/errors";
 import { useState } from "react";
-import { Button, Dialog, ErrorState, FormField, Input, PageHeader, Pagination, StatTile, StatusBadge, Table, Tabs, ToastProvider, nextCursorStack, previousCursorStack, useToast } from "./index";
+import { Button, Dialog, ErrorState, ErrorSummary, LoadingBlock, FormField, Input, PageHeader, Pagination, StatTile, StatusBadge, Table, Tabs, ToastProvider, nextCursorStack, previousCursorStack, useToast } from "./index";
 
 describe("FormField", () => {
   it("wires label, hint and error to the control", () => {
@@ -247,5 +247,46 @@ describe("PageHeader and StatusBadge", () => {
     expect(screen.getByText("Pending review")).toBeInTheDocument();
     expect(screen.getByText("Approved")).toBeInTheDocument();
     expect(screen.getByText("Awaiting evaluator")).toBeInTheDocument();
+  });
+});
+
+describe("ErrorSummary (audit S7: one announcement per submit)", () => {
+  it("is the single alert, takes focus and links each message to its field", async () => {
+    function Form() {
+      const [errors, setErrors] = useState<Record<string, string>>({});
+      return (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            setErrors({ email: "Enter your email", name: "Enter your name" });
+          }}
+        >
+          <ErrorSummary errors={errors} fieldIds={{ email: "f-email" }} />
+          <FormField label="Email" error={errors.email}>
+            {(p) => <Input {...p} id="f-email" />}
+          </FormField>
+          <FormField label="Name" error={errors.name}>
+            {(p) => <Input {...p} />}
+          </FormField>
+          <Button type="submit">Save</Button>
+        </form>
+      );
+    }
+    render(<Form />);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    const alerts = screen.getAllByRole("alert");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toHaveFocus();
+    expect(alerts[0]).toHaveTextContent("Please fix these 2 problems");
+    await userEvent.click(screen.getByRole("link", { name: "Enter your email" }));
+    expect(document.getElementById("f-email")).toHaveFocus();
+  });
+});
+
+describe("LoadingBlock (audit S8)", () => {
+  it("announces one polite status with text", () => {
+    render(<LoadingBlock label="Loading tests…" />);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading tests…");
   });
 });

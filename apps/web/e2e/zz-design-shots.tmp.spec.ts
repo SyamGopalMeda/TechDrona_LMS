@@ -4,7 +4,7 @@ import path from "node:path";
 import { test, type Browser } from "@playwright/test";
 import { signIn, type Account } from "./support/auth";
 
-const OUT = path.resolve(__dirname, "../../../docs/redesign/shots/design-system");
+const OUT = path.resolve(__dirname, "../../../docs/redesign/shots/design");
 const TAG = process.env.SHOT_TAG ?? "before";
 const STATE = process.env.SHOT_STATE_DIR ?? path.resolve(__dirname, "../test-results/shot-state");
 const PW = "dev-only-lantern-harbour-2026";
@@ -15,6 +15,14 @@ const WHO: Record<string, Account> = {
 const VIEWPORTS = { desktop: { width: 1440, height: 900 }, mobile: { width: 390, height: 844 } };
 
 async function ctxFor(browser: Browser, who: keyof typeof WHO | null, vp: { width: number; height: number }) {
+  if (process.env.SHOT_INLINE && who) {
+    // Sign in inside the screenshot context itself (no stored state).
+    const c = await browser.newContext({ viewport: vp });
+    const p = await c.newPage();
+    await signIn(p, c.request, WHO[who]!, who === "admin" ? "/admin" : "/app");
+    await p.close();
+    return c;
+  }
   const statePath = who ? path.join(STATE, `${who}.json`) : undefined;
   if (who && statePath && !existsSync(statePath)) {
     const c = await browser.newContext({ viewport: VIEWPORTS.desktop });

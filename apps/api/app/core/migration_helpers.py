@@ -36,6 +36,15 @@ _PREDICATES: dict[str, tuple[str, str]] = {
         "user_id = app.user_id() OR (organization_id IS NOT NULL AND organization_id = ANY (app.org_ids())) "
         "OR app.is_platform()",
     ),
+    # Single company: ``orgs_0004`` rewrites every existing ``p_u`` policy to this predicate (the
+    # organization branch is for company staff only). ``U`` above stays as-is so historic
+    # migrations replay; NEW user-owned tables after orgs_0004 must use ``US``.
+    "US": (
+        "user_id = app.user_id() OR (organization_id IS NOT NULL AND organization_id = ANY (app.org_ids()) "
+        "AND app.caller_is_org_staff()) OR app.is_platform()",
+        "user_id = app.user_id() OR (organization_id IS NOT NULL AND organization_id = ANY (app.org_ids()) "
+        "AND app.caller_is_org_staff()) OR app.is_platform()",
+    ),
     "O": ("user_id = app.user_id() OR app.is_platform()", "user_id = app.user_id() OR app.is_platform()"),
 }
 

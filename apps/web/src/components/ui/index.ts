@@ -3,6 +3,7 @@ export { Input, Textarea } from "./Input";
 export { Select, type SelectOption, type SelectProps } from "./Select";
 export { Checkbox, type CheckboxProps } from "./Checkbox";
 export { FormField, fieldErrors, type FieldControlProps, type FormFieldProps } from "./FormField";
+export { ErrorSummary, type ErrorSummaryProps } from "./ErrorSummary";
 export { Dialog, type DialogProps } from "./Dialog";
 export { ToastProvider, useToast, type ToastApi, type ToastInput, type ToastTone } from "./Toast";
 export { Table, type Column, type TableProps } from "./Table";
@@ -17,6 +18,7 @@ export {
   PageHeader,
   Pagination,
   STATUS_VOCABULARY,
+  LoadingBlock,
   Skeleton,
   StatTile,
   StatusBadge,

@@ -13,6 +13,21 @@ export function Skeleton({ className }: { className?: string }) {
   );
 }
 
+/**
+ * Loading placeholder for a whole region: one polite status with screen-reader text plus
+ * decorative skeleton lines (audit S8: replaces ad-hoc copies that put aria-label on a role-less div).
+ */
+export function LoadingBlock({ label = "Loading…", lines = 3, className }: { label?: string; lines?: number; className?: string }) {
+  return (
+    <div role="status" className={cn("space-y-3", className)}>
+      <span className="sr-only">{label}</span>
+      {Array.from({ length: lines }, (_, i) => (
+        <Skeleton key={i} className={cn("h-4", i === lines - 1 ? "w-2/3" : "w-full")} />
+      ))}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------- Badge */
 
 export type BadgeTone = "neutral" | "brand" | "info" | "success" | "warning" | "danger";

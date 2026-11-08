@@ -54,9 +54,12 @@ derived (the website has no dark mode).
 | `apps/web/public/brand/logo-lockup-white.svg` | Footer / navy band only |
 | `apps/web/public/brand/logo-mark-navy.svg` | Square mark for tight spaces |
 | `apps/web/public/favicon-32.png`, `apple-touch-icon.png`, `icon-512.png` | Favicons / PWA (wired in `src/app/layout.tsx` metadata + `src/app/manifest.ts`) |
+| `apps/web/public/favicon.ico` | Legacy `/favicon.ico` request (was a dynamic 404 page, perf-baseline P11): ICO wrapper around the unchanged official `favicon-32.png` (static; the middleware matcher already skips it) |
 | `apps/web/public/fonts/*.woff2` | Self-hosted Plus Jakarta Sans + Inter (latin, latin-ext), `src/styles/fonts.css` |
 
-All copied byte-for-byte from `tech drona/dist/`. Use `<Logo />` (`@/components/ui`), never an `<img>` to them directly.
+All copied byte-for-byte from `tech drona/dist/` (favicon.ico only re-wraps favicon-32.png).
+
+Fonts are self-hosted with `@font-face` + `preload` (`src/styles/fonts.css`, `layout.tsx`) rather than `next/font/local`: the website's files are split latin / latin-ext by `unicode-range`, which `next/font/local` cannot express. The result is the same: no Google Fonts request, `font-display: swap`. Use `<Logo />` (`@/components/ui`), never an `<img>` to them directly.
 
 ---
 
@@ -155,7 +158,8 @@ All APIs are backward compatible; new props are optional.
 | `Tabs` | Switching views of the same object | ≤ 6 tabs; not for primary navigation. |
 | `Dialog` `title` `description` `footer` | Confirmations, short forms | Footer: secondary "Cancel" left, primary/danger right. |
 | `useToast().show({title, tone})` | Result of an action | Past tense ("Request approved"). Errors stay until dismissed. |
-| `Skeleton` | Loading placeholders | Match the final layout's shape. |
+| `Skeleton` / `LoadingBlock` | Loading placeholders | Match the final layout's shape; `LoadingBlock` for a whole region (announces once). |
+| `ErrorSummary` `errors` `fieldIds` | Failed form submit | The one announcement per submit (§7 S7). `fieldIds` = the FormField control ids. |
 | `EmptyState` `title` `description` `action` `icon` | Nothing to show | Say why it's empty + the one next step. |
 | `ErrorState` `error` `onRetry` | Failed load | Pass the ApiError so the reference id shows. |
 | `Pagination` | Cursor lists | Unchanged. |
@@ -240,7 +244,8 @@ Use the same word everywhere for the same state.
 | S4 | `Button loading` | Stays focusable (`aria-disabled`, `aria-busy`), ignores clicks and implicit submit. Tests should assert `aria-disabled`, not `toBeDisabled()`, for loading. |
 | S5 | `Dialog` | Focus returns to the opener on close **and** when the caller unmounts it. |
 | S6 | `Button sm`, `Tabs`, staff `Menu`, breadcrumbs/back link | ≥ 44px on touch (sm button below `md`, tabs, Menu summary); small inline links ≥ 24px. Page agents: give standalone text links `inline-flex min-h-6 items-center` (or use `LinkButton size="sm"`). |
-| S7 | `FormField` | Field errors are plain text wired by `aria-describedby` + `aria-invalid`, **not** `role="alert"`. Each form announces once: an error summary (or one live region) and focus to the first invalid field/summary. |
+| S7 | `FormField` + `ErrorSummary` | Field errors are plain text wired by `aria-describedby` + `aria-invalid`, **not** `role="alert"`. Each form announces once: render `<ErrorSummary errors={…} fieldIds={…} />` at the top of the form; it is the only alert, takes focus when the errors change and links each message to its field. |
+| S8 | `LoadingBlock` | `<LoadingBlock label="Loading tests…" />` = one `role=status` with sr-only text + skeleton lines. Use it instead of feature-local copies (`features/trainer/shared/ui.tsx` should switch). |
 | Codes | `PageHeader` | An `eyebrow` containing a screen code (`ADM-004`, `SEC · ADM-006`) is not rendered. Page agents: remove such eyebrows; feature components that print codes themselves must drop them too. |
 
 ## 8. Files
@@ -248,7 +253,7 @@ Use the same word everywhere for the same state.
 - Tokens: `packages/design-tokens/tokens.json` (+ generated `tokens.css`, `tailwind-v4.css`), `scripts/check-contrast.mjs`
 - Fallback copy: `apps/web/src/styles/fallback-tokens/{tokens.css,tailwind-preset.cjs}`
 - Global CSS / fonts: `apps/web/src/app/globals.css`, `apps/web/src/styles/fonts.css`, `apps/web/public/fonts/`
-- Kit: `apps/web/src/components/ui/*` (new: `Logo.tsx`, `LinkButton`, `Textarea`, `StatusBadge`, `Breadcrumbs`)
+- Kit: `apps/web/src/components/ui/*` (new: `Logo.tsx`, `LinkButton`, `Textarea`, `StatusBadge`, `Breadcrumbs`, `ErrorSummary.tsx`, `LoadingBlock`)
 - Shells: `apps/web/src/components/shell/{PortalShell,PortalNav,MobileTabBar,PortalSwitcher,PublicShell}.tsx`
 - Root: `apps/web/src/app/layout.tsx` (icons, theme colour, font preload), `apps/web/src/app/manifest.ts`
-- Screenshots: `docs/redesign/shots/design-system/` (before = old build on :13000, after = this build)
+- Screenshots: `docs/redesign/shots/design/` (before = running container :13000, after = `next start -p 13100` of this build); the first pass is in `shots/design-system/`
