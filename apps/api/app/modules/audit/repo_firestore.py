@@ -212,6 +212,33 @@ def sealed_row(
 
 RowFilter = Callable[[AuditRow], bool]
 
+# chain-status: the last verified point of THIS process (see ``verify_chain_cached``).
+CHAIN_FULL_EVERY_S = 600.0
+
+
+@dataclass(frozen=True)
+class _ChainPoint:
+    result: ChainVerification
+    full_at: float  # time.monotonic() of the full pass this point builds on
+
+
+_CHAIN_CACHE: dict[str, _ChainPoint] = {}
+
+
+def _remember(res: ChainVerification, full_at: float) -> None:
+    if res.ok:
+        _CHAIN_CACHE["v"] = _ChainPoint(res, full_at)
+    else:
+        _CHAIN_CACHE.pop("v", None)
+
+
+def reset_chain_cache() -> None:
+    _CHAIN_CACHE.clear()
+
+
+async def _no_doc() -> None:
+    return None
+
 
 class AuditFsRepo(FirestoreRepository):
     """Read side for ``ScopedStore(principal)`` (the store re-checks ``audit.read``); chain and
@@ -286,6 +313,52 @@ class AuditFsRepo(FirestoreRepository):
             expected_prev = bytes.fromhex(prev["row_hash"])
         rows = await self.chain_rows(from_seq)
         return verify_rows(rows, expected_prev_hash=expected_prev, expected_first_seq=from_seq)
+
+    @platform_only(READ_PERM)
+    async def verify_chain_cached(self) -> ChainVerification:
+        """``verify_chain()`` for the chain-status route, incremental between full passes.
+
+        A full pass reads every ``audit_log`` row (O(log size) billed reads, ~1-2 s on a few
+        thousand rows), and the admin console polls this route. The verified prefix is
+        append-only, so after a full pass this process only verifies the rows sealed since then,
+        anchored on the last verified row: its stored ``row_hash`` must still equal the hash the
+        full pass computed (a wiped / re-seeded / edited tail anchor forces a full pass), and the
+        new rows must chain on from it. A full pass runs again every ``CHAIN_FULL_EVERY``, so an
+        out-of-band edit of an older row is reported within that interval. Same result fields as
+        a full pass; a failed check is never cached."""
+        import asyncio
+        import time
+
+        c = _CHAIN_CACHE.get("v")
+        if c is None or time.monotonic() - c.full_at >= CHAIN_FULL_EVERY_S:
+            started = time.monotonic()
+            res = await self.verify_chain()
+            _remember(res, started)
+            return res
+        from_seq = (c.result.last_seq or 0) + 1
+        anchor_doc, rows = await asyncio.gather(
+            self.store.get(LOG, log_id(c.result.last_seq)) if c.result.last_seq else _no_doc(),
+            self.chain_rows(from_seq),
+        )
+        anchor = c.result.last_hash or GENESIS_HASH
+        if c.result.last_seq and (anchor_doc is None or bytes.fromhex(anchor_doc["row_hash"]) != anchor):
+            _CHAIN_CACHE.pop("v", None)
+            started = time.monotonic()
+            res = await self.verify_chain()
+            _remember(res, started)
+            return res
+        inc = verify_rows(rows, expected_prev_hash=anchor, expected_first_seq=from_seq)
+        base = c.result
+        res = ChainVerification(
+            inc.ok,
+            base.checked + inc.checked,
+            inc.last_seq if inc.last_seq is not None else base.last_seq,
+            inc.last_hash if inc.last_hash is not None else base.last_hash,
+            inc.first_bad_seq,
+            inc.reason,
+        )
+        _remember(res, c.full_at)
+        return res
 
     # ------------------------------------------------------------------ sealer (system job)
 

@@ -574,6 +574,8 @@ def clean_settings(x: dict[str, Any] | None = None) -> dict[str, Any]:
     out["reg_lines"] = [str(s).strip()[:120] for s in lines if str(s).strip()][:4]
     # automatic admission letter when a learner is enrolled (paid / manual / batch enrolments)
     out["auto_admission_letter"] = x.get("auto_admission_letter") is not False
+    # faint Tech Drona mark behind every document and certificate page (on unless switched off)
+    out["watermark"] = x.get("watermark") is not False
     for slot in IMAGE_SLOTS:
         key, sha = x.get(f"{slot}_key"), x.get(f"{slot}_sha256")
         out[f"{slot}_key"] = key if isinstance(key, str) and key else None
@@ -1096,6 +1098,14 @@ def new_ref_no(doc_type: str, year: int, rnd: Callable[[int], int] | None = None
     pick = rnd or secrets.randbelow
     tail = "".join(ALPHABET[pick(len(ALPHABET))] for _ in range(6))
     return f"TD-{DOC_TYPES[doc_type]['prefix']}-{year:04d}-{tail}"
+
+
+PREVIEW_TAIL = "DRAFT"  # 5 letters: never a REF_RE match, so the verify page always says not found
+
+
+def preview_ref(doc_type: str, year: int) -> str:
+    """The placeholder reference of a preview (``TD-OL-2026-DRAFT``); never stored or verifiable."""
+    return f"TD-{DOC_TYPES[doc_type]['prefix']}-{year:04d}-{PREVIEW_TAIL}"
 
 
 def normalise_ref(code: str) -> str:

@@ -36,6 +36,7 @@ import { AdminCoursesSection } from "./CourseCards";
 import { INTEGRATION_LABELS, useIntegrations, useSimpleAuth, type IntegrationKey } from "@/components/shell/Integrations";
 import { cleanQuery, formatINR, humanize, shortRef, toOutcome, useCursorList } from "../lib/console";
 import { useResource } from "@/lib/api/use-resource";
+import { DEFAULT_HANDLE, useIdentity } from "@/lib/api/session-cache";
 import { formatDate, formatDateTime, formatTimeUntil } from "@/lib/format";
 
 /** The api types these filters as UUIDs (a partial id would be a 422), so only complete ones are sent. */
@@ -650,7 +651,7 @@ export function taughtBatchCount(grants: MyGrantsOut["data"]): number {
  * teaching. The api authorises every request either way (this is navigation only).
  */
 export function TeacherPortalCard() {
-  const grants = useResource<MyGrantsOut>("me/grants");
+  const grants = useIdentity<MyGrantsOut>("me/grants", { handle: DEFAULT_HANDLE });
   const count = taughtBatchCount(grants.data?.data);
   if (count === 0) return null;
   const hintId = "teacher-portal-hint";
@@ -697,9 +698,9 @@ export function AdminDashboard() {
         description="Students, courses, payments and everything waiting for you, in one place."
         actions={
           <>
-            {/* The College Data Portal is a separate app served under /college-portal: full page load (plain <a>). */}
+            {/* The Outreach (College Data) Portal has its own CSP (/colleges): full page load (plain <a>). */}
             {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-            <a href="/college-portal/index.html" className={buttonClasses({ variant: "inverse", className: "gap-2" })}>
+            <a href="/colleges" className={buttonClasses({ variant: "inverse", className: "gap-2" })}>
               <Icon name="building" className="h-[18px] w-[18px]" />
               Colleges Data
             </a>
@@ -752,7 +753,7 @@ export function AdminDashboard() {
                   columns={1}
                   items={[
                     { href: "/admin/users?add=1", label: "Add a user", hint: "Student, trainer or staff, with a role", icon: "userPlus" },
-                    { href: "/college-portal/index.html", label: "Colleges Data", hint: "Colleges, branches, contacts, leads", icon: "building", documentNav: true },
+                    { href: "/colleges", label: "Colleges Data", hint: "Colleges, branches, contacts, leads", icon: "building", documentNav: true },
                     { href: "/admin/batches", label: "Batches", hint: "Create batches, add students and trainers (add yourself to teach one)", icon: "layers" },
                     { href: "/admin/courses", label: "Courses", hint: "Courses and the website catalogue", icon: "book" },
                     { href: "/finance/admissions", label: "Admissions & fees", hint: "Verify UPI payments, registrations, fee plans", icon: "rupee" },

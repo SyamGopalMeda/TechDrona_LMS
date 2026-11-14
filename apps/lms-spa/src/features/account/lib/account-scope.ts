@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api/client";
+import { getIdentity, peekIdentity } from "@/lib/api/session-cache";
 import { PORTALS, type PortalKey } from "@/lib/nav/portals";
 import { canEnterPortal, homePortal, type MyGrantsPortals } from "@/features/staff-portal/access";
 import { lastShellPortal } from "@/features/staff-portal/StaffPortalGate";
@@ -47,15 +47,17 @@ export function accountScope(grants: MyGrantsPortals | null | undefined, lastShe
 
 /**
  * `GET /me/grants` (silently: no step-up / restriction / sign-in handling, like the portal
- * switcher) → AccountScope. `null` while loading, so a page can wait instead of flashing student
+ * switcher; from the session cache, src/lib/api/session-cache.ts) → AccountScope. `null` while loading, so a page can wait instead of flashing student
  * fields at staff. Failures fall back to STUDENT_SCOPE.
  */
 export function useAccountScope(): AccountScope | null {
-  const [scope, setScope] = useState<AccountScope | null>(null);
+  const [scope, setScope] = useState<AccountScope | null>(() => {
+    const cached = peekIdentity<MyGrantsPortals>("me/grants");
+    return cached ? accountScope(cached, lastShellPortal()) : null;
+  });
   useEffect(() => {
     let live = true;
-    api
-      .get<MyGrantsPortals>("me/grants", { handle: { stepUp: false, restriction: false, auth: false, sessionChoice: false } })
+    getIdentity<MyGrantsPortals>("me/grants")
       .then((g) => {
         if (live) setScope(accountScope(g, lastShellPortal()));
       })

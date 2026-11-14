@@ -12,6 +12,9 @@
   letter sections (what you'll gain, next steps, terms), one Authorised Signatory block, the
   acceptance slip, and a footer on every page: QR to the public verify page + reference on the
   left, the company's name, address, contact and registration lines on the right.
+* Watermarks (both families): the faint Tech Drona mark centred behind every page
+  (``watermark``); previews (``preview``) print "DRAFT" for the reference, no QR / verify link
+  and a diagonal "PREVIEW · NOT VALID" over every page.
 
 Deterministic like ``certpdf``: the same ``LetterArt`` always renders the same bytes (creation
 date = issue date), so ``sha256(pdf)`` is a stable fingerprint that the verify page can check.
@@ -35,6 +38,7 @@ from app.modules.learning.certpdf import (
     INK,
     LEAD,
     NAVY,
+    PREVIEW_RED,
     SLATE,
     CertificateArt,
     _Doc,
@@ -43,8 +47,8 @@ from app.modules.learning.certpdf import (
     long_date,
 )
 
-LETTER_TEMPLATE_VERSION = "doc-letter-v2"  # v2 = Tech Drona template letterhead
-CERT_TEMPLATE_VERSION = "doc-cert-v2"  # v2 = Tech Drona certificate template
+LETTER_TEMPLATE_VERSION = "doc-letter-v3"  # v3 = brand watermark (v2: Tech Drona letterhead)
+CERT_TEMPLATE_VERSION = "doc-cert-v3"  # v3 = brand watermark (v2: Tech Drona certificate template)
 
 PW, PH = 595.28, 841.89  # A4 portrait (points)
 PCX = PW / 2
@@ -59,6 +63,7 @@ PAPER_EDGE = (246, 238, 220)
 PANEL = (248, 241, 225)
 PANEL_LINE = (228, 208, 160)
 SLIP = (255, 252, 245)
+PANEL_OPACITY = 0.8  # panel / slip fills: near-identical on the paper, the brand mark shows through
 
 
 @dataclass(frozen=True)
@@ -93,6 +98,12 @@ class LetterArt:
     seal_image: bytes | None = field(default=None, repr=False)  # company stamp, beside the signature
     logo_left: bytes | None = field(default=None, repr=False)
     logo_right: bytes | None = field(default=None, repr=False)
+    watermark: bool = True  # faint Tech Drona mark behind every page
+    preview: bool = False  # draft: "DRAFT" reference, no QR / verify link, PREVIEW watermark
+
+    @property
+    def ref_shown(self) -> str:
+        return cp.PREVIEW_REF if self.preview else self.ref_no
 
 
 class _Letter:
@@ -106,8 +117,14 @@ class _Letter:
         self.y = 0.0
 
     # ----------------------------------------------------------------- page furniture
+    def finish_page(self) -> None:
+        """Over the finished page: the PREVIEW watermark (previews only)."""
+        if self.page_no and self.art.preview:
+            cp.preview_watermark(self.d, PW, PH)
+
     def new_page(self) -> None:
         d, a = self.d, self.art
+        self.finish_page()
         self.pdf.add_page()
         self.page_no += 1
         d.rect(0, 0, PW, PH, fill=PAPER_EDGE)
@@ -123,6 +140,8 @@ class _Letter:
             (PW - 23, PH - 23, -1, -1),
         ):
             cp._corner(d, cx, cy, sx, sy, 0.55)
+        if a.watermark:  # behind everything drawn on this page from here on
+            cp.brand_watermark(d, PCX, PH * 0.5, PW * 0.6)
         self._footer()
         if self.page_no == 1:
             self._letterhead()
@@ -131,8 +150,8 @@ class _Letter:
             y = 40 + 118 * cp.LOGO_RATIO + 10
             d.line(MARGIN_X - 14, y, PW - MARGIN_X + 14, y, GOLD, 0.7)
             d.line(MARGIN_X - 14, y + 2.4, PW - MARGIN_X + 14, y + 2.4, NAVY, 0.3)
-            d.text("gar", 7.6, f"Ref. {a.ref_no}  ·  continued", x=PW - MARGIN_X + 14, y=y + 14, color=SLATE,
-                   align="right")  # fmt: skip
+            d.text("gar", 7.6, f"Ref. {a.ref_shown}  ·  continued", x=PW - MARGIN_X + 14, y=y + 14,
+                   color=SLATE, align="right")  # fmt: skip
             self.y = TOP_CONT
 
     def _letterhead(self) -> None:
@@ -165,7 +184,8 @@ class _Letter:
         d.diamond(PCX, y + 1.4, 3.6, GOLD)
         y += 24
         lw = d.text("garSemi", 10, "Ref. No.:", x=MARGIN_X, y=y, color=NAVY, align="left")
-        d.text("gar", 10, a.ref_no, x=MARGIN_X + lw + 5, y=y, color=INK, align="left")
+        d.text("gar", 10, a.ref_shown, x=MARGIN_X + lw + 5, y=y, color=PREVIEW_RED if a.preview else INK,
+               align="left")  # fmt: skip
         dt = long_date(a.issued_on)
         dw = d.text("gar", 10, dt, x=PW - MARGIN_X, y=y, color=INK, align="right")
         d.text("garSemi", 10, "Date:", x=PW - MARGIN_X - dw - 5, y=y, color=NAVY, align="right")
@@ -184,23 +204,23 @@ class _Letter:
         fy = FOOT_Y
         d.line(MARGIN_X - 14, fy, PW - MARGIN_X + 14, fy, GOLD, 0.9)
         d.line(MARGIN_X - 14, fy + 2.6, PW - MARGIN_X + 14, fy + 2.6, NAVY, 0.3)
-        # left: verification
+        # left: verification (a preview has no QR / verify link: its reference does not exist)
         qx, qs = MARGIN_X - 14, 42.0
-        has_qr = cp.qr(d, a.verify_url, qx, fy + 11, qs)
-        tx = qx + (qs + 9 if has_qr else 0)
-        d.text("gar", 6.4, "SCAN TO VERIFY" if has_qr else "VERIFY ONLINE", x=tx, y=fy + 19, color=SLATE,
-               align="left", spacing=1.6)  # fmt: skip
-        d.text("garSemi", 8.4, a.ref_no, x=tx, y=fy + 31, color=NAVY, align="left")
-        host = _host(a.verify_url)
-        d.text(
-            "garIt",
-            d.fit_size("garIt", host, 7.4, 150, 5),
-            host,
-            x=tx,
-            y=fy + 41.5,
-            color=SLATE,
-            align="left",
-        )
+        if a.preview:
+            tx = qx
+            d.text("gar", 6.4, "PREVIEW  ·  NOT ISSUED", x=tx, y=fy + 19, color=PREVIEW_RED, align="left",
+                   spacing=1.6)  # fmt: skip
+            d.text("garSemi", 8.4, a.ref_shown, x=tx, y=fy + 31, color=NAVY, align="left")
+            cp.preview_note(d, tx, fy + 41.5, size=7.4, align="left", max_w=190)
+        else:
+            has_qr = cp.qr(d, a.verify_url, qx, fy + 11, qs)
+            tx = qx + (qs + 9 if has_qr else 0)
+            d.text("gar", 6.4, "SCAN TO VERIFY" if has_qr else "VERIFY ONLINE", x=tx, y=fy + 19, color=SLATE,
+                   align="left", spacing=1.6)  # fmt: skip
+            d.text("garSemi", 8.4, a.ref_no, x=tx, y=fy + 31, color=NAVY, align="left")
+            host = _host(a.verify_url)
+            d.text("garIt", d.fit_size("garIt", host, 7.4, 150, 5), host, x=tx, y=fy + 41.5, color=SLATE,
+                   align="left")  # fmt: skip
         d.text(
             "gar", 6.4, f"PAGE {self.page_no}", x=tx, y=fy + 52.5, color=GOLD_TEXT, align="left", spacing=1.4
         )
@@ -290,7 +310,9 @@ class _Letter:
         total = 26 + sum(heights)
         self.ensure(total + 8)
         top = self.y
-        d.rect(MARGIN_X, top, TEXT_W, total, fill=PANEL, stroke=PANEL_LINE, lw=0.6)
+        with self.pdf.local_context(fill_opacity=PANEL_OPACITY):  # the brand watermark shows through
+            d.rect(MARGIN_X, top, TEXT_W, total, fill=PANEL)
+        d.rect(MARGIN_X, top, TEXT_W, total, stroke=PANEL_LINE, lw=0.6)
         d.rect(MARGIN_X, top, 3, total, fill=NAVY)
         d.text(
             "pfBold", 8.2, "AT A GLANCE", x=MARGIN_X + 15, y=top + 16, color=NAVY, align="left", spacing=1.4
@@ -349,10 +371,12 @@ class _Letter:
         h = 96 + rows * 26
         self.ensure(h + 10)
         top = self.y + 6
-        d.rect(MARGIN_X, top, TEXT_W, h, fill=SLIP, stroke=GOLD, lw=0.7)
+        with self.pdf.local_context(fill_opacity=PANEL_OPACITY):
+            d.rect(MARGIN_X, top, TEXT_W, h, fill=SLIP)
+        d.rect(MARGIN_X, top, TEXT_W, h, stroke=GOLD, lw=0.7)
         d.rect(MARGIN_X + 3, top + 3, TEXT_W - 6, h - 6, stroke=GOLD_LIGHT, lw=0.3)
         d.text("pfBold", 10.5, "ACCEPTANCE OF OFFER", x=PCX, y=top + 21, color=NAVY, spacing=1.4)
-        d.text("gar", 7, f"PLEASE SIGN AND RETURN  ·  REF. {a.ref_no}", x=PCX, y=top + 33, color=GOLD_TEXT,
+        d.text("gar", 7, f"PLEASE SIGN AND RETURN  ·  REF. {a.ref_shown}", x=PCX, y=top + 33, color=GOLD_TEXT,
                spacing=1.0)  # fmt: skip
         txt = (
             f"I, {a.recipient_name}, have read and understood the terms of this letter and accept the offer "
@@ -377,7 +401,7 @@ def render_letter_pdf(art: LetterArt) -> bytes:
     """Render one letter; deterministic for equal ``art``."""
     lt = _Letter(art)
     pdf = lt.pdf
-    pdf.set_title(f"{art.heading} {art.ref_no}")
+    pdf.set_title(f"{art.heading} {art.ref_shown}" + (" (preview, not valid)" if art.preview else ""))
     pdf.set_author(art.company)
     pdf.set_subject(f"{art.heading}: {art.recipient_name}")
     pdf.set_creator("Tech Drona LMS")
@@ -417,6 +441,7 @@ def render_letter_pdf(art: LetterArt) -> bytes:
         lt.bullets(art.terms, numbered=True)
     if art.accept:
         lt.acceptance()
+    lt.finish_page()
     return bytes(pdf.output())
 
 
@@ -467,6 +492,8 @@ def certificate_art(
     logo_left: bytes | None = None,
     logo_right: bytes | None = None,
     lead: str = "",
+    watermark: bool = True,
+    preview: bool = False,
 ) -> CertificateArt:
     """The certificate template with the document type's wording.
 
@@ -531,6 +558,8 @@ def certificate_art(
         signature_image=signature_image,
         logo_left=logo_left,
         logo_right=logo_right,
+        watermark=watermark,
+        preview=preview,
     )
 
 

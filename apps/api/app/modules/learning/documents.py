@@ -134,8 +134,9 @@ async def save_settings(session: AsyncSession, actor: Actor, body: dict[str, Any
     merged = {**before, **{k: v for k, v in body.items() if k in dd.SETTINGS_TEXT_LIMITS}}
     if "reg_lines" in body:
         merged["reg_lines"] = body["reg_lines"]
-    if "auto_admission_letter" in body:
-        merged["auto_admission_letter"] = bool(body["auto_admission_letter"])
+    for flag in ("auto_admission_letter", "watermark"):
+        if flag in body:
+            merged[flag] = bool(body[flag])
     for k in ("email", "signatory_email"):
         if merged.get(k) and not dd.EMAIL_RE.match(str(merged[k]).strip()):
             raise ProblemError(
@@ -152,8 +153,8 @@ async def save_settings(session: AsyncSession, actor: Actor, body: dict[str, Any
         "documents.settings_change",
         "document_settings",
         None,
-        before={k: before.get(k) for k in dd.SETTINGS_TEXT_LIMITS},
-        after={k: after.get(k) for k in dd.SETTINGS_TEXT_LIMITS},
+        before={k: before.get(k) for k in (*dd.SETTINGS_TEXT_LIMITS, "watermark")},
+        after={k: after.get(k) for k in (*dd.SETTINGS_TEXT_LIMITS, "watermark")},
     )
     return after
 
@@ -369,7 +370,7 @@ async def templates_catalogue(session: AsyncSession) -> dict[str, Any]:
 _SNAPSHOT_KEYS = (
     "company", "legal_name", "address", "phone", "email", "website", "reg_lines", "signatory",
     "designation", "signatory_email", "signatory_phone", "signature_key", "seal_key",
-    "tagline", "logo_left_key", "logo_right_key",
+    "tagline", "logo_left_key", "logo_right_key", "watermark",
 )  # fmt: skip
 
 
@@ -430,9 +431,16 @@ async def compose(
 
 
 async def _art(
-    doc_type: str, ref_no: str, issued_on: date, recipient: dict[str, Any], content: dict[str, Any]
+    doc_type: str,
+    ref_no: str,
+    issued_on: date,
+    recipient: dict[str, Any],
+    content: dict[str, Any],
+    *,
+    preview: bool = False,
 ) -> Any:
     lh = content.get("letterhead") or {}
+    watermark = lh.get("watermark") is not False  # documents issued before the setting: on
     url = verify_url(ref_no, content.get("site_url"))
     sig = await _read_object(lh["signature_key"]) if lh.get("signature_key") else None
     logo_l = await _read_object(lh["logo_left_key"]) if lh.get("logo_left_key") else None
@@ -442,7 +450,8 @@ async def _art(
         return docpdf.certificate_art(
             doc_type=doc_type, name=recipient.get("name") or "", ref_no=ref_no, issued_on=issued_on,
             verify_url=url, extras=extras, settings=lh, signature_image=sig, logo_left=logo_l,
-            logo_right=logo_r, lead=(content.get("paragraphs") or [""])[0],
+            logo_right=logo_r, lead=(content.get("paragraphs") or [""])[0], watermark=watermark,
+            preview=preview,
         )  # fmt: skip
     seal = await _read_object(lh["seal_key"]) if lh.get("seal_key") else None
     sections = content.get("sections") or {}
@@ -489,13 +498,23 @@ async def _art(
         tagline=lh.get("tagline") or dd.DEFAULT_TAGLINE,
         logo_left=logo_l,
         logo_right=logo_r,
+        watermark=watermark,
+        preview=preview,
     )
 
 
 async def render_content(
-    doc_type: str, ref_no: str, issued_on: date, recipient: dict[str, Any], content: dict[str, Any]
+    doc_type: str,
+    ref_no: str,
+    issued_on: date,
+    recipient: dict[str, Any],
+    content: dict[str, Any],
+    *,
+    preview: bool = False,
 ) -> bytes:
-    art = await _art(doc_type, ref_no, issued_on, recipient, content)
+    """``preview``: a draft that is never stored ("DRAFT" reference, no QR / verify link, a
+    "PREVIEW · NOT VALID" watermark). Issued documents always render with ``preview=False``."""
+    art = await _art(doc_type, ref_no, issued_on, recipient, content, preview=preview)
     if dd.is_certificate(doc_type):
         return await asyncio.to_thread(docpdf.render_document_certificate, art)
     return await asyncio.to_thread(docpdf.render_letter_pdf, art)
@@ -699,7 +718,8 @@ async def preview(
     fields: dict[str, Any] | None,
     issue_date: date | None = None,
 ) -> dict[str, Any]:
-    """Draft PDF (nothing stored; reference ``TD-XX-YYYY-PREVEW``) + what still blocks issuing."""
+    """Draft PDF (nothing stored; reference ``TD-XX-YYYY-DRAFT``, printed as "DRAFT", no QR /
+    verify link, "PREVIEW · NOT VALID" watermark) + what still blocks issuing."""
     if doc_type not in dd.DOC_TYPES:
         raise ProblemError("validation_failed", detail="Unknown document type.")
     st = await load_settings(session)
@@ -709,12 +729,12 @@ async def preview(
     except ValueError as e:
         raise ProblemError("validation_failed", detail=str(e)) from e
     day = issue_date or ist_date(utcnow())
-    ref = f"TD-{dd.PREFIXES[doc_type]}-{day.year}-PREVEW"
+    ref = dd.preview_ref(doc_type, day.year)
     content = await compose(
         session, doc_type=doc_type, recipient=rcp, fields=f, issue_date=day, ref_no=ref, settings=st,
         site_url=_site_url(), strict=False,
     )  # fmt: skip
-    data = await render_content(doc_type, ref, day, rcp, content)
+    data = await render_content(doc_type, ref, day, rcp, content, preview=True)
     left = dd.leftover_tokens(
         content["paragraphs"], content["subject"], content["sections"], content["extras"]
     )

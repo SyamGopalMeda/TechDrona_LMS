@@ -58,6 +58,12 @@ export function setTheme(t: Theme): void {
   theme = t;
   for (const l of themeListeners) l();
 }
+/** "Match device": forget the saved choice; the portal follows the OS preference live again. */
+export function clearTheme(): void {
+  writeLS(THEME_KEY, null);
+  theme = computeTheme();
+  for (const l of themeListeners) l();
+}
 export function toggleTheme(): void {
   setTheme(theme === "dark" ? "light" : "dark");
 }

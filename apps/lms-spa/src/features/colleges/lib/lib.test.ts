@@ -7,6 +7,8 @@ import { mergeQuery, historyModeFor } from "./query";
 import { fmt } from "./fmt";
 import { collegesCsp, hostingHeaders } from "@/spa/hosting-headers";
 import { isCollegesPath } from "@/spa/nav-store";
+import { clearTheme, getTheme, setTheme } from "./prefs";
+import { moduleLinks } from "../shell/modules";
 
 function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
@@ -165,5 +167,29 @@ describe("hosting", () => {
     expect(rule?.headers[0]?.value).toBe(csp);
     expect(isCollegesPath("/colleges/college/c9")).toBe(true);
     expect(isCollegesPath("/college-portal/index.html")).toBe(false);
+  });
+});
+
+describe("prefs + module links", () => {
+  it("clearTheme forgets the saved choice and follows the device again", () => {
+    setTheme("dark");
+    expect(localStorage.getItem("td.theme")).toBe("dark");
+    clearTheme();
+    expect(localStorage.getItem("td.theme")).toBeNull();
+    expect(["light", "dark"]).toContain(getTheme());
+  });
+
+  it("opens every module outside /colleges with a full page load", () => {
+    const links = moduleLinks([
+      { key: "lms", title: "LMS", href: "/admin" },
+      { key: "colleges", title: "Colleges Management", href: "/colleges" },
+      { key: "website", title: "Website Admin", href: "/sso/website", external: true },
+    ] as never);
+    expect(links.map((l) => [l.key, l.href, l.reload, l.current])).toEqual([
+      ["lms", "/continue?area=lms&fallback=%2Fadmin", true, false],
+      ["colleges", "/colleges", false, true],
+      ["website", "/sso/website", true, false],
+      ["all", "/modules", true, false],
+    ]);
   });
 });

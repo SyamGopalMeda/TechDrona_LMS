@@ -74,6 +74,32 @@ export function configureApiClient(next: ApiClientHooks): () => void {
   };
 }
 
+/**
+ * Response observers (src/lib/api/session-cache.ts drops the cached identity on 401/403 and after
+ * sign-in / sign-out / grant changes). `path` is the API path without `/api/v1/` or a query.
+ * Observers must not throw; they never change the response.
+ */
+export interface ApiResponseEvent {
+  method: HttpMethod;
+  path: string;
+  status: number;
+  code?: string;
+}
+const responseListeners = new Set<(e: ApiResponseEvent) => void>();
+export function addApiResponseListener(fn: (e: ApiResponseEvent) => void): () => void {
+  responseListeners.add(fn);
+  return () => responseListeners.delete(fn);
+}
+function emitResponse(e: ApiResponseEvent): void {
+  for (const fn of responseListeners) {
+    try {
+      fn(e);
+    } catch {
+      /* an observer never breaks a request */
+    }
+  }
+}
+
 function doFetch(input: string, init: RequestInit): Promise<Response> {
   return (hooks.fetchImpl ?? globalThis.fetch)(input, init);
 }
@@ -220,7 +246,9 @@ async function send<T>(path: string, options: RequestOptions, raw: boolean): Pro
     }
 
     const requestId = res.headers.get("x-request-id");
+    const eventPath = url.slice(API_BASE.length + 1).split("?")[0]!;
 
+    if (res.ok && UNSAFE.has(method)) emitResponse({ method, path: eventPath, status: res.status });
     if (res.ok && raw) return res;
     if (res.ok) {
       if (res.status === 204 || res.status === 205) {
@@ -236,6 +264,7 @@ async function send<T>(path: string, options: RequestOptions, raw: boolean): Pro
 
     const problem = await readProblem(res);
     const code = problem?.code;
+    emitResponse({ method, path: eventPath, status: res.status, code });
 
     if (code === "csrf_failed" && !csrfRetried) {
       csrfRetried = true;

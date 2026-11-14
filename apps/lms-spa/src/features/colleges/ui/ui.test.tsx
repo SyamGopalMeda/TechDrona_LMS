@@ -54,6 +54,24 @@ describe("DataTable", () => {
     expect(screen.getByText("No colleges yet")).toBeInTheDocument();
   });
 
+  it("clears the selection when clearSelectionKey changes (no remount)", () => {
+    const onSelect = vi.fn();
+    const table = (k: number) => <DataTable<Row> rows={rows.slice(0, 3)} columns={columns} selectable onSelect={onSelect} clearSelectionKey={k} />;
+    const { rerender } = wrap(table(0));
+    fireEvent.click(screen.getAllByRole("checkbox", { name: "Select row" })[0]!);
+    expect(onSelect).toHaveBeenLastCalledWith([rows[0]]);
+    expect(screen.getAllByRole("checkbox", { name: "Select row" })[0]).toBeChecked();
+    rerender(
+      <MemoryRouter>
+        <PortalUiProvider value={ui()}>
+          {table(1)}
+          <OverlayHost />
+        </PortalUiProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getAllByRole("checkbox", { name: "Select row" }).some((c) => (c as HTMLInputElement).checked)).toBe(false);
+  });
+
   it("calls server sort / page handlers when given", () => {
     const onSort = vi.fn();
     const onPage = vi.fn();

@@ -217,6 +217,3 @@ export function searchHitHref(hit: { type: string; id: string; href?: string | n
   if (hit.type === "person") return portalPath.person(hit.id);
   return portalPath.home;
 }
-
-/** Old full-screen portal (cut-over not done yet: LMS links keep pointing here). */
-export const OLD_PORTAL_ENTRY = "/college-portal/index.html";

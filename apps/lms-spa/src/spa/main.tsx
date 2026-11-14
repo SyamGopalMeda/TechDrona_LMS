@@ -4,14 +4,25 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router";
 import { setRouter } from "./nav-store";
+import { readCsrfToken } from "@/lib/api/client";
+import { prefetchIdentityWithProbe } from "@/lib/api/session-cache";
 import { bootstrapSession, homeRedirect } from "./session";
 import { isNotFoundError, isRedirectError } from "./shims/navigation";
 import { routes } from "./routes.gen";
 
+/** Portal pages: their gate and header need `me/grants` and `me` (docs/perf/spa-requests.md). */
+const PORTAL_PATH = /^\/(app|admin|trainer|evaluator|studio|desk|finance|security|colleges|continue)(\/|$)/;
+
 async function start(): Promise<void> {
   // What the Next middleware did on a page load (remember-me re-sign-in, td_csrf), via the API
   // function, before any page asks the API for data (src/spa/session.ts).
-  const session = await bootstrapSession();
+  const probe = bootstrapSession();
+  // The portal gate's grants and the header's `me`, read alongside the probe instead of after it
+  // (and after the layout chunk). A browser that was signed in has a td_csrf cookie; a read that
+  // fails is retried once after the probe (it may re-issue the session). Served from the session
+  // cache (src/lib/api/session-cache.ts) when a recent reload already read them.
+  if (PORTAL_PATH.test(window.location.pathname) && readCsrfToken()) prefetchIdentityWithProbe(["me/grants", "me"], probe);
+  const session = await probe;
 
   // The LMS host's `/` (Caddy on the VM): /login when signed out, /modules when signed in.
   const home = homeRedirect(window.location.pathname, session);

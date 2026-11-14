@@ -152,7 +152,19 @@ describe("Certificates & documents: templates and settings", () => {
     await userEvent.type(screen.getByLabelText(/Signatory name/), "A Signatory");
     await userEvent.type(screen.getByLabelText(/Signatory designation/), "Director");
     await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
-    await waitFor(() => expect(api.calls.find((c) => c.method === "PUT")?.body).toMatchObject({ signatory: "A Signatory", designation: "Director", auto_admission_letter: true, reg_lines: [] }));
+    await waitFor(() => expect(api.calls.find((c) => c.method === "PUT")?.body).toMatchObject({ signatory: "A Signatory", designation: "Director", auto_admission_letter: true, watermark: true, reg_lines: [] }));
+  });
+
+  it("switches the Tech Drona watermark off", async () => {
+    const settings = { company: "Tech Drona", legal_name: "", tagline: "", address: "", phone: "", email: "", website: "", reg_lines: [], signatory: "A", designation: "B", signatory_email: "", signatory_phone: "", signatory2: "", designation2: "", portal_url: "", auto_admission_letter: true, watermark: true, images: { signature: false, seal: false, signature2: false, logo_left: false, logo_right: false }, problem: null, auto_send: false };
+    const api = mockApi({ "GET admin/documents/settings": { body: settings }, "PUT admin/documents/settings": { body: { ...settings, watermark: false } } });
+    cleanups.push(api.restore);
+    renderWithProviders(<DocSettingsTab onChanged={vi.fn()} />);
+    const box = await screen.findByRole("checkbox", { name: /Show Tech Drona watermark on documents/ });
+    await waitFor(() => expect(box).toBeChecked());
+    await userEvent.click(box);
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(api.calls.find((c) => c.method === "PUT")?.body).toMatchObject({ watermark: false }));
   });
 });
 

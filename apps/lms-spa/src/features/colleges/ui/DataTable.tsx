@@ -82,6 +82,8 @@ export interface DataTableProps<R> {
   rowActions?: (row: R) => RowAction<R>[];
   selectable?: boolean;
   onSelect?: (rows: R[]) => void;
+  /** change this value (e.g. a counter or the tab id) to clear the selection from outside */
+  clearSelectionKey?: unknown;
   loading?: boolean;
   error?: unknown;
   onRetry?: () => void;
@@ -115,6 +117,7 @@ export function DataTable<R>(props: DataTableProps<R>) {
   const [ownSort, setOwnSort] = useState<SortState>(props.sort ?? null);
   const [ownPage, setOwnPage] = useState(props.page ?? 1);
   const [selected, setSelected] = useState<Set<string | number>>(() => new Set());
+  useEffect(() => setSelected((s) => (s.size ? new Set() : s)), [props.clearSelectionKey]);
   const root = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 

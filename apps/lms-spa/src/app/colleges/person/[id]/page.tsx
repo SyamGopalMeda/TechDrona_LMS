@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import { ComingInThePort } from "@/features/colleges/shell/Placeholder";
+import { Person } from "@/features/colleges/screens/Person";
 
 export const metadata: Metadata = { title: { absolute: "Person · Tech Drona Outreach Portal" }, robots: { index: false, follow: false } };
 
-/** /colleges/person/:id — replaces js/views/people.js renderPerson (old route #/person/:id). Placeholder until ported. */
+/** /colleges/person/:id — port of js/views/people.js renderPerson (old route #/person/:id). */
 export default function Page() {
-  return <ComingInThePort title="Person" />;
+  return <Person />;
 }

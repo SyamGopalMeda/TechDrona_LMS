@@ -408,8 +408,19 @@ async def asm_01_my_tests(
             .where(Test.status == "published"),
         )
     ).all()
+    # ``a`` is eligible iff ``svc.eligible_assignments(t.id)`` (every assignment of the test, kept
+    # when eligible) lists it, and that filter only looks at ``a`` itself: the same predicate per
+    # row, with batch membership looked up once per batch (was: the test's assignments re-read
+    # and every batch re-checked for EACH row).
+    member: dict[uuid.UUID, bool] = {}
     for a, t in rows:
-        if a.id not in {x.id for x in await svc.eligible_assignments(session, principal, t.id)}:
+        if a.batch_id is not None:
+            if a.batch_id not in member:
+                member[a.batch_id] = await svc._member_of_batch(session, principal.user_id, a.batch_id)
+            eligible = member[a.batch_id]
+        else:
+            eligible = a.organization_id is not None and a.organization_id in principal.org_ids
+        if not eligible:
             continue
         entries.setdefault(t.id, {"test": t, "assignment": a})
     for t in (
@@ -427,10 +438,13 @@ async def asm_01_my_tests(
             t2 = await adb.get(session, Test, tid)
             if t2 is not None:
                 entries[tid] = {"test": t2, "assignment": None}
+    overrides = await svc.overrides_for_many(
+        session, principal.user_id, [(tid, e["assignment"]) for tid, e in entries.items()]
+    )
     items = []
     for tid, e in entries.items():
         t, a = e["test"], e["assignment"]
-        _, extra_attempts, window_ext = await svc.overrides_for(session, tid, principal.user_id, a)
+        _, extra_attempts, window_ext = overrides[tid]
         frm, until = svc.window_of(t, a)
         mine = by_test.get(tid, [])
         allowed = (a.attempts_allowed if a and a.attempts_allowed else None) or t.attempts_allowed

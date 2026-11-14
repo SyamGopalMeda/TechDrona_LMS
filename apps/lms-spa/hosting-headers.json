@@ -172,5 +172,23 @@
         "value": "private, no-cache"
       }
     ]
+  },
+  {
+    "source": "/colleges",
+    "headers": [
+      {
+        "key": "Content-Security-Policy",
+        "value": "default-src 'self'; script-src 'self' https://checkout.razorpay.com https://player.vdocipher.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://cdn.razorpay.com https://checkout.razorpay.com https://*.google-analytics.com https://www.googletagmanager.com https://techdrona-website.web.app https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com; font-src 'self' data:; connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com https://storage.googleapis.com https://vdo-ap-southeast.s3-accelerate.amazonaws.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com https://firebase.googleapis.com https://firebaseinstallations.googleapis.com https://firestore.googleapis.com https://techdrona-website.web.app; frame-src https://player.vdocipher.com https://api.razorpay.com https://checkout.razorpay.com https://www.youtube-nocookie.com https://player.vimeo.com https://docs.google.com https://drive.google.com; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self' https://storage.googleapis.com https://vdo-ap-southeast.s3-accelerate.amazonaws.com; frame-ancestors 'none'"
+      }
+    ]
+  },
+  {
+    "source": "/colleges/**",
+    "headers": [
+      {
+        "key": "Content-Security-Policy",
+        "value": "default-src 'self'; script-src 'self' https://checkout.razorpay.com https://player.vdocipher.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://cdn.razorpay.com https://checkout.razorpay.com https://*.google-analytics.com https://www.googletagmanager.com https://techdrona-website.web.app https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com; font-src 'self' data:; connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com https://storage.googleapis.com https://vdo-ap-southeast.s3-accelerate.amazonaws.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com https://firebase.googleapis.com https://firebaseinstallations.googleapis.com https://firestore.googleapis.com https://techdrona-website.web.app; frame-src https://player.vdocipher.com https://api.razorpay.com https://checkout.razorpay.com https://www.youtube-nocookie.com https://player.vimeo.com https://docs.google.com https://drive.google.com; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self' https://storage.googleapis.com https://vdo-ap-southeast.s3-accelerate.amazonaws.com; frame-ancestors 'none'"
+      }
+    ]
   }
 ]

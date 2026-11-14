@@ -1,7 +1,9 @@
-import { createContext, use, useContext, useState, type ReactNode } from "react";
+import { createContext, Suspense, use, useContext, useState, type ReactNode } from "react";
 import { useLocation } from "react-router";
+import { Skeleton } from "@/components/ui";
 import { isApiError } from "@/lib/api/errors";
-import { hasSessionCookie, serverApiGet } from "@/lib/api/server";
+import { hasSessionCookie } from "@/lib/api/server";
+import { clearIdentityCache, getIdentity, peekIdentity } from "@/lib/api/session-cache";
 import { PORTALS, type PortalKey } from "@/lib/nav/portals";
 import { ClientRedirect } from "@/spa/boundary";
 import { adminStudioRedirect, canEnterPortal, decideStudentArea, homePortal, studioAccess, type MyGrantsPortals } from "./access";
@@ -19,6 +21,10 @@ import { PortalForbidden } from "./PortalForbidden";
  * A signed-in user whose roles do not open this portal is sent straight to their own home portal
  * (a Student opening /admin lands on /app) — no error page. Only an account that opens no portal
  * at all sees the "no access yet" page.
+ *
+ * The grants come from the session cache (src/lib/api/session-cache.ts, docs/perf/spa-requests.md):
+ * usually already there (prefetched at app start, or read by an earlier portal), so the decision is
+ * made on the first render without a request; otherwise the portal skeleton shows meanwhile.
  */
 export type GateDecision = { kind: "enter"; grants?: MyGrantsPortals } | { kind: "redirect"; to: string } | { kind: "forbidden" };
 
@@ -36,20 +42,34 @@ export async function decideStaffPortal(portal: PortalKey): Promise<GateDecision
   const def = PORTALS[portal];
   let grants: MyGrantsPortals;
   try {
-    grants = await serverApiGet<MyGrantsPortals>("me/grants");
+    grants = await getIdentity<MyGrantsPortals>("me/grants");
   } catch (err) {
     if (isApiError(err) && err.status === 401) return { kind: "redirect", to: `/login?next=${encodeURIComponent(def.prefix)}` };
     return { kind: "enter" };
   }
+  return decideFromGrants(portal, grants);
+}
+
+function decideFromGrants(portal: PortalKey, grants: MyGrantsPortals): GateDecision {
   if (canEnterPortal(grants.portals, portal, grants.data?.map((g) => g.role_key))) return { kind: "enter", grants };
   const home = homePortal(grants.portals);
   if (home) return { kind: "redirect", to: home };
   return { kind: "forbidden" };
 }
 
+/** A promise React's `use()` reads synchronously (no suspension, no request). */
+function fulfilled<T>(value: T): Promise<T> {
+  const p = Promise.resolve(value) as Promise<T> & { status?: string; value?: T };
+  p.status = "fulfilled";
+  p.value = value;
+  return p;
+}
+
 /* One decision per portal entry; memoised briefly so a suspended first render reuses it. */
 const pending = new Map<PortalKey, { p: Promise<GateDecision>; at: number }>();
 function decisionFor(portal: PortalKey): Promise<GateDecision> {
+  const cached = peekIdentity<MyGrantsPortals>("me/grants");
+  if (cached) return fulfilled(decideFromGrants(portal, cached));
   const hit = pending.get(portal);
   if (hit && Date.now() - hit.at < 5_000) return hit.p;
   const p = decideStaffPortal(portal);
@@ -78,9 +98,35 @@ export function StudioScope({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-export function StaffPortalGate({ portal, children }: { portal: PortalKey; children: ReactNode }) {
+/**
+ * Shown while the gate waits for the grants (only when they are not cached yet): the portal
+ * header bar and content skeleton, instead of a blank page.
+ */
+export function PortalSkeleton() {
+  return (
+    <div aria-busy="true" className="min-h-dvh bg-surface-canvas">
+      <span className="sr-only">Loading…</span>
+      <div className="h-topbar border-b border-line bg-surface" />
+      <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
+        <Skeleton className="h-8 w-1/3" />
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-32 w-full" />
+      </div>
+    </div>
+  );
+}
+
+function StaffPortalGateInner({ portal, children }: { portal: PortalKey; children: ReactNode }) {
   const [decision] = useState(() => decisionFor(portal));
   return <GateView decision={use(decision)}>{portal === "studio" ? <StudioScope>{children}</StudioScope> : children}</GateView>;
+}
+
+export function StaffPortalGate({ portal, children }: { portal: PortalKey; children: ReactNode }) {
+  return (
+    <Suspense fallback={<PortalSkeleton />}>
+      <StaffPortalGateInner portal={portal}>{children}</StaffPortalGateInner>
+    </Suspense>
+  );
 }
 
 /* ---- Student portal (`/app`) gate — role/portal navigation fix (docs/firebase/agents/role-nav-fix.md) ---- */
@@ -103,7 +149,7 @@ export type StudentGrants = { kind: "grants"; grants: MyGrantsPortals | null } |
 export async function loadStudentGrants(): Promise<StudentGrants> {
   if (!(await hasSessionCookie())) return { kind: "grants", grants: null };
   try {
-    return { kind: "grants", grants: await serverApiGet<MyGrantsPortals>("me/grants") };
+    return { kind: "grants", grants: await getIdentity<MyGrantsPortals>("me/grants") };
   } catch (err) {
     if (isApiError(err) && err.status === 401) return { kind: "signin" };
     return { kind: "grants", grants: null };
@@ -112,6 +158,8 @@ export async function loadStudentGrants(): Promise<StudentGrants> {
 
 let studentPending: { p: Promise<StudentGrants>; at: number } | null = null;
 function studentGrantsFor(): Promise<StudentGrants> {
+  const cached = peekIdentity<MyGrantsPortals>("me/grants");
+  if (cached) return fulfilled({ kind: "grants", grants: cached });
   if (studentPending && Date.now() - studentPending.at < 5_000) return studentPending.p;
   const p = loadStudentGrants();
   studentPending = { p, at: Date.now() };
@@ -125,6 +173,14 @@ function studentGrantsFor(): Promise<StudentGrants> {
  * the chosen portal (the Student shell for students — unchanged for them).
  */
 export function StudentPortalGate({ children }: { children: (portal: PortalKey) => ReactNode }) {
+  return (
+    <Suspense fallback={<PortalSkeleton />}>
+      <StudentPortalGateInner>{children}</StudentPortalGateInner>
+    </Suspense>
+  );
+}
+
+function StudentPortalGateInner({ children }: { children: (portal: PortalKey) => ReactNode }) {
   const [p] = useState(studentGrantsFor);
   const loaded = use(p);
   const location = useLocation();
@@ -135,9 +191,10 @@ export function StudentPortalGate({ children }: { children: (portal: PortalKey) 
   return <>{children(decision.portal)}</>;
 }
 
-/** Tests: forget the memoised grants and the last shell. */
+/** Tests: forget the memoised grants (and the cached identity) and the last shell. */
 export function resetStudentGate(): void {
   studentPending = null;
   pending.clear();
   lastShell = null;
+  clearIdentityCache();
 }

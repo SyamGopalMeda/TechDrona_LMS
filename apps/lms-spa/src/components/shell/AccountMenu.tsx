@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
-import { api } from "@/lib/api/client";
+import { useIdentity } from "@/lib/api/session-cache";
 import { cn } from "@/lib/ui/cn";
 import { SITE_URL } from "@/lib/site/website";
 import { useSignOut } from "./SignOutButton";
@@ -29,28 +29,16 @@ function initialsOf(text: string): string {
  * Header account menu: who is signed in, account links (Settings, …) and Sign out (same logic and
  * unsynced-answers warning as SignOutButton). A disclosure, not an ARIA menu: Tab moves through
  * the links; Escape, a click outside and navigation close it. `GET me` failing just hides the name.
+ * `GET me` comes from the session cache (src/lib/api/session-cache.ts), shared with the pages.
  */
 export function AccountMenu({ links }: { links: AccountLink[] }) {
   const [open, setOpen] = useState(false);
-  const [me, setMe] = useState<MeSummary | null>(null);
+  const me = useIdentity<MeSummary>("me").data ?? null;
   const pathname = usePathname();
   const panelId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const { busy, start, dialog } = useSignOut();
-
-  useEffect(() => {
-    let live = true;
-    api
-      .get<MeSummary>("me", { handle: { stepUp: false, restriction: false, auth: false, sessionChoice: false } })
-      .then((r) => {
-        if (live) setMe(r);
-      })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, []);
 
   useEffect(() => setOpen(false), [pathname]);
 

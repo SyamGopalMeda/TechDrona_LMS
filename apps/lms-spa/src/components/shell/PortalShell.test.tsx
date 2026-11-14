@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * so the shared account pages (/app/settings/*, /app/account-status) that a staff member opens from
  * the account menu keep that staff shell instead of dropping them into the Student portal.
  */
-vi.mock("@/spa/session", () => ({ probeSession: () => Promise.resolve("yes") }));
+vi.mock("@/spa/session", () => ({ probeSession: () => Promise.resolve("yes"), onSessionReset: () => () => undefined }));
 vi.mock("./PortalSwitcher", () => ({ PortalSwitcher: () => null }));
 vi.mock("./ModuleSwitcher", () => ({ ModuleSwitcher: () => null }));
 vi.mock("@/features/notifications/components/NotificationBell", () => ({ NotificationBell: () => null }));

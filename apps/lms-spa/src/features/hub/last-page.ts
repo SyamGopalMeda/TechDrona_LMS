@@ -23,8 +23,9 @@ export const LAST_PAGE_KEY = "td.last_page";
 export const LAST_PAGE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Signed-in areas worth resuming: every portal (incl. the Admin sections) and the reader. */
-const TRACKED_PREFIXES: readonly string[] = [...Object.values(PORTALS).map((p) => p.prefix), "/read"];
-const COLLEGES_PREFIXES: readonly string[] = ["/admin/college-data", "/college-portal"];
+const TRACKED_PREFIXES: readonly string[] = [...Object.values(PORTALS).map((p) => p.prefix), "/read", "/colleges"];
+/** The Outreach Portal (/colleges, React) and its old entry points (the Admin page now redirects to it). */
+const COLLEGES_PREFIXES: readonly string[] = ["/colleges", "/admin/college-data", "/college-portal"];
 
 function under(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
@@ -58,6 +59,8 @@ export function allowedFor(path: string, portals: readonly string[]): boolean {
   // opens the Student portal; the shared account pages (settings, account status) open for all.
   if (under(pathname, "/read") || isSharedAccountPath(pathname)) return true;
   if (under(pathname, "/app")) return portals.includes("/app");
+  // The Outreach Portal opens for the Admin portal grant (CollegesGate, the proxy, hub can_open_colleges).
+  if (under(pathname, "/colleges")) return portals.includes("/admin");
   const def = Object.values(PORTALS).find((p) => under(pathname, p.prefix));
   if (!def) return false;
   if (portals.includes(def.prefix)) return true;
@@ -107,8 +110,8 @@ export function clearLastPage(): void {
  * Where /continue should go: the remembered page when it is safe, recent, in the requested area
  * and open to this user; otherwise `fallback`.
  */
-/** The College Data Portal, full screen (no LMS shell around it). */
-export const FULL_SCREEN_COLLEGES = "/college-portal/index.html";
+/** The Outreach (College Data) Portal, full screen (no LMS shell around it): the React portal at /colleges. */
+export const FULL_SCREEN_COLLEGES = "/colleges";
 
 export function pickContinueTarget(opts: {
   record: LastPage | null;
@@ -128,8 +131,8 @@ export function pickContinueTarget(opts: {
   if (!path || !isTrackablePath(path)) return fallback;
   if (area && areaOf(path) !== area) return fallback;
   if (!allowedFor(path, portals)) return fallback;
-  // Resuming Colleges always lands on the full-screen portal, not the embedded Admin page.
-  if (areaOf(path) === "colleges" && under(pathnameOf(path), "/admin/college-data")) return FULL_SCREEN_COLLEGES;
+  // Resuming Colleges always lands on the full-screen portal (/colleges/...), never an old entry point.
+  if (areaOf(path) === "colleges" && !under(pathnameOf(path), "/colleges")) return FULL_SCREEN_COLLEGES;
   return path;
 }
 
@@ -137,7 +140,7 @@ export function pickContinueTarget(opts: {
 export function continueFallback(area: ContinueArea | undefined, requested: string | null | undefined): string {
   const safe = safeNextPath(requested, "");
   if (safe && (isTrackablePath(safe) || pathnameOf(safe) === "/modules")) return safe;
-  return area === "colleges" ? "/college-portal/index.html" : "/modules";
+  return area === "colleges" ? FULL_SCREEN_COLLEGES : "/modules";
 }
 
 /** Build a /continue link. */
@@ -149,7 +152,11 @@ export function continueHref(area?: ContinueArea, fallback?: string): string {
   return `/continue${s ? `?${s}` : ""}`;
 }
 
-/** Pages that rely on their own per-document CSP must be opened with a full page load. */
+/**
+ * Pages that rely on their own per-document CSP must be opened with a full page load: the Outreach Portal
+ * (/colleges, map tiles in img-src) and the old portal URLs (Hosting redirects them to /colleges).
+ */
 export function needsDocumentLoad(path: string): boolean {
-  return under(pathnameOf(path), "/admin/college-data") || under(pathnameOf(path), "/college-portal");
+  const p = pathnameOf(path);
+  return under(p, "/colleges") || under(p, "/admin/college-data") || under(p, "/college-portal");
 }

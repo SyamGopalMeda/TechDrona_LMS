@@ -36,9 +36,28 @@ def test_sync_keeps_foreign_rewrites_and_headers() -> None:
     out = sync.lms_hosting("https://site.example", existing)
     sources = [r["source"] for r in out["rewrites"]]
     # /college-portal{,/**} -> lmsApi (College Data Portal on Cloud Run, 2026-11-14) precede foreign rewrites.
-    assert sources == ["/api/**", "/sitemap.xml", "/college-portal", "/college-portal/**", "/robots.txt", "**"]
+    assert sources == [
+        "/api/**",
+        "/sitemap.xml",
+        "/college-portal",
+        "/college-portal/**",
+        "/robots.txt",
+        "**",
+    ]
     assert out["rewrites"][0]["function"]["functionId"] == "lmsApi"
     star = next(r for r in out["headers"] if r["source"] == "**")
     keys = [h["key"] for h in star["headers"]]
     assert keys[:2] == ["Strict-Transport-Security", "X-Robots-Tag"] and "X-Extra" in keys
     assert any(r["source"] == "/special" for r in out["headers"])
+
+
+def test_old_portal_entries_redirect_to_the_react_portal_and_the_api_stays_proxied() -> None:
+    out = sync.lms_hosting("https://site.example", {})
+    redirects = {r["source"]: r for r in out["redirects"]}
+    for src in ("/college-portal", "/college-portal/", "/college-portal/index.html"):
+        assert redirects[src] == {"source": src, "destination": "/colleges", "type": 302}
+    # nothing redirects the data API (/college-portal/api/*): it is still rewritten to lmsApi
+    assert set(redirects) >= {"/college-portal", "/college-portal/", "/college-portal/index.html"}
+    assert not any(s.startswith("/college-portal/api") for s in redirects)
+    rewrites = {r["source"]: r for r in out["rewrites"]}
+    assert rewrites["/college-portal/**"]["function"]["functionId"] == "lmsApi"

@@ -629,8 +629,30 @@ async def login(body: LoginIn, request: Request, session: DbSession) -> JSONResp
     digests = identifier_digests(kind, value)
     record_id = identifier_digest(kind, value)
 
+    async def lookup() -> tuple[User | None, Any]:
+        u = await ids.find_user(session, kind, value) if ident else None
+        return u, (await ids.get_credential(session, u.id) if u else None)
+
+    # Firebase stack (no Postgres session): the read-only gate checks and the account lookup run
+    # together (one round trip); the outcomes are applied in the same order as before.
+    pre: tuple[Any, ...] | None = None
+    if not session:
+        pre = tuple(
+            await asyncio.gather(
+                ss.ip_failures_exceeded(session, info.ip),
+                ss.backoff_remaining(session, digests),
+                lookup(),
+                return_exceptions=True,
+            )
+        )
+
+    def _got(v: Any) -> Any:
+        if isinstance(v, BaseException):
+            raise v
+        return v
+
     # Pre-auth gates (never count toward the account's failure counter).
-    if await ss.ip_failures_exceeded(session, info.ip):
+    if _got(pre[0]) if pre else await ss.ip_failures_exceeded(session, info.ip):
         await ss.record_login_attempt(
             session,
             identifier=record_id,
@@ -643,7 +665,7 @@ async def login(body: LoginIn, request: Request, session: DbSession) -> JSONResp
         return problem_response(
             ProblemError("throttled", headers={"Retry-After": "600"}, retry_after_seconds=600)
         )
-    wait = await ss.backoff_remaining(session, digests)
+    wait = _got(pre[1]) if pre else await ss.backoff_remaining(session, digests)
     if wait:
         await ss.record_login_attempt(
             session,
@@ -658,8 +680,7 @@ async def login(body: LoginIn, request: Request, session: DbSession) -> JSONResp
             ProblemError("throttled", headers={"Retry-After": str(wait)}, retry_after_seconds=wait)
         )
 
-    user = await ids.find_user(session, kind, value) if ident else None
-    cred = await ids.get_credential(session, user.id) if user else None
+    user, cred = _got(pre[2]) if pre else await lookup()
     ok = await ids.check_password(cred, body.password)
     # TD_SIMPLE_AUTH: no "sign-in paused, reset your password" hard lock (the reset email may not
     # be connected); the IP / per-account back-off throttling above still applies.
@@ -702,8 +723,14 @@ async def login(body: LoginIn, request: Request, session: DbSession) -> JSONResp
     await ids.maybe_rehash(cred, body.password)
     from app.modules.rbac.service import active_grants, tier_for
 
-    tier = tier_for(await active_grants(session, user.id))
-    restriction = await lookup_restriction(session, user.id, user.restriction_level)
+    if session:
+        grants = await active_grants(session, user.id)
+        restriction = await lookup_restriction(session, user.id, user.restriction_level)
+    else:
+        grants, restriction = await asyncio.gather(
+            active_grants(session, user.id), lookup_restriction(session, user.id, user.restriction_level)
+        )
+    tier = tier_for(grants)
     if restriction.takeover_lock:
         await ss.record_login_attempt(
             session, identifier=record_id, user_id=user.id, outcome="restricted", info=info

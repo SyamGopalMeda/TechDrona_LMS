@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import { ComingInThePort } from "@/features/colleges/shell/Placeholder";
+import { Town } from "@/features/colleges/screens/Town";
 
 export const metadata: Metadata = { title: { absolute: "Town · Tech Drona Outreach Portal" }, robots: { index: false, follow: false } };
 
-/** /colleges/d/:district/:city — replaces js/views/geo.js renderCity (old route #/d/:district/:city). Placeholder until ported. */
+/** /colleges/d/:district/:city — town page (old js/views/geo.js renderCity, route #/d/:district/:city). */
 export default function Page() {
-  return <ComingInThePort title="Town" />;
+  return <Town />;
 }

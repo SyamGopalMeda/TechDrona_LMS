@@ -15,6 +15,7 @@ Not implemented: LRN-25..27 bookmarks (no table in database-schema §7).
 
 from __future__ import annotations
 
+import asyncio
 import re
 import uuid
 from datetime import datetime
@@ -113,8 +114,14 @@ async def _my_enrolments(session: Any, user_id: uuid.UUID) -> list[tuple[Enrolme
                 )
             ).scalars()
         )
-    courses = await catalog_api.get_courses(session, {e.course_id for e in enrols})
-    versions = await catalog_api.get_versions(session, {e.course_version_id for e in enrols})
+    course_ids, version_ids = {e.course_id for e in enrols}, {e.course_version_id for e in enrols}
+    if session:
+        courses = await catalog_api.get_courses(session, course_ids)
+        versions = await catalog_api.get_versions(session, version_ids)
+    else:  # no Postgres session: both lookups in one round trip
+        courses, versions = await asyncio.gather(
+            catalog_api.get_courses(session, course_ids), catalog_api.get_versions(session, version_ids)
+        )
     # inner-join semantics: enrolments whose course or version is not visible are dropped
     return [
         (e, courses[e.course_id], versions[e.course_version_id])
@@ -130,16 +137,27 @@ async def _my_enrolments(session: Any, user_id: uuid.UUID) -> list[tuple[Enrolme
 async def dashboard(
     session: PrincipalDbSession, principal: Principal = Depends(require_active_principal)
 ) -> dict[str, Any]:
-    enrols = await _my_enrolments(session, principal.user_id)
+    certs: Any
+    if fss.fs() and not session:
+        # Firebase stack: the three independent reads (enrolments, assigned work, certificates)
+        # run together instead of one after another.
+        enrols, assignments, certs = await asyncio.gather(
+            _my_enrolments(session, principal.user_id),
+            _my_assignments(session, principal),
+            fs_enrol.my_certificates(session, principal.user_id),
+        )
+    else:
+        enrols = await _my_enrolments(session, principal.user_id)
+        assignments = await _my_assignments(session, principal)
     cont = [enrolment_out(e, c, v) for e, c, v in enrols if e.status == "active"][:5]
-    assignments = await _my_assignments(session, principal)
     now = utcnow()
     due = [
         a for a in assignments if a["my_status"] in ("not_submitted", "returned") and a["window"] != "closed"
     ]
     due.sort(key=lambda a: a["due_at"] or "9999")
     if fss.fs():
-        certs: Any = await fs_enrol.my_certificates(session, principal.user_id)
+        if session:
+            certs = await fs_enrol.my_certificates(session, principal.user_id)
     else:
         certs = (
             await session.execute(

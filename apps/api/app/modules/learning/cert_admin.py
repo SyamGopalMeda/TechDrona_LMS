@@ -308,8 +308,8 @@ async def due_preview(
     body: DuePreviewIn, session: PrincipalDbSession, principal: Principal = _perm()
 ) -> dict[str, Any]:
     """The certificate this enrolment would get (name, course, today), drawn by the same renderer
-    as the real one with a placeholder number. Nothing is stored; "issue all" stays a separate
-    step (the Due tab asks for a preview first)."""
+    as the real one in preview mode ("DRAFT" number, no QR / verify link, "PREVIEW · NOT VALID").
+    Nothing is stored; "issue all" stays a separate step (the Due tab asks for a preview first)."""
     import base64
 
     from app.core.ids import uuid7
@@ -334,7 +334,7 @@ async def due_preview(
         content_hash=b"",
         issued_at=utcnow(),
     )
-    data = await certs.render_pdf(session, draft)
+    data = await certs.render_pdf(session, draft, preview=True)
     title = (await certs.course_titles(session, {enr.course_version_id})).get(enr.course_version_id)
     return {
         "pdf_base64": base64.b64encode(data).decode("ascii"),

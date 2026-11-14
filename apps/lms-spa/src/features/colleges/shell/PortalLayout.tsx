@@ -4,7 +4,8 @@
  *
  * Owns: theme + device attributes, top bar (brand, district scope, global search, Modules, theme, account),
  * collapsible sidebar, phone tab bar + More sheet, banners (offline / scope rejected / view-only / demo data),
- * breadcrumb + section tabs, the overlay root (modals, menus, toasts), /meta + /program loading (district
+ * breadcrumb + section tabs, the overlay root (modals, menus, toasts) + the shared dialogs host (FormsHost), the
+ * per-session official-sources re-check (live/store startLive), /meta + /program loading (district
  * names and target groups for the scope), `?d=` scope sync, legacy `#/…` links, and scroll-to-top per page.
  * Screens render as `children` (inside the route segment's error boundary + Suspense skeleton).
  */
@@ -26,6 +27,8 @@ import { Button } from "../ui/Button";
 import { PortalUiProvider, cx } from "../ui/context";
 import { Menu } from "../ui/Menu";
 import { OverlayHost, toast } from "../ui/Overlay";
+import { FormsHost } from "../forms/host";
+import { startLive } from "../screens/live/store";
 import { AccountDialog, Banners, Brand, Crumbs, MoreSheet, SectionTabs, Sidebar, TabBar, UserButton } from "./Chrome";
 import { GlobalSearch, type GlobalSearchHandle } from "./GlobalSearch";
 import { useModuleLinks } from "./modules";
@@ -89,6 +92,9 @@ export function PortalLayout({ children }: { children: ReactNode }) {
       window.removeEventListener("online", back);
     };
   }, []);
+
+  /* ---- official sources: one background re-check per portal session (the old shell's startLive) ---- */
+  useEffect(() => startLive(), []);
 
   /* ---- scope context (district names + target groups) ---- */
   useEffect(() => {
@@ -286,6 +292,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
           />
           <AccountDialog open={acctOpen} onClose={() => setAcctOpen(false)} user={user} role={role} />
           <OverlayHost />
+          <FormsHost />
         </PageMetaProvider>
       </PortalUiProvider>
       <div ref={setOverlayRoot} className="td-overlays" />

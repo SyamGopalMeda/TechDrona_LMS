@@ -63,8 +63,8 @@ describe("portal registry (w3web)", () => {
 
   it("links the College Data Portal once, as Colleges Data in its own Colleges section", () => {
     const admin = PORTALS.admin.nav;
-    const i = admin.findIndex((n) => n.href === "/college-portal/index.html");
-    expect(admin[i]).toEqual({ href: "/college-portal/index.html", label: "Colleges Data", screen: "ADM-015", section: "Colleges", documentNav: true });
+    const i = admin.findIndex((n) => n.href === "/colleges");
+    expect(admin[i]).toEqual({ href: "/colleges", label: "Colleges Data", screen: "ADM-015", section: "Colleges", documentNav: true });
     expect(admin.filter((n) => n.screen === "ADM-015")).toHaveLength(1);
     expect(admin.filter((n) => n.section === "Colleges")).toHaveLength(1);
   });
@@ -105,7 +105,7 @@ describe("visibleNav (live audit nav cleanup)", () => {
     for (const gone of [...GATEWAY, "/security/unblock-requests", "/security/rules", "/security/reports", "/admin/feature-flags", "/admin/break-glass"]) {
       expect(h, gone).not.toContain(gone);
     }
-    for (const kept of ["/admin", "/admin/approvals", "/admin/users", "/admin/roles", "/admin/courses", "/admin/batches", "/admin/certificates", "/finance/admissions", "/finance/admissions/verify", "/finance/admissions/registrations", "/finance/admissions/plans", "/desk", "/desk/unblock-requests", "/security", "/security/incidents", "/security/cases", "/security/restrictions", "/admin/audit", "/admin/policies", "/admin/system", "/college-portal/index.html", ACCOUNT_SETTINGS_HREF]) {
+    for (const kept of ["/admin", "/admin/approvals", "/admin/users", "/admin/roles", "/admin/courses", "/admin/batches", "/admin/certificates", "/finance/admissions", "/finance/admissions/verify", "/finance/admissions/registrations", "/finance/admissions/plans", "/desk", "/desk/unblock-requests", "/security", "/security/incidents", "/security/cases", "/security/restrictions", "/admin/audit", "/admin/policies", "/admin/system", "/colleges", ACCOUNT_SETTINGS_HREF]) {
       expect(h, kept).toContain(kept);
     }
     expect([...new Set(shown.map((n) => n.section))]).toEqual(["Overview", "People", "Colleges", "Website", "Learning", "Payments", "Support", "Security", "Settings"]);

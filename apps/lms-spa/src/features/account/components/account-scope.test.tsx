@@ -5,6 +5,7 @@ import { mockApi, renderWithProviders } from "@/features/auth/test/mock-api";
 import { accountScope, STUDENT_SCOPE } from "../lib/account-scope";
 import { ProfileSettings } from "./ProfileSettings";
 import { DevicePolicyCard } from "./SecurityActivity";
+import { clearIdentityCache } from "@/lib/api/session-cache";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 
@@ -90,6 +91,8 @@ describe("DevicePolicyCard on the shared Devices page", () => {
     expect(await screen.findByText("Videos playing at once")).toBeInTheDocument();
     unmount();
     r.restore();
+    // Another account: in the app that is a sign-out + sign-in, which clears the session cache.
+    clearIdentityCache();
 
     restore = mockApi({ "GET me/device-policy": { body: policy }, "GET me/grants": { body: ADMIN_GRANTS } }).restore;
     renderWithProviders(<DevicePolicyCard />);

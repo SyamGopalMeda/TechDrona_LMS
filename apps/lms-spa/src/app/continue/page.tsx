@@ -2,7 +2,8 @@ import { asyncComponent } from "@/spa/async";
 import { redirect } from "next/navigation";
 import { ACCEPT_TERMS_PATH, CHANGE_PASSWORD_PATH, isRequiredConsentProblem, mfaEnrolPath } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import { hasSessionCookie, serverApiGet } from "@/lib/api/server";
+import { hasSessionCookie } from "@/lib/api/server";
+import { getIdentity } from "@/lib/api/session-cache";
 import { ContinueRedirect } from "@/features/hub/ContinueRedirect";
 import { type ContinueArea, continueFallback } from "@/features/hub/last-page";
 
@@ -30,7 +31,7 @@ async function ContinuePage__server({ searchParams }: { searchParams: Promise<Re
   // browser is never resumed. Unknown (api error) → just use the fallback.
   let portals: string[] | null = null;
   try {
-    portals = (await serverApiGet<{ portals?: string[] }>("me/grants")).portals ?? ["/app"];
+    portals = (await getIdentity<{ portals?: string[] }>("me/grants")).portals ?? ["/app"];
   } catch (e) {
     if (e instanceof ApiError) {
       if (e.code === "mfa_enrolment_required") redirect(mfaEnrolPath(e.problem?.enrol_url));

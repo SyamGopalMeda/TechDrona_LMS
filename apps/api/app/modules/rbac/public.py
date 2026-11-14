@@ -9,6 +9,7 @@ execute one, mutate the returned object and call ``save_approval`` (Firestore: o
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
@@ -49,6 +50,19 @@ async def role_by_key(session: AsyncSession, role_key: str) -> Role | None:
     return (await session.execute(select(Role).where(Role.role_key == role_key))).scalar_one_or_none()
 
 
+async def _grants_of_users(repo: Any, coll: str, uids: set[uuid.UUID], f: tuple[Any, ...]) -> list[Any]:
+    """Grant documents of up to 30 users: ONE ``user_id in [...]`` query (billed per grant found,
+    one round trip) instead of one query per user. If the project refuses that query shape, the
+    per-user queries answer instead (sent together), so the result never changes."""
+    from google.api_core import exceptions as gexc
+
+    try:
+        return await repo._all(coll, filters=(*f, ("user_id", "in", sorted(str(u) for u in uids))))
+    except gexc.FailedPrecondition:
+        parts = await asyncio.gather(*(repo._all(coll, user_id=u, filters=f) for u in uids))
+        return [d for part in parts for d in part]
+
+
 async def live_grants(
     session: AsyncSession,
     *,
@@ -72,9 +86,7 @@ async def live_grants(
             f.append(("scope_type", "==", scope_type))
         repo = _repo()
         if uids is not None and len(uids) <= 30:
-            docs = []
-            for u in uids:
-                docs += await repo._all(GRANTS, user_id=u, filters=tuple(f))
+            docs = await _grants_of_users(repo, GRANTS, uids, tuple(f))
         else:
             docs = await repo._all(GRANTS, filters=tuple(f))
         rows = [repo._grant(d) for d in docs]

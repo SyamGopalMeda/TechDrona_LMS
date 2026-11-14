@@ -148,6 +148,7 @@ class SettingsIn(Strict):
     designation2: str | None = Field(default=None, max_length=80)
     portal_url: str | None = Field(default=None, max_length=200)
     auto_admission_letter: bool | None = None
+    watermark: bool | None = None
 
 
 class ImageIn(Strict):

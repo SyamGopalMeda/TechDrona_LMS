@@ -37,7 +37,7 @@ const NAV_ICONS: Record<string, IconName> = {
   "/admin/system": "layers",
   "/admin/break-glass": "alert",
   "/admin/college-data": "building",
-  "/college-portal/index.html": "building",
+  "/colleges": "building",
   // student
   "/app": "home",
   "/app/learning": "book",

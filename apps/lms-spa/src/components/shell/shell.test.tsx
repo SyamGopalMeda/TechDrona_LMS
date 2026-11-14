@@ -76,3 +76,25 @@ describe("PortalSwitcher (FE-32)", () => {
     expect(screen.queryByText("Switch portal")).not.toBeInTheDocument();
   });
 });
+
+describe("shell identity reads share the session cache (docs/perf/spa-requests.md)", () => {
+  it("two switchers and the account menu make one me/grants and one me request", async () => {
+    const { AccountMenu } = await import("./AccountMenu");
+    const api = mockApi({
+      "GET me/grants": { body: { data: [], portals: ["/app", "/trainer"] } },
+      "GET me": { body: { user: { email: "a@example.com" }, profile: { display_name: "Asha Rao" } } },
+    });
+    restore = api.restore;
+    renderWithProviders(
+      <>
+        <PortalSwitcher current="student" />
+        <PortalSwitcher current="trainer" />
+        <AccountMenu links={[]} />
+      </>,
+    );
+    expect(await screen.findAllByText("Switch portal")).toHaveLength(2);
+    expect(await screen.findByRole("button", { name: "Account: Asha Rao" })).toBeInTheDocument();
+    expect(api.calls.filter((c) => c.path === "me/grants")).toHaveLength(1);
+    expect(api.calls.filter((c) => c.path === "me")).toHaveLength(1);
+  });
+});

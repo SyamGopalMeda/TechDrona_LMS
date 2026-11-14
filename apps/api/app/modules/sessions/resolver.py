@@ -6,9 +6,11 @@ resolver's own transaction before the 401 is raised, so a replayed/stolen cookie
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any
 
 from fastapi import Request
 from sqlalchemy import select
@@ -27,6 +29,7 @@ from app.modules.identity.fs_codec import obj_doc
 from app.modules.identity.links import web_link, web_path
 from app.modules.identity.public import User
 from app.modules.identity.service import active_factors, is_confirmed_strong
+from app.modules.sessions import hooks as _hooks
 from app.modules.sessions import service as ss
 from app.modules.sessions.hooks import (
     RestrictionState,
@@ -70,22 +73,81 @@ class _Deny:
 
 
 async def org_ids_for(
-    session: AsyncSession, user_id: uuid.UUID, grant_orgs: set[uuid.UUID]
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    grant_orgs: set[uuid.UUID],
+    member_orgs: list[uuid.UUID] | None = None,
 ) -> tuple[uuid.UUID, ...]:
     from app.modules.orgs import public as orgs_public
 
-    rows = await orgs_public.active_org_ids(session, user_id)
+    rows = member_orgs if member_orgs is not None else await orgs_public.active_org_ids(session, user_id)
     return tuple(sorted(set(rows) | grant_orgs, key=str))
 
 
+@dataclass(frozen=True, slots=True)
+class _Prefetch:
+    """Reads ``_resolve`` needs once the session row is known, run CONCURRENTLY on the Firestore
+    stack (one round trip instead of ~7 sequential ones). Each field holds the result or the
+    exception the lookup raised; ``_got`` re-raises it where the sequential code made that call,
+    so the checks, their order, their side effects and their errors are unchanged (a denied
+    request only paid for reads it then ignores)."""
+
+    device_ok: Any
+    user: Any
+    restriction: Any  # None: no lookup registered (derived from the user row, no I/O)
+    grants: Any
+    member_orgs: Any
+    factors: Any
+    consents: Any  # None: this route does not check consents
+
+
+def _got(v: Any) -> Any:
+    if isinstance(v, BaseException):
+        raise v
+    return v
+
+
+async def _none() -> None:
+    return None
+
+
+async def _prefetch(
+    session: AsyncSession, s: AuthSession, info: ss.ClientInfo, needs_consents: bool
+) -> _Prefetch:
+    from app.modules.identity.repo_firestore import system_repo as identity_repo
+    from app.modules.orgs import public as orgs_public
+    from app.modules.rbac.service import active_grants
+
+    res = await asyncio.gather(
+        ss.device_hash_matches(session, s.device_id, info.device_token),
+        identity_repo().get_user(s.user_id),
+        lookup_restriction(session, s.user_id, 0) if _hooks.restriction_lookup_registered() else _none(),
+        active_grants(session, s.user_id),
+        orgs_public.active_org_ids(session, s.user_id),
+        active_factors(session, s.user_id),
+        missing_consents(session, s.user_id) if needs_consents else _none(),
+        return_exceptions=True,
+    )
+    return _Prefetch(*res)
+
+
 async def build_principal(
-    session: AsyncSession, s: AuthSession, user: User, restriction: RestrictionState
+    session: AsyncSession,
+    s: AuthSession,
+    user: User,
+    restriction: RestrictionState,
+    pre: _Prefetch | None = None,
 ) -> Principal:
     from app.modules.rbac.service import active_grants, has_platform_staff_grant
 
-    grants = await active_grants(session, user.id)
-    orgs = await org_ids_for(session, user.id, {g.organization_id for g in grants if g.organization_id})
-    factors = await active_factors(session, user.id)
+    grants = _got(pre.grants) if pre else await active_grants(session, user.id)
+    orgs = await org_ids_for(
+        session,
+        user.id,
+        {g.organization_id for g in grants if g.organization_id},
+        _got(pre.member_orgs) if pre else None,
+    )
+    factors = _got(pre.factors) if pre else await active_factors(session, user.id)
     mfa_level = (
         "passkey"
         if any(f.factor_type == "webauthn" for f in factors)
@@ -111,6 +173,15 @@ async def build_principal(
         is_minor=user.is_minor,
         privacy_tier=user.privacy_tier,
     )
+
+
+_PREFETCH_MODULES = ("sessions", "identity", "rbac", "orgs")
+
+
+def _can_prefetch(session: AsyncSession) -> bool:
+    """Concurrent reads need a stack where none of them goes through the (single, not
+    concurrency-safe) Postgres session: no Postgres session, and every module read on Firestore."""
+    return not session and all(ss.uses_firestore(m) for m in _PREFETCH_MODULES)
 
 
 class SessionsResolver:
@@ -154,6 +225,16 @@ class SessionsResolver:
             return _Deny(ProblemError("session_expired", reason="idle_timeout"))
 
         info = ss.client_info(request)
+        # Changing your own password never waits for the terms step (a new admin-created user
+        # must be able to replace the default password first; live check 2026-11-12).
+        pw_change = (ctx.method.upper(), ctx.path.removeprefix(_API_PREFIX)) == (
+            "POST",
+            "/auth/password/change",
+        )
+        needs_consents = s.status == "active" and ctx.route_tag not in _CONSENT_EXEMPT and not pw_change
+        # Firebase stack (no Postgres session, every store module on Firestore): the independent
+        # reads of steps 4-11 run together.
+        pre = await _prefetch(session, s, info, needs_consents) if _can_prefetch(session) else None
         # 4. stolen-cookie replay: device cookie or UA family/OS drift -> revoke THIS session only
         # Simple auth (owner decision 2026-11-12): a browser/OS label change (e.g. Chrome's
         # "Desktop site" toggle on a phone) no longer signs the user out; the device cookie still
@@ -162,7 +243,12 @@ class SessionsResolver:
             (s.ua_family and info.ua.family != s.ua_family)
             or (s.os_family and info.ua.os_family != s.os_family)
         )
-        if not await ss.device_hash_matches(session, s.device_id, info.device_token) or drift:
+        device_ok = (
+            _got(pre.device_ok)
+            if pre
+            else await ss.device_hash_matches(session, s.device_id, info.device_token)
+        )
+        if not device_ok or drift:
             await ss.end_session(session, s, status="blocked", reason="device_mismatch")
             await audit(
                 session,
@@ -192,7 +278,9 @@ class SessionsResolver:
             return _Deny(ProblemError("session_revoked", reason="device_mismatch"))
 
         # 5. revoke-all cut-off and account state
-        if ss.uses_firestore("identity"):
+        if pre:
+            user = _got(pre.user)
+        elif ss.uses_firestore("identity"):
             from app.modules.identity.repo_firestore import system_repo as identity_repo
 
             user = await identity_repo().get_user(s.user_id)
@@ -210,7 +298,10 @@ class SessionsResolver:
             return _Deny(ProblemError("login_incomplete", next_step=NEXT_STEP[s.status]))
 
         # 7. scope gate from the current restriction state
-        restriction = await lookup_restriction(session, user.id, user.restriction_level)
+        if pre and pre.restriction is not None:
+            restriction = _got(pre.restriction)
+        else:
+            restriction = await lookup_restriction(session, user.id, user.restriction_level)
         if restriction.takeover_lock and ctx.route_tag != "login_continuation":
             return _Deny(
                 ProblemError(
@@ -248,22 +339,17 @@ class SessionsResolver:
                 and not get_settings().mfa_exempt(user.email)
                 and (s.session_tier != "student" or await students_require_mfa(session, user.id))
             ):
-                if not any(is_confirmed_strong(f) for f in await active_factors(session, user.id)):
+                factors = _got(pre.factors) if pre else await active_factors(session, user.id)
+                if not any(is_confirmed_strong(f) for f in factors):
                     return _Deny(
                         ProblemError("mfa_enrolment_required", enrol_url="/app/settings/security/mfa")
                     )
             # minors without verified guardian consent
             if user.status == "pending_guardian_consent" and ctx.route_tag not in _MINOR_PENDING_ALLOWED:
                 return _Deny(ProblemError("minor_consent_pending", guardian_flow_url="/app/guardian-consent"))
-            # 9. required consents
-            # Changing your own password never waits for the terms step (a new admin-created user
-            # must be able to replace the default password first; live check 2026-11-12).
-            pw_change = (ctx.method.upper(), ctx.path.removeprefix(_API_PREFIX)) == (
-                "POST",
-                "/auth/password/change",
-            )
-            if ctx.route_tag not in _CONSENT_EXEMPT and not pw_change:
-                missing = await missing_consents(session, user.id)
+            # 9. required consents (``pw_change`` above: a password change never waits for them)
+            if needs_consents:
+                missing = _got(pre.consents) if pre else await missing_consents(session, user.id)
                 if missing:
                     return _Deny(
                         ProblemError("consent_required", purposes=missing[0], notice_version=missing[1])
@@ -272,7 +358,7 @@ class SessionsResolver:
             # 10. idle sliding + last_seen + network observation
             await self._touch(session, s, ctx, request, info.ip)
 
-        principal = await build_principal(session, s, user, restriction)
+        principal = await build_principal(session, s, user, restriction, pre)
         request.state.auth_session_id = s.id
         return principal
 

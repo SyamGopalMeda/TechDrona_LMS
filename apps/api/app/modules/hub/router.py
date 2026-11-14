@@ -5,8 +5,9 @@ with its own dashboard and its own role model:
 
 * ``lms``      Tech Drona LMS. Roles: RBAC grants (student, trainer, evaluator, content manager,
                admin). Lands on the user's most privileged portal (sessions.login.PORTALS).
-* ``colleges`` Colleges Management (/admin/college-data, proxied portal). Admin role only: the
-               same rule the portal proxy enforces (apps/web/src/lib/college-portal/proxy.ts).
+* ``colleges`` Colleges Management (/colleges, the React Outreach Portal; data via the
+               /college-portal/api proxy). Admin role only: the same rule the portal proxy enforces
+               (functions-lms/lms_edge/college_portal.py).
 * ``website``  Company Website Admin Panel (TD_WEBSITE_URL/admin). Roles: the website's own team
                list (web_team: owner, staff, trainer, mentor). Opened with a Firebase custom token,
                so no second sign-in.
@@ -39,7 +40,7 @@ log = logging.getLogger(__name__)
 me_r = authenticated_router(prefix="/me", tags=["hub"], route_tag="account_status", idle="neutral")
 sso_r = authenticated_router(prefix="/sso", tags=["hub"])
 
-COLLEGES_HREF = "/college-portal/index.html"  # full-page portal (owner 2026-11-12), like the website admin
+COLLEGES_HREF = "/colleges"  # React Outreach Portal in the LMS SPA, full screen (cut-over 2026-11-14)
 UNAVAILABLE = "Website sign-in is unavailable right now."
 WEBSITE_SSO_HREF = "/sso/website"  # web BFF route: asks POST /sso/website, then hands the token over
 

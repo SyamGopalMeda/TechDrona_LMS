@@ -14268,6 +14268,17 @@
             ],
             "title": "Tagline"
           },
+          "watermark": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Watermark"
+          },
           "website": {
             "anyOf": [
               {

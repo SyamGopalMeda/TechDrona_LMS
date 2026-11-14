@@ -226,6 +226,42 @@ async def overrides_for(
     return t, n, w
 
 
+async def overrides_for_many(
+    session: AsyncSession, user_id: uuid.UUID, wanted: list[tuple[uuid.UUID, TestAssignment | None]]
+) -> dict[uuid.UUID, tuple[int, int, int]]:
+    """``overrides_for(test_id, user_id, a)`` for every ``(test_id, a)`` of ``wanted`` with ONE
+    query (the union of their conditions) and the per-test conditions applied in memory."""
+    if not wanted:
+        return {}
+    from sqlalchemy import or_
+
+    tids = list(dict.fromkeys(tid for tid, _ in wanted))
+    batches = list(dict.fromkeys(a.batch_id for _, a in wanted if a is not None and a.batch_id is not None))
+    conds = [AttemptOverride.user_id == user_id]
+    if batches:
+        conds.append(AttemptOverride.batch_id.in_(batches))
+    q = select(AttemptOverride).where(AttemptOverride.test_id.in_(tids), or_(*conds))
+    rows = list((await adb.execute(session, q)).scalars())
+    out: dict[uuid.UUID, tuple[int, int, int]] = {}
+    for tid, a in wanted:
+        t = n = w = 0
+        for o in rows:
+            if o.test_id != tid:
+                continue
+            if not (
+                o.user_id == user_id
+                or (a is not None and a.batch_id is not None and o.batch_id == a.batch_id)
+            ):
+                continue
+            if o.test_assignment_id is not None and (a is None or o.test_assignment_id != a.id):
+                continue
+            t += o.extra_time_seconds
+            n += o.extra_attempts
+            w += o.window_extension_seconds
+        out[tid] = (t, n, w)
+    return out
+
+
 def window_of(test: Test, a: TestAssignment | None) -> tuple[datetime | None, datetime | None]:
     if a is not None:
         return a.available_from, a.available_until

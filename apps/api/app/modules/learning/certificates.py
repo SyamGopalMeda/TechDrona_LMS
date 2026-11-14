@@ -109,7 +109,7 @@ async def course_titles(session: AsyncSession, version_ids: set[uuid.UUID]) -> d
     return {k: v.title for k, v in versions.items()}
 
 
-async def art_for(session: AsyncSession, cert: Certificate) -> CertificateArt:
+async def art_for(session: AsyncSession, cert: Certificate, *, preview: bool = False) -> CertificateArt:
     title = (await course_titles(session, {cert.course_version_id})).get(cert.course_version_id) or "Course"
     # organisation, tagline, signatory, signature and logo slots: Documents -> Settings (shared
     # with the issued documents, so every certificate looks the same)
@@ -139,11 +139,14 @@ async def art_for(session: AsyncSession, cert: Certificate) -> CertificateArt:
         signature_image=await image("signature"),
         logo_left=await image("logo_left"),
         logo_right=await image("logo_right"),
+        watermark=st.get("watermark") is not False,
+        preview=preview,
     )
 
 
-async def render_pdf(session: AsyncSession, cert: Certificate) -> bytes:
-    art = await art_for(session, cert)
+async def render_pdf(session: AsyncSession, cert: Certificate, *, preview: bool = False) -> bytes:
+    """``preview``: the Due tab's draft (nothing stored; "DRAFT", no QR, PREVIEW watermark)."""
+    art = await art_for(session, cert, preview=preview)
     return await asyncio.to_thread(render_certificate_pdf, art)
 
 

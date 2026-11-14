@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { api } from "@/lib/api/client";
+import { useIdentity } from "@/lib/api/session-cache";
 import { Icon } from "@/components/ui/Display";
 import { PORTALS, type PortalKey } from "@/lib/nav/portals";
 import { switcherPortals, type MyGrantsPortals } from "@/features/staff-portal/access";
@@ -13,24 +12,14 @@ import { switcherPortals, type MyGrantsPortals } from "@/features/staff-portal/a
  * Content studio, and the Teacher portal only with a trainer grant, so an Admin who followed a
  * dashboard link into Studio or Teacher always has "Admin" one click away (live audit admin.md F3).
  * Shown only when there is more than one. A UX convenience: the api authorises every request.
+ * The grants come from the session cache (src/lib/api/session-cache.ts): no request of its own
+ * when the gate already read them.
  * Below `sm` the button is icon-only (the label stays for screen readers), so the header fits a
  * 320px phone without wrapping (live re-check 2026-11-14, verification.md).
  */
 export function PortalSwitcher({ current }: { current: PortalKey }) {
-  const [portals, setPortals] = useState<{ href: string; title: string }[]>([]);
-
-  useEffect(() => {
-    let live = true;
-    api
-      .get<MyGrantsPortals>("me/grants", { handle: { stepUp: false, restriction: false, auth: false, sessionChoice: false } })
-      .then((r) => {
-        if (live) setPortals(switcherPortals(r.portals, r.data?.map((g) => g.role_key)));
-      })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, []);
+  const grants = useIdentity<MyGrantsPortals>("me/grants").data;
+  const portals = grants ? switcherPortals(grants.portals, grants.data?.map((g) => g.role_key)) : [];
 
   if (portals.length < 2) return null;
   // Admin sections (finance, desk, security) are part of the Admin portal.

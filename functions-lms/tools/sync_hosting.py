@@ -9,7 +9,10 @@
 * Rewrites: ``/api/**`` -> function ``lmsApi`` (asia-south1); everything else -> ``/index.html``.
 * Redirects: the Caddy LMS-host redirects that do not depend on a cookie (marketing pages ->
   the company website). ``/`` -> ``/login`` vs ``/modules`` depended on the session cookie and is
-  done by the SPA.
+  done by the SPA. The old College Data Portal entry points (``/college-portal``,
+  ``/college-portal/``, ``/college-portal/index.html``) -> ``/colleges``, the React Outreach Portal
+  (cut-over 2026-11-14); redirects win over rewrites, so the rest of ``/college-portal/**`` (the
+  data API at ``/college-portal/api/*``) still reaches lmsApi.
 * The existing showcase hosting config is kept unchanged as target ``showcase``.
 """
 
@@ -33,6 +36,12 @@ CADDY_LMS_HEADERS = [
 def _fn(function_id: str) -> dict[str, object]:
     return {"functionId": function_id, "region": "asia-south1", "pinTag": False}
 
+
+# Old portal UI entry points -> the React Outreach Portal in the LMS SPA (302: the old files stay on
+# Cloud Run for a rollback). A hash route (index.html#/college/c9) is not sent to the server; the
+# browser keeps it across the redirect and the portal shell maps `#/...` links to real paths.
+COLLEGES_PORTAL = "/colleges"
+OLD_PORTAL_ENTRIES = ["/college-portal", "/college-portal/", "/college-portal/index.html"]
 
 # Rewrites this script owns (order matters: before the SPA fallback). /sitemap.xml goes to the
 # function, which answers 404 like Caddy did on the LMS host (added by the SPA agent).
@@ -78,6 +87,7 @@ def lms_hosting(site_url: str, existing: dict[str, Any] | None = None) -> dict[s
         {"source": "/enquiries{,/**}", "destination": f"{site}/contact", "type": 302},
         *({"source": f"{p}{{,/**}}", "destination": f"{site}/", "type": 302} for p in marketing),
         {"source": "/status", "destination": f"{site}/", "type": 302},
+        *({"source": s, "destination": COLLEGES_PORTAL, "type": 302} for s in OLD_PORTAL_ENTRIES),
     ]
     return {
         "target": "lms",

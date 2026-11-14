@@ -1,13 +1,11 @@
-import type { Metadata } from "next";
-import { CollegePortalFallback } from "@/features/college-data/CollegePortalFallback";
-
-export const metadata: Metadata = { title: "College Data Portal", robots: { index: false, follow: false } };
+import { redirect } from "next/navigation";
 
 /**
- * SPA-only page: the College Data Portal is a separate static
- * app. Firebase Hosting serves its files before the SPA fallback, so the LMS app only reaches this
- * route when the portal is not deployed yet (live audit 2026-11-14, admin.md F1).
+ * SPA-only: Hosting redirects the old portal entry (/college-portal, /college-portal/index.html) to /colleges and
+ * rewrites the rest of /college-portal/** (the data API) to lmsApi, so the LMS app reaches this route only by a
+ * stray client navigation. Old portal links all land on the React Outreach Portal home. (An old
+ * `index.html#/college/123` hash link cannot be mapped: the hash never reaches the server.)
  */
 export default function Page() {
-  return <CollegePortalFallback />;
+  redirect("/colleges");
 }

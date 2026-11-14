@@ -33,6 +33,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from app.core.firestore import instance_cache
 from app.core.request_context import _request_state
 
 STATE_KEY = "td_fs_read_memo"
@@ -110,6 +111,7 @@ def put_query(physical: str, key: Any, value: Any) -> None:
 
 def forget(physical: str, doc_id: str | None = None) -> None:
     """A write to ``physical/doc_id`` (``None``: the whole collection) is about to be sent."""
+    instance_cache.bump(physical)  # per-process caches too (in or outside a request)
     memo = _memo()
     if memo is None:
         return

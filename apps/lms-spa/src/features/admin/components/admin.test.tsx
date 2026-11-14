@@ -265,7 +265,7 @@ describe("Admin dashboard (ADM-001)", () => {
     expect(screen.getByRole("link", { name: /Active batches.*5.*2 planned/ })).toHaveAttribute("href", "/admin/batches");
     // Colleges Data goes straight to the real portal page (full page load for its CSP).
     const colleges = screen.getAllByRole("link", { name: /Colleges Data/ });
-    expect(colleges.every((a) => a.getAttribute("href") === "/college-portal/index.html")).toBe(true);
+    expect(colleges.every((a) => a.getAttribute("href") === "/colleges")).toBe(true);
     expect(screen.getByRole("heading", { level: 1, name: "Dashboard" })).toBeInTheDocument();
     // Readable restriction levels instead of "Restricted L3".
     expect(screen.getByText("Temporarily restricted")).toBeInTheDocument();

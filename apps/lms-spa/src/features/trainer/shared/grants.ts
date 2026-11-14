@@ -1,6 +1,7 @@
 "use client";
 
-import { useApi } from "./use-api";
+import { DEFAULT_HANDLE, useIdentity } from "@/lib/api/session-cache";
+import type { ApiState } from "./use-api";
 
 /** RBAC-06 `GET /me/grants` row (apps/api rbac `_grant_out`). */
 export interface Grant {
@@ -17,8 +18,9 @@ export interface GrantsResponse {
   portals?: string[];
 }
 
-export function useMyGrants() {
-  return useApi<GrantsResponse>("me/grants");
+/** `GET me/grants` through the session cache (src/lib/api/session-cache.ts); `reload()` asks the API again. */
+export function useMyGrants(): ApiState<GrantsResponse> {
+  return useIdentity<GrantsResponse>("me/grants", { handle: DEFAULT_HANDLE });
 }
 
 

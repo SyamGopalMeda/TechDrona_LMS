@@ -17,6 +17,11 @@ are images the owner uploads (and has the right to use).
 
 QR: ``segno`` (pure Python). Without it the verify URL is printed instead of the QR.
 
+Watermarks: every page carries the Tech Drona mark (``certart/logo-mark-navy.svg``, the archer
+symbol) very faintly behind everything (``watermark=False`` leaves it out; Documents -> Settings).
+A preview (``preview=True``: nothing is stored, the number does not exist) prints "DRAFT" for the
+number, no QR and no verify link, and a large diagonal "PREVIEW · NOT VALID" over the page.
+
 Deterministic: the same ``CertificateArt`` always renders byte-identical PDFs (fixed creation
 date = issue date, content-derived document /ID), so ``sha256(pdf)`` is a stable content hash.
 """
@@ -36,7 +41,15 @@ from pathlib import Path
 FONT_DIR = Path(__file__).with_name("certfonts")
 LOGO_SVG = Path(__file__).with_name("certart") / "logo-lockup-navy.svg"
 LOGO_RATIO = 200 / 922  # lockup viewBox height / width
-TEMPLATE_VERSION = "cert-v3"  # v3 = the Tech Drona template (v2: royal diploma, v1: no PDF)
+LOGO_MARK_SVG = Path(__file__).with_name("certart") / "logo-mark-navy.svg"  # square icon mark
+TEMPLATE_VERSION = "cert-v4"  # v4 = brand watermark (v3: Tech Drona template, v2: royal diploma)
+
+WATERMARK_OPACITY = 0.05  # brand mark behind the content
+PREVIEW_OPACITY = 0.2  # "PREVIEW · NOT VALID" over the content
+PREVIEW_MARK = "PREVIEW · NOT VALID"
+PREVIEW_REF = "DRAFT"  # printed instead of the reference / certificate number
+PREVIEW_NOTE = "Verification code appears when the document is issued"
+PREVIEW_RED = (196, 30, 36)
 
 DEFAULT_COMPANY = "Tech Drona"
 DEFAULT_TAGLINE = "Debug your career. Deploy your dreams."
@@ -120,6 +133,8 @@ class CertificateArt:
     signature_image: bytes | None = field(default=None, repr=False)  # PNG/JPEG over the line
     logo_left: bytes | None = field(default=None, repr=False)  # optional top-row logo slots
     logo_right: bytes | None = field(default=None, repr=False)
+    watermark: bool = True  # faint Tech Drona mark behind the content
+    preview: bool = False  # draft: "DRAFT" number, no QR / verify link, PREVIEW watermark
 
 
 def long_date(d: date) -> str:
@@ -558,6 +573,38 @@ def logo_row(
     return top + max(lh, slot_h if (left or right) else 0)
 
 
+def brand_watermark(d: _Doc, cx: float, cy: float, size: float) -> bool:
+    """The Tech Drona mark centred on (``cx``, ``cy``), ``size`` wide, very faint. Draw it before
+    the page's content so everything (signature, seal, text) sits on top. False when unavailable."""
+    if not LOGO_MARK_SVG.is_file():
+        return False
+    try:
+        with d.pdf.local_context(fill_opacity=WATERMARK_OPACITY, stroke_opacity=WATERMARK_OPACITY):
+            d.pdf.image(str(LOGO_MARK_SVG), x=cx - size / 2, y=cy - size / 2, w=size, h=size)
+        return True
+    except Exception:  # unreadable SVG / old fpdf2: no watermark, never a failed document
+        return False
+
+
+def preview_watermark(d: _Doc, w: float, h: float) -> None:
+    """A large diagonal "PREVIEW · NOT VALID" across the page (bottom-left to top-right), drawn
+    over the content and translucent so the text below stays readable."""
+    ang = math.degrees(math.atan2(h, w))
+    size = d.fit_size("cinBold", PREVIEW_MARK, 96, math.hypot(w, h) * 0.66, 30, 4)
+    with d.pdf.local_context(fill_opacity=PREVIEW_OPACITY), d.pdf.rotation(ang, x=w / 2, y=h / 2):
+        d.text("cinBold", size, PREVIEW_MARK, x=w / 2, y=h / 2 + size * 0.34, color=PREVIEW_RED, spacing=4)
+
+
+def preview_note(d: _Doc, x: float, y: float, *, size: float = 8.5, align: str = "center",
+                 max_w: float = 150) -> float:  # fmt: skip
+    """The small italic "Verification code appears when the document is issued" (in place of the
+    QR / verify link). Returns the last baseline."""
+    lines = d.wrap("garIt", size, PREVIEW_NOTE, max_w)
+    for i, ln in enumerate(lines):
+        d.text("garIt", size, ln, x=x, y=y + i * size * 1.2, color=SLATE, align=align)
+    return y + (len(lines) - 1) * size * 1.2
+
+
 def ribbon(d: _Doc, cx: float, top: float, width: float, height: float, label: str, size: float) -> None:
     """Navy ribbon banner with gold edges and folded swallow-tail ends."""
     x0, x1 = cx - width / 2, cx + width / 2
@@ -811,7 +858,8 @@ def render_certificate_pdf(art: CertificateArt) -> bytes:
     """Render one certificate; deterministic for equal ``art``."""
     d = _Doc()
     pdf = d.pdf
-    pdf.set_title(f"Certificate {art.public_code}")
+    number = PREVIEW_REF if art.preview else art.public_code
+    pdf.set_title(f"Certificate {number}" + (" (preview, not valid)" if art.preview else ""))
     pdf.set_author(art.issuer)
     pdf.set_subject(f"{art.kind}: {art.course_title}")
     pdf.set_creator("Tech Drona LMS")
@@ -819,6 +867,8 @@ def render_certificate_pdf(art: CertificateArt) -> bytes:
     pdf.set_creation_date(datetime.combine(art.issued_on, time(0, 0)))
     pdf.add_page()
     _frame(d, W, H)
+    if art.watermark:  # behind the body; the seal and signature (y > 420) stay clear of it
+        brand_watermark(d, CX, 268, 268)
 
     # top row: [logo] | TECH DRONA lockup | [logo]
     logo_row(d, cx=CX, top=50, lockup_w=206, slot_dx=228, slot_w=100, slot_h=54, left=art.logo_left,
@@ -913,17 +963,23 @@ def render_certificate_pdf(art: CertificateArt) -> bytes:
         image=art.signature_image,
         img_h=42,
     )
-    qs = 48.0
-    has_qr = qr(d, art.verify_url, lcx - qs / 2, line_y - qs + 4, qs)
-    if not has_qr:
-        d.text("gar", 7, "VERIFY ONLINE", x=lcx, y=line_y - 18, color=GOLD_TEXT, spacing=1.5)
-    d.text("gar", 7.6, "SCAN TO VERIFY", x=lcx, y=line_y + 16, color=SLATE, spacing=2.6)
-    host = _host(art.verify_url)
-    d.text("garIt", d.fit_size("garIt", host, 8.5, 230, 5.5), host, x=lcx, y=line_y + 29, color=SLATE)
+    if art.preview:  # no QR / verify link: the number does not exist yet
+        d.text("gar", 7.6, "PREVIEW  ·  NOT ISSUED", x=lcx, y=line_y - 22, color=PREVIEW_RED, spacing=2.2)
+        preview_note(d, lcx, line_y - 6, size=9.5, max_w=200)
+    else:
+        qs = 48.0
+        has_qr = qr(d, art.verify_url, lcx - qs / 2, line_y - qs + 4, qs)
+        if not has_qr:
+            d.text("gar", 7, "VERIFY ONLINE", x=lcx, y=line_y - 18, color=GOLD_TEXT, spacing=1.5)
+        d.text("gar", 7.6, "SCAN TO VERIFY", x=lcx, y=line_y + 16, color=SLATE, spacing=2.6)
+        host = _host(art.verify_url)
+        d.text("garIt", d.fit_size("garIt", host, 8.5, 230, 5.5), host, x=lcx, y=line_y + 29, color=SLATE)
 
     row_y = 531.0
-    _bottom_item(d, lcx, row_y, f"{art.number_label} :", art.public_code, card_icon)
+    _bottom_item(d, lcx, row_y, f"{art.number_label} :", number, card_icon)
     _bottom_item(d, rcx, row_y, "Date of Issue :", long_date(art.issued_on), calendar_icon)
+    if art.preview:
+        preview_watermark(d, W, H)
     return bytes(pdf.output())
 
 

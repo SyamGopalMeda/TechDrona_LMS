@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import { ComingInThePort } from "@/features/colleges/shell/Placeholder";
+import { Notices } from "@/features/colleges/screens/Notices";
 
 export const metadata: Metadata = { title: { absolute: "Official notices · Tech Drona Outreach Portal" }, robots: { index: false, follow: false } };
 
-/** /colleges/notices — replaces js/views/live.js renderNotices (old route #/notices). Placeholder until ported. */
+/** /colleges/notices — port of js/views/live.js renderNotices (old route #/notices). */
 export default function Page() {
-  return <ComingInThePort title="Official notices" />;
+  return <Notices />;
 }

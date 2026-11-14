@@ -8,6 +8,7 @@ import { api, type Page } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import type { Body } from "@/lib/api-types";
 import { useApi, seg, type SendBody } from "@/features/trainer/shared/use-api";
+import { DEFAULT_HANDLE, useIdentity } from "@/lib/api/session-cache";
 import { Boundary, StatusBadge, TextArea, fieldErrorsOf, useFailToast } from "@/features/trainer/shared/ui";
 import type { CourseSummary, QuestionDetail, QuestionSummary, QuestionType, QuestionVersion } from "../lib/types";
 import { courseStatus } from "./Courses";
@@ -280,7 +281,7 @@ export function QuestionEditor({ questionId }: { questionId: string }) {
   const [retireReason, setRetireReason] = useState("");
   const topics = useTopics();
   // Publisher must not be the author (matrix question.publish "P (≠ author)", audit ADM-48).
-  const me = useApi<{ user: { id: string } }>(isNew ? null : "me");
+  const me = useIdentity<{ user: { id: string } }>(isNew ? null : "me", { handle: DEFAULT_HANDLE });
 
   const q = detail.data;
   const current = q?.versions[0];

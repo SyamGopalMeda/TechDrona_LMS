@@ -79,6 +79,10 @@ def register_restriction_lookup(fn: RestrictionLookup | None) -> None:
     _restriction_lookup = fn
 
 
+def restriction_lookup_registered() -> bool:
+    return _restriction_lookup is not None
+
+
 def register_consent_requirement(fn: ConsentRequirement | None) -> None:
     global _consent_requirement
     _consent_requirement = fn

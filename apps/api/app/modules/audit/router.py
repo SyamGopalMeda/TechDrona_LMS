@@ -269,7 +269,7 @@ async def chain_status(session: PrincipalDbSession, principal: AuditReader) -> C
     if uses_firestore("audit"):
         from app.modules.audit.repo_firestore import chain_repo
 
-        result = await chain_repo().verify_chain()
+        result = await chain_repo().verify_chain_cached()
     else:
         result = await verify_chain(session)
     return ChainStatusOut(

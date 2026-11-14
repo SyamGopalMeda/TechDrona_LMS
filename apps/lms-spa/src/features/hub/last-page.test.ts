@@ -35,6 +35,7 @@ describe("last-page store", () => {
     }
     expect(isTrackablePath("/read/abc")).toBe(true);
     expect(isTrackablePath("/college-portal/index.html")).toBe(false);
+    expect(isTrackablePath("/colleges/college/c9")).toBe(true);
   });
 
   it("rejects unsafe paths and survives junk in storage", () => {
@@ -66,8 +67,11 @@ describe("pickContinueTarget", () => {
   it("resumes the remembered page", () => {
     expect(pick("/admin/users?status=active")).toBe("/admin/users?status=active");
     expect(pick("/finance/orders", { area: "lms" })).toBe("/finance/orders");
-    // Colleges always resumes full screen (owner 2026-11-14), never the embedded Admin page.
-    expect(pick("/admin/college-data", { area: "colleges" })).toBe("/college-portal/index.html");
+    // Colleges always resumes full screen (owner 2026-11-14), never an old entry point.
+    expect(pick("/admin/college-data", { area: "colleges" })).toBe("/colleges");
+    // The React Outreach Portal resumes the exact page, for Admin-portal accounts only.
+    expect(pick("/colleges/college/c9?tab=calls", { area: "colleges" })).toBe("/colleges/college/c9?tab=calls");
+    expect(pick("/colleges/people", { area: "colleges", portals: ["/app"] })).toBe("/fallback");
   });
 
   it("filters by area", () => {
@@ -75,6 +79,8 @@ describe("pickContinueTarget", () => {
     expect(pick("/admin/users", { area: "colleges" })).toBe("/fallback");
     expect(areaOf("/admin/college-data?x=1")).toBe("colleges");
     expect(areaOf("/admin/college-dataset")).toBe("lms");
+    expect(areaOf("/colleges/targets?d=guntur")).toBe("colleges");
+    expect(areaOf("/collegesx")).toBe("lms");
   });
 
   it("falls back when nothing usable is remembered", () => {
@@ -125,7 +131,7 @@ describe("continue helpers", () => {
     expect(continueFallback("lms", "/trainer")).toBe("/trainer");
     expect(continueFallback("lms", "https://evil.example")).toBe("/modules");
     expect(continueFallback("lms", "/login")).toBe("/modules");
-    expect(continueFallback("colleges", undefined)).toBe("/college-portal/index.html");
+    expect(continueFallback("colleges", undefined)).toBe("/colleges");
     expect(continueFallback(undefined, "/modules")).toBe("/modules");
   });
 
@@ -136,6 +142,8 @@ describe("continue helpers", () => {
 
   it("opens the College Data Portal as a document", () => {
     expect(needsDocumentLoad("/admin/college-data")).toBe(true);
+    expect(needsDocumentLoad("/colleges")).toBe(true);
+    expect(needsDocumentLoad("/colleges/college/c9?x=1")).toBe(true);
     expect(needsDocumentLoad("/admin/users")).toBe(false);
   });
 });

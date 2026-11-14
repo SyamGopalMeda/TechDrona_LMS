@@ -127,9 +127,9 @@ export const ADMIN_NAV: NavItem[] = [
   { href: "/admin/users/import", label: "Import students", screen: "ADM-024", section: "People", keywords: ["excel", "bulk", "upload", "csv", "students", "enrol"] },
   { href: "/admin/roles", label: "Role grants", screen: "ADM-005", section: "People" },
   { href: "/admin/privacy-requests", label: "Privacy requests", screen: "ADM-009", section: "People" },
-  // documentNav: the College Data Portal is a separate app. While it is not deployed on Hosting,
-  // the SPA answers this URL with a friendly "being moved" page (app/college-portal).
-  { href: "/college-portal/index.html", label: "Colleges Data", screen: "ADM-015", section: "Colleges", documentNav: true },
+  // documentNav: the Outreach (College Data) Portal is full screen with its own CSP (hosting-headers.ts
+  // collegesCsp), so it is opened with a full page load.
+  { href: "/colleges", label: "Colleges Data", screen: "ADM-015", section: "Colleges", documentNav: true },
   // Company website back office (enquiries, website content and settings): one click from the LMS admin.
   { href: siteHref("/admin"), label: "Website Admin Panel", screen: "ADM-018", section: "Website", documentNav: true },
   { href: "/admin/courses", label: "Courses", screen: "ADM-016", section: "Learning" },

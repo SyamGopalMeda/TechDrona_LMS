@@ -791,6 +791,7 @@ export function DocSettingsTab({ onChanged }: { onChanged: () => void }) {
   const [form, setForm] = useState<Record<string, string>>({});
   const [regLines, setRegLines] = useState("");
   const [autoLetter, setAutoLetter] = useState(true);
+  const [watermark, setWatermark] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const fail = useFailToast();
   const toast = useToast();
@@ -801,12 +802,13 @@ export function DocSettingsTab({ onChanged }: { onChanged: () => void }) {
     setForm(Object.fromEntries(TEXT_SETTINGS.map((f) => [f.key, String(s[f.key] ?? "")])));
     setRegLines((s.reg_lines ?? []).join("\n"));
     setAutoLetter(s.auto_admission_letter);
+    setWatermark(s.watermark !== false);
   }, [st.data]);
 
   async function save() {
     setBusy("save");
     try {
-      await api.put("admin/documents/settings", { ...form, reg_lines: toLines(regLines).slice(0, 4), auto_admission_letter: autoLetter });
+      await api.put("admin/documents/settings", { ...form, reg_lines: toLines(regLines).slice(0, 4), auto_admission_letter: autoLetter, watermark });
       toast.show({ tone: "success", title: "Document settings saved" });
       await st.reload();
       onChanged();
@@ -897,6 +899,14 @@ export function DocSettingsTab({ onChanged }: { onChanged: () => void }) {
             </li>
           ))}
         </ul>
+        <div className="mt-4">
+          <Checkbox
+            label="Show Tech Drona watermark on documents"
+            description="A very faint Tech Drona mark behind the text of every letter and certificate. Applies to documents issued from now on."
+            checked={watermark}
+            onChange={(e) => setWatermark(e.target.checked)}
+          />
+        </div>
       </Card>
       <Card title="Automation" icon="bolt" description={`Emails follow the auto-send setting in Settings (now ${s?.auto_send ? "on: sent at once" : "off: they wait for approval"}).`}>
         <Checkbox

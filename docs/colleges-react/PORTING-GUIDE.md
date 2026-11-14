@@ -2,9 +2,10 @@
 
 The College Data ("Outreach") Portal is being rewritten as React routes inside the LMS SPA
 (`apps/lms-spa`). The **foundation** is done (shell, data layer, state, shared UI, map, charts, a placeholder
-per route). Screen agents now port the old views (`apps/college-data/portal/public/js/views/*.js`) one route
-at a time onto it. Nothing is wired to production yet: the LMS Modules menu, the hub and `/admin/college-data`
-still open the old portal (`/college-portal/index.html`). The cut-over is a later step.
+per route), and every screen is ported from the old views (`apps/college-data/portal/public/js/views/*.js`).
+**Cut over 2026-11-14** (see "Cut-over" at the end): the LMS Modules menu, the hub, the Admin sidebar / dashboard
+and `/admin/college-data` all open `/colleges`; Hosting redirects the old UI entry points there. The data API
+stays at `/college-portal/api/*`.
 
 ## Architecture
 
@@ -36,7 +37,7 @@ src/features/colleges/
          routes.ts (paths, NAV, SECTIONS, route map, legacy links) · prefs.ts (theme, device) · fmt.ts
   shell/ PortalLayout.tsx · Chrome.tsx (brand, sidebar, tab bar, More sheet, crumbs, banners, account)
          ScopePicker.tsx · GlobalSearch.tsx · modules.ts · page-context.tsx (usePortalPage)
-         CollegesGate.tsx · PortalBoot.tsx · Placeholder.tsx · brand/*.svg
+         CollegesGate.tsx · PortalBoot.tsx · brand/*.svg
   ui/    index.ts (import from here) + one file per component family
   map/   CollegeMap.tsx (React wrapper) · engine.ts (map.js port) · ap_districts.geojson
   charts/Charts.tsx · index.ts
@@ -256,18 +257,20 @@ than re-implementing it in react-leaflet components.
 - Idempotency (server): only 2xx results are remembered for 10 min; same key + different request → 422
   `idempotency_key_reused` (the client retries once with a fresh key).
 - Every list/rollup endpoint accepts `districts=`; an unknown id → 400 (see scope_rejected above).
-- `/api/live?refresh=1` starts a background refresh of the official sources (the old shell did this once per
-  visit: the Official sources screen should call it once on mount).
+- `/api/live?refresh=1` starts a background refresh of the official sources: `PortalLayout` calls
+  `screens/live/store.ts startLive()` once per portal session (as the old shell did); the Official sources screen
+  also asks once on mount (`refreshOnMount`).
 
 ## CSP and hosting
 
 - `/colleges` and `/colleges/**` get the LMS CSP plus the OSM / CARTO tile hosts in `img-src`
   (`src/spa/hosting-headers.ts collegesCsp`). Headers apply per document, so `needsDocumentLoad`
   (`src/spa/nav-store.ts isCollegesPath`) makes crossing into or out of `/colleges` a full page load; inside
-  the portal navigation stays client-side. **Not deployed yet**: regenerate `hosting-headers.json`
-  (`node scripts/gen-static.mjs` with the Firebase env) and run `functions-lms/tools/sync_hosting.py` at cut-over.
+  the portal navigation stays client-side (the portal's Modules menu links are full page loads for the same reason).
+  `hosting-headers.json` (`node scripts/gen-static.mjs`) and `firebase.json` (`functions-lms/tools/sync_hosting.py`)
+  carry the `/colleges` + `/colleges/**` CSP.
 - No external fonts: the LMS self-hosts Inter and Plus Jakarta Sans (the old portal used Google Fonts).
-- The old portal's own HTML/CSS/JS keep being served at `/college-portal/**` until the cut-over.
+- The old portal's own HTML/CSS/JS are still on Cloud Run (rollback), but its entry points redirect to `/colleges`.
 
 ## Conventions
 
@@ -284,11 +287,28 @@ than re-implementing it in react-leaflet components.
   `npx tsc --noEmit` must stay at 0 errors. Do not run `npm run build`, browsers or servers locally.
 - After adding / removing a page: `node scripts/gen-routes.mjs` and update `PAGE_COUNT` in `src/spa/spa.test.tsx`
   (199 with the 19 portal placeholders).
-- Replace the placeholder (`ComingInThePort`) in the route's `page.tsx`; delete nothing in the old portal.
+- Dialogs: `PortalLayout` mounts the one `<FormsHost />` (screen tests mount their own via the test wrappers).
 
-## Cut-over checklist (later, not part of porting)
+## Cut-over (done 2026-11-14)
 
-1. All screens ported and checked on the live site. 2. Regenerate hosting headers + sync firebase.json.
-3. Point the LMS `ModuleSwitcher` / hub `colleges` module / `FULL_SCREEN_COLLEGES` / `/admin/college-data`
-to `/colleges`; add `/colleges` to `features/hub/last-page.ts` `COLLEGES_PREFIXES`. 4. Keep the API proxy;
-retire only the static portal files (`/college-portal/{index.html,css,js,vendor,assets}`).
+1. All screens ported. Shell integration: `FormsHost` + `startLive()` in `PortalLayout`; `clearTheme()` for
+   Settings › "Match device"; `DataTable clearSelectionKey`; no link back into the old portal remains
+   (`shell/Placeholder.tsx` and `OLD_PORTAL_ENTRY` removed).
+2. Links → `/colleges`: `features/hub/last-page.ts` (`FULL_SCREEN_COLLEGES`, `COLLEGES_PREFIXES`, tracked for
+   "resume last page" for Admin-portal accounts, `needsDocumentLoad`), LMS `ModuleSwitcher`, the hub API
+   (`apps/api/app/modules/hub/router.py COLLEGES_HREF`, which the `/modules` cards use), the Admin sidebar
+   (`lib/nav/portals.ts`) and the Admin dashboard (`Governance.tsx`).
+3. `/admin/college-data` and the SPA `/college-portal/*` route just `redirect("/colleges")`;
+   `features/college-data/*` (iframe embed + "being moved" availability check) deleted.
+4. Hosting (`sync_hosting.py`): `/college-portal`, `/college-portal/`, `/college-portal/index.html` → 302
+   `/colleges`. Redirects win over rewrites, so `/college-portal/api/**` (and the old static files) still go
+   to lmsApi → Cloud Run.
+5. Old hash bookmarks (`/college-portal/index.html#/college/123`): the hash is never sent to the server, so
+   Hosting cannot map it. Browsers keep the fragment across a redirect whose `Location` has none, so the
+   expected landing is `/colleges#/college/123`, which `PortalLayout` converts to `/colleges/college/123`;
+   if a browser drops it, the bookmark lands on the `/colleges` home.
+
+**Later clean-up (after the React portal has run live for a while):** remove the old UI from the Cloud Run
+image (`apps/college-data/portal/public/{index.html,css,js,vendor,assets}`), the `/college-portal{,/**}` UI
+headers in `src/spa/hosting-headers.ts` (keep the `/college-portal/**` rewrite: it is the data API), the
+`/admin/college-data` frame-src CSP + `DOCUMENT_ROUTES` entry, and the two redirect pages. Keep the API proxy.

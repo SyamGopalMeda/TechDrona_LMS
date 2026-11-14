@@ -23,8 +23,12 @@ for local runs from the repo it is imported from ``../apps/api`` directly.
 
 from __future__ import annotations
 
+import gc
 import os
 import sys
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -52,31 +56,56 @@ SECRET_NAMES: tuple[str, ...] = tuple(
 )
 SECRETS = [params.SecretParam(n) for n in SECRET_NAMES]
 
-API_MIN_INSTANCES = params.IntParam("LMS_API_MIN_INSTANCES", default=1)
+API_MIN_INSTANCES = params.IntParam("LMS_API_MIN_INSTANCES", default=0)  # serverless only: no always-on instance (owner 2026-11-14)
 
 _wsgi: Any = None
 _celery: Any = None
+
+# Cold start: the first requests of a new instance arrive together (the SPA fires several API
+# calls on page load) on the runtime's request threads. Without a lock each of them would run
+# create_app() itself on the instance's single vCPU; with it one thread builds and the rest wait.
+_build_lock = threading.Lock()
+
+
+@contextmanager
+def _cold_build() -> Iterator[None]:
+    """Build-once section: serialised, with the cyclic GC paused while thousands of long-lived
+    module, class and route objects are created (it would otherwise rescan them over and over;
+    ~0.3 s of a cold start). ``gc.freeze()`` then moves them out of future collections."""
+    with _build_lock:
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            yield
+        finally:
+            gc.freeze()
+            if was_enabled:
+                gc.enable()
 
 
 def api_wsgi() -> Any:
     """The WSGI app (built once per instance; a2wsgi runs one event loop for all requests)."""
     global _wsgi
     if _wsgi is None:
-        from a2wsgi import ASGIMiddleware
-        from lms_edge import EdgeApp
+        with _cold_build():
+            if _wsgi is None:
+                from a2wsgi import ASGIMiddleware
+                from lms_edge import EdgeApp
 
-        from app.main import create_app
+                from app.main import create_app
 
-        _wsgi = ASGIMiddleware(EdgeApp(create_app()))  # type: ignore[arg-type]
+                _wsgi = ASGIMiddleware(EdgeApp(create_app()))  # type: ignore[arg-type]
     return _wsgi
 
 
 def celery_app() -> Any:
     global _celery
     if _celery is None:
-        from app.worker import celery_app as capp
+        with _cold_build():
+            if _celery is None:
+                from app.worker import celery_app as capp
 
-        _celery = capp
+                _celery = capp
     return _celery
 
 
@@ -101,16 +130,20 @@ def webhooks_wsgi() -> Any:
     """The ``api-webhooks`` service: the same API with ``TD_ROUTER_SET=webhooks``, no BFF."""
     global _webhooks_wsgi
     if _webhooks_wsgi is None:
-        from a2wsgi import ASGIMiddleware
-        from lms_edge.webhooks import WebhookEdge
+        with _cold_build():
+            if _webhooks_wsgi is None:
+                from a2wsgi import ASGIMiddleware
+                from lms_edge.webhooks import WebhookEdge
 
-        from app.core.config import get_settings
-        from app.main import create_app
+                from app.core.config import get_settings
+                from app.main import create_app
 
-        s = get_settings().model_copy(update={"TD_ROUTER_SET": "webhooks", "TD_SERVICE_NAME": "api-webhooks"})
-        _webhooks_wsgi = ASGIMiddleware(
-            WebhookEdge(create_app(s), trusted_proxy_hops=max(1, s.TD_TRUSTED_PROXY_HOPS))
-        )  # type: ignore[arg-type]
+                s = get_settings().model_copy(
+                    update={"TD_ROUTER_SET": "webhooks", "TD_SERVICE_NAME": "api-webhooks"}
+                )
+                _webhooks_wsgi = ASGIMiddleware(
+                    WebhookEdge(create_app(s), trusted_proxy_hops=max(1, s.TD_TRUSTED_PROXY_HOPS))
+                )  # type: ignore[arg-type]
     return _webhooks_wsgi
 
 

@@ -128,6 +128,8 @@ export interface DocSettings {
   designation2: string;
   portal_url: string;
   auto_admission_letter: boolean;
+  /** faint Tech Drona mark behind every document / certificate page (on unless switched off) */
+  watermark?: boolean;
   images: Record<"signature" | "seal" | "signature2" | "logo_left" | "logo_right", boolean>;
   problem: string | null;
   auto_send: boolean;

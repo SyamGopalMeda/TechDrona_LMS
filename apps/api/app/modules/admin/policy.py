@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ProblemError
 from app.core.firestore.backend import uses_firestore
+from app.core.firestore.instance_cache import MISSING, TtlCache, generations
 from app.core.ids import uuid7
 from app.modules.admin.models import PolicySetting
 from app.modules.identity import clock
@@ -273,8 +274,33 @@ async def _fs_resolve(
             scopes.append((key, "user", user_id))
         if plan_id is not None and (k is None or k.plan):
             scopes.append((key, "plan", plan_id))
-    rows = await system_repo("admin.policy").active_rows(scopes)
+    repo = system_repo("admin.policy")
+    rows = await _cached_active_rows(repo, scopes)
     return _best(key, k, [r for r in rows if r.live(now)])
+
+
+# Policy settings are read on hot paths (sign-in, the session resolver) and changed rarely, by an
+# admin: the active rows of a scope set are kept POLICY_CACHE_TTL_S in this process (dropped at
+# once when this process writes a policy document; another instance's change applies within the
+# TTL). ``live(now)`` (effective / expiry window) is still evaluated on every call.
+POLICY_CACHE_TTL_S = 30.0
+_POLICY_CACHE = TtlCache(POLICY_CACHE_TTL_S)
+
+
+async def _cached_active_rows(repo: Any, scopes: list[tuple[str, str, Any]]) -> list[Any]:
+    from app.core.firestore.collections import physical_name
+    from app.modules.admin.store_specs import POLICY, POLICY_HEADS
+
+    phys = (physical_name(POLICY_HEADS), physical_name(POLICY))
+    key = tuple((k, t, str(i) if i is not None else None) for k, t, i in scopes)
+    client = repo.store.client
+    hit = _POLICY_CACHE.get(client, key, phys)
+    if hit is not MISSING:
+        return hit
+    gens = generations(phys)
+    rows = await repo.active_rows(scopes)
+    _POLICY_CACHE.put(client, key, phys, gens, rows)
+    return rows
 
 
 async def get_value(session: AsyncSession, key: str, **kw: Any) -> Any:

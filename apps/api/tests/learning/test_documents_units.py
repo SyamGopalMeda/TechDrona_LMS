@@ -355,3 +355,122 @@ def test_logo_slots_are_empty_by_default_and_rendered_when_uploaded() -> None:
     )
     assert plain.startswith(b"%PDF-") and logos.startswith(b"%PDF-")
     assert plain.count(b"/Subtype /Image") == 0 and logos.count(b"/Subtype /Image") >= 1
+
+
+# --------------------------------------------------------------------------- watermarks / previews
+
+
+class _Drawn:
+    """Records what a renderer prints (text, QR calls, brand watermarks) without parsing the PDF."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from app.modules.learning import certpdf as cp
+
+        self.texts: list[str] = []
+        self.qrs: list[str] = []
+        self.marks = 0
+        real_text, real_qr, real_mark = cp._Doc.text, cp.qr, cp.brand_watermark
+
+        def text(doc, key, size, txt, **kw):
+            self.texts.append(txt)
+            return real_text(doc, key, size, txt, **kw)
+
+        def qr(d, url, *a, **kw):
+            self.qrs.append(url)
+            return real_qr(d, url, *a, **kw)
+
+        def mark(*a, **kw):
+            self.marks += 1
+            return real_mark(*a, **kw)
+
+        monkeypatch.setattr(cp._Doc, "text", text)
+        monkeypatch.setattr(cp, "qr", qr)
+        monkeypatch.setattr(cp, "brand_watermark", mark)
+
+    @property
+    def joined(self) -> str:
+        return "\n".join(self.texts)
+
+
+def _render_doc(doc_type: str, *, preview: bool, settings: dict | None = None) -> bytes:
+    async def run() -> bytes:
+        f = dd.clean_fields(doc_type, SAMPLES[doc_type])
+        day = date(2026, 11, 11)
+        ref = dd.preview_ref(doc_type, 2026) if preview else f"TD-{dd.PREFIXES[doc_type]}-2026-ABCDEF"
+        content = await docs.compose(
+            _NoTemplates(), doc_type=doc_type, recipient=R, fields=f, issue_date=day, ref_no=ref,
+            settings=settings or SETTINGS, site_url="https://lms.example.test", strict=not preview,
+        )  # fmt: skip
+        return await docs.render_content(doc_type, ref, day, R, content, preview=preview)
+
+    return asyncio.run(run())
+
+
+def test_preview_ref_is_draft_and_never_verifiable() -> None:
+    ref = dd.preview_ref("offer_internship", 2026)
+    assert ref == "TD-OL-2026-DRAFT"
+    assert not dd.is_doc_ref(ref) and not dd.REF_RE.match(ref)
+    with pytest.raises(ProblemError) as e:  # the verify page: "nothing matches" (no lookup at all)
+        asyncio.run(docs.verify_public(None, ref))  # type: ignore[arg-type]
+    assert e.value.code == "not_found"
+
+
+@pytest.mark.parametrize("doc_type", ["offer_internship", "cert_internship"])
+def test_preview_pdf_has_no_qr_or_verify_link_and_says_preview(
+    doc_type: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.modules.learning import certpdf as cp
+
+    drawn = _Drawn(monkeypatch)
+    pdf = _render_doc(doc_type, preview=True)
+    assert pdf.startswith(b"%PDF-")
+    assert drawn.qrs == []  # no QR code
+    assert "/verify/" not in drawn.joined and "example.test/verify" not in drawn.joined
+    assert cp.PREVIEW_MARK in drawn.texts  # the diagonal "PREVIEW · NOT VALID"
+    assert "Verification code appears" in drawn.joined
+    assert "DRAFT" in drawn.texts  # the reference / number reads DRAFT
+    assert not any("TD-" in t and "DRAFT" in t for t in drawn.texts)  # never a real-looking reference
+    assert drawn.marks >= 1  # the brand mark too
+
+
+@pytest.mark.parametrize("doc_type", ["offer_internship", "cert_internship"])
+def test_issued_pdf_has_verify_link_and_qr_and_no_preview_mark(
+    doc_type: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.modules.learning import certpdf as cp
+
+    drawn = _Drawn(monkeypatch)
+    _render_doc(doc_type, preview=False)
+    ref = f"TD-{dd.PREFIXES[doc_type]}-2026-ABCDEF"
+    assert drawn.qrs and all(u == f"https://lms.example.test/verify/{ref}" for u in drawn.qrs)
+    assert f"lms.example.test/verify/{ref}" in drawn.texts
+    assert cp.PREVIEW_MARK not in drawn.texts and "Verification code appears" not in drawn.joined
+
+
+def test_brand_watermark_on_every_page_unless_switched_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.modules.learning.certpdf import CertificateArt, render_certificate_pdf
+
+    assert dd.clean_settings({})["watermark"] is True
+    assert dd.clean_settings({"watermark": False})["watermark"] is False
+    drawn = _Drawn(monkeypatch)
+    pdf = _render_doc("offer_internship", preview=False)
+    pages = len(re.findall(rb"/Type\s*/Page[^s]", pdf))
+    assert pages >= 1 and drawn.marks == pages  # drawn first on each page (behind the content)
+    drawn.marks = 0
+    _render_doc("offer_internship", preview=False, settings={**SETTINGS, "watermark": False})
+    assert drawn.marks == 0
+    art = CertificateArt(name="A", course_title="B", public_code="ABCDEFGH2345", issued_on=date(2026, 11, 11),
+                         verify_url="https://lms.example.test/verify/ABCDEFGH2345")  # fmt: skip
+    render_certificate_pdf(art)
+    assert drawn.marks == 1  # course certificates: on by default
+    render_certificate_pdf(CertificateArt(**{**art.__dict__, "watermark": False}))
+    assert drawn.marks == 1
+    # the setting is frozen with the document (older documents without it: on)
+    content = asyncio.run(
+        docs.compose(
+            _NoTemplates(), doc_type="lor", recipient=R, fields=dd.clean_fields("lor", SAMPLES["lor"]),
+            issue_date=date(2026, 11, 11), ref_no="TD-LR-2026-ABCDEF", settings={**SETTINGS, "watermark": False},
+            site_url="https://x.test",
+        )
+    )  # fmt: skip
+    assert content["letterhead"]["watermark"] is False

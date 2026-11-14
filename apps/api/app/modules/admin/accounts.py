@@ -15,8 +15,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal
@@ -108,6 +109,61 @@ async def _read_session(session: Any, job: str) -> AsyncIterator[Any]:
         await tx.rollback()
 
 
+async def _reads(session: Any, *fns: Callable[[], Awaitable[Any]]) -> list[Any]:
+    """Run independent read callables: concurrently without a Postgres session (Firestore
+    stack), else one after another (an ``AsyncSession`` runs one statement at a time)."""
+    if session:
+        return [await fn() for fn in fns]
+    return list(await asyncio.gather(*(fn() for fn in fns)))
+
+
+async def _user_counts(
+    session: Any, now: datetime
+) -> tuple[dict[str, int], int, int, int, int, set[uuid.UUID]]:
+    """(status counts, minors, new in 7 d, new in 30 d, learners, synthetic ids).
+
+    Firestore: ONE read of ``users`` and the filters applied in memory (the same predicates the
+    per-count queries ran: ``list_users`` filters equality in Firestore and the rest in Python),
+    instead of six whole/near-whole scans of the collection. Postgres: the counting queries."""
+    from app.modules.rbac import public as rbac_public
+
+    staff_ids = await rbac_public.staff_user_ids(session)
+    if not session and ipub._fs():
+        everyone = await ipub.list_users(session)
+        status: dict[str, int] = {}
+        for u in everyone:
+            status[u.status] = status.get(u.status, 0) + 1
+        # erased (status "deleted") and synthetic accounts are not "new registrations"
+        real = [u for u in everyone if u.status != "deleted" and u.is_synthetic is False]
+        return (
+            status,
+            sum(1 for u in real if u.is_minor is True),
+            sum(1 for u in real if u.created_at > now - timedelta(days=7)),
+            sum(1 for u in real if u.created_at > now - timedelta(days=30)),
+            sum(
+                1
+                for u in everyone
+                if u.status == "active" and u.is_synthetic is False and u.id not in staff_ids
+            ),
+            {u.id for u in everyone if u.is_synthetic is True},
+        )
+    users = await ipub.status_counts(session)
+    minors = len(await ipub.list_users(session, is_minor=True, exclude_status="deleted", is_synthetic=False))
+    new7 = len(
+        await ipub.list_users(
+            session, created_after=now - timedelta(days=7), exclude_status="deleted", is_synthetic=False
+        )
+    )
+    new30 = len(
+        await ipub.list_users(
+            session, created_after=now - timedelta(days=30), exclude_status="deleted", is_synthetic=False
+        )
+    )
+    learners = len(await ipub.list_users(session, status="active", is_synthetic=False, exclude_ids=staff_ids))
+    synthetic = {u.id for u in await ipub.list_users(session, is_synthetic=True)}
+    return users, minors, new7, new30, learners, synthetic
+
+
 async def _actionable_approvals(session: Any, principal: Principal, now: datetime) -> int:
     """ADM-22: count only pending requests this viewer could decide (not their own, and only
     action types whose approver role/permission they hold). Store-neutral (rbac.public)."""
@@ -144,10 +200,10 @@ async def _actionable_approvals(session: Any, principal: Principal, now: datetim
 async def dashboard(
     session: PrincipalDbSession, principal: Principal = Depends(require_permission("analytics.read.platform"))
 ) -> dict[str, Any]:
+    from app.modules.admin.privacy import OPEN_STATES as PRV_OPEN
     from app.modules.catalog import public as catalog_public
     from app.modules.commerce import public as commerce_public
     from app.modules.orgs import public as orgs_public
-    from app.modules.rbac import public as rbac_public
     from app.modules.security import public as security_public
     from app.modules.sessions import public as sessions_public
     from app.modules.support.service import dashboard_counts as support_dashboard_counts
@@ -155,35 +211,43 @@ async def dashboard(
     # Store-neutral: every count comes from the owning module's public API (each runs the same
     # query on Postgres, or its Firestore repository).
     now = clock.now()
-    users = await ipub.status_counts(session)
-    minors = len(await ipub.list_users(session, is_minor=True, exclude_status="deleted", is_synthetic=False))
-    # erased (status "deleted") and synthetic accounts are not "new registrations"
-    new7 = len(
-        await ipub.list_users(
-            session, created_after=now - timedelta(days=7), exclude_status="deleted", is_synthetic=False
-        )
-    )
-    new30 = len(
-        await ipub.list_users(
-            session, created_after=now - timedelta(days=30), exclude_status="deleted", is_synthetic=False
-        )
-    )
-    support = await support_dashboard_counts(session, now)
-    levels = await security_public.restricted_users_by_level(session)
-    async with _read_session(session, "admin.dashboard") as rs_:
-        paid = await commerce_public.paid_orders_since(rs_, now - timedelta(days=30))
-    from app.modules.admin.privacy import OPEN_STATES as PRV_OPEN
 
-    courses = await catalog_public.course_status_counts(session)
-    batches = await orgs_public.batch_status_counts(session)
-    staff_ids = await rbac_public.staff_user_ids(session)
-    learners = len(await ipub.list_users(session, status="active", is_synthetic=False, exclude_ids=staff_ids))
+    async def paid_orders() -> tuple[int, int]:
+        async with _read_session(session, "admin.dashboard") as rs_:
+            return await commerce_public.paid_orders_since(rs_, now - timedelta(days=30))
+
+    # Independent reads. Firebase stack (no Postgres session): one concurrent round instead of ~20
+    # sequential ones; on Postgres one statement at a time on the request session, as before.
+    (
+        user_counts,
+        support,
+        levels,
+        paid,
+        courses,
+        batches,
+        live_sessions,
+        open_cases,
+        approvals,
+        privacy,
+        break_glass,
+    ) = await _reads(
+        session,
+        lambda: _user_counts(session, now),
+        lambda: support_dashboard_counts(session, now),
+        lambda: security_public.restricted_users_by_level(session),
+        paid_orders,
+        lambda: catalog_public.course_status_counts(session),
+        lambda: orgs_public.batch_status_counts(session),
+        lambda: sessions_public.list_sessions(session, active_at=now),
+        lambda: security_public.open_case_count(session),
+        lambda: _actionable_approvals(session, principal, now),
+        lambda: _privacy_counts(session, PRV_OPEN, now),
+        lambda: _bg_active_count(session),
+    )
+    users, minors, new7, new30, learners, synthetic = user_counts
     # "Signed in now": like the other headline counts, synthetic accounts (QA / demo, live audit
     # 2026-11-14 #9) are left out.
-    synthetic = {u.id for u in await ipub.list_users(session, is_synthetic=True)}
-    active_sessions = sum(
-        1 for s in await sessions_public.list_sessions(session, active_at=now) if s.user_id not in synthetic
-    )
+    active_sessions = sum(1 for s in live_sessions if s.user_id not in synthetic)
 
     return {
         "generated_at": to_rfc3339(now),
@@ -209,11 +273,11 @@ async def dashboard(
         "support": support,
         "security": {
             "restricted_by_level": {str(k): int(v) for k, v in sorted(levels.items())},
-            "open_cases": await security_public.open_case_count(session),
+            "open_cases": open_cases,
         },
-        "approvals": {"pending": await _actionable_approvals(session, principal, now)},
-        "privacy": dict(zip(("open", "overdue"), await _privacy_counts(session, PRV_OPEN, now), strict=True)),
-        "break_glass": {"active": await _bg_active_count(session)},
+        "approvals": {"pending": approvals},
+        "privacy": dict(zip(("open", "overdue"), privacy, strict=True)),
+        "break_glass": {"active": break_glass},
         "commerce": {"paid_orders_30d": int(paid[0]), "revenue_paise_30d": int(paid[1])},
     }
 

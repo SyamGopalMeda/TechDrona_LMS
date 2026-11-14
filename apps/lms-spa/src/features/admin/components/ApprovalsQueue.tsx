@@ -8,7 +8,7 @@ import { ActionDialog, FilterBar, InlineProblem, JsonBlock, KeyValueList, StateB
 import { UserRef } from "./Governance";
 import { useSimpleAuth } from "@/components/shell/Integrations";
 import { cleanQuery, formatINR, humanize, shortRef, toOutcome, useCursorList, useVersioned, type MutationOutcome } from "../lib/console";
-import { useResource } from "@/lib/api/use-resource";
+import { DEFAULT_HANDLE, useIdentity } from "@/lib/api/session-cache";
 import { formatDateTime, formatTimeUntil } from "@/lib/format";
 
 /**
@@ -169,7 +169,7 @@ export function ApprovalsQueue({ title = "Approvals", eyebrow, description, acti
   // returns every row the caller requested or may approve ({data}, unpaginated), so the type
   // filter is applied here.
   const list = useCursorList<ApprovalRow>("admin/approvals", cleanQuery({ status }));
-  const me = useResource<{ user: { id: string } }>("me");
+  const me = useIdentity<{ user: { id: string } }>("me", { handle: DEFAULT_HANDLE });
   // TD_SIMPLE_AUTH: step-up is always treated as fresh (sessions/resolver.py), so no second prompt.
   const simple = useSimpleAuth() === true;
   const myId = me.data?.user.id;

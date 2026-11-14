@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import { ComingInThePort } from "@/features/colleges/shell/Placeholder";
+import { Reports } from "@/features/colleges/screens/Reports";
 
 export const metadata: Metadata = { title: { absolute: "Reports · Tech Drona Outreach Portal" }, robots: { index: false, follow: false } };
 
-/** /colleges/analytics — replaces js/views/dashboard.js renderAnalytics (old route #/analytics). Placeholder until ported. */
+/** /colleges/analytics — port of js/views/dashboard.js renderAnalytics (old route #/analytics). */
 export default function Page() {
-  return <ComingInThePort title="Reports" />;
+  return <Reports />;
 }

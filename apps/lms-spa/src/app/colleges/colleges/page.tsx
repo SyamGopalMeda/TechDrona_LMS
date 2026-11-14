@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import { ComingInThePort } from "@/features/colleges/shell/Placeholder";
+import { CollegeList } from "@/features/colleges/screens/CollegeList";
 
 export const metadata: Metadata = { title: { absolute: "Colleges · Tech Drona Outreach Portal" }, robots: { index: false, follow: false } };
 
-/** /colleges/colleges — replaces js/views/dashboard.js renderCollegeList (old route #/colleges). Placeholder until ported. */
+/** /colleges/colleges — the colleges list (old js/views/dashboard.js renderCollegeList, route #/colleges). */
 export default function Page() {
-  return <ComingInThePort title="Colleges" />;
+  return <CollegeList />;
 }

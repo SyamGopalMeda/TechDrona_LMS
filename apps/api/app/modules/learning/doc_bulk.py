@@ -110,7 +110,7 @@ def check_row(
     leftovers: list[str] = []
     if not missing and not errors:
         # compose()'s strict check, with the template override read once for the whole upload
-        ref = f"TD-{dd.PREFIXES[doc_type]}-{issue_date.year}-PREVEW"
+        ref = dd.preview_ref(doc_type, issue_date.year)
         values = dd.placeholder_values(
             doc_type=doc_type, recipient=rcp, fields=fields, settings=settings, ref_no=ref,
             cert_no=ref if dd.is_certificate(doc_type) else "", issue_date=issue_date, site_url=site_url,

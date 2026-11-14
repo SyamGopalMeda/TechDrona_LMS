@@ -9,7 +9,7 @@ import { FormAlert } from "@/features/auth/components/shared";
 import { problemFieldErrors, toFormError, type FormErrorInfo } from "@/features/auth/lib/errors";
 import { useAccountScope } from "../lib/account-scope";
 import type { Me, ProfilePatchBody } from "../lib/types";
-import { useResource } from "@/lib/api/use-resource";
+import { DEFAULT_HANDLE, useIdentity } from "@/lib/api/session-cache";
 
 /**
  * STU-020 Profile · ME-01 read, ME-02 update, AUTH-03 resend verification. Shared by every
@@ -18,7 +18,7 @@ import { useResource } from "@/lib/api/use-resource";
  */
 export function ProfileSettings() {
   const toast = useToast();
-  const me = useResource<Me>("me");
+  const me = useIdentity<Me>("me", { handle: DEFAULT_HANDLE });
   const scope = useAccountScope();
   const [name, setName] = useState("");
   const [year, setYear] = useState("");

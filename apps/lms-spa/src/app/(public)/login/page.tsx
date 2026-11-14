@@ -7,7 +7,8 @@ import { safeNextPath } from "@/features/auth/lib/validation";
 import { redirect } from "next/navigation";
 import { ACCEPT_TERMS_PATH, CHANGE_PASSWORD_PATH, isRequiredConsentProblem } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import { hasSessionCookie, serverApiGet } from "@/lib/api/server";
+import { hasSessionCookie } from "@/lib/api/server";
+import { getIdentity } from "@/lib/api/session-cache";
 import { googleSignInConfig } from "@/lib/firebase/config";
 
 export const metadata: Metadata = { title: "Log in" };
@@ -58,7 +59,7 @@ async function LoginPage__server({ searchParams }: { searchParams: Promise<Recor
 async function signedIn(): Promise<"yes" | "no" | "change_password" | "accept_terms"> {
   if (!(await hasSessionCookie())) return "no";
   try {
-    await serverApiGet("me/grants");
+    await getIdentity("me/grants");
     return "yes";
   } catch (e) {
     if (e instanceof ApiError && e.code === "password_change_required") return "change_password";

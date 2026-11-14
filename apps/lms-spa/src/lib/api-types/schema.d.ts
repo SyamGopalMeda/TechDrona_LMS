@@ -13457,6 +13457,8 @@ export interface components {
             signatory_phone?: string | null;
             /** Tagline */
             tagline?: string | null;
+            /** Watermark */
+            watermark?: boolean | null;
             /** Website */
             website?: string | null;
         };

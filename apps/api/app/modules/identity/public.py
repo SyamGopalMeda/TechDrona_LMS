@@ -236,10 +236,12 @@ async def search_users(
         as_id = None
     if _fs():
         users = await list_users(session, status=status)
-        profs = await get_profiles(session, [u.id for u in users])
-        rows = []
+        # Profiles are needed to MATCH only for a name search; otherwise only the returned page's
+        # profiles are read (not one per account on every admin list view).
+        by_name = bool(t) and as_id is None
+        profs = await get_profiles(session, [u.id for u in users]) if by_name else {}
+        kept: list[User] = []
         for u in users:
-            p = profs.get(u.id)
             if not include_deleted and u.status == "deleted":
                 continue
             if after is not None and not u.id < after:
@@ -248,14 +250,18 @@ async def search_users(
                 if u.id != as_id:
                     continue
             elif t:
+                p = profs.get(u.id)
                 hit = t in (u.email or "").lower() or (p is not None and t in (p.full_name or "").lower())
                 if not hit and len(digits) >= 4:
                     hit = digits in (u.phone_e164 or "")
                 if not hit:
                     continue
-            rows.append((u, p))
-        rows.sort(key=lambda r: r[0].id, reverse=True)
-        return rows[: limit + 1]
+            kept.append(u)
+        kept.sort(key=lambda u: u.id, reverse=True)
+        kept = kept[: limit + 1]
+        if not by_name:
+            profs = await get_profiles(session, [u.id for u in kept])
+        return [(u, profs.get(u.id)) for u in kept]
     qry = select(User, UserProfile).outerjoin(UserProfile, UserProfile.user_id == User.id)
     if not include_deleted:
         qry = qry.where(User.status != "deleted")

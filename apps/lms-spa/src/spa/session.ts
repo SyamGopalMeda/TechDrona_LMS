@@ -28,10 +28,27 @@ const OTHER_TTL_MS = 3_000;
 
 let memo: { p: Promise<SessionState>; at: number; value?: SessionState } | null = null;
 
+/**
+ * Identity-change signals for src/lib/api/session-cache.ts (the cached `me` / `me/grants` /
+ * `me/modules`): no session, a re-issued session (remember-device), or entering / leaving the auth
+ * pages (sign-in, sign-out, password change). Listeners must not throw.
+ */
+type SessionResetListener = (reason: "signed-out" | "reissued" | "auth-page") => void;
+const resetListeners = new Set<SessionResetListener>();
+export function onSessionReset(fn: SessionResetListener): () => void {
+  resetListeners.add(fn);
+  return () => resetListeners.delete(fn);
+}
+function emitReset(reason: Parameters<SessionResetListener>[0]): void {
+  for (const fn of resetListeners) fn(reason);
+}
+
 async function callProbe(): Promise<SessionState> {
   try {
     const res = await apiRequest<{ session?: unknown; refreshed?: unknown }>(SESSION_PROBE_PATH, { method: "GET", handle: NO_HANDLE });
     if (res.kind !== "ok" || res.status !== 200 || !res.data || typeof res.data.session !== "boolean") return "unknown";
+    if (!res.data.session) emitReset("signed-out");
+    else if (res.data.refreshed === true) emitReset("reissued");
     return res.data.session ? "yes" : "no";
   } catch {
     return "unknown";
@@ -68,8 +85,12 @@ const AUTH_PAGES = /^\/(login|signup|change-password|accept-terms|reset-password
 
 /** Called on every location change (src/spa/runtime.tsx). */
 export function onPathChange(prev: string | null, next: string): void {
-  if ((prev && AUTH_PAGES.test(prev)) || AUTH_PAGES.test(next)) invalidateSession();
-  else if (memo?.value && memo.value !== "yes") invalidateSession();
+  if ((prev && AUTH_PAGES.test(prev)) || AUTH_PAGES.test(next)) {
+    invalidateSession();
+    // Entering an auth page: sign-in / sign-out / password change follow. (Leaving one after
+    // signing in needs nothing more: the auth/* POST already reset the identity cache.)
+    if (AUTH_PAGES.test(next)) emitReset("auth-page");
+  } else if (memo?.value && memo.value !== "yes") invalidateSession();
 }
 
 /**

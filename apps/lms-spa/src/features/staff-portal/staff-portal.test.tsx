@@ -339,3 +339,75 @@ describe("Portal switcher list (admin.md F3)", () => {
     expect(switcherPortals(undefined)).toEqual([]);
   });
 });
+
+/* Fewer identity requests (docs/perf/spa-requests.md): the gates read me/grants through the session cache. */
+describe("portal gates and the session cache", () => {
+  function mountAdmin() {
+    return render(
+      <ToastProvider>
+        <MemoryRouter initialEntries={["/admin"]}>
+          <Suspense fallback={<p>LOADING</p>}>
+            <Routes>
+              <Route
+                path="/admin/*"
+                element={
+                  <StaffPortalGate portal="admin">
+                    <p>ADMIN CONTENT</p>
+                  </StaffPortalGate>
+                }
+              />
+            </Routes>
+          </Suspense>
+        </MemoryRouter>
+      </ToastProvider>,
+    );
+  }
+
+  it("a second portal entry decides from the cached grants: no request, no probe, no suspension", async () => {
+    server.hasSessionCookie.mockResolvedValue(true);
+    server.serverApiGet.mockResolvedValue(OWNER);
+    expect(await decideStaffPortal("admin")).toEqual({ kind: "enter", grants: OWNER });
+    expect(server.serverApiGet).toHaveBeenCalledTimes(1);
+    server.hasSessionCookie.mockClear();
+    mountAdmin();
+    // Rendered synchronously on the first pass (no LOADING / skeleton).
+    expect(screen.getByText("ADMIN CONTENT")).toBeInTheDocument();
+    expect(server.serverApiGet).toHaveBeenCalledTimes(1);
+    expect(server.hasSessionCookie).not.toHaveBeenCalled();
+  });
+
+  it("the Student gate shares the same cached grants with the staff gate", async () => {
+    server.hasSessionCookie.mockResolvedValue(true);
+    server.serverApiGet.mockResolvedValue(OWNER);
+    await decideStaffPortal("admin");
+    await act(async () => {
+      render(
+        <ToastProvider>
+          <MemoryRouter initialEntries={["/app/settings/profile"]}>
+            <Routes>
+              <Route path="/app/*" element={<StudentPortalGate>{(portal) => <p>SHELL {portal}</p>}</StudentPortalGate>} />
+            </Routes>
+          </MemoryRouter>
+        </ToastProvider>,
+      );
+    });
+    expect(screen.getByText("SHELL admin")).toBeInTheDocument();
+    expect(server.serverApiGet).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the portal skeleton (not a blank page) while the grants load", async () => {
+    server.hasSessionCookie.mockResolvedValue(true);
+    let finish!: (v: unknown) => void;
+    server.serverApiGet.mockReturnValue(new Promise((r) => (finish = r)));
+    await act(async () => {
+      mountAdmin();
+    });
+    expect(screen.queryByText("LOADING")).not.toBeInTheDocument();
+    expect(screen.getByText("Loading…").closest("[aria-busy]")).toBeInTheDocument();
+    await act(async () => {
+      finish(OWNER);
+    });
+    expect(await screen.findByText("ADMIN CONTENT")).toBeInTheDocument();
+    expect(server.serverApiGet).toHaveBeenCalledTimes(1);
+  });
+});

@@ -1752,42 +1752,82 @@ async def set_plan_active(session: AsyncSession, actor: Actor, slug: str, active
 
 
 async def overview(session: AsyncSession) -> dict[str, Any]:
-    regs = (
-        await ads.execute(
-            session,
-            select(
-                AdmissionRegistration.course_slug,
-                AdmissionRegistration.course_title,
-                AdmissionRegistration.status,
-                AdmissionRegistration.fee_paise,
-                AdmissionRegistration.verified_total_paise,
-                AdmissionRegistration.balance_paise,
-            ),
-        )
-    ).all()
-    claim_rows = (
-        await ads.execute(
-            session,
-            select(
-                AdmissionPaymentClaim.status,
-                func.count(),
-                func.coalesce(func.sum(AdmissionPaymentClaim.amount_paise), 0),
-            ).group_by(AdmissionPaymentClaim.status),
-        )
-    ).all()
-    pending_by_course = dict(
-        (
+    if ads.on_firestore():
+        # Firestore (SQL engine): registrations and claims are each read ONCE and grouped here
+        # (the Postgres statements below read registrations twice and claims twice: a
+        # GROUP BY, then a join for the pending count per course). Same numbers.
+        reg_rows = (
             await ads.execute(
                 session,
-                select(AdmissionRegistration.course_slug, func.count())
-                .join(
-                    AdmissionPaymentClaim, AdmissionPaymentClaim.registration_id == AdmissionRegistration.id
-                )
-                .where(AdmissionPaymentClaim.status == "pending")
-                .group_by(AdmissionRegistration.course_slug),
+                select(
+                    AdmissionRegistration.id,
+                    AdmissionRegistration.course_slug,
+                    AdmissionRegistration.course_title,
+                    AdmissionRegistration.status,
+                    AdmissionRegistration.fee_paise,
+                    AdmissionRegistration.verified_total_paise,
+                    AdmissionRegistration.balance_paise,
+                ),
             )
         ).all()
-    )
+        regs = [tuple(r[1:]) for r in reg_rows]
+        slug_of = {r[0]: r[1] for r in reg_rows}
+        grouped: dict[str, list[int]] = {}
+        pending_by_course: dict[str, int] = {}
+        for status, amount, reg_id in (
+            await ads.execute(
+                session,
+                select(
+                    AdmissionPaymentClaim.status,
+                    AdmissionPaymentClaim.amount_paise,
+                    AdmissionPaymentClaim.registration_id,
+                ),
+            )
+        ).all():
+            g = grouped.setdefault(status, [0, 0])
+            g[0] += 1
+            g[1] += amount or 0
+            if status == "pending" and reg_id in slug_of:
+                pending_by_course[slug_of[reg_id]] = pending_by_course.get(slug_of[reg_id], 0) + 1
+        claim_rows: Any = [(st, n, a) for st, (n, a) in grouped.items()]
+    else:
+        regs = (
+            await ads.execute(
+                session,
+                select(
+                    AdmissionRegistration.course_slug,
+                    AdmissionRegistration.course_title,
+                    AdmissionRegistration.status,
+                    AdmissionRegistration.fee_paise,
+                    AdmissionRegistration.verified_total_paise,
+                    AdmissionRegistration.balance_paise,
+                ),
+            )
+        ).all()
+        claim_rows = (
+            await ads.execute(
+                session,
+                select(
+                    AdmissionPaymentClaim.status,
+                    func.count(),
+                    func.coalesce(func.sum(AdmissionPaymentClaim.amount_paise), 0),
+                ).group_by(AdmissionPaymentClaim.status),
+            )
+        ).all()
+        pending_by_course = dict(
+            (
+                await ads.execute(
+                    session,
+                    select(AdmissionRegistration.course_slug, func.count())
+                    .join(
+                        AdmissionPaymentClaim,
+                        AdmissionPaymentClaim.registration_id == AdmissionRegistration.id,
+                    )
+                    .where(AdmissionPaymentClaim.status == "pending")
+                    .group_by(AdmissionRegistration.course_slug),
+                )
+            ).all()
+        )
     claims = {s: (int(n), int(a)) for s, n, a in claim_rows}
     courses: dict[str, dict[str, Any]] = {}
     for slug, title, status, fee, verified, balance in regs:
