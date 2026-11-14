@@ -15,5 +15,5 @@ async function Page__server() {
   return <PlacementHub subjects={result.data.items} signedIn={signedIn} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/(public)/placement/page.tsx#Page");

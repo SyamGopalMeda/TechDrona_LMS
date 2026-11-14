@@ -10,5 +10,5 @@ async function Page__server({ params }: { params: Promise<{ user_id: string }> }
   return <UserTimelinePage userId={user_id} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/security/users/[user_id]/timeline/page.tsx#Page");

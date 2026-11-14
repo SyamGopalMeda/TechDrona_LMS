@@ -272,7 +272,7 @@ Use the same word everywhere for the same state.
 - Kit: `apps/web/src/components/ui/*` (new: `Logo.tsx`, `LinkButton`, `Textarea`, `StatusBadge`, `Breadcrumbs`, `ErrorSummary.tsx`, `LoadingBlock`)
 - Shells: `apps/web/src/components/shell/{PortalShell,PortalNav,MobileTabBar,PortalSwitcher,PublicShell}.tsx`
 - Root: `apps/web/src/app/layout.tsx` (icons, theme colour, font preload), `apps/web/src/app/manifest.ts`
-- Screenshots: `docs/redesign/shots/design/` — `before-*` = running container :13000, `after-*` = `next start -p 13100` of this build (same dev API :18000); login, student dashboard and admin dashboard at 1440 (`-desktop`) and 390 px (`-mobile`), each signed in fresh in its own browser context (2026-11-08). All 12 captured and checked: the after shots show the real logo, navy brand, and no `ADM-001` eyebrow. The first pass in `shots/design-system/` has invalid `after-*-dashboard-*` shots (they landed on the login page); use this folder.
+- Screenshots (deleted in cleanup D4 on 2026-11-14; recover from git commit `24134de`): `docs/redesign/shots/design/` — `before-*` = running container :13000, `after-*` = `next start -p 13100` of this build (same dev API :18000); login, student dashboard and admin dashboard at 1440 (`-desktop`) and 390 px (`-mobile`), each signed in fresh in its own browser context (2026-11-08). All 12 captured and checked: the after shots show the real logo, navy brand, and no `ADM-001` eyebrow. The first pass in `shots/design-system/` has invalid `after-*-dashboard-*` shots (they landed on the login page); use this folder.
 
 ## Dashboards (2026-11-10)
 

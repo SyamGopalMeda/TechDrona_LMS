@@ -17,5 +17,5 @@ async function Page__server({
   return <LiveRun runId={run_id} code={typeof code === "string" ? code : undefined} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/app/engage/runs/[run_id]/page.tsx#Page");

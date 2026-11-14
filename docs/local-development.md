@@ -1,5 +1,7 @@
 # Local development
 
+> **Superseded (2026-11-14):** the LMS runs on Firebase (Vite React SPA + Cloud Functions + Firestore, project `billing-f4fe3`) — see `docs/firebase-migration-plan.md` and `docs/firebase/`. This Docker/Postgres dev loop applies only to the legacy VM stack (kept until the VM is retired).
+
 Owner: DevOps. Status: Stage 10 (integration). Related: `docs/implementation-conventions.md` §7 (commands), `docs/deployment-and-operations.md` §1.1 (local stack), `.env.example` (variable names).
 
 Everything below runs on a developer laptop only. Nothing here is used in AWS, and every credential in `docker-compose.yml`, `scripts/db-init/` and `.env.example` is a local placeholder.
@@ -176,4 +178,4 @@ The containers read the root `.env` and then override the host URLs with contain
 ## 8. CI and deploy
 
 - `.github/workflows/ci.yml` runs the gates (testing-and-acceptance-criteria §10): lint and types, pytest with coverage, migration checks, the route-guard test, Semgrep, CodeQL, gitleaks, pip-audit, npm audit, OSV-Scanner, Trivy, hadolint, actionlint, and Terraform fmt/validate/Checkov. CI starts Postgres and Redis with this same `docker-compose.yml`, so CI and local runs use the same init scripts. The `e2e` job (main pushes, nightly and manual runs) starts the whole `app` profile, runs `scripts/seed-dev.sh`, and then runs Playwright with `E2E_INTEGRATION=1` against `http://localhost:13000`.
-- `.github/workflows/deploy.yml` is a **disabled skeleton**: it only runs on manual dispatch and does nothing unless the repository variable `DEPLOY_ENABLED` is `true`. Do not enable it until the AWS accounts, OIDC roles and ECR repositories exist (`infra/terraform`).
+- `.github/workflows/deploy.yml` (archived 2026-11-14 to `docs/archive/aws-terraform/deploy.yml`) is a **disabled skeleton**: it only runs on manual dispatch and does nothing unless the repository variable `DEPLOY_ENABLED` is `true`. Do not enable it until the AWS accounts, OIDC roles and ECR repositories exist (`infra/terraform`).

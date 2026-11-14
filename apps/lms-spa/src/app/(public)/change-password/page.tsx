@@ -27,5 +27,5 @@ async function ChangePasswordPage__server({ searchParams }: { searchParams: Prom
   );
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(ChangePasswordPage__server, "app/(public)/change-password/page.tsx#ChangePasswordPage");

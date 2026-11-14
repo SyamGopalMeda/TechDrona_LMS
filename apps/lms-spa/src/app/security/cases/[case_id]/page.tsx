@@ -10,5 +10,5 @@ async function Page__server({ params }: { params: Promise<{ case_id: string }> }
   return <CaseDetail caseId={case_id} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/security/cases/[case_id]/page.tsx#Page");

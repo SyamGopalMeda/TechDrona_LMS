@@ -10,5 +10,5 @@ async function Page__server({ params }: { params: Promise<{ course_id: string }>
   return <CourseEditor courseId={course_id} crumbs={[{ label: "Courses", href: "/studio/courses" }]} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/studio/courses/[course_id]/page.tsx#Page");

@@ -1,5 +1,7 @@
 # ADR-0014: Error tracking — self-hosted GlitchTip in ap-south-1 (no Sentry SaaS)
 
+> **Superseded (2026-11-14):** the LMS runs on Firebase (Vite React SPA + Cloud Functions + Firestore, project `billing-f4fe3`) — see `docs/firebase-migration-plan.md` and `docs/firebase/`. The self-hosted AWS GlitchTip plan was never built.
+
 * **Status:** Accepted (Integration Lead, wave-2 consistency pass, `contract-reconciliation.md` §7) — implementation **Planned**
 * **Related:** Brief v0.3 §1 Hosting ("logs retained in India"), `system-architecture.md` §3 and §21, `deployment-and-operations.md` (observability), `privacy-and-data-retention.md` §10 (processor table), ADR-0010
 

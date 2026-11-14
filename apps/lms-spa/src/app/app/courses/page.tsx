@@ -63,6 +63,6 @@ async function Page__server() {
   );
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 const SelfPacedCourses = asyncComponent(SelfPacedCourses__server, "app/app/courses/page.tsx#SelfPacedCourses");
 export default asyncComponent(Page__server, "app/app/courses/page.tsx#Page");

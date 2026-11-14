@@ -146,5 +146,5 @@ async function HomePage__server() {
   );
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(HomePage__server, "app/(public)/page.tsx#HomePage");

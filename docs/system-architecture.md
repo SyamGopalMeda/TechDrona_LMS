@@ -1,5 +1,7 @@
 # Tech Drona LMS — System Architecture
 
+> **Superseded (2026-11-14):** the LMS runs on Firebase (Vite React SPA + Cloud Functions + Firestore, project `billing-f4fe3`) — see `docs/firebase-migration-plan.md` and `docs/firebase/`. The AWS/Postgres/Next.js BFF architecture below was never deployed; the legacy demo VM runs a subset of it until it is retired.
+
 > **Single-company note (2026-11-06).** Tech Drona now runs as a single company ([ADR-0015](architecture-decisions/ADR-0015-single-company.md)); the college/B2B features described in this document (college portal and coordinators, institution contracts and seats, invitations and roster import, per-organization settings, trusted networks and lab devices, the "For colleges" page) are removed. Roles are Admin (`super_admin`), Trainer, Evaluator, Content manager and Student; finance, support, security and mentor duties belong to Admin. Batches are Tech Drona cohorts managed by Admin at `/admin/batches`; businesses use the corporate enquiry form at `/enquiries`. The `orgs` module keeps only the internal company org; per-org settings are platform settings. Where this document conflicts, ADR-0015 and [`single-company/REMOVAL-PLAN.md`](single-company/REMOVAL-PLAN.md) §8 win.
 
 | Field | Value |
@@ -905,7 +907,7 @@ flowchart TB
 ```
 
 * Environments: `dev`, `staging` (production-like, anonymised data only), `prod` — separate AWS accounts under AWS Organizations.
-* IaC: Terraform in `infra/terraform` (modules per component); CI/CD GitHub Actions → build one backend image (api/worker/scheduler entrypoints) and one web image → ECR (scan) → deploy with ECS rolling/blue-green (CodeDeploy) after `alembic upgrade` runs as a one-off ECS task (ADR-0009).
+* IaC: Terraform in `infra/terraform` (never applied; archived 2026-11-14 to `docs/archive/aws-terraform/terraform/`) (modules per component); CI/CD GitHub Actions → build one backend image (api/worker/scheduler entrypoints) and one web image → ECR (scan) → deploy with ECS rolling/blue-green (CodeDeploy) after `alembic upgrade` runs as a one-off ECS task (ADR-0009).
 * Data in ap-south-1 only; backups (RDS snapshots, S3) stay in-region (cross-region DR to ap-south-2 Hyderabad is a later decision for DevOps).
 
 ---

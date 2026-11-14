@@ -2,7 +2,6 @@
   {
     "job": "admin.break_glass_expiry",
     "task": "admin.break_glass_expiry",
-    "function": "lmsJobAdminBreakGlassExpiry",
     "cron": "* * * * *",
     "repeat_seconds": null,
     "queue": "critical"
@@ -10,7 +9,6 @@
   {
     "job": "analytics.daily_aggregator",
     "task": "analytics.run_job",
-    "function": "lmsJobAnalyticsDailyAggregator",
     "cron": "*/15 * * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -18,7 +16,6 @@
   {
     "job": "analytics.exports_sweep",
     "task": "analytics.exports_sweep",
-    "function": "lmsJobAnalyticsExportsSweep",
     "cron": "* * * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -26,7 +23,6 @@
   {
     "job": "analytics.interval_builder",
     "task": "analytics.run_job",
-    "function": "lmsJobAnalyticsIntervalBuilder",
     "cron": "* * * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -34,7 +30,6 @@
   {
     "job": "analytics.outbox_consumer",
     "task": "analytics.run_job",
-    "function": "lmsJobAnalyticsOutboxConsumer",
     "cron": "*/10 * * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -42,7 +37,6 @@
   {
     "job": "analytics.retention_purge",
     "task": "analytics.run_job",
-    "function": "lmsJobAnalyticsRetentionPurge",
     "cron": "30 21 * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -50,7 +44,6 @@
   {
     "job": "analytics.rollups",
     "task": "analytics.run_job",
-    "function": "lmsJobAnalyticsRollups",
     "cron": "0 22 * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -58,7 +51,6 @@
   {
     "job": "analytics.security_feed",
     "task": "analytics.run_job",
-    "function": "lmsJobAnalyticsSecurityFeed",
     "cron": "0 23 * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -66,7 +58,6 @@
   {
     "job": "analytics.video_coverage",
     "task": "analytics.run_job",
-    "function": "lmsJobAnalyticsVideoCoverage",
     "cron": "* * * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -74,7 +65,6 @@
   {
     "job": "assessments.deadline_sweeper",
     "task": "assessments.deadline_sweeper",
-    "function": "lmsJobAssessmentsDeadlineSweeper",
     "cron": "* * * * *",
     "repeat_seconds": 5.0,
     "queue": "critical"
@@ -82,7 +72,6 @@
   {
     "job": "coding.process_pending",
     "task": "coding.process_pending",
-    "function": "lmsJobCodingProcessPending",
     "cron": "* * * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -90,7 +79,6 @@
   {
     "job": "commerce.order_expiry",
     "task": "commerce.order_expiry",
-    "function": "lmsJobCommerceOrderExpiry",
     "cron": "*/5 * * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -98,7 +86,6 @@
   {
     "job": "commerce.reconciliation",
     "task": "commerce.reconciliation",
-    "function": "lmsJobCommerceReconciliation",
     "cron": "0 * * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -106,7 +93,6 @@
   {
     "job": "commerce.refund_submit_retry",
     "task": "commerce.refund_submit_retry",
-    "function": "lmsJobCommerceRefundSubmitRetry",
     "cron": "*/2 * * * *",
     "repeat_seconds": null,
     "queue": "critical"
@@ -114,7 +100,6 @@
   {
     "job": "commerce.webhook_retry",
     "task": "commerce.webhook_retry",
-    "function": "lmsJobCommerceWebhookRetry",
     "cron": "* * * * *",
     "repeat_seconds": null,
     "queue": "critical"
@@ -122,7 +107,6 @@
   {
     "job": "core.audit_seal",
     "task": "td.core.audit_seal",
-    "function": "lmsJobCoreAuditSeal",
     "cron": "* * * * *",
     "repeat_seconds": 2.0,
     "queue": "critical"
@@ -130,7 +114,6 @@
   {
     "job": "core.maint_partitions",
     "task": "td.core.maint_partitions",
-    "function": "lmsJobCoreMaintPartitions",
     "cron": "30 21 * * *",
     "repeat_seconds": null,
     "queue": "maintenance"
@@ -138,7 +121,6 @@
   {
     "job": "core.maint_retention",
     "task": "td.core.maint_retention",
-    "function": "lmsJobCoreMaintRetention",
     "cron": "30 22 * * *",
     "repeat_seconds": null,
     "queue": "maintenance"
@@ -146,7 +128,6 @@
   {
     "job": "core.outbox_relay",
     "task": "td.core.outbox_relay",
-    "function": "lmsJobCoreOutboxRelay",
     "cron": "* * * * *",
     "repeat_seconds": 5.0,
     "queue": "critical"
@@ -154,7 +135,6 @@
   {
     "job": "entitlements.expiry",
     "task": "entitlements.expiry",
-    "function": "lmsJobEntitlementsExpiry",
     "cron": "*/15 * * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -162,7 +142,6 @@
   {
     "job": "learning.certificate_outbox_send",
     "task": "learning.certificate_outbox_send",
-    "function": "lmsJobLearningCertificateOutboxSend",
     "cron": "* * * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -170,7 +149,6 @@
   {
     "job": "learning.certificates_batch_end",
     "task": "learning.certificates_batch_end",
-    "function": "lmsJobLearningCertificatesBatchEnd",
     "cron": "0 20 * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -178,7 +156,6 @@
   {
     "job": "media.scan_sweep",
     "task": "media.scan_sweep",
-    "function": "lmsJobMediaScanSweep",
     "cron": "*/2 * * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -186,7 +163,6 @@
   {
     "job": "notifications.renewal_reminders",
     "task": "notifications.renewal_reminders",
-    "function": "lmsJobNotificationsRenewalReminders",
     "cron": "0 0 * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -194,7 +170,6 @@
   {
     "job": "placement.media_scan_sweep",
     "task": "placement.media_scan_sweep",
-    "function": "lmsJobPlacementMediaScanSweep",
     "cron": "*/2 * * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -202,7 +177,6 @@
   {
     "job": "security.decay_recompute",
     "task": "security.run_job",
-    "function": "lmsJobSecurityDecayRecompute",
     "cron": "30 20 * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -210,7 +184,6 @@
   {
     "job": "security.heartbeat_batch",
     "task": "security.run_job",
-    "function": "lmsJobSecurityHeartbeatBatch",
     "cron": "*/5 * * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -218,7 +191,6 @@
   {
     "job": "security.purge_closed_cases",
     "task": "td.security.purge_closed_cases",
-    "function": "lmsJobSecurityPurgeClosedCases",
     "cron": "0 23 * * 0",
     "repeat_seconds": null,
     "queue": "maintenance"
@@ -226,7 +198,6 @@
   {
     "job": "security.purge_counters",
     "task": "security.run_job",
-    "function": "lmsJobSecurityPurgeCounters",
     "cron": "0 * * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -234,7 +205,6 @@
   {
     "job": "security.restriction_expiry",
     "task": "security.run_job",
-    "function": "lmsJobSecurityRestrictionExpiry",
     "cron": "*/5 * * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -242,7 +212,6 @@
   {
     "job": "security.sla_breach_alerts",
     "task": "security.run_job",
-    "function": "lmsJobSecuritySlaBreachAlerts",
     "cron": "*/15 * * * *",
     "repeat_seconds": null,
     "queue": "default"
@@ -250,7 +219,6 @@
   {
     "job": "support.auto_close",
     "task": "support.auto_close",
-    "function": "lmsJobSupportAutoClose",
     "cron": "0 * * * *",
     "repeat_seconds": null,
     "queue": "default"

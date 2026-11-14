@@ -2,18 +2,19 @@
 /**
  * Contract test: every API call a feature makes (api.get/post/…, useResource, useApi,
  * serverApiGet, apiRequest with a literal path) must exist in the backend OpenAPI document
- * (openapi/openapi.json, dumped from the FastAPI app) with the same HTTP method.
+ * (apps/api/openapi.json, dumped from the FastAPI app) with the same HTTP method.
  *
  * Endpoints the backend does not provide yet must NOT be called — the UI renders an honest
- * "Not available yet" state instead. Regenerate the spec + types with `npm run gen:api` after
- * dumping a fresh openapi.json.
+ * "Not available yet" state instead. Refresh the spec with
+ * `python -m app.scripts.export_openapi` in apps/api (writes apps/api/openapi.json).
  */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const WEB_ROOT = path.resolve(__dirname, "../../..");
-const spec = JSON.parse(fs.readFileSync(path.join(WEB_ROOT, "openapi/openapi.json"), "utf8")) as {
+const SPA_ROOT = path.resolve(__dirname, "../../..");
+const SPEC_PATH = path.resolve(SPA_ROOT, "../api/openapi.json");
+const spec = JSON.parse(fs.readFileSync(SPEC_PATH, "utf8")) as {
   paths: Record<string, Record<string, unknown>>;
 };
 
@@ -51,7 +52,7 @@ interface Call {
 }
 
 function collectCalls(): Call[] {
-  const featuresDir = path.join(WEB_ROOT, "src/features");
+  const featuresDir = path.join(SPA_ROOT, "src/features");
   const files = walk(featuresDir).filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f));
   const calls: Call[] = [];
   for (const file of files) {
@@ -72,7 +73,7 @@ function collectCalls(): Call[] {
         .join("/");
       if (p.startsWith("/api/v1")) p = p.slice("/api/v1".length);
       if (!p.startsWith("/")) p = `/${p}`;
-      calls.push({ file: path.relative(WEB_ROOT, file).replace(/\\/g, "/"), method: method ?? "GET", raw, path: p });
+      calls.push({ file: path.relative(SPA_ROOT, file).replace(/\\/g, "/"), method: method ?? "GET", raw, path: p });
     }
   }
   return calls;

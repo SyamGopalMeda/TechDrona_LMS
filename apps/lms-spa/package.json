@@ -3,12 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Tech Drona LMS as a static React SPA (Vite + React Router) for Firebase Hosting. Port of apps/web; see docs/firebase/agents/spa.md.",
+  "description": "Tech Drona LMS as a static React SPA (Vite + React Router) for Firebase Hosting. src is the source of truth (sync from apps/web retired 2026-11-14); see docs/firebase/agents/spa.md.",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "sync": "node scripts/sync-from-web.mjs && node scripts/gen-routes.mjs && node scripts/gen-static.mjs",
     "gen:routes": "node scripts/gen-routes.mjs",
     "predev": "node scripts/copy-monaco.mjs",
     "dev": "vite",

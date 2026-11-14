@@ -15,5 +15,5 @@ async function Page__server({
   return <CourseEditor courseId={course_id} canPublish={false} crumbs={[{ label: "Courses", href: "/trainer/courses" }]} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/trainer/courses/[course_id]/edit/page.tsx#Page");

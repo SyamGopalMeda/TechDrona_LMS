@@ -1,5 +1,7 @@
 # ADR-0008: Background jobs — Celery on a dedicated Redis broker, transactional outbox
 
+> **Superseded (2026-11-14):** the LMS runs on Firebase (Vite React SPA + Cloud Functions + Firestore, project `billing-f4fe3`) — see `docs/firebase-migration-plan.md` and `docs/firebase/`. Celery/Redis is not used by the live stack; jobs run as Cloud Functions / Cloud Tasks / Cloud Scheduler.
+
 * **Status:** Accepted (Brief §1 default confirmed) — implementation **Planned**
 * **Related:** `system-architecture.md §14`
 

@@ -35,7 +35,8 @@ def test_sync_keeps_foreign_rewrites_and_headers() -> None:
     }
     out = sync.lms_hosting("https://site.example", existing)
     sources = [r["source"] for r in out["rewrites"]]
-    assert sources == ["/api/**", "/sitemap.xml", "/robots.txt", "**"]
+    # /college-portal{,/**} -> lmsApi (College Data Portal on Cloud Run, 2026-11-14) precede foreign rewrites.
+    assert sources == ["/api/**", "/sitemap.xml", "/college-portal", "/college-portal/**", "/robots.txt", "**"]
     assert out["rewrites"][0]["function"]["functionId"] == "lmsApi"
     star = next(r for r in out["headers"] if r["source"] == "**")
     keys = [h["key"] for h in star["headers"]]

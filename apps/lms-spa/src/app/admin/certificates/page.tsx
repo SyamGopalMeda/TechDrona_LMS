@@ -11,5 +11,5 @@ async function Page__server({ searchParams }: { searchParams: Promise<Record<str
   return <AdminCertificates initialCourse={typeof sp.course === "string" ? sp.course : ""} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/admin/certificates/page.tsx#Page");

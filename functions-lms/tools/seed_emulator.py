@@ -1,6 +1,6 @@
 """Seed the Firestore EMULATOR for the Firebase stack (no Postgres): role catalogue + demo users.
 
-    (env from emulate.ps1) apps/api/.venv/Scripts/python functions-lms/tools/seed_emulator.py
+    (FIRESTORE_EMULATOR_HOST + a demo-* project id set) apps/api/.venv/Scripts/python functions-lms/tools/seed_emulator.py
 
 * The RBAC catalogue (``app.modules.rbac.catalogue``) -> ``lms_roles`` / ``lms_permissions`` /
   ``lms_role_permissions`` through the rbac backfill mappings (same documents a Postgres

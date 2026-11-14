@@ -1,7 +1,9 @@
 # Accessibility and responsive audit (audit phase)
 
+> **Superseded (2026-11-14):** this audits the retired Next.js app; the LMS now runs on Firebase — see `docs/firebase-migration-plan.md` and `docs/firebase/`. The scripts moved to `docs/archive/redesign-next-app/a11y/`; the raw `results/*.json` and the `docs/redesign/shots/` screenshots cited below were deleted in cleanup D4 (recover them from git commit `24134de` if needed).
+
 Agent: a11y-responsive · date 2026-11-07 · stack: live dev http://localhost:13000, **light theme only**.
-I changed no application code. Scripts are in `docs/redesign/a11y/` (`audit.cjs`, `dialogs.cjs`, `summarize.cjs`), raw results are in `docs/redesign/a11y/results/*.json`, and screenshots are in `docs/redesign/shots/a11y/<page>-<mobile|tablet|desktop>.png` (viewport-only, 91 files, about 3.9 MB).
+I changed no application code. Scripts are in `docs/archive/redesign-next-app/a11y/` (`audit.cjs`, `dialogs.cjs`, `summarize.cjs`), raw results are in `docs/archive/redesign-next-app/a11y/results/*.json`, and screenshots are in `docs/redesign/shots/a11y/<page>-<mobile|tablet|desktop>.png` (viewport-only, 91 files, about 3.9 MB).
 
 ## Method (labelled per BRIEF)
 
@@ -120,4 +122,4 @@ All of these share: staff "Menu" summary 20 px tall below `lg` (S6/S12); "Sign o
 7. S7 one announcement per submit.
 8. Per-page items: signup DOB width and `describedby` (`SignupForm.tsx`), `AssignmentManagerList` `h2`, TrainerDashboard duplicate region, CourseAccess underline, LoadingBlock consolidation, PublicShell mobile header, removing the requirement codes.
 
-To re-run after the restyle: `node docs/redesign/a11y/audit.cjs [public|student|admin|trainer|evaluator|content]`, then `node docs/redesign/a11y/summarize.cjs`. Also re-check contrast in **dark mode** (not covered here) once the new tokens land.
+To re-run after the restyle: `node docs/archive/redesign-next-app/a11y/audit.cjs [public|student|admin|trainer|evaluator|content]`, then `node docs/archive/redesign-next-app/a11y/summarize.cjs`. Also re-check contrast in **dark mode** (not covered here) once the new tokens land.

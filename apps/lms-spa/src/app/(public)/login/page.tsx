@@ -67,5 +67,5 @@ async function signedIn(): Promise<"yes" | "no" | "change_password" | "accept_te
   }
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(LoginPage__server, "app/(public)/login/page.tsx#LoginPage");

@@ -2,17 +2,19 @@
 
 Date: 2026-11-12 (round 2 the same day). Scope: `apps/lms-spa/**`, this report and, in round 2 only, the `hosting` → `lms` entry of `firebase.json`. `apps/web` was not modified. Nothing was deployed.
 
+> **Status (2026-11-14): `apps/lms-spa/src` is the source of truth (sync retired 2026-11-14).** Edit `src/` only. `scripts/sync-from-web.mjs`, `scripts/sync-report.json`, the `npm run sync` script and `spa-overrides/` were removed (cleanup Batch 0, `docs/cleanup/feature-removal-plan.md` §5); `apps/web` is no longer copied and stays only for the VM. The contract test reads `apps/api/openapi.json`. The sync mechanics below are kept as history of how `src/` was produced.
+
 ## 1. Approach
 
-The port copies `apps/web/src` unchanged and swaps the Next runtime underneath it, so the UI code stays identical and can be re-synced while the live app keeps changing.
+The port copied `apps/web/src` unchanged and swaps the Next runtime underneath it, so the UI code stayed identical. (Historical: re-syncing was retired on 2026-11-14; `src/` is now edited directly.)
 
 | Piece | How |
 |---|---|
-| Copy | `scripts/sync-from-web.mjs` copies `apps/web/src` → `src/` (everything except `src/spa/`), `apps/web/public` → `public/`, `apps/web/openapi` → `openapi/`. Left out (server-only, the API function replaces them): `middleware.ts`, `app/api/**`, `app/college-portal/**`, every `route.ts`, `lib/bff/**`, `lib/college-portal/**`. `scripts/sync-report.json` lists what was copied. |
+| Copy (retired 2026-11-14) | `scripts/sync-from-web.mjs` (removed) copied `apps/web/src` → `src/` (everything except `src/spa/`), `apps/web/public` → `public/`, `apps/web/openapi` → `openapi/`. Left out (server-only, the API function replaces them): `middleware.ts`, `app/api/**`, `app/college-portal/**`, every `route.ts`, `lib/bff/**`, `lib/college-portal/**`. `scripts/sync-report.json` (removed) listed what was copied. |
 | `next/*` shims | Vite and TS aliases (`vite.config.ts` `nextShimAliases`, `tsconfig.json` `paths`) point at `src/spa/shims/`: `next/link` (React Router `<Link>`, with plain `<a>` for external, hash and download links), `next/navigation` (`useRouter` push/replace/back/forward/refresh, `usePathname`, `useSearchParams`, `useParams` with catch-all → `string[]`, `redirect`/`permanentRedirect`/`notFound` throw marker errors), `next/dynamic` (`React.lazy` + `Suspense` with the `loading` option), `next/headers` (`headers()` rebuilt from `location`, `cookies()` from `document.cookie`), `next` (types only: `Metadata`, `Viewport`, `MetadataRoute`), `server-only` (no-op). |
-| Server pages | The sync rewrites every `async function` component in a non-`"use client"` file: `export default async function Page(` becomes `async function Page__server(` plus `export default asyncComponent(Page__server, "<file>#Page")`. Nothing else in the file changes. `src/spa/async.tsx` calls the function (server components use no hooks, so this is safe) and renders its result with React 19 `use()`. While it loads, the page suspends to the segment's `loading.tsx`, like Next streaming. Navigations are React transitions, so the previous page stays on screen until the next one is ready. The promise is cached per component, navigation key, `router.refresh()` counter and props. A new navigation or a refresh reloads the data, as Next re-renders server components on each navigation. |
+| Server pages | The sync (retired) rewrote every `async function` component in a non-`"use client"` file: `export default async function Page(` becomes `async function Page__server(` plus `export default asyncComponent(Page__server, "<file>#Page")`. Nothing else in the file changes. `src/spa/async.tsx` calls the function (server components use no hooks, so this is safe) and renders its result with React 19 `use()`. While it loads, the page suspends to the segment's `loading.tsx`, like Next streaming. Navigations are React transitions, so the previous page stays on screen until the next one is ready. The promise is cached per component, navigation key, `router.refresh()` counter and props. A new navigation or a refresh reloads the data, as Next re-renders server components on each navigation. |
 | Server data | `lib/api/server.ts` is overridden. `serverApiGet(path)` makes the same GET through the browser client (`apiRequest`, same `/api/v1/<path>`) with the client's global auth, restriction, step-up and session-choice redirects turned off. Errors are thrown back to the page, as on the server. `navigation: true` sends `x-td-activity: navigation`. A network failure becomes `ApiError(503)`. `hasSessionCookie()` uses the session probe `GET /api/v1/_bff/session` (section 4). It answers "yes" or "no" from the function's `{session}` reply, and "unknown" for a network error or a reply that is not JSON. A "yes" is cached for 60 s and anything else for 3 s; the cache is dropped when you enter or leave the auth pages. |
-| Overrides (`spa-overrides/`, 5 source files + 1 ported test) | `app/layout.tsx`: same markup without `<html>/<body>` (those are static in `index.html`), keeps the `metadata` title template. `app/(public)/layout.tsx`: `signedIn` comes from the probe when the area mounts. `components/shell/PortalShell.tsx`: same markup; the session gate redirects to `/login?next=<path+search>` (same `signInNext`). `features/staff-portal/StaffPortalGate.tsx`: same `/me/grants` decision logic, made once when the portal mounts. `lib/api/server.ts`: described in the row above. |
+| SPA-specific files (formerly `spa-overrides/`, removed 2026-11-14; they now live only in `src/`) | `app/layout.tsx`: same markup without `<html>/<body>` (those are static in `index.html`), keeps the `metadata` title template. `app/(public)/layout.tsx`: `signedIn` comes from the probe when the area mounts. `components/shell/PortalShell.tsx`: same markup; the session gate redirects to `/login?next=<path+search>` (same `signInNext`). `features/staff-portal/StaffPortalGate.tsx`: same `/me/grants` decision logic, made once when the portal mounts. `lib/api/server.ts`: described in the row above. |
 | Routing | `scripts/gen-routes.mjs` walks `src/app` and writes `src/spa/routes.gen.tsx`. It handles nested layouts, route groups `(x)` (pathless), `[x]` → `:x`, `[...x]` → `*` (param `x: string[]`), and `error.tsx` + `loading.tsx` per segment. All page and segment modules are lazy (one chunk per route). The tree also gets the root `not-found`, `global-error`, a `*` 404 route, and the three `next.config.ts` redirects (`/admin/security[/*]` → `/security[/*]`, `/verify/certificate/:id` → `/verify/:id`). |
 | Boundaries | Each segment has the same nesting as Next: `Layout > ErrorBoundary(error.tsx) > Suspense(loading.tsx) > Outlet`. `src/spa/boundary.tsx` handles a thrown `redirect()` as a client navigation (a full load for another origin). `notFound()` goes up to the root and renders `app/not-found.tsx`. Other errors render that segment's `error.tsx` with `{ error, reset }`, or go to the parent segment if it has none. A boundary resets on navigation. Errors in the root layout itself render `global-error.tsx` (minus its `<html>/<body>`). |
 | Metadata | `metadata` / `generateMetadata` → `document.title` (root template `%s · Tech Drona`, default `Tech Drona`), `<meta name="description">` and `<meta name="robots">` (`src/spa/metadata.ts`). |
@@ -23,7 +25,7 @@ The port copies `apps/web/src` unchanged and swaps the Next runtime underneath i
 
 Commands, run inside `apps/lms-spa`:
 
-- `npm run sync`: re-copy from `apps/web`, regenerate the routes and the static files.
+- `npm run gen:routes`: regenerate `src/spa/routes.gen.tsx` after adding or removing a page. (`npm run sync` was retired on 2026-11-14: src is the source of truth.)
 - `npm run build`: copy Monaco, generate routes and static files, then `vite build` → `dist/`.
 - `npm run dev`: set `TD_DEV_API_PROXY=http://localhost:8000` to proxy `/api` to a local API.
 - `npm test` / `npm run typecheck`.
@@ -36,8 +38,8 @@ The generator found **204 pages, the same as the 204 `page.tsx` files in `apps/w
 
 - **99 async pages** became client components through `asyncComponent`. Their source, data paths (`serverApiGet("<same path>")`), `redirect`/`notFound` calls and rendered JSX are unchanged.
 - **5 async shared components** were wrapped the same way: `CourseDetail`, `SiteCourseStrip`, `SiteCatalogAdminSection`, `SelfPacedCourses` (in `app/app/courses/page.tsx`) and the root `not-found`.
-- **3 async layouts/gates** were hand-ported in `spa-overrides/`: `(public)/layout`, `PortalShell` and `StaffPortalGate`. The root layout was also ported (`headers()` is not needed).
-- That is 104 wrapped components in 103 files in total (`scripts/sync-report.json`).
+- **3 async layouts/gates** were hand-ported (originally in `spa-overrides/`, now only in `src/`): `(public)/layout`, `PortalShell` and `StaffPortalGate`. The root layout was also ported (`headers()` is not needed).
+- That is 104 wrapped components in 103 files in total (recorded in the now-removed `scripts/sync-report.json`).
 
 ## 4. Middleware → SPA
 
@@ -67,8 +69,8 @@ All results are from 2026-11-12, run inside `apps/lms-spa` on Node 24.21 / npm 1
 Test notes:
 
 - 5 apps/web test files are not ported because they test server code the platform agent re-implements: `middleware.test.ts`, `lib/bff/{proxy,remember,public-admissions}.test.ts` and `lib/college-portal/proxy.test.ts`.
-- `features/staff-portal/staff-portal.test.tsx` is ported with the same assertions. It drives `decideStaffPortal()` + `GateView` instead of awaiting the old async server component (`spa-overrides/features/staff-portal/staff-portal.test.tsx`).
-- Tests that awaited a page's server component directly now call `Page.server(...)`, which is the original function. The sync rewrites this mechanically; one file is affected (`trainer-fixes.test.tsx`).
+- `features/staff-portal/staff-portal.test.tsx` is ported with the same assertions. It drives `decideStaffPortal()` + `GateView` instead of awaiting the old async server component (`src/features/staff-portal/staff-portal.test.tsx`).
+- Tests that awaited a page's server component directly now call `Page.server(...)`, which is the original function. The sync rewrote this mechanically; one file is affected (`trainer-fixes.test.tsx`).
 - One test passes the same way it did in Next: `firebase.test.ts` checks the COOP rules. `apps/lms-spa/next.config.ts` re-exports the Hosting header rules in the `headers()` shape that test expects.
 - On this machine, vitest must run with `--no-file-parallelism`. Parallel workers ran out of memory because other agents were using most of the RAM; this is not a code problem.
 

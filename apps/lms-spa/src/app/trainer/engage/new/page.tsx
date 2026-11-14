@@ -12,5 +12,5 @@ async function Page__server({ searchParams }: { searchParams: Promise<{ type?: s
   return <ActivityBuilder type={t} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/trainer/engage/new/page.tsx#Page");

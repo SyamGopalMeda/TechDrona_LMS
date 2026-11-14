@@ -18,5 +18,5 @@ async function Page__server({ params }: { params: Promise<{ event_ref: string }>
   );
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/app/settings/security/not-me/[event_ref]/page.tsx#Page");

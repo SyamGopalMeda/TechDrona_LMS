@@ -10,5 +10,5 @@ async function Page__server({ params }: { params: Promise<{ problem_id: string }
   return <CodingProblemEditor problemId={problem_id} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/studio/coding/[problem_id]/page.tsx#Page");

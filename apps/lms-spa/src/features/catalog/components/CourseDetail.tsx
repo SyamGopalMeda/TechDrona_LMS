@@ -98,5 +98,5 @@ async function CourseDetail__server({ course, signedIn }: { course: CourseDetail
   );
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export const CourseDetail = asyncComponent(CourseDetail__server, "features/catalog/components/CourseDetail.tsx#CourseDetail");

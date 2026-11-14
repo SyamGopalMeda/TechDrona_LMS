@@ -19,7 +19,3 @@ COMPANY_ORG_ID: Final[uuid.UUID] = uuid.UUID("01930000-0000-7000-8000-00000000c0
 COMPANY_ORG_SLUG: Final[str] = "techdrona"
 COMPANY_ORG_NAME: Final[str] = "Tech Drona"
 COMPANY_ORG_TYPE: Final[str] = "internal"
-
-
-def is_company_org(org_id: uuid.UUID | None) -> bool:
-    return org_id == COMPANY_ORG_ID

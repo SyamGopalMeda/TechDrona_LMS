@@ -17,5 +17,5 @@ async function Page__server({
   return <SubmittedView attemptId={attempt_id} reason={reason ?? null} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/app/attempts/[attempt_id]/submitted/page.tsx#Page");

@@ -1,7 +1,9 @@
 # Performance baseline (pre-redesign) — Tech Drona LMS
 
+> **Superseded (2026-11-14):** this measures the retired Next.js app and BFF; the LMS now runs on Firebase — see `docs/firebase-migration-plan.md` and `docs/firebase/`. The scripts moved to `docs/archive/redesign-next-app/perf/`; the raw `*.json` outputs cited below were deleted in cleanup D4 (recover them from git commit `24134de` if needed).
+
 Agent: Performance (baseline phase), 2026-11-07. Read-only on application code. Scripts and raw data are in
-`docs/redesign/perf/` (all re-runnable, see §7). Every number below was measured in this session unless it is
+`docs/archive/redesign-next-app/perf/` (all re-runnable, see §7). Every number below was measured in this session unless it is
 labelled *code-reviewed*. Nothing here was tuned or changed.
 
 ## 0. Measurement conditions (read this before comparing numbers)
@@ -24,7 +26,7 @@ stable and are what the optimisation list is based on. **Re-run §7 on a quiet m
 
 ## 1. Web bundles (First Load JS)
 
-Method: `docs/redesign/perf/bundle-stats.mjs` sums the gzip(-9) size of every JS chunk a route loads (page entry
+Method: `docs/archive/redesign-next-app/perf/bundle-stats.mjs` sums the gzip(-9) size of every JS chunk a route loads (page entry
 + all ancestor layouts, from `app-build-manifest.json`). No source maps are emitted, so `source-map-explorer`
 cannot be used; `@next/bundle-analyzer` is not installed (not added). Raw: `perf/bundle-stats.json`.
 
@@ -212,14 +214,14 @@ Not recommended: bundle-size work beyond P14 (routes are already 110–174 KB gz
 
 ```
 # from repo root; PERF_STATE_DIR keeps sign-in state outside the repo (contains cookies — never commit)
-node docs/redesign/perf/bundle-stats.mjs apps/web/.next > docs/redesign/perf/bundle-stats.json
-PERF_STATE_DIR=<tmp> node docs/redesign/perf/page-timing.mjs --runs 3            # -> perf/page-timing.json
-PERF_STATE_DIR=<tmp> node docs/redesign/perf/api-timing.mjs --n 7 > docs/redesign/perf/api-timing.json
+node docs/archive/redesign-next-app/perf/bundle-stats.mjs apps/web/.next > docs/archive/redesign-next-app/perf/bundle-stats.json
+PERF_STATE_DIR=<tmp> node docs/archive/redesign-next-app/perf/page-timing.mjs --runs 3            # -> perf/page-timing.json
+PERF_STATE_DIR=<tmp> node docs/archive/redesign-next-app/perf/api-timing.mjs --n 7 > docs/archive/redesign-next-app/perf/api-timing.json
 docker compose logs api --since <start-ISO> --no-log-prefix > <tmp>/api.log
-node docs/redesign/perf/api-timing.mjs --join docs/redesign/perf/api-timing.json --logs <tmp>/api.log
-docker compose logs api --since <ISO> --until <ISO> --no-log-prefix | node docs/redesign/perf/api-log-stats.mjs 3
-PERF_STATE_DIR=<tmp> node docs/redesign/perf/cls-sources.mjs anon /             # layout-shift sources
-PERF_STATE_DIR=<tmp> node docs/redesign/perf/prefetch-cost.mjs admin /admin/users
+node docs/archive/redesign-next-app/perf/api-timing.mjs --join docs/archive/redesign-next-app/perf/api-timing.json --logs <tmp>/api.log
+docker compose logs api --since <ISO> --until <ISO> --no-log-prefix | node docs/archive/redesign-next-app/perf/api-log-stats.mjs 3
+PERF_STATE_DIR=<tmp> node docs/archive/redesign-next-app/perf/cls-sources.mjs anon /             # layout-shift sources
+PERF_STATE_DIR=<tmp> node docs/archive/redesign-next-app/perf/prefetch-cost.mjs admin /admin/users
 ```
 In Git Bash set `MSYS_NO_PATHCONV=1` so `/paths` are not rewritten. Staff accounts at the device cap: the script
 signs in as `admin2@` and `asha.student@` by default (`PERF_STUDENT_AS`, `PERF_ADMIN_AS`, `PERF_STAFF_OWN_ROLE=1`

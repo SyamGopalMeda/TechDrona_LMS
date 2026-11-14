@@ -1,11 +1,8 @@
-# Audit probes (evidence, not tests)
+# Audit probes (removed)
 
-Moved here by fix wave 3 (w3be, 2026-11-04) so that `pytest` no longer collects probes that
-assert the audited bugs (most of them now fail by design, because the bugs are fixed).
+The probe code that lived here (37 files: pytest probes from `apps/api/tests/_audit_scratch/`, moved
+here by fix wave 3 on 2026-11-04, plus one Vitest BFF probe) was deleted on 2026-11-14 (cleanup D4,
+`docs/cleanup/dead-code-plan.md` §3.2). It targeted the retired Postgres API and Next.js BFF.
 
-* `api/` — was `apps/api/tests/_audit_scratch/` (37 files, unchanged). The audit findings in
-  `docs/audit/*.md` still cite the old paths; read them as `docs/audit/probes/api/...`.
-* `web/` — `apps/web/src/__audit_scratch__/` was already empty when moved, so nothing was copied.
-
-To re-run an API probe, copy it back under `apps/api/tests/` (probes import `tests.*` fixtures)
-and run it against your own test DB (`TD_TEST_DB_NAME=...`), never the dev DB.
+The audit findings in `docs/audit/*.md` still cite the probe file names as evidence. To read a probe,
+check out git commit `24134de` and look under `docs/audit/probes/api/`.

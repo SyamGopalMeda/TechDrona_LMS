@@ -595,6 +595,23 @@
         "title": "AdmissionInstalmentIn",
         "type": "object"
       },
+      "AdmissionLoginEmailIn": {
+        "additionalProperties": false,
+        "properties": {
+          "must_change_password": {
+            "default": true,
+            "title": "Must Change Password",
+            "type": "boolean"
+          },
+          "reset_password": {
+            "default": true,
+            "title": "Reset Password",
+            "type": "boolean"
+          }
+        },
+        "title": "AdmissionLoginEmailIn",
+        "type": "object"
+      },
       "AdmissionLookupIn": {
         "additionalProperties": false,
         "properties": {
@@ -1112,6 +1129,60 @@
           "status"
         ],
         "title": "AdmissionStatusIn",
+        "type": "object"
+      },
+      "AdmissionVerifyEnrolIn": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_paise": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100000000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Paise"
+          },
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
+          "must_change_password": {
+            "default": true,
+            "title": "Must Change Password",
+            "type": "boolean"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "send_email": {
+            "default": true,
+            "title": "Send Email",
+            "type": "boolean"
+          }
+        },
+        "title": "AdmissionVerifyEnrolIn",
         "type": "object"
       },
       "AdmissionVerifyIn": {
@@ -4373,6 +4444,25 @@
         "title": "CourseIn",
         "type": "object"
       },
+      "CourseStatusIn": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "open",
+              "coming_soon",
+              "closed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "CourseStatusIn",
+        "type": "object"
+      },
       "CreateUserIn": {
         "additionalProperties": false,
         "description": "ADM-06 staff-created account. The admin sets a starting password and tells the person;\nan optional role is granted in the same step (Admin roles go to dual control as usual).",
@@ -4405,6 +4495,11 @@
               }
             ],
             "title": "Mobile"
+          },
+          "must_change_password": {
+            "default": false,
+            "title": "Must Change Password",
+            "type": "boolean"
           },
           "password": {
             "maxLength": 128,
@@ -7489,6 +7584,105 @@
           "code"
         ],
         "title": "MfaVerifyIn",
+        "type": "object"
+      },
+      "MyClaimIn": {
+        "additionalProperties": false,
+        "properties": {
+          "claim": {
+            "$ref": "#/components/schemas/AdmissionClaimIn"
+          },
+          "proof": {
+            "$ref": "#/components/schemas/AdmissionFileIn"
+          },
+          "registration_id": {
+            "format": "uuid",
+            "title": "Registration Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "registration_id",
+          "claim",
+          "proof"
+        ],
+        "title": "MyClaimIn",
+        "type": "object"
+      },
+      "MyRegistrationIn": {
+        "additionalProperties": false,
+        "properties": {
+          "branch": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Branch",
+            "type": "string"
+          },
+          "claim": {
+            "$ref": "#/components/schemas/AdmissionClaimIn"
+          },
+          "college": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "College",
+            "type": "string"
+          },
+          "consent": {
+            "title": "Consent",
+            "type": "boolean"
+          },
+          "course_slug": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Course Slug",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "maxLength": 20,
+            "minLength": 10,
+            "title": "Phone",
+            "type": "string"
+          },
+          "proof": {
+            "$ref": "#/components/schemas/AdmissionFileIn"
+          },
+          "reg_no": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reg No"
+          },
+          "year": {
+            "maxLength": 30,
+            "minLength": 1,
+            "title": "Year",
+            "type": "string"
+          }
+        },
+        "required": [
+          "course_slug",
+          "name",
+          "phone",
+          "college",
+          "branch",
+          "year",
+          "consent",
+          "claim",
+          "proof"
+        ],
+        "title": "MyRegistrationIn",
         "type": "object"
       },
       "NoShowIn": {
@@ -11171,6 +11365,11 @@
       "SetPasswordIn": {
         "additionalProperties": false,
         "properties": {
+          "must_change_password": {
+            "default": false,
+            "title": "Must Change Password",
+            "type": "boolean"
+          },
           "password": {
             "maxLength": 128,
             "minLength": 1,
@@ -15551,6 +15750,64 @@
         "x-td-route-tag": "default"
       }
     },
+    "/api/v1/admin/admissions/claims/{claim_id}/verify-and-enrol": {
+      "post": {
+        "description": "Verify the payment, find / create the LMS account, add to the batch, enrol, email the login\ndetails. ``account.temporary_password`` is returned once (only when the account was created now).",
+        "operationId": "verify_and_enrol_api_v1_admin_admissions_claims__claim_id__verify_and_enrol_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claim_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Claim Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionVerifyEnrolIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Verify And Enrol Api V1 Admin Admissions Claims  Claim Id  Verify And Enrol Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify And Enrol",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
     "/api/v1/admin/admissions/overview": {
       "get": {
         "operationId": "overview_api_v1_admin_admissions_overview_get",
@@ -16015,6 +16272,64 @@
           }
         },
         "summary": "Set Fee",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/registrations/{registration_id}/login-email": {
+      "post": {
+        "description": "Send / resend the LMS login email. With ``reset_password`` a new temporary password is set\n(returned once, also when email isn't connected) and the student is signed out everywhere.",
+        "operationId": "login_email_api_v1_admin_admissions_registrations__registration_id__login_email_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionLoginEmailIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Login Email Api V1 Admin Admissions Registrations  Registration Id  Login Email Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login Email",
         "tags": [
           "admissions"
         ],
@@ -17501,6 +17816,89 @@
           "admin"
         ],
         "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/courses/status": {
+      "get": {
+        "description": "Every website course known from status rows, fee plans and ``web-*`` batches.",
+        "operationId": "list_course_status_api_v1_admin_courses_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Course Status Api V1 Admin Courses Status Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Course Status",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/courses/{slug}/status": {
+      "put": {
+        "description": "Open for registration / Coming soon / Closed (audited ``admissions.course_status.changed``).",
+        "operationId": "put_course_status_api_v1_admin_courses__slug__status_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CourseStatusIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Put Course Status Api V1 Admin Courses  Slug  Status Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Course Status",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
         "x-td-route-tag": "default"
       }
     },
@@ -22961,7 +23359,7 @@
     },
     "/api/v1/batches": {
       "get": {
-        "description": "``mine=true``: only the batches the caller holds a batch grant on (trainer/evaluator),\neven for an Admin. The Teacher portal uses it so an Admin who made themselves the trainer of\na batch sees the batches they teach there, not every batch (that is the Admin portal).",
+        "description": "``mine=true``: only the batches the caller holds a batch grant on (trainer/evaluator),\neven for an Admin. The Teacher portal uses it so an Admin who made themselves the trainer of\na batch sees the batches they teach there, not every batch (that is the Admin portal).\nA batch grant counts when it gives batch read there (``BATCH_READ_PERMISSIONS``).",
         "operationId": "list_batches_api_v1_batches_get",
         "parameters": [
           {
@@ -28764,6 +29162,159 @@
         ],
         "x-td-idle": "extends",
         "x-td-route-tag": "account_status"
+      }
+    },
+    "/api/v1/me/admissions": {
+      "get": {
+        "operationId": "adm_me_list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Adm Me List",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "My Admissions",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/me/admissions/claims": {
+      "post": {
+        "operationId": "adm_me_claim",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MyClaimIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "My Claim",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/me/admissions/plans/{slug}": {
+      "get": {
+        "operationId": "adm_me_plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Adm Me Plan",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "My Plan",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/me/admissions/registrations": {
+      "post": {
+        "operationId": "adm_me_register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MyRegistrationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "My Register",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
       }
     },
     "/api/v1/me/ai/tutor-history": {
@@ -35658,6 +36209,31 @@
           }
         },
         "summary": "Public Status",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-route-tag": "public"
+      }
+    },
+    "/api/v1/public/courses/status": {
+      "get": {
+        "description": "``{\"data\": {\"<slug>\": \"open\"|\"coming_soon\"|\"closed\"}, \"updated_at\": iso}`` — no personal data.",
+        "operationId": "adm_pub_course_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Adm Pub Course Status",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Public Course Status",
         "tags": [
           "admissions"
         ],

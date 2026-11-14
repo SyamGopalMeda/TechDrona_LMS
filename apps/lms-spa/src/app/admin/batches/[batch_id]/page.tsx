@@ -10,5 +10,5 @@ async function Page__server({ params }: { params: Promise<{ batch_id: string }> 
   return <AdminBatchDetail batchId={decodeURIComponent(batch_id)} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/admin/batches/[batch_id]/page.tsx#Page");

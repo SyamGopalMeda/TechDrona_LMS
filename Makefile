@@ -58,10 +58,10 @@ test-web: ## lint, typecheck, vitest, build
 test: test-api test-web ## All local gates
 
 tf-fmt: ## terraform fmt (in a throwaway container; no local install needed)
-	docker run --rm -v "$(CURDIR)/infra/terraform:/work" -w /work $(TF_IMAGE) fmt -recursive
+	docker run --rm -v "$(CURDIR)/docs/archive/aws-terraform/terraform:/work" -w /work $(TF_IMAGE) fmt -recursive
 
 lint-infra: ## terraform fmt -check + validate (dev env) in a throwaway container
-	docker run --rm -v "$(CURDIR)/infra/terraform:/src:ro" --entrypoint sh $(TF_IMAGE) -c \
+	docker run --rm -v "$(CURDIR)/docs/archive/aws-terraform/terraform:/src:ro" --entrypoint sh $(TF_IMAGE) -c \
 	  'cp -r /src /work && cd /work && terraform fmt -check -recursive && cd envs/dev && terraform init -backend=false -input=false >/dev/null && terraform validate'
 
 actionlint: ## Lint GitHub workflows

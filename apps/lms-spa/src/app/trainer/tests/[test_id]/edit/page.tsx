@@ -14,5 +14,5 @@ async function Page__server({
   return <TestBuilder testId={test_id} crumbs={[{ label: "Tests", href: "/trainer/tests" }]} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/trainer/tests/[test_id]/edit/page.tsx#Page");

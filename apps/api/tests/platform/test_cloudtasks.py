@@ -42,11 +42,6 @@ def test_cron_for_refuses_inexact_intervals() -> None:
         cloudtasks.cron_for(7 * 60.0)
 
 
-def test_function_names() -> None:
-    assert cloudtasks.function_name_for_job("commerce.order_expiry") == "lmsJobCommerceOrderExpiry"
-    assert cloudtasks.function_name_for_job("core.outbox_relay") == "lmsJobCoreOutboxRelay"
-
-
 def test_schedules_json_matches_the_beat_registry() -> None:
     """Every Celery beat entry has a scheduled function with the same cadence (regenerate with
     functions-lms/tools/gen_schedules.py)."""
@@ -54,14 +49,13 @@ def test_schedules_json_matches_the_beat_registry() -> None:
 
     manifest = cloudtasks.schedule_manifest()
     assert json.loads(SCHEDULES.read_text(encoding="utf-8")) == manifest
-    names = [e["function"] for e in manifest]
+    names = [e["job"] for e in manifest]
     assert len(names) == len(set(names))
     # Firebase-only backstop for the judge (no VM beat entry: worker-judge polls there).
     sweep = next(e for e in manifest if e["job"] == "coding.process_pending")
     assert sweep == {
         "job": "coding.process_pending",
         "task": "coding.process_pending",
-        "function": "lmsJobCodingProcessPending",
         "cron": "* * * * *",
         "repeat_seconds": None,
         "queue": "default",

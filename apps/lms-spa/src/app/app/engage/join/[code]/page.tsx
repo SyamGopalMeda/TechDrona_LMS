@@ -10,5 +10,5 @@ async function Page__server({ params }: { params: Promise<{ code: string }> }) {
   return <JoinRun code={code} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/app/engage/join/[code]/page.tsx#Page");

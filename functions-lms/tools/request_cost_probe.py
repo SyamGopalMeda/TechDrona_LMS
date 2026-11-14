@@ -59,7 +59,6 @@ def _request_env() -> None:
     os.environ.setdefault("APP_ENV", "local")
     os.environ["TD_SIMPLE_AUTH"] = "true"
     os.environ["TD_PUBLIC_BASE_URL"] = BASE
-    os.environ["TD_ALLOWED_ORIGINS"] = BASE
     os.environ["TD_COOKIE_SECURE"] = "false"
     os.environ["TD_EDGE_COOKIE_PACKING"] = "session"
     os.environ["TD_TRUSTED_PROXY_HOPS"] = "1"
@@ -70,7 +69,7 @@ def _request_env() -> None:
         "TD_FP_HMAC_KEY": "44" * 32,
         "TD_LOCAL_ENVELOPE_KEY": "55" * 32,
         "TD_ANALYTICS_SUBJECT_KEY": "66" * 32,
-    }.items():  # DUMMY probe-only values (same pattern as emulate.ps1)
+    }.items():  # DUMMY probe-only values
         os.environ.setdefault(k, v)
 
 

@@ -13,5 +13,5 @@ async function Page__server() {
   return <ServiceStatus core={coreStatusFrom(result)} checkedAt={formatDateTime(new Date().toISOString())} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/(public)/status/page.tsx#Page");

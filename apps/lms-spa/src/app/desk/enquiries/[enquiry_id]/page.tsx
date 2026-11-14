@@ -10,5 +10,5 @@ async function Page__server({ params }: { params: Promise<{ enquiry_id: string }
   return <EnquiryDetail enquiryId={enquiry_id} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/desk/enquiries/[enquiry_id]/page.tsx#Page");

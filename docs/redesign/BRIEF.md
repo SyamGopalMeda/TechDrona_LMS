@@ -18,4 +18,4 @@ Coordinator: lead session, started 2026-11-07. Owner's master prompt: complete p
 - Never mark something verified without evidence; label each result: automated-tested / manually-tested (browser/API) / code-reviewed / not-verifiable.
 
 ## Output locations
-`docs/redesign/<key>.md` per agent. Screenshots (if any) under `docs/redesign/shots/<key>/` (PNG, keep small).
+`docs/redesign/<key>.md` per agent. Screenshots (if any) under `docs/redesign/shots/<key>/` (PNG, keep small; that folder was deleted in cleanup D4 on 2026-11-14 and is recoverable from git commit `24134de`).

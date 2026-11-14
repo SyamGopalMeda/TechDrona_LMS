@@ -5,7 +5,7 @@
 | Status | Plan, not started. Nothing in this plan has been applied yet. |
 | Date | 2026-11-06 |
 | Owner decision | The LMS serves Tech Drona only. Learners are public B2C students who pay through Razorpay. Every college and multi-organisation feature is **removed completely, not hidden**. |
-| Dev DB backup | `backups/techdrona-dev-before-college-removal-20261106.dump` |
+| Dev DB backup | `backups/techdrona-dev-before-college-removal-20261106.dump` (moved out of the repo on 2026-11-14 to `../_backups/techdrona-lms/`, next to the repo folder) |
 | Line numbers | Taken from the working tree on 2026-11-06. Re-check them before editing; they drift. |
 
 Paths are relative to the repo root. `api/` means `apps/api/app/`, `mig/` means `apps/api/migrations/versions/`, `web/` means `apps/web/src/` and `tests/` means `apps/api/tests/` unless stated otherwise.

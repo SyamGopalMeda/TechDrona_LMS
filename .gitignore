@@ -1,6 +1,6 @@
 # =============================================================================
 # Tech Drona LMS — .gitignore
-# research/, research_notes/, reports/ and docs/ are TRACKED on purpose.
+# research/, research_notes/ and docs/ are TRACKED on purpose (the duplicate reports/ copy was removed 2026-11-14).
 # =============================================================================
 
 # --- Secrets / local env (never commit; .env.example IS tracked) -------------
@@ -117,11 +117,17 @@ auth-debug.log
 
 # --- Local dev session state (cookies / TOTP seeds from local security tests): never commit ----------
 docs/redesign/security/.state/
+**/.state/
+*.cookies.json
+*.out.json
 
 # --- College Data Portal: contact seeds hold personal data (names / phone numbers) ------------------
 apps/college-data/**/contacts_*
 
 # --- Overlay-deploy leftovers ----------------------------------------------------------------------
-ovfix/
-ov.txt
-changed-audit.txt
+/ovfix/
+/ov*.txt
+/changed-*.txt
+
+# --- Archived AWS Terraform: the secrets module holds Secrets Manager shells only (no values) -----------
+!docs/archive/aws-terraform/terraform/modules/secrets/

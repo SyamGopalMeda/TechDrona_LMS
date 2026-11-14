@@ -12,5 +12,5 @@ async function Page__server({ searchParams }: { searchParams: Promise<Record<str
   return <NewTicketForm from={one(sp.from)} topic={one(sp.topic)} attemptId={one(sp.attempt_id)} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/app/support/new/page.tsx#Page");

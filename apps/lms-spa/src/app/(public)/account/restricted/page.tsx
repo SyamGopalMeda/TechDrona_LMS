@@ -41,5 +41,5 @@ async function AccountRestrictedPage__server({
   );
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(AccountRestrictedPage__server, "app/(public)/account/restricted/page.tsx#AccountRestrictedPage");

@@ -94,7 +94,7 @@ export function homePortal(portals: readonly string[] | undefined): string | nul
 }
 
 /*
- * SPA override (spa-overrides/features/staff-portal/access.ts): the Student portal (`/app`) gate.
+ * SPA-specific: the Student portal (`/app`) gate.
  * Role/portal navigation fix 2026-11-13 (docs/firebase/agents/role-nav-fix.md).
  */
 

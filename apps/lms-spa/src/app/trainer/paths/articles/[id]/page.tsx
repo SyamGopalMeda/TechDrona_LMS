@@ -9,5 +9,5 @@ async function Page__server({ params }: { params: Promise<{ id: string }> }) {
   return <ArticleEditor articleId={id} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/trainer/paths/articles/[id]/page.tsx#Page");

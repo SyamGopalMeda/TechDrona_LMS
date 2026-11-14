@@ -18,5 +18,5 @@ async function Page__server({ params }: { params: Params }) {
   return <ContentDocView doc={doc} kind="article" back={{ href: "/help", label: "Help centre" }} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/(public)/help/[article]/page.tsx#Page");

@@ -26,10 +26,6 @@ def rupees_to_paise(rupees: Decimal | int | str) -> int:
     return round_half_up(_as_decimal(rupees) * 100)
 
 
-def paise_to_rupees(paise: int) -> Decimal:
-    return (Decimal(paise) / 100).quantize(Decimal("0.01"))
-
-
 def percent_of(amount_paise: int, percent: Decimal | int | str) -> int:
     """``percent`` of ``amount_paise``, half-up to paise (e.g. GST component on a line)."""
     if not isinstance(amount_paise, int):

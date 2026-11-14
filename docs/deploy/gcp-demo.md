@@ -17,7 +17,7 @@ This is a DEMO environment (`APP_ENV=staging`). Payments (Razorpay fake), coding
 | Request path | browser → Caddy :443 → `web:3000` (BFF) → `api:8000` on the internal network. The API is never routed directly. Caddy sets `CloudFront-Viewer-Address` to the real peer, and the BFF trusts exactly 1 hop (`TD_TRUSTED_PROXY_HOPS=1`). |
 | Files | `files.35-244-50-26.sslip.io` → seaweedfs S3 (credentials required; anonymous requests get 403). Presigned upload and download URLs need a browser-reachable S3 host. Containers reach the same name internally through a Docker network alias on Caddy. CORS is limited to the app origin. |
 | Images | built **on the VM** (`techdrona/td-api:gcp-demo`, `techdrona/td-web:gcp-demo`, `techdrona/postgres:16-gcp-demo`). No Artifact Registry and no Cloud Build. Nothing was built on the owner's PC. |
-| Not used | `infra/terraform` targets **AWS** (ECS, ElastiCache, RDS, CloudFront). It was not applied. |
+| Not used | `infra/terraform` (archived 2026-11-14 to `docs/archive/aws-terraform/terraform/`) targets **AWS** (ECS, ElastiCache, RDS, CloudFront). It was not applied. |
 
 Files in the repo (no secrets): `infra/gcp-demo/docker-compose.yml`, `Caddyfile`, `db-init/01-roles.sh` (creates the DB roles from env passwords), `vm.sh` (helper run on the VM), `rotate_demo_accounts.py` (credential rotation and owner admin).
 

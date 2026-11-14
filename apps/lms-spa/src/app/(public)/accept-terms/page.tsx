@@ -24,5 +24,5 @@ async function AcceptTermsPage__server({ searchParams }: { searchParams: Promise
   );
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(AcceptTermsPage__server, "app/(public)/accept-terms/page.tsx#AcceptTermsPage");

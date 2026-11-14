@@ -25,5 +25,5 @@ async function Page__server({ params }: { params: Params }) {
   return <CourseDetail course={result.data} signedIn={signedIn} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/(public)/courses/[slug]/page.tsx#Page");

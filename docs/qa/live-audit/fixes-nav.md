@@ -1,7 +1,7 @@
 # Fixes: navigation, portal access and Admin information architecture (2026-11-14)
 
 Source findings: `admin.md` (F1–F15, M1–M13), `staff-portals.md` (F5, F6, §4), `student-and-access.md` (F-5, F-6, F-7, F-10).
-Scope: `apps/lms-spa/src` only. Every changed file under `src/` is also in `apps/lms-spa/spa-overrides/` with the same content (except `src/spa/**`, which is SPA-owned and not overwritten by `npm run sync`).
+Scope: `apps/lms-spa/src` only. Every changed file under `src/` is also in `apps/lms-spa/spa-overrides/` with the same content (except `src/spa/**`, which is SPA-owned and not overwritten by `npm run sync`). **Update 2026-11-14:** src is the source of truth (sync retired 2026-11-14); edit `src/` only, `spa-overrides/` is gone.
 Nothing is deleted: hidden pages keep their routes, titles and icons, and the pages that link to them still do.
 
 Not deployed. To verify on live: rebuild (`prebuild` regenerates `src/spa/routes.gen.tsx`, which already contains the two new routes), deploy, and re-run `audit-admin`, `audit-staff` and `audit-student`.

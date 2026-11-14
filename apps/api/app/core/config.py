@@ -40,11 +40,9 @@ class Settings(BaseSettings):
     TD_RELEASE: str = "local-dev"
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     LOG_FORMAT: Literal["json", "console"] = "json"
-    TD_BUSINESS_TIMEZONE: str = "Asia/Kolkata"
 
     # 2. URLs / BFF hop
     TD_PUBLIC_BASE_URL: str = "http://localhost:3000"
-    TD_ALLOWED_ORIGINS: str = "http://localhost:3000"
     TD_DISABLE_API_DOCS: bool = False
     TD_SERVICE_TOKEN: str = ""
     TD_SERVICE_TOKEN_PREVIOUS: str = ""
@@ -102,9 +100,8 @@ class Settings(BaseSettings):
     REDIS_CACHE_URL: str = "redis://localhost:6379/0"
     REDIS_QUEUE_URL: str = "redis://localhost:6380/0"
 
-    # 6. Keys (versioned HMAC keys are read dynamically by app.core.security.HmacKeyring)
-    TD_K_DEVICE_ACTIVE_VERSION: int = 1
-    TD_K_LOGIN_ACTIVE_VERSION: int = 1
+    # 6. Keys (versioned HMAC keys and TD_K_<NAME>_ACTIVE_VERSION are read straight from the
+    # environment by app.core.security.HmacKeyring / app.core.crypto.AeadKeyring)
     TD_APP_ENVELOPE_KMS_KEY_ID: str = "local"
 
     # Adapter selectors (checked by the production safety gate)
@@ -116,7 +113,6 @@ class Settings(BaseSettings):
     S3_KMS_KEY_ID: str = "local"
 
     # 14. Observability
-    OTEL_EXPORTER_OTLP_ENDPOINT: str = ""
     SENTRY_DSN: str = ""
 
     # Audit sealer
@@ -134,9 +130,6 @@ class Settings(BaseSettings):
     # the row to the Celery ``critical`` queue (``commerce.process_webhook_event``) and relies on
     # the ``commerce.webhook_retry`` beat sweep if the broker is down.
     TD_COMMERCE_WEBHOOK_MODE: Literal["inline", "queue"] = "inline"
-
-    # TOTP secret encryption (AES-256-GCM keyring; keys TD_K_TOTP_KEY_V{n} read by app.core.crypto)
-    TD_K_TOTP_ACTIVE_VERSION: int = 1
 
     # Email (SES in production; SMTP/Mailpit locally) — read by notifications.adapters too.
     EMAIL_FROM_ADDRESS: str = ""
@@ -176,8 +169,6 @@ class Settings(BaseSettings):
     FIREBASE_SERVICE_ACCOUNT_FILE: str = ""
     FIRESTORE_EMULATOR_HOST: str = ""
     FIRESTORE_DATABASE_ID: str = "(default)"
-    # Informational: the location is fixed when the database is created (owner decision F6).
-    FIRESTORE_LOCATION: str = "asia-south1"
     # Central login (app.modules.hub): the company website whose Admin Panel the module switcher
     # opens with single sign-on. Its admin lives at <TD_WEBSITE_URL>/admin and reads web_* in the
     # same Firebase project. Empty = the "Company Website Admin" module is hidden.
@@ -239,10 +230,6 @@ class Settings(BaseSettings):
             return False
         listed = {e.strip().lower() for e in self.TD_MFA_EXEMPT_EMAILS.split(",") if e.strip()}
         return email.strip().lower() in listed
-
-    @property
-    def allowed_origins(self) -> list[str]:
-        return [o.strip() for o in self.TD_ALLOWED_ORIGINS.split(",") if o.strip()]
 
     @property
     def migration_url(self) -> str:

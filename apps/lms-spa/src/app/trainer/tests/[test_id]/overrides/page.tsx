@@ -20,5 +20,5 @@ async function Page__server({ params }: { params: Promise<{ test_id: string }> }
   );
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/trainer/tests/[test_id]/overrides/page.tsx#Page");

@@ -125,5 +125,5 @@ async function SiteCourseStrip__server(props: SiteCourseStripProps) {
   return <SiteCourseStripView catalog={catalog} {...props} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export const SiteCourseStrip = asyncComponent(SiteCourseStrip__server, "features/site-catalog/components/SiteCourseStrip.tsx#SiteCourseStrip");

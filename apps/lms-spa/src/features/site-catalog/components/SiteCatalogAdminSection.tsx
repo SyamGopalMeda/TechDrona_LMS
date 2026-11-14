@@ -32,5 +32,5 @@ async function SiteCatalogAdminSection__server() {
   );
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export const SiteCatalogAdminSection = asyncComponent(SiteCatalogAdminSection__server, "features/site-catalog/components/SiteCatalogAdminSection.tsx#SiteCatalogAdminSection");

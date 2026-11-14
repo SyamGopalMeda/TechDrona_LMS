@@ -10,5 +10,5 @@ async function Page__server({ params }: { params: Promise<{ subject: string }> }
   return <SubjectTopics subject={subject} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/app/practice/[subject]/page.tsx#Page");

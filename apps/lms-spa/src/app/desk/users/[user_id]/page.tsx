@@ -12,5 +12,5 @@ async function Page__server({ params, searchParams }: { params: Promise<{ user_i
   return <UserLookup userId={user_id} ticketId={ticket} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/desk/users/[user_id]/page.tsx#Page");

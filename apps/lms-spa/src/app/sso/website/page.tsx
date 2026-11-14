@@ -12,5 +12,5 @@ async function WebsiteSsoPage__server() {
   return <WebsiteSso />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(WebsiteSsoPage__server, "app/sso/website/page.tsx#WebsiteSsoPage");

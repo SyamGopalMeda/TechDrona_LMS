@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /*
- * SPA override test (spa-overrides/components/shell/PortalShell.test.tsx). Role/portal navigation
+ * SPA-specific test. Role/portal navigation
  * fix (docs/firebase/agents/role-nav-fix.md): PortalShell notes which portal's shell is on screen,
  * so the shared account pages (/app/settings/*, /app/account-status) that a staff member opens from
  * the account menu keep that staff shell instead of dropping them into the Student portal.

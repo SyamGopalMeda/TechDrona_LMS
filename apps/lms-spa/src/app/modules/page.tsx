@@ -103,5 +103,5 @@ function ModuleAnchor({ external, href, children, ...rest }: { external?: boolea
   );
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(ModulesPage__server, "app/modules/page.tsx#ModulesPage");

@@ -10,5 +10,5 @@ async function Page__server({ params }: { params: Promise<{ order_id: string }> 
   return <OrderStatus orderId={decodeURIComponent(order_id)} mode="resume" />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/app/checkout/[order_id]/page.tsx#Page");

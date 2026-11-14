@@ -1,7 +1,7 @@
 /**
- * Typed views over the generated OpenAPI schema (`npm run gen:api` regenerates schema.d.ts from
- * openapi/openapi.json, which is dumped from the FastAPI app factory — see openapi/README note in
- * package.json `gen:api`).
+ * Typed views over the generated OpenAPI schema (schema.d.ts is generated with openapi-typescript
+ * from apps/api/openapi.json, which `python -m app.scripts.export_openapi` dumps from the FastAPI
+ * app factory).
  *
  * Most backend routes return `dict[str, Any]`, so their generated response type is an open
  * object; feature `lib/types.ts` files therefore keep hand-written response interfaces that were

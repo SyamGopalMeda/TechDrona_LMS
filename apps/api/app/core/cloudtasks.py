@@ -209,12 +209,6 @@ def cron_for(schedule: Any) -> tuple[str, float | None]:
     raise ValueError(f"interval {seconds}s has no exact cron equivalent")
 
 
-def function_name_for_job(job_name: str) -> str:
-    """``commerce.order_expiry`` -> ``lmsJobCommerceOrderExpiry`` (Cloud Functions id rules)."""
-    parts = [p for p in "".join(c if c.isalnum() else " " for c in job_name).split() if p]
-    return "lmsJob" + "".join(p[:1].upper() + p[1:] for p in parts)
-
-
 # Firebase-only scheduled jobs (no Celery beat entry on the VM, where a dedicated process does the
 # work). ``coding.process_pending``: the VM's ``worker-judge`` polls ``code_submissions`` every few
 # seconds; on Firebase each submission enqueues a Cloud Task (``TD_CODING_SEND_TASKS=1``) and this
@@ -235,7 +229,7 @@ def firebase_jobs() -> list[Any]:
 
 
 def schedule_manifest() -> list[dict[str, Any]]:
-    """Every beat entry plus the Firebase-only jobs as ``{job, task, function, cron, repeat_seconds}``."""
+    """Every beat entry plus the Firebase-only jobs as ``{job, task, cron, repeat_seconds, queue}``."""
     out = []
     for j in firebase_jobs():
         cron, repeat = cron_for(j.schedule)
@@ -243,7 +237,6 @@ def schedule_manifest() -> list[dict[str, Any]]:
             {
                 "job": j.name,
                 "task": j.task,
-                "function": function_name_for_job(j.name),
                 "cron": cron,
                 "repeat_seconds": repeat,
                 "queue": (j.options or {}).get("queue", "default"),

@@ -9,8 +9,9 @@
  * The promise is cached per (component, navigation, refresh, props) so re-renders reuse it and a
  * new navigation or `router.refresh()` loads fresh data, as Next re-renders server components.
  *
- * scripts/sync-from-web.mjs rewrites `export default async function Page(...)` into
- * `async function Page__server(...)` + `export default asyncComponent(Page__server, "...")`.
+ * Ported pages were rewritten from `export default async function Page(...)` into
+ * `async function Page__server(...)` + `export default asyncComponent(Page__server, "...")`
+ * (by the apps/web sync, retired 2026-11-14; src is now the source of truth).
  */
 import { use, type ReactNode } from "react";
 import { useInRouterContext, useLocation } from "react-router";

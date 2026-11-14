@@ -10,5 +10,5 @@ async function Page__server({ params }: { params: Promise<{ allocationId: string
   return <AllocationProgressView allocationId={allocationId} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/trainer/paths/allocations/[allocationId]/page.tsx#Page");

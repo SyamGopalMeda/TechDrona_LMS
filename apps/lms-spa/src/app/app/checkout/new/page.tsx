@@ -16,5 +16,5 @@ async function Page__server({ searchParams }: { searchParams: Search }) {
   return <Checkout priceId={priceId} returnTo={returnTo} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/app/checkout/new/page.tsx#Page");

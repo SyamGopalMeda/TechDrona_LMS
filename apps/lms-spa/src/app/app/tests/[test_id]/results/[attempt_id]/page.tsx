@@ -10,5 +10,5 @@ async function Page__server({ params }: { params: Promise<{ attempt_id: string }
   return <ResultsView attemptId={attempt_id} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/app/tests/[test_id]/results/[attempt_id]/page.tsx#Page");

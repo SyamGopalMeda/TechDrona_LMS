@@ -46,5 +46,5 @@ async function NotFound__server() {
   );
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(NotFound__server, "app/not-found.tsx#NotFound");

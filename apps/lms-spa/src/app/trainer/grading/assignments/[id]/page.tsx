@@ -10,5 +10,5 @@ async function Page__server({ params }: { params: Promise<{ id: string }> }) {
   return <EvaluationView assignmentId={decodeURIComponent(id)} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/trainer/grading/assignments/[id]/page.tsx#Page");

@@ -10,5 +10,5 @@ async function Page__server({ params }: { params: Promise<{ slug: string }> }) {
   return <CourseOverview slug={decodeURIComponent(slug)} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/app/courses/[slug]/page.tsx#Page");

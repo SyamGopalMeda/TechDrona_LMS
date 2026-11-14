@@ -1,5 +1,7 @@
 # ADR-0003: Tenant isolation with application scoping plus PostgreSQL RLS (FORCE)
 
+> **Superseded (2026-11-14):** the LMS runs on Firebase (Vite React SPA + Cloud Functions + Firestore, project `billing-f4fe3`) — see `docs/firebase-migration-plan.md` and `docs/firebase/`. PostgreSQL RLS is not used by the live Firestore stack.
+
 * **Status:** Accepted (Brief §1) — implementation **Planned**
 * **Related:** `database-schema.md §2`, `system-architecture.md §6.5`
 * **Amended by:** [ADR-0015](ADR-0015-single-company.md) (2026-11-06). Tech Drona is now a single company: exactly one internal organization (`COMPANY_ORG_ID`) exists and the college tenants described below are removed. The RLS mechanism is kept unchanged as defence in depth; ADR-0015 adds student-to-student PII hardening because all batch students share the one org.

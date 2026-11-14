@@ -15,5 +15,5 @@ async function Page__server({ params }: { params: Promise<{ slug: string }> }) {
   return <CompanyHub slug={slug} signedIn={await hasSessionCookie()} />;
 }
 
-// SPA: ex-server components run on the client (scripts/sync-from-web.mjs).
+// SPA: ex-server components run on the client (src/spa/async.tsx).
 export default asyncComponent(Page__server, "app/(public)/companies/[slug]/page.tsx#Page");

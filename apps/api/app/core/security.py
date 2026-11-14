@@ -80,10 +80,6 @@ def hash_token(token: str | bytes) -> bytes:
     return hashlib.sha256(data).digest()
 
 
-def hash_token_hex(token: str | bytes) -> str:
-    return hash_token(token).hex()
-
-
 def constant_time_equals(a: str | bytes, b: str | bytes) -> bool:
     a_b = a.encode() if isinstance(a, str) else a
     b_b = b.encode() if isinstance(b, str) else b

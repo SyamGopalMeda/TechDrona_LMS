@@ -30,8 +30,8 @@ async function mountAsync(routes: RouteObject[], url: string) {
 
 describe("route tree", () => {
   it("has every apps/web page", () => {
-    // 204 apps/web pages + 3 SPA-only pages (spa-overrides, live audit): /app/orders index redirect, /admin/system, /college-portal/* "being moved"
-    // + /admin/system and the /college-portal "being moved" fallback (spa-overrides, fixes-nav.md).
+    // 204 apps/web pages + 3 SPA-only pages (live audit): /app/orders index redirect, /admin/system, /college-portal/* "being moved"
+    // + /admin/system and the /college-portal "being moved" fallback (fixes-nav.md).
     expect(PAGE_COUNT).toBe(207);
   });
 });

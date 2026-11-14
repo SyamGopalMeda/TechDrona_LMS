@@ -1,5 +1,7 @@
 # ADR-0010: Next.js as same-origin BFF; FastAPI not internet-exposed
 
+> **Superseded (2026-11-14):** the LMS runs on Firebase (Vite React SPA + Cloud Functions + Firestore, project `billing-f4fe3`) — see `docs/firebase-migration-plan.md` and `docs/firebase/`. The Next.js BFF is retired on the Firebase stack (it still serves only the legacy VM until that is retired).
+
 * **Status:** Accepted (Brief §1 "Next.js acts as same-origin BFF") — implementation **Planned**
 * **Related:** ADR-0002, `system-architecture.md §3, §5`
 

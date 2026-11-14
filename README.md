@@ -18,7 +18,7 @@ Its main difference from other platforms is **verifiable trust**: published devi
 | Stage 3 Technical foundation | Implemented: monorepo, docker-compose, FastAPI kernel (RLS, outbox, audit hash chain, Celery), Next.js BFF, CI |
 | Stages 4–9 Modules | Implemented and tested locally against fakes: identity, sessions, rbac, orgs, catalog, media, learning, placement, assessments, coding, commerce, entitlements, analytics, notifications, security/risk engine, unblock workflow, admin, audit |
 | Stage 10 Integration | **In progress.** Backlog: [`docs/stage10-integration-backlog.md`](docs/stage10-integration-backlog.md) |
-| Deployed | **Nothing is deployed.** `deploy.yml` is a disabled skeleton; no AWS account, credentials or provider keys exist yet |
+| Deployed | **Nothing is deployed.** `deploy.yml` was a disabled AWS skeleton (archived 2026-11-14 to `docs/archive/aws-terraform/`); no AWS account, credentials or provider keys exist yet |
 | Status vocabulary | Planned → Implemented → Tested → Deployed (roadmap §7) |
 
 The full plan is the 12 stages in [`docs/implementation-roadmap.md`](docs/implementation-roadmap.md). It aims at a pilot from about June 2027 and a production launch around mid-August 2027.
@@ -66,7 +66,7 @@ Every external integration has a local fake or stub. None of the real adapters h
 | [`implementation-roadmap.md`](docs/implementation-roadmap.md) | 12-stage delivery plan: per-stage scope, owners, file ownership, exit criteria, durations, MVP pilot cut, ranked risks, external blockers, product-owner decision log |
 | [`api-specification.md`](docs/api-specification.md) | REST API contract (`/api/v1`): conventions, auth and sessions, every endpoint with permission, scope and route tag, problem+json error catalogue, webhooks at `/api/v1/webhooks/{provider}` |
 | [`testing-and-acceptance-criteria.md`](docs/testing-and-acceptance-criteria.md) | Test strategy, acceptance tests per FR, the 20 Phase-8 scenarios, tenant-isolation and security suites, load profiles, seed labelling |
-| [`deployment-and-operations.md`](docs/deployment-and-operations.md) | AWS ap-south-1 environments, ECS services, Terraform, CI/CD, migrations, secrets (versioned HMAC keys), observability (self-hosted GlitchTip), 395-day log retention, backups/DR, runbooks (incl. kill switch and bulk false-positive lift), costs, launch checklists |
+| [`deployment-and-operations.md`](docs/deployment-and-operations.md) | **Superseded (2026-11-14), file is empty:** the LMS runs on Firebase; the never-applied AWS skeleton is in `docs/archive/aws-terraform/`. Planned scope was: AWS ap-south-1 environments, ECS services, Terraform, CI/CD, migrations, secrets (versioned HMAC keys), observability (self-hosted GlitchTip), 395-day log retention, backups/DR, runbooks (incl. kill switch and bulk false-positive lift), costs, launch checklists |
 
 ### `docs/architecture-decisions/`
 
@@ -94,7 +94,6 @@ Every external integration has a local fake or stub. None of the real adapters h
 |---|---|
 | [`research/reference-platform-analysis.md`](research/reference-platform-analysis.md) | Canonical research report: platform comparison, account-sharing evidence, student journey friction, admin workflows, recommended and differentiating features, risks, costs, open legal questions, implementation priorities |
 | `research_notes/Tech Drona LMS reference platforms/*.md` | Raw research notes used by the report (**not a deliverable**): account-sharing prevention, coding assessment platforms, Coursera-style course platforms, Indian privacy (DPDP), Moodle/Canvas/Open edX architecture, OWASP auth/session security, PrepInsta-style placement platforms |
-| `reports/Tech Drona LMS reference platforms.md` | **Byte-identical copy** of `research/reference-platform-analysis.md`. `research/` is canonical; do not edit the copy |
 
 Root files: [`.env.example`](.env.example) is the environment template (placeholders only; DevOps owns it). [`docs/local-development.md`](docs/local-development.md) covers local setup and [`docs/stage10-integration-backlog.md`](docs/stage10-integration-backlog.md) tracks the Stage 10 integration work.
 
@@ -125,9 +124,9 @@ apps/
 packages/         shared workspace packages (design tokens)
 infra/
   docker/         local images/config (Postgres 16 + pg_partman, SeaweedFS S3)
-  terraform/      AWS ap-south-1 (ECS Fargate, RDS, ElastiCache, S3, CloudFront): not applied
 scripts/          dev-up, run-api, run-web, seed-dev, reset-db, reset-dev-data (.ps1), test-all (.ps1 and .sh)
 docs/             blueprint documents, ADRs, local development, Stage 10 backlog
+  archive/        superseded material (never-applied AWS Terraform + deploy.yml, Next.js perf/a11y scripts)
 ```
 
 ## How to run (local)
