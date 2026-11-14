@@ -16,6 +16,7 @@ from app.core.errors import ProblemError
 from app.core.ids import uuid7
 from app.core.principal import Principal
 from app.core.time import utcnow
+from app.modules.commerce import datastore as ds
 from app.modules.commerce import policy
 from app.modules.commerce import service as svc
 from app.modules.commerce.gateway import GatewayUnavailable, PaymentGateway
@@ -31,8 +32,8 @@ from app.modules.commerce.models import (
     ReconciliationRun,
     Refund,
 )
+from app.modules.entitlements import public as ent_pub
 from app.modules.entitlements import service as ent
-from app.modules.entitlements.models import Entitlement
 
 COMMERCE_ACTIONS = frozenset(
     {
@@ -121,24 +122,24 @@ async def catalogue(
         q = q.where(Product.status == "active")
     if sku:
         q = q.where(func.lower(Product.sku) == sku.lower())
-    products = (await session.execute(q)).scalars().all()
+    products = (await ds.execute(session, q)).scalars().all()
     out = []
     for p in products:
         items = list(
-            (await session.execute(select(ProductItem).where(ProductItem.product_id == p.id))).scalars()
+            (await ds.execute(session, select(ProductItem).where(ProductItem.product_id == p.id))).scalars()
         )
         plans = []
         pq = select(Plan).where(Plan.product_id == p.id)
         if not include_drafts:
             pq = pq.where(Plan.status == "active")
-        for pl in (await session.execute(pq.order_by(Plan.created_at))).scalars():
+        for pl in (await ds.execute(session, pq.order_by(Plan.created_at))).scalars():
             prq = select(Price).where(Price.plan_id == pl.id)
             if not include_drafts:
                 from app.modules.commerce.pricing import current_price_filter
 
                 prq = prq.where(current_price_filter(now))
             plans.append(
-                plan_json(pl, list((await session.execute(prq.order_by(Price.valid_from))).scalars()))
+                plan_json(pl, list((await ds.execute(session, prq.order_by(Price.valid_from))).scalars()))
             )
         out.append(product_json(p, items, plans))
     return out
@@ -149,7 +150,7 @@ async def catalogue(
 
 async def create_product(session: AsyncSession, principal: Principal, body: Any) -> Product:
     exists = (
-        await session.execute(select(Product.id).where(func.lower(Product.sku) == body.sku.lower()))
+        await ds.execute(session, select(Product.id).where(func.lower(Product.sku) == body.sku.lower()))
     ).scalar_one_or_none()
     if exists:
         raise ProblemError(
@@ -166,10 +167,11 @@ async def create_product(session: AsyncSession, principal: Principal, body: Any)
         refund_policy_key=body.refund_policy_key,
         status=body.status,
     )
-    session.add(p)
-    await session.flush()
+    ds.add(session, p)
+    await ds.flush(session)
     for it in body.items:
-        session.add(
+        ds.add(
+            session,
             ProductItem(
                 id=uuid7(),
                 product_id=p.id,
@@ -181,9 +183,9 @@ async def create_product(session: AsyncSession, principal: Principal, body: Any)
                 feature_key=it.feature_key if it.item_type == "feature" else None,
                 quantity=it.quantity,
                 unit_price_paise=it.unit_price_paise,
-            )
+            ),
         )
-    await session.flush()
+    await ds.flush(session)
     await audit(
         session, principal, "product.created", "product", p.id, after={"sku": p.sku, "kind": p.product_kind}
     )
@@ -213,19 +215,20 @@ async def create_plan(session: AsyncSession, principal: Principal, product: Prod
         gateway_plan_ids=body.gateway_plan_ids or {},
         status="active",
     )
-    session.add(pl)
-    await session.flush()
+    ds.add(session, pl)
+    await ds.flush(session)
     await audit(session, principal, "plan.created", "plan", pl.id, after={"code": pl.code})
     return pl
 
 
 async def price_change_needs_dual(session: AsyncSession, plan: Plan, amount_paise: int) -> bool:
     current = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(Price.amount_paise)
             .where(Price.plan_id == plan.id, Price.is_active.is_(True))
             .order_by(Price.valid_from.desc())
-            .limit(1)
+            .limit(1),
         )
     ).scalar_one_or_none()
     if current and Decimal(current - amount_paise) * 100 / current > policy.PRICE_DUAL_DECREASE_PCT:
@@ -233,10 +236,11 @@ async def price_change_needs_dual(session: AsyncSession, plan: Plan, amount_pais
     from app.modules.commerce.models import Subscription
 
     subs = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(func.count())
             .select_from(Subscription)
-            .where(Subscription.plan_id == plan.id, Subscription.status.in_(("active", "pending", "halted")))
+            .where(Subscription.plan_id == plan.id, Subscription.status.in_(("active", "pending", "halted"))),
         )
     ).scalar_one()
     return bool(subs)
@@ -255,21 +259,22 @@ async def apply_price(
     if plan.billing_type == "recurring" and amount_paise > policy.MANDATE_MAX_PAISE:
         raise ProblemError("recurring_amount_exceeds_mandate_limit", max_paise=policy.MANDATE_MAX_PAISE)
     for old in (
-        await session.execute(
+        await ds.execute(
+            session,
             select(Price)
             .where(
                 Price.plan_id == plan.id,
                 Price.is_active.is_(True),
                 or_(Price.valid_until.is_(None), Price.valid_until > valid_from),
             )
-            .with_for_update()
+            .with_for_update(),
         )
     ).scalars():
         if old.valid_from >= valid_from:
             old.is_active = False
         else:
             old.valid_until = valid_from
-    await session.flush()
+    await ds.flush(session)
     pr = Price(
         id=uuid7(),
         plan_id=plan.id,
@@ -279,8 +284,8 @@ async def apply_price(
         valid_until=valid_until,
         created_by=created_by,
     )
-    session.add(pr)
-    await session.flush()
+    ds.add(session, pr)
+    await ds.flush(session)
     return pr
 
 
@@ -291,19 +296,18 @@ async def pending_coupon_approvals(
     session: AsyncSession, coupon_ids: list[uuid.UUID]
 ) -> dict[uuid.UUID, uuid.UUID]:
     """coupon id -> id of its pending ``commerce.coupon.activate`` approval request."""
-    from app.modules.rbac.models import ApprovalRequest
+    from app.modules.rbac import public as rbac
 
     if not coupon_ids:
         return {}
-    rows = await session.execute(
-        select(ApprovalRequest.target_id, ApprovalRequest.id).where(
-            ApprovalRequest.action_type == "commerce.coupon.activate",
-            ApprovalRequest.target_type == "coupon",
-            ApprovalRequest.status == "pending",
-            ApprovalRequest.target_id.in_(coupon_ids),
-        )
+    reqs = await rbac.find_approvals(
+        session,
+        action_type="commerce.coupon.activate",
+        status="pending",
+        target_type="coupon",
+        target_ids=coupon_ids,
     )
-    return {t: i for t, i in rows.all() if t is not None}
+    return {r.target_id: r.id for r in reqs if r.target_id is not None}
 
 
 def coupon_json(c: Coupon, approval_request_id: uuid.UUID | None = None) -> dict[str, Any]:
@@ -347,8 +351,8 @@ async def execute_approval(
 ) -> dict[str, Any]:
     if action_type == "commerce.refund":
         r = (
-            await session.execute(
-                select(Refund).where(Refund.id == uuid.UUID(payload["refund_id"])).with_for_update()
+            await ds.execute(
+                session, select(Refund).where(Refund.id == uuid.UUID(payload["refund_id"])).with_for_update()
             )
         ).scalar_one()
         r = await svc.execute_refund(
@@ -361,14 +365,14 @@ async def execute_approval(
         return {"refund": svc.refund_json(r)}
     if action_type == "commerce.coupon.activate":
         c = (
-            await session.execute(select(Coupon).where(Coupon.id == uuid.UUID(payload["coupon_id"])))
+            await ds.execute(session, select(Coupon).where(Coupon.id == uuid.UUID(payload["coupon_id"])))
         ).scalar_one()
         c.status = "active"
-        await session.flush()
+        await ds.flush(session)
         return {"coupon": coupon_json(c)}
     if action_type == "commerce.price.create":
         plan = (
-            await session.execute(select(Plan).where(Plan.id == uuid.UUID(payload["plan_id"])))
+            await ds.execute(session, select(Plan).where(Plan.id == uuid.UUID(payload["plan_id"])))
         ).scalar_one()
         pr = await apply_price(
             session,
@@ -405,7 +409,8 @@ async def run_reconciliation(
     stale_before = utcnow() - policy.PENDING_ORDER_RECHECK
     pending = (
         (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(Order).where(
                     Order.status.in_(("created", "pending_payment", "expired")),
                     Order.gateway == gw.name,
@@ -413,7 +418,7 @@ async def run_reconciliation(
                     Order.created_at >= range_from,
                     Order.created_at < range_to,
                     Order.created_at <= stale_before,
-                )
+                ),
             )
         )
         .scalars()
@@ -432,13 +437,14 @@ async def run_reconciliation(
             summary["provider_errors"] += 1
     pays = (
         (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(Payment).where(
                     Payment.gateway == gw.name,
                     Payment.status.in_(("captured", "refunded", "partially_refunded")),
                     Payment.created_at >= range_from,
                     Payment.created_at < range_to,
-                )
+                ),
             )
         )
         .scalars()
@@ -466,7 +472,8 @@ async def run_reconciliation(
             )
     paid_wo_payment = (
         (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(Order.order_number).where(
                     Order.status == "paid",
                     Order.total_paise > 0,
@@ -476,7 +483,7 @@ async def run_reconciliation(
                     ~select(Payment.id)
                     .where(Payment.order_id == Order.id, Payment.status == "captured")
                     .exists(),
-                )
+                ),
             )
         )
         .scalars()
@@ -484,14 +491,15 @@ async def run_reconciliation(
     )
     mismatches += [{"type": "paid_without_captured_payment", "order_number": n} for n in paid_wo_payment]
     failed_events = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(func.count())
             .select_from(PaymentWebhookEvent)
             .where(
                 PaymentWebhookEvent.status == "failed",
                 PaymentWebhookEvent.received_at >= range_from,
                 PaymentWebhookEvent.received_at < range_to,
-            )
+            ),
         )
     ).scalar_one()
     summary["failed_webhook_events"] = int(failed_events)
@@ -507,8 +515,8 @@ async def run_reconciliation(
         mismatches=mismatches,
         triggered_by=triggered_by,
     )
-    session.add(run)
-    await session.flush()
+    ds.add(session, run)
+    await ds.flush(session)
     return run
 
 
@@ -522,12 +530,13 @@ async def _reconcile_refunds(
     summary.update(refunds_checked=0, refunds_settled=0, refunds_resubmitted=0)
     processing = (
         (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(Refund).where(
                     Refund.status == "processing",
                     Refund.gateway_refund_id.is_not(None),
                     Refund.created_at <= utcnow() - policy.PENDING_ORDER_RECHECK,
-                )
+                ),
             )
         )
         .scalars()
@@ -561,13 +570,14 @@ async def _reconcile_subscriptions(
     summary.update(subscriptions_checked=0, subscriptions_changed=0)
     subs = (
         (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(Subscription)
                 .where(
                     Subscription.gateway == gw.name,
                     Subscription.status.in_(("authenticated", "active", "pending", "halted", "paused")),
                 )
-                .with_for_update(skip_locked=True)
+                .with_for_update(skip_locked=True),
             )
         )
         .scalars()
@@ -608,7 +618,8 @@ async def revenue_report(session: AsyncSession, range_from: datetime, range_to: 
     from app.modules.commerce.models import OrderItem
 
     sold = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(
                 func.count(Order.id),
                 func.coalesce(func.sum(Order.total_paise), 0),
@@ -618,11 +629,12 @@ async def revenue_report(session: AsyncSession, range_from: datetime, range_to: 
                 Order.status.in_(("paid", "refunded", "partially_refunded")),
                 Order.paid_at >= range_from,
                 Order.paid_at < range_to,
-            )
+            ),
         )
     ).one()
     by_kind = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(
                 Product.product_kind,
                 func.count(OrderItem.id),
@@ -635,29 +647,26 @@ async def revenue_report(session: AsyncSession, range_from: datetime, range_to: 
                 Order.paid_at >= range_from,
                 Order.paid_at < range_to,
             )
-            .group_by(Product.product_kind)
+            .group_by(Product.product_kind),
         )
     ).all()
     refunded = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(func.count(Refund.id), func.coalesce(func.sum(Refund.amount_paise), 0)).where(
                 Refund.status == "processed",
                 Refund.processed_at >= range_from,
                 Refund.processed_at < range_to,
-            )
+            ),
         )
     ).one()
-    grants = (
-        await session.execute(
-            select(Entitlement.source_type, func.count())
-            .where(
-                Entitlement.source_type.in_(("admin_grant", "trial", "coupon_grant")),
-                Entitlement.created_at >= range_from,
-                Entitlement.created_at < range_to,
+    grants = list(
+        (
+            await ent_pub.source_type_counts(
+                session, ("admin_grant", "trial", "coupon_grant"), range_from, range_to
             )
-            .group_by(Entitlement.source_type)
-        )
-    ).all()
+        ).items()
+    )
     gross = int(sold[1])
     return {
         "range_from": range_from.isoformat(),

@@ -21,8 +21,10 @@ from app.core.principal import Principal
 from app.core.routing import authenticated_router
 from app.core.time import to_rfc3339
 from app.modules.identity import clock
-from app.modules.identity.models import User
+from app.modules.identity import public as identity_public
+from app.modules.identity.fs_uow import unit_of_work
 from app.modules.identity.policy import get_policy
+from app.modules.identity.public import User
 from app.modules.sessions import service as ss
 from app.modules.sessions.models import AuthSession, Device, LoginAttempt, UserDevice
 from app.modules.sessions.resolver import SessionsResolver
@@ -30,8 +32,15 @@ from app.modules.sessions.ua import mask_ip
 
 register_session_resolver(SessionsResolver())
 
-me_r = authenticated_router(prefix="/me", tags=["sessions"], route_tag="account_status", idle="extends")
-admin_r = authenticated_router(prefix="/users", tags=["sessions"], route_tag="default", idle="extends")
+# Firestore (TD_STORE_SESSIONS=firestore): rows loaded here are transient; the unit of work
+# writes changed ones at the end of a successful request (fs_uow), like the Postgres commit.
+_UOW = [Depends(unit_of_work, scope="function")]
+me_r = authenticated_router(
+    prefix="/me", tags=["sessions"], route_tag="account_status", idle="extends", dependencies=_UOW
+)
+admin_r = authenticated_router(
+    prefix="/users", tags=["sessions"], route_tag="default", idle="extends", dependencies=_UOW
+)
 
 REASON_CODES = ("ticket", "unblock_request", "case", "incident", "user_request", "legal")
 
@@ -82,6 +91,8 @@ async def _labels(session: Any, device_ids: set[uuid.UUID | None]) -> dict[uuid.
     ids_ = [d for d in device_ids if d]
     if not ids_:
         return {}
+    if ss._fs():
+        return {k: d.label_hint for k, d in (await ss._repo().get_devices(ids_)).items()}
     rows = (await session.execute(select(Device.id, Device.label_hint).where(Device.id.in_(ids_)))).all()
     return {r[0]: r[1] for r in rows}
 
@@ -90,7 +101,31 @@ async def _list_sessions(
     session: Any, user_id: uuid.UUID, current: uuid.UUID | None, *, owner: bool
 ) -> list[dict[str, Any]]:
     since = clock.now() - timedelta(days=90)
-    rows = list(
+    if ss._fs():
+        live = ("active", *ss.PENDING_STATUSES)
+        rows = [
+            s
+            for s in await ss._repo().sessions_for(user_id)
+            if s.status in live or (s.ended_at is not None and s.ended_at >= since)
+        ]
+        rows = sorted(rows, key=lambda s: (s.created_at, str(s.id)), reverse=True)[:100]
+    else:
+        rows = await _pg_sessions(session, user_id, since)
+    labels = await _labels(session, {s.device_id for s in rows})
+    recent = clock.now() - timedelta(days=7)
+    return [
+        _session_out(
+            s,
+            current,
+            labels.get(s.device_id) if s.device_id else None,
+            full_ip=owner and (s.id == current or s.created_at >= recent),
+        )
+        for s in rows
+    ]
+
+
+async def _pg_sessions(session: Any, user_id: uuid.UUID, since: Any) -> list[AuthSession]:
+    return list(
         (
             await session.execute(
                 select(AuthSession)
@@ -106,17 +141,6 @@ async def _list_sessions(
             )
         ).scalars()
     )
-    labels = await _labels(session, {s.device_id for s in rows})
-    recent = clock.now() - timedelta(days=7)
-    return [
-        _session_out(
-            s,
-            current,
-            labels.get(s.device_id) if s.device_id else None,
-            full_ip=owner and (s.id == current or s.created_at >= recent),
-        )
-        for s in rows
-    ]
 
 
 # --------------------------------------------------------------------------- SES-01..08 (self)
@@ -136,11 +160,17 @@ async def revoke_my_session(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
-    s = (
-        await session.execute(
-            select(AuthSession).where(AuthSession.id == session_id, AuthSession.user_id == principal.user_id)
-        )
-    ).scalar_one_or_none()
+    if ss._fs():
+        s = await ss._repo().get_session(session_id)
+        s = s if s is not None and s.user_id == principal.user_id else None
+    else:
+        s = (
+            await session.execute(
+                select(AuthSession).where(
+                    AuthSession.id == session_id, AuthSession.user_id == principal.user_id
+                )
+            )
+        ).scalar_one_or_none()
     if s is None:
         raise ProblemError("not_found")
     reason = "user_logout" if s.id == principal.session_id else "user_revoked_other"
@@ -180,16 +210,34 @@ async def revoke_other_sessions(
 
 
 async def _devices_payload(session: Any, user: User, current_device: uuid.UUID | None) -> dict[str, Any]:
-    rows = list(
+    if ss._fs():
+        uds = [
+            d for d in await ss._repo().user_devices(user.id) if d.trust_status in ("trusted", "pending_otp")
+        ]
+        uds.sort(key=lambda d: (d.created_at, str(d.id)))
+        devs = await ss._repo().get_devices([d.device_id for d in uds])
+        rows = [(ud, devs[ud.device_id]) for ud in uds if ud.device_id in devs]
+    else:
+        rows = await _pg_devices(session, user.id)
+    return await _devices_out(session, user, current_device, rows)
+
+
+async def _pg_devices(session: Any, user_id: uuid.UUID) -> list[Any]:
+    return list(
         (
             await session.execute(
                 select(UserDevice, Device)
                 .join(Device, Device.id == UserDevice.device_id)
-                .where(UserDevice.user_id == user.id, UserDevice.trust_status.in_(("trusted", "pending_otp")))
+                .where(UserDevice.user_id == user_id, UserDevice.trust_status.in_(("trusted", "pending_otp")))
                 .order_by(UserDevice.created_at)
             )
         ).all()
     )
+
+
+async def _devices_out(
+    session: Any, user: User, current_device: uuid.UUID | None, rows: list[Any]
+) -> dict[str, Any]:
     groups: dict[tuple[str | None, str | None], str] = {}
     data = []
     for ud, dev in rows:
@@ -226,17 +274,27 @@ async def _devices_payload(session: Any, user: User, current_device: uuid.UUID |
 async def my_devices(
     session: PrincipalDbSession, principal: Principal = Depends(require_active_principal)
 ) -> dict[str, Any]:
-    user = await session.get(User, principal.user_id)
+    user = await identity_public.get_user(session, principal.user_id)
     assert user is not None
     return await _devices_payload(session, user, principal.device_id)
 
 
 async def _own_device(session: Any, principal: Principal, user_device_id: uuid.UUID) -> UserDevice:
+    return await _user_device(session, principal.user_id, user_device_id)
+
+
+async def _user_device(session: Any, user_id: uuid.UUID, user_device_id: uuid.UUID) -> UserDevice:
+    """A live (not removed) device row of ``user_id``, else 404."""
+    if ss._fs():
+        got = await ss._repo().get_user_device_by_id(user_device_id)
+        if got is None or got.user_id != user_id or got.trust_status == "removed":
+            raise ProblemError("not_found")
+        return got
     ud = (
         await session.execute(
             select(UserDevice).where(
                 UserDevice.id == user_device_id,
-                UserDevice.user_id == principal.user_id,
+                UserDevice.user_id == user_id,
                 UserDevice.trust_status != "removed",
             )
         )
@@ -314,8 +372,8 @@ async def device_policy(
                 user_id=uid,
             ),
             "at_limit_behavior": await get_policy(session, "sessions.student.at_limit_behavior", user_id=uid),
-            "idle_minutes": int(ss.TIMEOUTS[principal.tier][0].total_seconds() // 60),
-            "absolute_hours": int(ss.TIMEOUTS[principal.tier][1].total_seconds() // 3600),
+            "idle_minutes": int(ss.session_timeouts(principal.tier)[0].total_seconds() // 60),
+            "absolute_hours": int(ss.session_timeouts(principal.tier)[1].total_seconds() // 3600),
             "remember_device_max_days": await get_policy(
                 session, "sessions.remember_device.max_days", user_id=uid
             ),
@@ -330,16 +388,32 @@ async def login_history(
     session: PrincipalDbSession, principal: Principal = Depends(require_active_principal)
 ) -> dict[str, Any]:
     since = clock.now() - timedelta(days=90)
-    rows = list(
+    if ss._fs():
+        from app.modules.sessions import public as sessions_public
+
+        found = await sessions_public.list_login_attempts(
+            session, since=since - timedelta(microseconds=1), user_id=principal.user_id
+        )
+        rows = sorted(found, key=lambda a: (a.attempted_at, str(a.id)), reverse=True)[:200]
+    else:
+        rows = await _pg_attempts(session, principal.user_id, since)
+    return await _history_out(session, principal, rows)
+
+
+async def _pg_attempts(session: Any, user_id: uuid.UUID, since: Any) -> list[LoginAttempt]:
+    return list(
         (
             await session.execute(
                 select(LoginAttempt)
-                .where(LoginAttempt.user_id == principal.user_id, LoginAttempt.attempted_at >= since)
+                .where(LoginAttempt.user_id == user_id, LoginAttempt.attempted_at >= since)
                 .order_by(LoginAttempt.attempted_at.desc())
                 .limit(200)
             )
         ).scalars()
     )
+
+
+async def _history_out(session: Any, principal: Principal, rows: list[LoginAttempt]) -> dict[str, Any]:
     attempts = [
         {
             "at": to_rfc3339(a.attempted_at),
@@ -368,7 +442,7 @@ def _require_reason(code: str | None) -> str:
 
 
 async def _target_user(session: Any, user_id: uuid.UUID) -> User:
-    u = await session.get(User, user_id)
+    u = await identity_public.get_user(session, user_id)
     if u is None:
         raise ProblemError("not_found")
     return u
@@ -410,6 +484,17 @@ async def admin_revoke_sessions(
     await _target_user(session, user_id)
     if body.all:
         n = await ss.revoke_all_sessions(session, user_id, "admin_kill", ended_by=principal.user_id)
+    elif body.session_id and ss._fs():
+        sid = body.session_id
+        n = await ss._repo().end_sessions(
+            user_id,
+            status="revoked",
+            reason="admin_kill",
+            ended_by=principal.user_id,
+            where=lambda x: x.id == sid,
+        )
+        if n == 0:
+            raise ProblemError("not_found")
     elif body.session_id:
         n = await ss.end_sessions_where(
             session,
@@ -466,12 +551,19 @@ async def user_devices(
 
 
 async def _support_resets_used(session: Any, user_id: uuid.UUID) -> int:
+    since = clock.now() - timedelta(days=30)
+    if ss._fs():
+        return sum(
+            1
+            for d in await ss._repo().user_devices(user_id)
+            if d.removed_reason == "support_reset" and d.removed_at is not None and d.removed_at >= since
+        )
     rows = (
         await session.execute(
             select(UserDevice.id).where(
                 UserDevice.user_id == user_id,
                 UserDevice.removed_reason == "support_reset",
-                UserDevice.removed_at >= clock.now() - timedelta(days=30),
+                UserDevice.removed_at >= since,
             )
         )
     ).all()
@@ -489,17 +581,7 @@ async def admin_device_reset(
 ) -> dict[str, Any]:
     code = _require_reason(body.reason_code)
     _staff_step_up(principal)
-    ud = (
-        await session.execute(
-            select(UserDevice).where(
-                UserDevice.id == user_device_id,
-                UserDevice.user_id == user_id,
-                UserDevice.trust_status != "removed",
-            )
-        )
-    ).scalar_one_or_none()
-    if ud is None:
-        raise ProblemError("not_found")
+    ud = await _user_device(session, user_id, user_device_id)
     used = await _support_resets_used(session, user_id)
     beyond = used >= 1
     if beyond:

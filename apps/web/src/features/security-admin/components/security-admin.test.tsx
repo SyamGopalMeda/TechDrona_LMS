@@ -5,7 +5,7 @@ import { mockApi, problem, renderWithProviders } from "@/features/auth/test/mock
 import { configureApiClient } from "@/lib/api/client";
 import { CaseQueue } from "./CaseQueue";
 import { CaseView } from "./CaseDetail";
-import { PendingApprovalPanel } from "./DecisionPanel";
+import { DecisionPanel, PendingApprovalPanel } from "./DecisionPanel";
 import { RatificationBanner } from "./EngineControls";
 import { ExportRequest } from "./Reports";
 import { BulkLift } from "./Restrictions";
@@ -148,7 +148,7 @@ const timeline = {
 async function openEvidence() {
   expect(await screen.findByText("SH-01")).toBeInTheDocument();
   expect(screen.getByText("v1.0.0")).toBeInTheDocument();
-  await userEvent.click(screen.getByRole("tab", { name: /Timeline \(H12\)/ }));
+  await userEvent.click(screen.getByRole("tab", { name: /^Timeline/ }));
   expect(await screen.findByText(/Chrome on Windows/)).toBeInTheDocument();
 }
 
@@ -186,7 +186,7 @@ describe("Case detail decision panel (SEC-003)", () => {
     cleanups.push(api.restore);
     renderWithProviders(<CaseView caseId="c1" reason={{ reason_code: "case_review" }} />);
 
-    expect(await screen.findByText("L4 · Suspended")).toBeInTheDocument();
+    expect((await screen.findAllByText("L4 · Suspended")).length).toBeGreaterThan(0);
     expect(api.calls[0]!.url).toContain("reason_code=case_review");
     const submit = await screen.findByRole("button", { name: "Submit for approval" });
     expect(screen.getByRole("checkbox", { name: /Requires second approval/ })).toBeChecked();
@@ -211,7 +211,7 @@ describe("Case detail decision panel (SEC-003)", () => {
     expect(post.body).not.toHaveProperty("requires_second_approval");
     expect(post.body).not.toHaveProperty("unblock_request_id");
     // SEC-04 now returns the pending proposal: the requester sees it and may only withdraw (SEC-11a).
-    expect(screen.getByText(/Proposed by me/)).toBeInTheDocument();
+    expect(screen.getByText(/Proposed by You/)).toBeInTheDocument();
     expect(screen.getByText("Both devices belong to the student.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Withdraw proposal" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
@@ -243,6 +243,35 @@ describe("Case detail decision panel (SEC-003)", () => {
     const posts = api.calls.filter((c) => c.method === "POST");
     expect(posts).toHaveLength(2);
     expect(posts[0]!.headers["idempotency-key"]).toBe(posts[1]!.headers["idempotency-key"]);
+  });
+});
+
+describe("DecisionPanel close_no_action (security_0004)", () => {
+  const manual = { ...detail, level: 0, restriction: null, unblock_request: null, opened_reason: "manual" };
+  const viewed = { explanation: true, timeline: true };
+
+  it("offers only Close / Convert to L4 when nothing is restricted and closes without a summary", async () => {
+    const onChanged = vi.fn();
+    const api = mockApi({ "POST security/cases/c1/decisions": { status: 201, body: { decision_id: "d1", outcome: "close_no_action" } } });
+    cleanups.push(api.restore);
+    renderWithProviders(<DecisionPanel detail={manual as never} ifMatch={'"v2"'} viewed={viewed} onChanged={onChanged} />);
+    const select = screen.getByLabelText(/^Outcome/) as HTMLSelectElement;
+    expect([...select.options].map((o) => o.value)).toEqual(["convert_L4", "close_no_action"]);
+    expect(select.value).toBe("close_no_action");
+    await userEvent.click(screen.getByRole("button", { name: "Record decision" }));
+    expect(await screen.findByText("Add the internal rationale.")).toBeInTheDocument();
+    await fill(screen.getByLabelText(/^Rationale/), "Support escalation checked: sign-ins are the learner's own.");
+    await userEvent.click(screen.getByRole("button", { name: "Record decision" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    const post = api.calls.find((c) => c.method === "POST")!;
+    expect(post.body).toEqual({ outcome: "close_no_action", rationale: "Support escalation checked: sign-ins are the learner's own.", student_summary: "" });
+    expect(post.headers["if-match"]).toBe('"v2"');
+  });
+
+  it("does not offer close_no_action while a restriction is active", () => {
+    renderWithProviders(<DecisionPanel detail={detail as never} ifMatch={'"v2"'} viewed={viewed} onChanged={vi.fn()} />);
+    const select = screen.getByLabelText(/^Outcome/) as HTMLSelectElement;
+    expect([...select.options].map((o) => o.value)).not.toContain("close_no_action");
   });
 });
 
@@ -354,7 +383,7 @@ describe("Kill switch ratification and exports", () => {
     expect(screen.getByRole("button", { name: "Request bulk lift" })).toBeDisabled();
     await fill(screen.getByLabelText("Rule key"), "HC-01");
     await fill(screen.getByLabelText(/^Reason/), "HC-01 false-positive surge on 2 Nov");
-    await userEvent.click(screen.getByRole("button", { name: "Dry run" }));
+    await userEvent.click(screen.getByRole("button", { name: "Check matches (dry run)" }));
     expect(await screen.findByText("214")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Request bulk lift" }));
     expect(await screen.findByText("Waiting for a second approver")).toBeInTheDocument();

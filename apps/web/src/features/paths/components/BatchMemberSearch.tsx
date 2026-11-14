@@ -15,7 +15,7 @@ export function BatchMemberSearch({
   chosen,
   onPick,
   error,
-  hint = "Choose a batch, then type at least 2 letters of a name or email.",
+  hint = "Choose a batch, then type at least 2 letters of a name.",
 }: {
   batches: PathsContext["batches"];
   chosen: ReadonlySet<string>;
@@ -63,7 +63,7 @@ export function BatchMemberSearch({
                 onClick={() => onPick(m)}
                 className="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-hover disabled:opacity-50"
               >
-                {m.full_name || "Learner"} <span className="text-fg-muted">{m.email}</span>
+                {m.full_name || "Learner"}{m.email ? <> <span className="text-fg-muted">{m.email}</span></> : null}
               </button>
             </li>
           ))}

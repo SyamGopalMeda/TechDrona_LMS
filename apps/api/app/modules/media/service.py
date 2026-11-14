@@ -29,11 +29,13 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ProblemError
+from app.core.firestore.backend import uses_firestore
 from app.core.ids import uuid7
 from app.core.outbox import emit_event
 from app.core.principal import Principal
 from app.core.time import to_rfc3339, utcnow
-from app.modules.catalog.models import Course, CourseVersion, Lesson, LessonAsset
+from app.modules.catalog import api as catalog_api
+from app.modules.catalog.api import Course, CourseVersion, Lesson, LessonAsset
 from app.modules.learning import service as learning
 from app.modules.media.models import PlaybackSession
 from app.modules.media.providers import Watermark, get_video_provider
@@ -84,6 +86,12 @@ async def playback_policy(session: AsyncSession, user_id: uuid.UUID) -> Playback
     )
 
 
+async def stale_after_policy(session: AsyncSession, user_id: uuid.UUID) -> int:
+    """``playback.stale_after_seconds`` alone: the only policy a heartbeat uses (cost-media: one
+    policy lookup per MED-05 instead of all four; same value as ``playback_policy``)."""
+    return await _int_policy(session, "playback.stale_after_seconds", STALE_AFTER_SECONDS, user_id, 60, 180)
+
+
 @dataclass(frozen=True, slots=True)
 class LessonContext:
     asset: LessonAsset
@@ -93,19 +101,7 @@ class LessonContext:
 
 
 async def student_asset(session: AsyncSession, asset_id: uuid.UUID) -> LessonContext:
-    row = (
-        await session.execute(
-            select(LessonAsset, Lesson, CourseVersion, Course)
-            .join(Lesson, Lesson.id == LessonAsset.lesson_id)
-            .join(CourseVersion, CourseVersion.id == Lesson.course_version_id)
-            .join(Course, Course.id == CourseVersion.course_id)
-            .where(
-                LessonAsset.id == asset_id,
-                CourseVersion.status.in_(learning.STUDENT_VISIBLE),
-                Course.deleted_at.is_(None),
-            )
-        )
-    ).first()
+    row = await catalog_api.asset_with_parents(session, asset_id, version_statuses=learning.STUDENT_VISIBLE)
     if row is None:
         raise ProblemError("not_found")
     return LessonContext(row[0], row[1], row[2], row[3])
@@ -127,16 +123,9 @@ def _mask_phone(phone: str | None) -> str | None:
 async def watermark_for(session: AsyncSession, principal: Principal) -> Watermark:
     """Masked first name + masked mobile (or masked email) + short user code (FR-MED-001)."""
     from app.modules.identity.contacts import mask_email
-    from app.modules.identity.models import User, UserProfile
+    from app.modules.media import adapters
 
-    row = (
-        await session.execute(
-            select(User.email, User.phone_e164, UserProfile.full_name)
-            .outerjoin(UserProfile, UserProfile.user_id == User.id)
-            .where(User.id == principal.user_id)
-        )
-    ).first()
-    email, phone, name = row if row else (None, None, None)
+    email, phone, name = await adapters.watermark_contact(session, principal.user_id)
     first = (name or "").strip().split(" ")[0][:20] or "Learner"
     contact = _mask_phone(phone) or mask_email(email) or "—"
     return Watermark(text=f"{first} • {contact} • {_short_code(principal.user_id)}", moving=True)
@@ -145,11 +134,9 @@ async def watermark_for(session: AsyncSession, principal: Principal) -> Watermar
 async def _device_label(session: AsyncSession, device_id: uuid.UUID | None) -> str:
     if device_id is None:
         return "another device"
-    from app.modules.sessions.models import Device
+    from app.modules.media import adapters
 
-    row = (
-        await session.execute(select(Device.ua_family, Device.os_family).where(Device.id == device_id))
-    ).first()
+    row = await adapters.device_families(session, device_id)
     if row is None or not (row[0] or row[1]):
         return "another device"
     ua, os_ = row
@@ -176,10 +163,23 @@ async def _record_cap_signal(
     )
 
 
+def _fs() -> bool:
+    return uses_firestore("media")
+
+
+def _repo() -> Any:
+    from app.modules.media.repo_firestore import repo
+
+    return repo()
+
+
 async def _end(session: AsyncSession, ps: PlaybackSession, reason: str) -> None:
     ps.status = "ended"
     ps.ended_at = utcnow()
     ps.end_reason = reason
+    if _fs():
+        await _repo().end(ps.user_id, ps.id, reason, ps.ended_at)
+        return
     await session.flush()
 
 
@@ -202,6 +202,8 @@ async def issue_playback(
     decision = await learning.check_lesson_access(session, principal, ctx.lesson, ctx.course)
     if ctx.asset.status != "available" or ctx.asset.provider_asset_id is None:
         raise ProblemError("invalid_state_transition", detail="This video is still processing.")
+    if _fs():
+        return await _issue_playback_fs(session, principal, ctx, decision, tab_id, take_over_id)
     # 2. L2 owner verification of this device: sessions/security hook (Planned).
     # 3. stream cap under a per-user transaction advisory lock
     await session.execute(
@@ -320,7 +322,106 @@ async def issue_playback(
     }
 
 
+async def _issue_playback_fs(
+    session: AsyncSession,
+    principal: Principal,
+    ctx: Any,
+    decision: Any,
+    tab_id: uuid.UUID | None,
+    take_over_id: uuid.UUID | None,
+) -> dict[str, Any] | ProblemError:
+    """Steps 3-5 of ``issue_playback`` on Firestore (``TD_STORE_MEDIA=firestore``): the advisory
+    lock section is one transaction on the user's lock document (``repo_firestore.claim``);
+    the OTP is fetched after the commit (no external I/O inside a transaction) and the session is
+    discarded if that fails, which is what the Postgres rollback does."""
+    pol = await playback_policy(session, principal.user_id)
+    now = utcnow()
+    resume = None
+    enr = await learning.get_enrolment(session, principal.user_id, ctx.course.id)
+    if enr is not None:
+        lp = await learning.get_progress(session, enr, ctx.lesson.lesson_key, create=False)
+        resume = lp.video_position_s if lp else None
+    new = PlaybackSession(
+        id=uuid7(),
+        started_at=now,
+        user_id=principal.user_id,
+        auth_session_id=principal.session_id,
+        device_id=principal.device_id,
+        tab_id=tab_id,
+        lesson_asset_id=ctx.asset.id,
+        provider="vdocipher",
+        status="active",
+        otp_expires_at=now + timedelta(seconds=pol.otp_ttl_seconds),
+        last_heartbeat_at=now,
+        last_position_s=resume or 0,
+    )
+    r = _repo()
+    claim = await r.claim(
+        principal.user_id,
+        auth_session_id=principal.session_id,
+        take_over_id=take_over_id,
+        now=now,
+        stale_cut=now - timedelta(seconds=pol.stale_after_seconds),
+        hour_cut=now - timedelta(hours=1),
+        cap=pol.max_concurrent_streams,
+        tokens_per_hour=TOKENS_PER_HOUR,
+        new=new,
+    )
+    if claim.kind == "conflict":
+        other = claim.session
+        await _record_cap_signal(session, principal.user_id, other.id, principal.is_minor)
+        label = await _device_label(session, other.device_id)
+        return ProblemError(
+            "playback_conflict",
+            title="Playing on another device",
+            detail=f"This account is already playing a video on {label}. Play here instead?",
+            other_device_label=label,
+            other_playback_session_id=str(other.id),
+            takeover_allowed=True,
+        )
+    ps = claim.session
+    try:
+        wm = await watermark_for(session, principal)
+        otp = await get_video_provider().issue_otp(
+            ctx.asset.provider_asset_id, ttl_seconds=pol.otp_ttl_seconds, watermark=wm
+        )
+    except BaseException:
+        await r.discard(principal.user_id, ps.id)
+        raise
+    ps.provider_otp_ref_hash = hashlib.sha256(otp.otp.encode()).digest()
+    await r.update(principal.user_id, ps.id, {"provider_otp_ref_hash": ps.provider_otp_ref_hash})
+    await emit_event(
+        session,
+        "media.playback_started",
+        {
+            "playback_session_id": str(ps.id),
+            "user_id": str(principal.user_id),
+            "lesson_asset_id": str(ctx.asset.id),
+            "course_id": str(ctx.course.id),
+            "access_reason": decision.reason,
+        },
+        aggregate_type="playback_session",
+        aggregate_id=ps.id,
+    )
+    return {
+        "playback_session_id": str(ps.id),
+        "provider": "vdocipher",
+        "otp": otp.otp,
+        "playback_info": otp.playback_info,
+        "otp_expires_at": to_rfc3339(ps.otp_expires_at),
+        "heartbeat_interval_seconds": pol.heartbeat_seconds,
+        "stale_after_seconds": pol.stale_after_seconds,
+        "resume_position_seconds": resume or 0,
+        "watermark": {"text": wm.text, "moving": wm.moving},
+    }
+
+
 async def own_playback(session: AsyncSession, principal: Principal, ps_id: uuid.UUID) -> PlaybackSession:
+    if _fs():
+        fps = await _repo().get(principal.user_id, ps_id)
+        if fps is None or fps.auth_session_id != principal.session_id:
+            raise ProblemError("not_found")
+        return fps
     ps = (
         await session.execute(
             select(PlaybackSession).where(
@@ -342,7 +443,7 @@ async def heartbeat(
         return ProblemError("playback_revoked", end_reason=ps.end_reason), False
     now = utcnow()
     elapsed = (now - ps.last_heartbeat_at).total_seconds()
-    stale_after = (await playback_policy(session, principal.user_id)).stale_after_seconds
+    stale_after = await stale_after_policy(session, principal.user_id)
     if elapsed > stale_after:
         await _end(session, ps, "stale")
         return ProblemError("playback_revoked", end_reason="stale"), False
@@ -362,7 +463,10 @@ async def heartbeat(
     prev = ps.last_position_s
     ps.last_heartbeat_at = now
     ps.last_position_s = position_s
-    await session.flush()
+    if _fs():
+        await _repo().update(ps.user_id, ps.id, {"last_heartbeat_at": now, "last_position_s": position_s})
+    else:
+        await session.flush()
     credited = False
     credited = await learning.record_video_heartbeat(
         session,
@@ -390,22 +494,25 @@ async def refresh_asset_status(session: AsyncSession, asset: LessonAsset) -> Les
     from app.modules.media.providers import get_scanner
 
     before = asset.status
+    changes: dict[str, Any] = {}
     if (
         asset.provider == "vdocipher"
         and asset.status in ("uploading", "processing")
         and asset.provider_asset_id
     ):
         st = await get_video_provider().get_status(asset.provider_asset_id)
-        asset.status = st.status
+        changes["status"] = st.status
         if st.duration_seconds:
-            asset.duration_seconds = st.duration_seconds
-            lesson = await session.get(Lesson, asset.lesson_id)
+            changes["duration_seconds"] = st.duration_seconds
+            lesson = (await catalog_api.get_lessons(session, [asset.lesson_id])).get(asset.lesson_id)
             if lesson is not None and lesson.duration_seconds is None:
-                lesson.duration_seconds = st.duration_seconds
+                await catalog_api.update_lesson(session, lesson.id, duration_seconds=st.duration_seconds)
     elif asset.provider == "s3" and asset.scan_status == "pending" and asset.s3_key:
         result = await scan_result_for(get_scanner(), asset.s3_key)
         if result is not None:
-            apply_scan(asset, result)
+            changes = scan_changes(result)
+    if changes:
+        asset = await catalog_api.update_asset(session, asset.id, **changes)
     await session.flush()
     if before != "available" and asset.status == "available":
         await emit_event(
@@ -420,30 +527,6 @@ async def refresh_asset_status(session: AsyncSession, asset: LessonAsset) -> Les
 
 
 UNBLOCK_ATTACHMENT_PREFIX = "uploads/unblock_request/"
-
-_UNBLOCK_SET_SCAN = text(
-    """
-    UPDATE unblock_requests
-       SET attachments = (
-             SELECT jsonb_agg(
-                      CASE WHEN a->>'s3_key' = :k AND a->>'scan_status' = 'pending'
-                           THEN a || jsonb_build_object('scan_status', CAST(:r AS text))
-                           ELSE a END
-                      ORDER BY ord)
-               FROM jsonb_array_elements(attachments) WITH ORDINALITY AS t(a, ord))
-     WHERE attachments @> jsonb_build_array(jsonb_build_object('s3_key', CAST(:k AS text)))
-    """
-)
-
-_UNBLOCK_PENDING_KEYS = text(
-    """
-    SELECT a->>'s3_key'
-      FROM unblock_requests, jsonb_array_elements(attachments) AS a
-     WHERE a->>'scan_status' = 'pending' AND a->>'s3_key' IS NOT NULL
-     ORDER BY unblock_requests.id
-     LIMIT :n
-    """
-)
 
 
 async def scan_result_for(scanner: Any, s3_key: str, bucket: str | None = None) -> str | None:
@@ -467,8 +550,9 @@ async def apply_unblock_attachment_scan(session: AsyncSession, s3_key: str, resu
     non-clean status as quarantined). Caller supplies a system context. Returns rows updated."""
     if result not in ("clean", "infected"):
         raise ValueError("result must be clean or infected")
-    res = await session.execute(_UNBLOCK_SET_SCAN, {"k": s3_key, "r": result})
-    return int(getattr(res, "rowcount", 0) or 0)
+    from app.modules.media import adapters
+
+    return await adapters.set_unblock_attachment_scan(session, s3_key, result)
 
 
 async def sweep_pending_scans(session: AsyncSession, *, limit: int = 200) -> int:
@@ -478,30 +562,15 @@ async def sweep_pending_scans(session: AsyncSession, *, limit: int = 200) -> int
     from app.modules.media.providers import get_scanner
 
     scanner = get_scanner()
-    pending = list(
-        (
-            await session.execute(
-                select(LessonAsset)
-                .where(
-                    LessonAsset.provider == "s3",
-                    LessonAsset.scan_status == "pending",
-                    LessonAsset.s3_key.is_not(None),
-                )
-                .order_by(LessonAsset.id)
-                .limit(limit)
-                .with_for_update(skip_locked=True)
-            )
-        ).scalars()
-    )
+    pending = await catalog_api.lock_pending_scan_assets(session, limit=limit)
     done = 0
     for asset in pending:
         assert asset.s3_key is not None
         result = await scan_result_for(scanner, asset.s3_key)
         if result is None:
             continue
-        apply_scan(asset, result)
+        asset = await catalog_api.update_asset(session, asset.id, **scan_changes(result))
         done += 1
-        await session.flush()
         if asset.status == "available":
             await emit_event(
                 session,
@@ -512,7 +581,9 @@ async def sweep_pending_scans(session: AsyncSession, *, limit: int = 200) -> int
                 organization_id=asset.organization_id,
             )
     # INV-12: unblock-request attachments (uploads bucket) are consumed by the same job.
-    keys = list((await session.execute(_UNBLOCK_PENDING_KEYS, {"n": limit})).scalars())
+    from app.modules.media import adapters
+
+    keys = await adapters.pending_unblock_attachment_keys(session, limit)
     for key in keys:
         result = await scan_result_for(scanner, key)
         if result is not None and await apply_unblock_attachment_scan(session, key, result):
@@ -520,13 +591,11 @@ async def sweep_pending_scans(session: AsyncSession, *, limit: int = 200) -> int
     return done
 
 
-def apply_scan(asset: LessonAsset, result: str) -> None:
+def scan_changes(result: str) -> dict[str, str]:
+    """``lesson_assets`` column changes for a malware-scan result."""
     if result == "clean":
-        asset.scan_status = "clean"
-        asset.status = "available"
-    else:
-        asset.scan_status = "infected"
-        asset.status = "failed"
+        return {"scan_status": "clean", "status": "available"}
+    return {"scan_status": "infected", "status": "failed"}
 
 
 async def apply_scan_result(session: AsyncSession, s3_key: str, result: str) -> int:
@@ -536,8 +605,8 @@ async def apply_scan_result(session: AsyncSession, s3_key: str, result: str) -> 
         raise ValueError("result must be clean or infected")
     if s3_key.startswith(UNBLOCK_ATTACHMENT_PREFIX):
         return await apply_unblock_attachment_scan(session, s3_key, result)
-    assets = list((await session.execute(select(LessonAsset).where(LessonAsset.s3_key == s3_key))).scalars())
+    assets = await catalog_api.assets_by_s3_key(session, s3_key)
     for a in assets:
-        apply_scan(a, result)
+        await catalog_api.update_asset(session, a.id, **scan_changes(result))
     await session.flush()
     return len(assets)

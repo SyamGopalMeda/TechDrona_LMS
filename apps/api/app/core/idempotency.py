@@ -106,6 +106,15 @@ async def idempotent(
     required: bool = True,
     money: bool = False,
 ) -> JSONResponse:
+    from app.core.firestore.backend import uses_firestore
+
+    if uses_firestore("core"):  # TD_STORE_CORE=firestore (default postgres: unchanged below)
+        from app.core.firestore.core_store import idempotent_firestore
+
+        resp: JSONResponse = await idempotent_firestore(
+            request, session, user_id=user_id, operation=operation, required=required, money=money
+        )
+        return resp
     key = request.headers.get(HEADER)
     if not key:
         if required:

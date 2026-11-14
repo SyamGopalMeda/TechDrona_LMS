@@ -136,13 +136,17 @@ def _topics(p: dict[str, Any]) -> tuple[uuid.UUID, ...]:
     return tuple(t for t in (_uuid(x) for x in raw) if t is not None)
 
 
+def _fs() -> bool:
+    from app.core.firestore.backend import uses_firestore
+
+    return uses_firestore("analytics")
+
+
 async def _user(session: AsyncSession, user_id: uuid.UUID) -> tuple[str, bool] | None:
-    row = (
-        await session.execute(
-            text("SELECT privacy_tier, is_synthetic FROM users WHERE id = :u"), {"u": user_id}
-        )
-    ).first()
-    return (row[0], bool(row[1])) if row else None
+    from app.modules.identity import public as idp
+
+    u = await idp.get_user(session, user_id)
+    return (u.privacy_tier, bool(u.is_synthetic)) if u is not None else None
 
 
 def _safe_payload(p: dict[str, Any]) -> dict[str, Any]:
@@ -175,7 +179,11 @@ async def handle_domain_event(
     event_type, p = normalize(event_type, payload or {})
     if event_type == "consent.changed":
         uid = _uuid(p.get("user_id"))
-        if uid and p.get("purpose") == "security_monitoring" and p.get("action") == "withdrawn":
+        if uid and p.get("purpose") == "security_monitoring" and p.get("action") == "withdrawn" and _fs():
+            from app.modules.analytics import fs_raw
+
+            await fs_raw.delete_user_docs(fs_raw.SECURITY_FEED, uid)
+        elif uid and p.get("purpose") == "security_monitoring" and p.get("action") == "withdrawn":
             await session.execute(
                 text("DELETE FROM security_activity_feed_daily WHERE user_id = :u"), {"u": uid}
             )
@@ -321,6 +329,10 @@ async def handle_domain_event(
 
 
 async def _already_consumed(session: AsyncSession, event_id: uuid.UUID) -> bool:
+    if _fs():
+        from app.modules.analytics import fs_raw
+
+        return await fs_raw.is_consumed(event_id)
     row = (
         await session.execute(
             text("SELECT 1 FROM analytics_consumed_events WHERE outbox_event_id = :i"), {"i": event_id}
@@ -341,6 +353,11 @@ async def on_outbox_event(session: AsyncSession, msg: Any) -> None:
         occurred_at=msg.occurred_at,
         organization_id=msg.organization_id,
     )
+    if _fs():
+        from app.modules.analytics import fs_raw
+
+        await fs_raw.mark_consumed(msg.id, msg.event_type)
+        return
     await session.execute(
         text(
             "INSERT INTO analytics_consumed_events (outbox_event_id, event_type) VALUES (:i, :t) "
@@ -348,6 +365,69 @@ async def on_outbox_event(session: AsyncSession, msg: Any) -> None:
         ),
         {"i": msg.id, "t": msg.event_type},
     )
+
+
+async def _consumed_ids(session: AsyncSession, ids: list[uuid.UUID]) -> set[uuid.UUID]:
+    """Which of ``ids`` this module already consumed (``analytics_consumed_events``)."""
+    if not ids:
+        return set()
+    if _fs():
+        from app.modules.analytics import fs_raw
+
+        return {i for i in ids if await fs_raw.is_consumed(i)}
+    rows = await session.execute(
+        text("SELECT outbox_event_id FROM analytics_consumed_events WHERE outbox_event_id = ANY(:ids)"),
+        {"ids": ids},
+    )
+    return {r[0] for r in rows.all()}
+
+
+async def unconsumed_events(session: AsyncSession, *, since: datetime, limit: int) -> list[Any]:
+    """Outbox events of ``HANDLED_TYPES`` after ``since`` that this module has not consumed yet,
+    ordered ``(occurred_at, id)``, at most ``limit``: the old ``... AND NOT EXISTS (consumed)
+    ORDER BY occurred_at, id LIMIT :n``. Read through ``app.core.outbox.read_events`` (either
+    store), paged by keyset until ``limit`` unconsumed events are found or the outbox ends."""
+    from app.core.outbox import read_events
+
+    out: list[Any] = []
+    after: tuple[datetime, uuid.UUID] | None = None
+    while len(out) < limit:
+        page = await read_events(session, since=since, event_types=HANDLED_TYPES, limit=limit, after=after)
+        if not page:
+            break
+        done = await _consumed_ids(session, [r.id for r in page])
+        out += [r for r in page if r.id not in done]
+        if len(page) < limit:
+            break
+        after = (page[-1].occurred_at, page[-1].id)
+    return out[:limit]
+
+
+async def _consume_outbox_fs(session: AsyncSession, *, limit: int, lookback: timedelta) -> dict[str, int]:
+    """``consume_outbox`` on Firestore: the core outbox documents (``TD_STORE_CORE=firestore``),
+    the consumed marks and the job watermark live in Firestore; same order, limit and result."""
+    from app.modules.analytics import fs_raw
+
+    wm = await fs_raw.get_watermark("outbox_consumer")
+    since = (wm or datetime(1970, 1, 1, tzinfo=UTC)) - lookback
+    rows = await unconsumed_events(session, since=since, limit=limit)
+    applied = skipped = 0
+    newest: datetime | None = None
+    for r in rows:
+        ok = await handle_domain_event(
+            session,
+            event_id=r.id,
+            event_type=r.event_type,
+            payload=r.payload or {},
+            occurred_at=r.occurred_at,
+            organization_id=r.organization_id,
+        )
+        await fs_raw.mark_consumed(r.id, r.event_type)  # as Postgres: applied or skipped
+        applied += 1 if ok else 0
+        skipped += 0 if ok else 1
+        newest = r.occurred_at if newest is None or r.occurred_at > newest else newest
+    await fs_raw.set_state("outbox_consumer", newest, {})
+    return {"applied": applied, "skipped": skipped, "seen": len(rows)}
 
 
 def register_outbox_handlers() -> None:
@@ -361,25 +441,16 @@ async def consume_outbox(
     session: AsyncSession, *, limit: int = 500, lookback: timedelta = timedelta(minutes=10)
 ) -> dict[str, int]:
     """Process unconsumed outbox events of ``HANDLED_TYPES``. Caller sets system context."""
+    if _fs():
+        return await _consume_outbox_fs(session, limit=limit, lookback=lookback)
     state = (
         await session.execute(text("SELECT watermark FROM analytics_job_state WHERE job = 'outbox_consumer'"))
     ).first()
     since = (state[0] if state and state[0] else datetime(1970, 1, 1, tzinfo=UTC)) - lookback
-    rows = (
-        await session.execute(
-            text(
-                """
-                SELECT o.id, o.event_type, o.payload, o.organization_id, o.occurred_at
-                FROM outbox_events o
-                WHERE o.occurred_at > :since AND o.event_type = ANY(:types)
-                  AND NOT EXISTS (SELECT 1 FROM analytics_consumed_events c WHERE c.outbox_event_id = o.id)
-                ORDER BY o.occurred_at, o.id
-                LIMIT :n
-                """
-            ),
-            {"since": since, "types": list(HANDLED_TYPES), "n": limit},
-        )
-    ).all()
+    rows = [
+        (r.id, r.event_type, r.payload, r.organization_id, r.occurred_at)
+        for r in await unconsumed_events(session, since=since, limit=limit)
+    ]
     applied = skipped = 0
     newest = state[0] if state and state[0] else None
     for r in rows:

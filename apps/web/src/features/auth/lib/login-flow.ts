@@ -1,7 +1,17 @@
+import { CHANGE_PASSWORD_PATH } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { clearPendingLogin, writePendingLogin } from "./pending-login";
 import type { CapSession, LoginResponse } from "./types";
 import { safeNextPath } from "./validation";
+
+/** Module launcher (app/modules/page.tsx). */
+export const MODULES_HUB = "/modules";
+
+/**
+ * Where staff land after a sign-in without a deep link: /continue resumes the page this browser
+ * last had open and falls back to the module hub (app/continue/page.tsx).
+ */
+export const STAFF_LANDING = "/continue";
 
 /**
  * Shared routing for the AUTH-06 / AUTH-11 / AUTH-13 / AUTH-14 outcomes (api-specification
@@ -20,6 +30,14 @@ export function routeForLoginResult(res: LoginResponse, next?: string): string {
       const r = res.restriction;
       if (r && r.level >= 4) return restrictedHref(r.case_ref ?? undefined, r.level, r.until ?? undefined);
       if (r && r.level >= 3) return safeNextPath(res.redirect, "/app/account-status");
+      // The admin ticked "Must change password on first login": choose one first, then carry on.
+      if (res.must_change_password) {
+        const after = next ? safeNextPath(next, STAFF_LANDING) : STAFF_LANDING;
+        return `${CHANGE_PASSWORD_PATH}?next=${encodeURIComponent(after)}`;
+      }
+      // Central login: staff resume their last page, else the module hub (LMS / Colleges Management /
+      // Company Website Admin), which forwards straight to the LMS portal when it is their only module.
+      if (!next && safeNextPath(res.redirect, "/app") !== "/app") return STAFF_LANDING;
       return safeNextPath(next ?? res.redirect, safeNextPath(res.redirect, "/app"));
     }
     default:

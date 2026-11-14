@@ -75,4 +75,6 @@ export interface BatchCreateBody {
   graduation_year: number | null;
   starts_on: string | null;
   ends_on: string | null;
+  /** Omitted: the api picks "planned" for a future start date (IST), else "active". */
+  status?: "planned" | "active";
 }

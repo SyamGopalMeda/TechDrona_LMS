@@ -43,6 +43,7 @@ ERROR_CATALOGUE: dict[str, tuple[int, str]] = {
     "csrf_failed": (403, "Request could not be verified"),
     "permission_denied": (403, "You don't have permission to do this"),
     "mfa_enrolment_required": (403, "Set up two-step verification"),
+    "password_change_required": (403, "Choose a new password"),
     "consent_required": (403, "Please review and accept the updated terms"),
     "contact_not_verified": (403, "Verify your contact details"),
     "minor_consent_pending": (403, "Guardian consent is pending"),
@@ -114,6 +115,10 @@ ERROR_CATALOGUE: dict[str, tuple[int, str]] = {
     "webhook_signature_invalid": (400, "Webhook signature invalid"),
     "refund_not_eligible": (409, "Refund not eligible"),
     "recurring_amount_exceeds_mandate_limit": (422, "Recurring amount exceeds mandate limit"),
+    # 2.5 Admissions (course registration status, verify & add to batch)
+    "registration_closed": (409, "Registration isn't open"),
+    "no_fee_plan": (409, "No fee set for this course"),
+    "insufficient_payment": (409, "Not enough verified payment"),
 }
 
 _RESERVED = {"type", "title", "status", "detail", "code", "request_id", "instance"}
@@ -318,6 +323,19 @@ async def _db_error_handler(request: Request, exc: Exception) -> Response:
         _state, constraint = _pg_error(exc)
         log.info("unique_conflict", constraint=constraint, code=problem.code, path=request.url.path)
         return problem_response(problem, rid)
+    state, _constraint = _pg_error(exc)
+    if state and state.startswith("22"):
+        # SQLSTATE class 22 "data exception" (e.g. a NUL byte or untranslatable character in a search
+        # string, numeric/date out of range): bad client input, not a server fault (security audit
+        # 2026-11-11: GET /catalog/search?q=abc%00def returned 500).
+        rid = getattr(request.state, "request_id", None) or get_request_id()
+        log.info("db_data_exception", sqlstate=state, path=request.url.path)
+        return problem_response(
+            ProblemError(
+                "validation_failed", 400, detail="The request contains a value the server can't accept."
+            ),
+            rid,
+        )
     raise exc  # any other DB error stays a 500 through the outermost handler
 
 
@@ -340,11 +358,24 @@ async def _unhandled_handler(request: Request, exc: Exception) -> Response:
     return problem_response(ProblemError("internal_error", 500), rid)
 
 
+def _failing(handler: Any) -> Any:
+    """A raised error ends the request's transaction with a rollback on Postgres; tell the
+    Firestore audit buffer (app.core.audit) so its rows are dropped the same way."""
+
+    async def wrapped(request: Request, exc: Exception) -> Any:
+        from app.core import audit as audit_buffer
+
+        audit_buffer.mark_failed()
+        return await handler(request, exc)
+
+    return wrapped
+
+
 def install_error_handlers(app: FastAPI) -> None:
-    app.add_exception_handler(ProblemError, _problem_handler)
-    app.add_exception_handler(RequestValidationError, _validation_handler)
-    app.add_exception_handler(StarletteHTTPException, _http_handler)
-    app.add_exception_handler(sa_exc.TimeoutError, _db_error_handler)
-    app.add_exception_handler(sa_exc.DBAPIError, _db_error_handler)
-    app.add_exception_handler(ClientDisconnect, _client_disconnect_handler)
-    app.add_exception_handler(Exception, _unhandled_handler)
+    app.add_exception_handler(ProblemError, _failing(_problem_handler))
+    app.add_exception_handler(RequestValidationError, _failing(_validation_handler))
+    app.add_exception_handler(StarletteHTTPException, _failing(_http_handler))
+    app.add_exception_handler(sa_exc.TimeoutError, _failing(_db_error_handler))
+    app.add_exception_handler(sa_exc.DBAPIError, _failing(_db_error_handler))
+    app.add_exception_handler(ClientDisconnect, _failing(_client_disconnect_handler))
+    app.add_exception_handler(Exception, _failing(_unhandled_handler))

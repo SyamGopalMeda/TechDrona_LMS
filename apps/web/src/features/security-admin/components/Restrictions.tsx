@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Button, Card, Checkbox, FormField, Input, PageHeader, Pagination, Select, Table, useToast, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
-import { ActionDialog, ApprovalPendingNotice, FilterBar, InlineProblem, JsonBlock, KeyValueList, StateBadge, TextArea, textLink } from "@/features/admin/components/console-ui";
-import { cleanQuery, formatDateTime, humanize, toOutcome, useCursorList } from "@/features/admin/lib/console";
+import { ActionDialog, ApprovalPendingNotice, FilterBar, InlineProblem, KeyValueList, StateBadge, TextArea, textLink, ValueSummary } from "@/features/admin/components/console-ui";
+import { cleanQuery, formatDateTime, humanize, shortRef, toOutcome, useCursorList } from "@/features/admin/lib/console";
 import type { ApprovalPending } from "@/lib/api/client";
-import { FAMILY_OPTIONS, LEVEL_OPTIONS } from "../lib/catalogue";
+import { FAMILY_OPTIONS, LEVEL_OPTIONS, SOURCE_OPTIONS, sourceLabel } from "../lib/catalogue";
 import type { BulkLiftStatus as BulkLiftStatusData, Restriction } from "../lib/types";
 import { RiskBadge } from "./RiskLevel";
 
@@ -27,15 +27,26 @@ export function Restrictions() {
   // family / source / state are filtered on the loaded rows.
   const list = useCursorList<Restriction>("security/restrictions", cleanQuery({ level, active: state === "active" || state === "lift_pending" ? "true" : "false" }));
   const rows = list.rows?.filter((r) => (!family || r.family === family) && (!source || r.source === source) && (!state || r.state === state));
+  // Family, source and "lift pending" are applied to the loaded page only; say so instead of a false "no match".
+  const clientFiltered = !!family || !!source || state === "lift_pending";
 
   const cols: Column<Restriction>[] = [
+    {
+      key: "who",
+      header: "Account",
+      cell: (r) => (
+        <Link className={`${textLink} inline-flex min-h-6 items-center`} href={`/security/users/${r.user_id}/timeline`} aria-label={`Security timeline for user ${shortRef(r.user_id)}`}>
+          User {shortRef(r.user_id)}
+        </Link>
+      ),
+    },
     { key: "level", header: "Level", cell: (r) => <RiskBadge level={r.level} /> },
-    { key: "family", header: "Family", cell: (r) => humanize(r.family) },
+    { key: "family", header: "Family", priority: "secondary", cell: (r) => humanize(r.family) },
     { key: "state", header: "State", cell: (r) => <StateBadge state={r.state} /> },
     { key: "since", header: "Since", cell: (r) => formatDateTime(r.starts_at) },
     { key: "ends", header: "Ends", cell: (r) => (r.ends_at ? formatDateTime(r.ends_at) : "—") },
-    { key: "deferred", header: "Deferred until", cell: (r) => (r.deferred_until ? formatDateTime(r.deferred_until) : "—") },
-    { key: "source", header: "Source", cell: (r) => humanize(r.source) },
+    { key: "deferred", header: "Deferred until", priority: "secondary", cell: (r) => (r.deferred_until ? formatDateTime(r.deferred_until) : "—") },
+    { key: "source", header: "Applied by", priority: "secondary", cell: (r) => sourceLabel(r.source) },
     {
       key: "case",
       header: "Case",
@@ -53,7 +64,7 @@ export function Restrictions() {
       header: <span className="sr-only">Actions</span>,
       cell: (r) =>
         r.level <= 2 && r.state !== "ended" ? (
-          <Button size="sm" variant="secondary" onClick={() => setLift(r)} aria-label={`Lift L${r.level} restriction ${r.restriction_id}`}>
+          <Button size="sm" variant="secondary" onClick={() => setLift(r)} aria-label={`Lift L${r.level} restriction on user ${shortRef(r.user_id)}`}>
             Lift
           </Button>
         ) : null,
@@ -63,28 +74,17 @@ export function Restrictions() {
   return (
     <div>
       <PageHeader
-        eyebrow="SEC-005 · H5"
+        breadcrumbs={[{ label: "Security", href: "/security" }, { label: "Restrictions" }]}
         title="Restrictions"
-        description="Active and ended restrictions. L1/L2 can be applied and lifted here; L3/L4 change only through a case decision or a dual-approved bulk lift."
-        actions={<Button onClick={() => setApplyOpen(true)}>Apply L1/L2</Button>}
+        description="Accounts limited by the risk engine or a reviewer. Notices (L1) and verification (L2) can be applied and lifted here; L3/L4 change only through a case decision or an approved bulk lift."
+        actions={<Button onClick={() => setApplyOpen(true)}>Apply notice or verification</Button>}
       />
       <FilterBar label="Restriction filters">
         <FormField label="Level">{(f) => <Select {...f} value={level} onChange={(e) => setLevel(e.target.value)} options={LEVEL_OPTIONS.filter((o) => !o.value.includes(","))} />}</FormField>
-        <FormField label="Family">{(f) => <Select {...f} value={family} onChange={(e) => setFamily(e.target.value)} options={FAMILY_OPTIONS} />}</FormField>
-        <FormField label="Source">
+        <FormField label="Family" hint="Within this page">{(f) => <Select {...f} value={family} onChange={(e) => setFamily(e.target.value)} options={FAMILY_OPTIONS} />}</FormField>
+        <FormField label="Applied by" hint="Within this page">
           {(f) => (
-            <Select
-              {...f}
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-              options={[
-                { value: "", label: "Any source" },
-                { value: "engine", label: "Engine" },
-                { value: "hc_rule", label: "HC rule" },
-                { value: "reviewer", label: "Reviewer" },
-                { value: "support", label: "Support" },
-              ]}
-            />
+            <Select {...f} value={source} onChange={(e) => setSource(e.target.value)} options={SOURCE_OPTIONS} />
           )}
         </FormField>
         <FormField label="State">
@@ -103,6 +103,11 @@ export function Restrictions() {
           )}
         </FormField>
       </FilterBar>
+      {clientFiltered ? (
+        <p role="status" className="mb-3 text-xs text-fg-muted">
+          Family, “Applied by” and “Lift pending” filter only the restrictions loaded on this page. Use Next page to check further results.
+        </p>
+      ) : null}
       <Table
         caption="Restrictions"
         columns={cols}
@@ -111,7 +116,7 @@ export function Restrictions() {
         loading={list.loading}
         error={list.error}
         onRetry={() => void list.reload()}
-        empty={{ title: "No restrictions match these filters" }}
+        empty={{ title: clientFiltered ? "No matches on this page" : "No restrictions match these filters", description: clientFiltered ? "Try the next page, or set Family and Applied by to “Any”." : "Try “All” states or “Any level”." }}
         footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} loading={list.loading} />}
       />
 
@@ -120,7 +125,9 @@ export function Restrictions() {
       <ActionDialog
         open={lift !== null}
         onClose={() => setLift(null)}
+        onOpen={() => setReason("")}
         title={`Lift L${lift?.level ?? ""} restriction?`}
+        description={lift ? `User ${shortRef(lift.user_id)} · applied ${formatDateTime(lift.starts_at)}` : undefined}
         submitLabel="Lift"
         validate={() => (reason.trim().length < 3 ? "Give a reason." : null)}
         onSubmit={async () => toOutcome(await api.post(`security/restrictions/${lift!.restriction_id}/lift`, { reason: reason.trim() }, { idempotencyKey: true }))}
@@ -138,8 +145,13 @@ export function Restrictions() {
       <ActionDialog
         open={applyOpen}
         onClose={() => setApplyOpen(false)}
-        title="Apply an L1/L2 restriction"
-        description="L3 and L4 are applied from a case."
+        onOpen={() => {
+          setUserId("");
+          setApplyLevel("1");
+          setReason("");
+        }}
+        title="Apply a notice or verification"
+        description="Temporary restrictions (L3) and suspensions (L4) are applied from a case."
         submitLabel="Apply"
         validate={() => (!userId.trim() ? "Enter the user id." : reason.trim().length < 3 ? "Give a rationale." : null)}
         onSubmit={async () => toOutcome(await api.post("security/restrictions", { user_id: userId.trim(), level: Number(applyLevel), family: "sharing", rationale: reason.trim(), ends_at: null }, { idempotencyKey: true }))}
@@ -149,8 +161,8 @@ export function Restrictions() {
           void list.reload();
         }}
       >
-        <FormField label="User id" required>
-          {(f) => <Input {...f} value={userId} onChange={(e) => setUserId(e.target.value)} />}
+        <FormField label="User id" required hint="Copy it from the user's page under Admin › Users.">
+          {(f) => <Input {...f} className="font-mono" spellCheck={false} value={userId} onChange={(e) => setUserId(e.target.value)} />}
         </FormField>
         <FormField label="Level" required>
           {(f) => (
@@ -172,6 +184,16 @@ export function Restrictions() {
     </div>
   );
 }
+
+/** Bulk-lift selector fields in words. */
+const SELECTOR_LABELS: Record<string, string> = {
+  ruleset_version: "Ruleset version",
+  rule_key: "Rule",
+  applied_from: "Applied from",
+  applied_to: "Applied to",
+  network_cidr: "Network",
+  asn: "Network operator (ASN)",
+};
 
 /** verified: app/modules/security/controls.py bulk_lift_request (dry run, 200). */
 interface DryRunResult {
@@ -230,10 +252,12 @@ export function BulkLift() {
 
   return (
     <Card title="Bulk false-positive lift" className="mt-6">
-      <p className="mb-3 text-sm text-fg-muted">Only engine-applied L3s match. L4, high-risk, takeover and reviewer-applied restrictions are always excluded. Maximum 5,000 per request. Execution needs a second approver.</p>
+      <p className="mb-3 text-sm text-fg-muted">
+        Lifts many wrong temporary restrictions at once, e.g. after a rule misfired. Only restrictions the risk engine applied (L3) match; suspensions, high-risk, takeover and reviewer-applied restrictions are always left alone. Up to 5,000 per request. Check the matches first; a second approver must agree.
+      </p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <FormField label="Ruleset version">{(f) => <Input {...f} value={ruleset} onChange={(e) => setRuleset(e.target.value)} placeholder="2.1.0" />}</FormField>
-        <FormField label="Rule key">{(f) => <Input {...f} value={rule} onChange={(e) => setRule(e.target.value)} placeholder="HC-01" />}</FormField>
+        <FormField label="Rule key" hint="e.g. HC-01">{(f) => <Input {...f} value={rule} onChange={(e) => setRule(e.target.value)} placeholder="HC-01" />}</FormField>
         <FormField label="Applied from">{(f) => <Input {...f} type="date" value={from} onChange={(e) => setFrom(e.target.value)} />}</FormField>
         <FormField label="Applied to">{(f) => <Input {...f} type="date" value={to} onChange={(e) => setTo(e.target.value)} />}</FormField>
       </div>
@@ -245,7 +269,7 @@ export function BulkLift() {
         {error && !(error instanceof Error && error.message === "reason") ? <InlineProblem error={error} /> : null}
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" loading={busy} onClick={() => void run(true)}>
-            Dry run
+            Check matches (dry run)
           </Button>
           <Button loading={busy} disabled={!dry || dry.matched === 0 || !!pending} onClick={() => void run(false)}>
             Request bulk lift
@@ -259,7 +283,16 @@ export function BulkLift() {
                 ...Object.entries(dry.excluded_by_reason ?? {}).map(([k, v]) => ({ label: `Excluded: ${humanize(k)}`, value: v.toLocaleString("en-IN") })),
               ]}
             />
-            {dry.sample?.length ? <JsonBlock label="Sample (masked)" value={dry.sample.slice(0, 50)} /> : null}
+            {dry.sample?.length ? (
+              <details>
+                <summary className="inline-flex min-h-6 cursor-pointer items-center text-sm font-medium text-fg-secondary hover:text-fg focus-visible:shadow-focus focus-visible:outline-none">
+                  Sample of matched restrictions ({Math.min(dry.sample.length, 50)}, personal data masked)
+                </summary>
+                <div className="mt-2">
+                  <ValueSummary label="Sample (masked)" value={dry.sample.slice(0, 50)} />
+                </div>
+              </details>
+            ) : null}
           </div>
         ) : null}
         {pending ? <ApprovalPendingNotice approval={pending} /> : null}
@@ -324,10 +357,11 @@ export function BulkLiftStatus({ initialId }: { initialId: string | null }) {
                 { label: "Status", value: <StateBadge state={data.status} /> },
                 { label: "Matched", value: data.matched.toLocaleString("en-IN") },
                 ...Object.entries(data.progress ?? {}).map(([k, v]) => ({ label: humanize(k), value: typeof v === "number" ? v.toLocaleString("en-IN") : String(v ?? "—") })),
-                { label: "Approval request", value: data.approval_request_id ? <span className="font-mono text-xs">{data.approval_request_id}</span> : "—" },
+                { label: "Approval request", value: data.approval_request_id ? shortRef(data.approval_request_id) : "—" },
               ]}
             />
-            <JsonBlock label="Selector" value={data.selector} />
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-fg-muted">Which restrictions it covers</h4>
+            <ValueSummary label="Selector" value={data.selector} labels={SELECTOR_LABELS} />
           </div>
         ) : null}
       </div>

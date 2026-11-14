@@ -14,6 +14,10 @@ Everything they read or change is filtered to those allocations.
 
 Learner (own rows, RLS family U): workspace start / autosave / submit, AI tutor, results,
 regrade ("Request modification") requests. Schedule windows are enforced here, server-side.
+
+Store: with ``TD_STORE_LEARNING=firestore`` the learning rows go through ``fs_store`` /
+``fs_assign`` (Firestore branches below; Postgres statements unchanged). Learner reads that
+relied on RLS (own rows) filter on ``user_id`` explicitly there.
 """
 
 from __future__ import annotations
@@ -37,8 +41,10 @@ from app.core.outbox import emit_event, register_handler
 from app.core.principal import Principal
 from app.core.routing import authenticated_router
 from app.core.time import utcnow
-from app.modules.ai.service import require_app_enabled
-from app.modules.catalog import service as catalog
+from app.modules.ai.public import require_app_enabled
+from app.modules.catalog import public as catalog
+from app.modules.learning import fs_assign as fsa
+from app.modules.learning import fs_store as fss
 from app.modules.learning import router as base
 from app.modules.learning import structured as st
 from app.modules.learning.models import (
@@ -84,14 +90,14 @@ async def _ensure(
     scope, _row = await base._assignment_scope(session, principal, assignment_id)
     await catalog.ensure_permission(request, session, principal, perm, scope)
     async with system_context(session, "learning.assignment_scope"):
-        a = await session.get(Assignment, assignment_id)
+        a = await fss.get(session, Assignment, assignment_id)
     if a is None:
         raise ProblemError("not_found")
     return a
 
 
 async def _holds_grade_somewhere(session: Any, principal: Principal) -> bool:
-    from app.modules.rbac.service import role_permission_map
+    from app.modules.rbac.public import role_permission_map
 
     async with system_context(session, "learning.assignment_scope"):
         perms = await role_permission_map(session)
@@ -105,16 +111,27 @@ async def _ensure_grade(
     (``None`` = all, when ``assignment.grade`` is held on the assignment's own scope)."""
     scope, _row = await base._assignment_scope(session, principal, assignment_id)
     async with system_context(session, "learning.assignment_scope"):
-        a = await session.get(Assignment, assignment_id)
+        a = await fss.get(session, Assignment, assignment_id)
         allocs = await _allocs(session, assignment_id) if a is not None else {}
     if a is None:
         raise ProblemError("not_found")
+    # The assignment's own scope covers every allocation only when it is not a batch: a batch-A
+    # grant does NOT cover an allocation of this assignment to batch B (allocate() allows that
+    # for someone holding both) -- such allocations need the grant on their own batch
+    # (RBAC audit 2026-11-13).
+    own_batch: uuid.UUID | None = None
     if await base._may(request, principal, "assignment.grade", scope):
-        return a, None
+        own = (None, scope.scope_id)
+        if scope.scope_type != "batch" or all(al.batch_id in own for al in allocs.values()):
+            return a, None
+        own_batch = scope.scope_id
     grader = None
     ok: set[uuid.UUID] = set()
     batch_ok: dict[uuid.UUID, bool] = {}
     for al in allocs.values():
+        if own_batch is not None and al.batch_id in (None, own_batch):
+            ok.add(al.id)
+            continue
         if al.batch_id is not None:
             if al.batch_id not in batch_ok:
                 batch_ok[al.batch_id] = await base._may(
@@ -128,9 +145,19 @@ async def _ensure_grade(
                 grader = await _holds_grade_somewhere(session, principal)
             if grader:
                 ok.add(al.id)
+    if own_batch is not None and len(ok) == len(allocs):
+        return a, None
     if not ok:
         raise ProblemError("permission_denied", permission="assignment.grade")
     return a, frozenset(ok)
+
+
+async def gradable_allocations(
+    request: Request, session: Any, principal: Principal, assignment_id: uuid.UUID
+) -> Gradable:
+    """For the legacy staff routes in ``learning.router``: the allocations of a structured
+    assignment the caller may grade (``None`` = all)."""
+    return (await _ensure_grade(request, session, principal, assignment_id))[1]
 
 
 def _in_gradable(gradable: Gradable, allocation_id: uuid.UUID | None) -> bool:
@@ -145,17 +172,22 @@ def _require_structured(a: Assignment) -> None:
 async def _sub_for_staff(
     request: Request, session: Any, principal: Principal, submission_id: uuid.UUID
 ) -> tuple[AssignmentSubmission, Assignment]:
-    row = await catalog.system_lookup(
-        session,
-        principal,
-        select(AssignmentSubmission.assignment_id).where(AssignmentSubmission.id == submission_id),
-    )
+    row: Any
+    if fss.fs():
+        found = await fss.get(session, AssignmentSubmission, submission_id)
+        row = (found.assignment_id,) if found is not None else None
+    else:
+        row = await fss.system_row(
+            session,
+            principal,
+            select(AssignmentSubmission.assignment_id).where(AssignmentSubmission.id == submission_id),
+        )
     if row is None:
         raise ProblemError("not_found")
     a, gradable = await _ensure_grade(request, session, principal, row[0])
     _require_structured(a)
     async with system_context(session, "learning.assignment_scope"):
-        sub = await session.get(AssignmentSubmission, submission_id)
+        sub = await fss.get(session, AssignmentSubmission, submission_id)
     if sub is None:
         raise ProblemError("not_found")
     if not _in_gradable(gradable, sub.allocation_id):
@@ -164,6 +196,8 @@ async def _sub_for_staff(
 
 
 async def _allocs(session: Any, assignment_id: uuid.UUID) -> dict[uuid.UUID, AssignmentAllocation]:
+    if fss.fs():
+        return {al.id: al for al in await fsa.allocations_of(session, assignment_id)}
     rows = (
         await session.execute(
             select(AssignmentAllocation).where(AssignmentAllocation.assignment_id == assignment_id)
@@ -237,8 +271,6 @@ def _specs(body: StructureIn) -> list[st.SectionSpec]:
 
 
 async def _structure_out(session: Any, a: Assignment) -> dict[str, Any]:
-    from app.modules.orgs.models import Batch
-
     structure = await st.load_structure(session, a.id)
     items = [it for _s, its in structure for it in its]
     bundles = await st.bundles_for(session, items)
@@ -246,7 +278,9 @@ async def _structure_out(session: Any, a: Assignment) -> dict[str, Any]:
     names: dict[uuid.UUID, str] = {}
     bids = [al.batch_id for al in allocs if al.batch_id]
     if bids:
-        names = dict((await session.execute(select(Batch.id, Batch.name).where(Batch.id.in_(bids)))).all())
+        from app.modules.orgs import public as orgs_public
+
+        names = await orgs_public.batch_names(session, bids)
     return {
         "assignment": base._assignment_out(a, utcnow()),
         "locked": await st.is_locked(session, a.id),
@@ -344,8 +378,8 @@ async def clone_assignment(
             ai_help_limit=src.ai_help_limit,
             created_by=principal.user_id,
         )
-        session.add(a)
-        await session.flush()
+        fss.add(session, a)
+        await fss.flush(session)
         await st.clone_structure(session, src, a)
         await audit(
             session,
@@ -388,8 +422,31 @@ class AllocationPatch(Strict):
     status: Literal["revoked"] | None = None
 
 
-async def _check_people(session: Any, org: uuid.UUID, ids: list[uuid.UUID], field: str) -> None:
-    found = await st.org_members(session, org, ids)
+async def _managed_batches(request: Request, principal: Principal) -> set[uuid.UUID]:
+    """Batches where the caller holds ``assignment.manage`` through a batch-scoped grant."""
+    out: set[uuid.UUID] = set()
+    for g in principal.grants:
+        if g.scope_type == "batch" and g.scope_id is not None and g.scope_id not in out:
+            if await base._may(request, principal, "assignment.manage", ScopeRef("batch", g.scope_id)):
+                out.add(g.scope_id)
+    return out
+
+
+async def _check_people(
+    request: Request, session: Any, principal: Principal, org: uuid.UUID, ids: list[uuid.UUID], field: str
+) -> None:
+    """Individual learners must be active members of a batch where the caller holds
+    ``assignment.manage`` (a company-wide grant keeps the whole org). Unknown and out-of-scope
+    ids get the same error, so the response never tells whether an id exists."""
+    if not ids:
+        return
+    company = await base._may(request, principal, "assignment.manage", ScopeRef("organization", org))
+    if company:
+        found = await st.org_members(session, org, ids)
+    else:
+        batches = await _managed_batches(request, principal)
+        async with system_context(session, "learning.allocation_people"):
+            found = await st.org_members(session, org, ids, batch_ids=batches)
     for i, u in enumerate(ids):
         if u not in found:
             raise st._vf(f"{field}.{i}", "not_member", "Not an active learner or staff member of a batch")
@@ -414,7 +471,7 @@ async def allocate(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> Any:
-    from app.modules.orgs.models import Batch
+    from app.modules.orgs import public as orgs_public
 
     a = await _ensure(request, session, principal, assignment_id, "assignment.manage")
     _require_structured(a)
@@ -428,7 +485,7 @@ async def allocate(
         await catalog.ensure_permission(
             request, session, principal, "assignment.manage", ScopeRef("batch", body.batch_id)
         )
-        batch = await session.get(Batch, body.batch_id)
+        batch = await orgs_public.get_batch(session, body.batch_id)
         if batch is None or batch.organization_id != a.organization_id:
             raise ProblemError("not_found")
         batch_name = batch.name
@@ -440,7 +497,7 @@ async def allocate(
     st.check_schedule(body.visible_from, body.visible_until, body.start_at, body.due_at)
     users = list(dict.fromkeys(body.user_ids))
     evaluators = list(dict.fromkeys(body.evaluator_ids))
-    await _check_people(session, a.organization_id, users, "user_ids")
+    await _check_people(request, session, principal, a.organization_id, users, "user_ids")
     await _check_evaluators(session, principal, evaluators)
 
     async def op() -> IdemResult:
@@ -459,9 +516,9 @@ async def allocate(
             extensions={},
             created_by=principal.user_id,
         )
-        session.add(al)
-        await session.flush()
-        await session.refresh(al)
+        fss.add(session, al)
+        await fss.flush(session)
+        await fss.refresh(session, al)
         await audit(
             session,
             principal,
@@ -515,11 +572,16 @@ async def list_allocations(
 async def _alloc_for_staff(
     request: Request, session: Any, principal: Principal, allocation_id: uuid.UUID, perm: str
 ) -> tuple[AssignmentAllocation, Assignment]:
-    row = await catalog.system_lookup(
-        session,
-        principal,
-        select(AssignmentAllocation.assignment_id).where(AssignmentAllocation.id == allocation_id),
-    )
+    row: Any
+    if fss.fs():
+        found = await fss.get(session, AssignmentAllocation, allocation_id)
+        row = (found.assignment_id,) if found is not None else None
+    else:
+        row = await fss.system_row(
+            session,
+            principal,
+            select(AssignmentAllocation.assignment_id).where(AssignmentAllocation.id == allocation_id),
+        )
     if row is None:
         raise ProblemError("not_found")
     gradable: Gradable = None
@@ -528,11 +590,15 @@ async def _alloc_for_staff(
     else:
         a = await _ensure(request, session, principal, row[0], perm)
     async with system_context(session, "learning.assignment_scope"):
-        al = await session.get(AssignmentAllocation, allocation_id)
+        al = await fss.get(session, AssignmentAllocation, allocation_id)
     if al is None:
         raise ProblemError("not_found")
     if not _in_gradable(gradable, al.id):
         raise ProblemError("permission_denied", permission=perm)
+    if perm == "assignment.manage" and al.batch_id is not None:
+        # managing the assignment is not enough: the allocation's own batch must be in scope too
+        # (an assignment of batch A can be allocated to batch B by someone holding both).
+        await catalog.ensure_permission(request, session, principal, perm, ScopeRef("batch", al.batch_id))
     return al, a
 
 
@@ -564,7 +630,7 @@ async def patch_allocation(
         al.evaluator_ids = ev
     if data.get("status") == "revoked":
         al.status = "revoked"
-    await session.flush()
+    await fss.flush(session)
     after = st.allocation_out(al)
     await audit(
         session,
@@ -608,7 +674,7 @@ async def grant_extension(
     before = ext.get(str(body.user_id))
     ext[str(body.user_id)] = st.iso(body.until)
     al.extensions = ext
-    await session.flush()
+    await fss.flush(session)
     await audit(
         session,
         principal,
@@ -648,36 +714,52 @@ async def _evaluation(session: Any, a: Assignment, gradable: Gradable = None) ->
     structure = await st.load_structure(session, a.id)
     item_section = {it.id: (s, it) for s, its in structure for it in its}
     allocs = await _allocs(session, a.id)
-    subs = [
-        s
-        for s in (
+    sub_rows: Any
+    if fss.fs():
+        # ORDER BY submitted_at (ascending, NULLs last), ties by id
+        sub_rows = sorted(
+            (s for s in await fsa.submissions_of(session, a.id) if s.status != "draft"),
+            key=lambda s: (fsa.nulls_last(s.submitted_at), str(s.id)),
+        )
+    else:
+        sub_rows = (
             await session.execute(
                 select(AssignmentSubmission)
                 .where(AssignmentSubmission.assignment_id == a.id, AssignmentSubmission.status != "draft")
                 .order_by(AssignmentSubmission.submitted_at)
             )
         ).scalars()
-        if _in_gradable(gradable, s.allocation_id)
-    ]
+    subs = [s for s in sub_rows if _in_gradable(gradable, s.allocation_id)]
     responses: dict[uuid.UUID, list[AssignmentItemResponse]] = {s.id: [] for s in subs}
     if subs:
-        for r in (
-            await session.execute(
-                select(AssignmentItemResponse).where(
-                    AssignmentItemResponse.submission_id.in_([s.id for s in subs])
+        resp_rows: Any
+        if fss.fs():
+            resp_rows = await fsa.responses_of(session, [s.id for s in subs])
+        else:
+            resp_rows = (
+                await session.execute(
+                    select(AssignmentItemResponse).where(
+                        AssignmentItemResponse.submission_id.in_([s.id for s in subs])
+                    )
                 )
-            )
-        ).scalars():
+            ).scalars()
+        for r in resp_rows:
             responses[r.submission_id].append(r)
-    open_regrades = set(
-        (
-            await session.execute(
-                select(AssignmentRegradeRequest.submission_id).where(
-                    AssignmentRegradeRequest.assignment_id == a.id, AssignmentRegradeRequest.status == "open"
+    if fss.fs():
+        open_regrades = {
+            r.submission_id for r in await fsa.regrades_of(session, assignment_id=a.id) if r.status == "open"
+        }
+    else:
+        open_regrades = set(
+            (
+                await session.execute(
+                    select(AssignmentRegradeRequest.submission_id).where(
+                        AssignmentRegradeRequest.assignment_id == a.id,
+                        AssignmentRegradeRequest.status == "open",
+                    )
                 )
-            )
-        ).scalars()
-    )
+            ).scalars()
+        )
     names = await st.learner_names(session, {s.user_id for s in subs})
     sec_sum: dict[uuid.UUID, Decimal] = {s.id: Decimal(0) for s, _ in structure}
     finalized_n = 0
@@ -760,7 +842,7 @@ class AIRunIn(Strict):
 async def _run_ai(
     session: Any, principal: Principal, a: Assignment, subs: list[AssignmentSubmission]
 ) -> dict[str, Any]:
-    from app.modules.ai import service as ai
+    from app.modules.ai import public as ai
 
     allocs = await _allocs(session, a.id)
     used = {
@@ -813,6 +895,16 @@ async def run_ai_grading(
 ) -> dict[str, Any]:
     a, gradable = await _ensure_grade(request, session, principal, assignment_id)
     _require_structured(a)
+    if fss.fs():
+        wanted = set(body.submission_ids) if body is not None and body.submission_ids else None
+        subs = [
+            s
+            for s in await fsa.submissions_of(session, a.id)
+            if s.status in ("submitted", "late") and (wanted is None or s.id in wanted)
+        ]
+        subs.sort(key=lambda s: str(s.id))
+        subs = [s for s in subs if s.user_id != principal.user_id and _in_gradable(gradable, s.allocation_id)]
+        return await _run_ai(session, principal, a, subs)
     q = select(AssignmentSubmission).where(
         AssignmentSubmission.assignment_id == a.id, AssignmentSubmission.status.in_(("submitted", "late"))
     )
@@ -848,7 +940,7 @@ async def _review(session: Any, sub: AssignmentSubmission, a: Assignment) -> dic
     items = [it for _s, its in structure for it in its]
     bundles = await st.bundles_for(session, items)
     rows = await st.responses_of(session, sub.id)
-    al = await session.get(AssignmentAllocation, sub.allocation_id) if sub.allocation_id else None
+    al = await fss.get(session, AssignmentAllocation, sub.allocation_id) if sub.allocation_id else None
     names = await st.learner_names(session, {sub.user_id})
     sections = []
     final_total = Decimal(0)
@@ -946,7 +1038,7 @@ async def finalize(
 async def _finalize(
     session: Any, principal: Principal, sub: AssignmentSubmission, a: Assignment, body: FinalizeIn
 ) -> dict[str, Any]:
-    al = await session.get(AssignmentAllocation, sub.allocation_id) if sub.allocation_id else None
+    al = await fss.get(session, AssignmentAllocation, sub.allocation_id) if sub.allocation_id else None
     await st.refresh_auto_marks(session, sub, al)
     structure = await st.load_structure(session, a.id)
     rows = await st.responses_of(session, sub.id)
@@ -1016,7 +1108,7 @@ async def _finalize(
         sub.feedback_md = body.feedback_md
     sub.graded_by = principal.user_id
     sub.graded_at = now
-    await session.flush()
+    await fss.flush(session)
     for o in overrides:
         await audit(
             session,
@@ -1073,6 +1165,8 @@ async def regrade_queue(
     mine: bool = False,
 ) -> dict[str, Any]:
     a, gradable = await _ensure_grade(request, session, principal, assignment_id)
+    if fss.fs():
+        return await _regrade_queue_fs(session, principal, a, gradable, status, mine)
     async with system_context(session, "learning.assignment_regrades"):
         q = select(AssignmentRegradeRequest).where(AssignmentRegradeRequest.assignment_id == a.id)
         if gradable is not None:
@@ -1096,6 +1190,33 @@ async def regrade_queue(
     return {"data": [st.regrade_out(r, names.get(r.user_id)) for r in rows]}
 
 
+async def _regrade_queue_fs(
+    session: Any, principal: Principal, a: Assignment, gradable: Gradable, status: str | None, mine: bool
+) -> dict[str, Any]:
+    rows = await fsa.regrades_of(session, assignment_id=a.id)
+    if status:
+        rows = [r for r in rows if r.status == status]
+    if gradable is not None or mine:
+        subs = await fss.get_many(session, AssignmentSubmission, {r.submission_id for r in rows})
+        if gradable is not None:
+            rows = [
+                r for r in rows if r.submission_id in subs and subs[r.submission_id].allocation_id in gradable
+            ]
+        if mine:
+            allocs = await _allocs(session, a.id)
+
+            def evaluates(r: AssignmentRegradeRequest) -> bool:
+                s = subs.get(r.submission_id)
+                al = allocs.get(s.allocation_id) if s is not None and s.allocation_id else None
+                return al is not None and principal.user_id in al.evaluator_ids
+
+            rows = [r for r in rows if evaluates(r)]
+    rows.sort(key=lambda r: (r.created_at, str(r.id)))
+    async with system_context(session, "learning.assignment_regrades"):
+        names = await st.learner_names(session, {r.user_id for r in rows})
+    return {"data": [st.regrade_out(r, names.get(r.user_id)) for r in rows]}
+
+
 class ResolveIn(Strict):
     action: Literal["resolve", "reject"]
     note: str = Field(min_length=5, max_length=2000)
@@ -1110,37 +1231,28 @@ async def resolve_regrade(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
-    row = await catalog.system_lookup(
-        session,
-        principal,
-        select(AssignmentRegradeRequest.assignment_id).where(AssignmentRegradeRequest.id == request_id),
-    )
+    row: Any
+    if fss.fs():
+        found = await fss.get(session, AssignmentRegradeRequest, request_id)
+        row = (found.assignment_id,) if found is not None else None
+    else:
+        row = await fss.system_row(
+            session,
+            principal,
+            select(AssignmentRegradeRequest.assignment_id).where(AssignmentRegradeRequest.id == request_id),
+        )
     if row is None:
         raise ProblemError("not_found")
     a, gradable = await _ensure_grade(request, session, principal, row[0])
     async with system_context(session, "learning.assignment_regrades"):
-        rr = await session.get(AssignmentRegradeRequest, request_id, with_for_update=True)
-        if rr is None:
-            raise ProblemError("not_found")
-        sub = await session.get(AssignmentSubmission, rr.submission_id)
-        if sub is None:
-            raise ProblemError("not_found")
-        if not _in_gradable(gradable, sub.allocation_id):
-            raise ProblemError("permission_denied", permission="assignment.grade")
-        if rr.status != "open":
-            raise ProblemError("invalid_state_transition", detail="This request is already closed.")
-        if sub.user_id == principal.user_id:
-            raise ProblemError("conflict_of_interest", detail="You cannot review your own request.")
-        if body.reopen and body.action != "resolve":
-            raise st._vf("reopen", "invalid", "Only a resolved request reopens grading")
-        rr.status = "resolved" if body.action == "resolve" else "rejected"
-        rr.resolution_note = body.note
-        rr.resolved_by = principal.user_id
-        rr.resolved_at = utcnow()
-        if body.reopen and sub.status == "graded":
-            sub.status = "late" if sub.late_penalty_pct is not None else "submitted"
-        await session.flush()
-        names = await st.learner_names(session, {rr.user_id})
+        if fss.fs():
+            rr = await _resolve_regrade_fs(session, principal, request_id, gradable, body)
+            names = await st.learner_names(session, {rr.user_id})
+        else:
+            pg_rr = await session.get(AssignmentRegradeRequest, request_id, with_for_update=True)
+            names = await _resolve_regrade_pg(session, principal, pg_rr, gradable, body)
+            assert pg_rr is not None
+            rr = pg_rr
     await audit(
         session,
         principal,
@@ -1182,16 +1294,22 @@ async def _learner_ctx(
     if a.status != "active" and not for_results:
         # SEC-09: an archived assignment accepts no start / autosave / submit / tutor.
         raise ProblemError("invalid_state_transition", detail="This assignment is closed.")
-    sub = (
-        await session.execute(
-            select(AssignmentSubmission)
-            .where(
-                AssignmentSubmission.assignment_id == a.id, AssignmentSubmission.user_id == principal.user_id
+    sub: AssignmentSubmission | None
+    if fss.fs():
+        mine = await fsa.submissions_of(session, a.id, user_id=principal.user_id)
+        sub = max(mine, key=lambda s: (s.attempt_no, str(s.id))) if mine else None
+    else:
+        sub = (
+            await session.execute(
+                select(AssignmentSubmission)
+                .where(
+                    AssignmentSubmission.assignment_id == a.id,
+                    AssignmentSubmission.user_id == principal.user_id,
+                )
+                .order_by(AssignmentSubmission.attempt_no.desc())
+                .limit(1)
             )
-            .order_by(AssignmentSubmission.attempt_no.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+        ).scalar_one_or_none()
     batches = await base._my_batch_ids(session, principal.user_id)
     al = await st.learner_allocation(session, principal.user_id, batches, a, sub)
     return a, sub, al
@@ -1200,7 +1318,7 @@ async def _learner_ctx(
 async def _ai_help(session: Any, a: Assignment, sub: AssignmentSubmission | None) -> dict[str, Any]:
     """Effective tutor limit: the assignment's own ``ai_help_limit``, capped by the platform
     per-activity default (20, Admin-editable, D10) that ``ai.tutor_reply`` enforces."""
-    from app.modules.ai import store as ai_store
+    from app.modules.ai import public as ai_store
 
     used = sub.ai_help_used if sub else 0
     cap = (await ai_store.system_settings(session)).per_activity_default_cap
@@ -1273,6 +1391,71 @@ def _require_open(al: AssignmentAllocation | None, user_id: uuid.UUID) -> None:
         raise ProblemError("invalid_state_transition", detail="The submission window has closed.")
 
 
+async def _resolve_regrade_pg(
+    session: Any, principal: Principal, rr: Any, gradable: Any, body: Any
+) -> dict[uuid.UUID, str | None]:
+    if rr is None:
+        raise ProblemError("not_found")
+    sub = await fss.get(session, AssignmentSubmission, rr.submission_id)
+    if sub is None:
+        raise ProblemError("not_found")
+    if not _in_gradable(gradable, sub.allocation_id):
+        raise ProblemError("permission_denied", permission="assignment.grade")
+    if rr.status != "open":
+        raise ProblemError("invalid_state_transition", detail="This request is already closed.")
+    if sub.user_id == principal.user_id:
+        raise ProblemError("conflict_of_interest", detail="You cannot review your own request.")
+    if body.reopen and body.action != "resolve":
+        raise st._vf("reopen", "invalid", "Only a resolved request reopens grading")
+    rr.status = "resolved" if body.action == "resolve" else "rejected"
+    rr.resolution_note = body.note
+    rr.resolved_by = principal.user_id
+    rr.resolved_at = utcnow()
+    if body.reopen and sub.status == "graded":
+        sub.status = "late" if sub.late_penalty_pct is not None else "submitted"
+    await fss.flush(session)
+    return await st.learner_names(session, {rr.user_id})
+
+
+async def _resolve_regrade_fs(
+    session: Any, principal: Principal, request_id: uuid.UUID, gradable: Any, body: Any
+) -> AssignmentRegradeRequest:
+    """Firestore: the request and its submission are re-read, checked and changed in ONE
+    transaction (the Postgres ``FOR UPDATE`` on the request): two concurrent resolutions cannot
+    both pass the ``status == 'open'`` check."""
+    first = await fss.get(session, AssignmentRegradeRequest, request_id)
+    if first is None:
+        raise ProblemError("not_found")
+    sub_id = first.submission_id
+    now = utcnow()
+
+    def step(rows: dict[type[Any], dict[Any, Any]]) -> None:
+        rr = rows[AssignmentRegradeRequest].get(request_id)
+        sub = rows[AssignmentSubmission].get(sub_id)
+        if rr is None or sub is None:
+            raise ProblemError("not_found")
+        if not _in_gradable(gradable, sub.allocation_id):
+            raise ProblemError("permission_denied", permission="assignment.grade")
+        if rr.status != "open":
+            raise ProblemError("invalid_state_transition", detail="This request is already closed.")
+        if sub.user_id == principal.user_id:
+            raise ProblemError("conflict_of_interest", detail="You cannot review your own request.")
+        if body.reopen and body.action != "resolve":
+            raise st._vf("reopen", "invalid", "Only a resolved request reopens grading")
+        rr.status = "resolved" if body.action == "resolve" else "rejected"
+        rr.resolution_note = body.note
+        rr.resolved_by = principal.user_id
+        rr.resolved_at = now
+        if body.reopen and sub.status == "graded":
+            sub.status = "late" if sub.late_penalty_pct is not None else "submitted"
+
+    _, rows = await fss.locked_multi(
+        session, [(AssignmentRegradeRequest, [request_id]), (AssignmentSubmission, [sub_id])], step
+    )
+    out: AssignmentRegradeRequest = rows[AssignmentRegradeRequest][request_id]
+    return out
+
+
 @me_ro.get("/assignments/{assignment_id}/workspace", operation_id="lrn_44_my_workspace")
 async def my_workspace(
     assignment_id: uuid.UUID,
@@ -1305,9 +1488,10 @@ async def start_workspace(
                 allocation_id=al.id,
                 file_s3_keys=[],
             )
-            session.add(sub)
-            await session.flush()
-            await session.refresh(sub)
+            # (assignment, user, attempt) unique: Postgres constraint / Firestore submission_keys
+            fss.add(session, sub)
+            await fss.flush(session)
+            await fss.refresh(session, sub)
         return IdemResult(await _workspace(session, principal, a, sub, al))
 
     return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
@@ -1339,7 +1523,7 @@ async def autosave_item(
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
     a, sub, _al = await _draft(session, principal, assignment_id)
-    it = await session.get(AssignmentItem, item_id)
+    it = await fss.get(session, AssignmentItem, item_id)
     if it is None or it.assignment_id != a.id:
         raise ProblemError("not_found")
     bundles = await st.bundles_for(session, [it])
@@ -1368,7 +1552,7 @@ async def submit_workspace(
         now = utcnow()
         sub.status = "late" if now > al.due_at else "submitted"
         sub.submitted_at = now
-        await session.flush()
+        await fss.flush(session)
         async with system_context(session, "learning.assignment_submit"):
             await st.refresh_auto_marks(session, sub, al)
         await emit_event(
@@ -1413,12 +1597,12 @@ async def tutor(
     """AI tutor on one item. Per-user rate limit (SEC-05, ``429 rate_limited``) and the
     per-activity cap (assignment ``ai_help_limit``, else the platform default of 20, D10) are
     enforced by ``ai.tutor_reply``; the conversation is stored server-side (SEC-17)."""
-    from app.modules.ai import service as ai
+    from app.modules.ai import public as ai
 
     a, sub, _al = await _draft(session, principal, assignment_id)
     if not a.ai_help_enabled:
         raise ai_problem("ai_disabled", "AI help is turned off for this assignment.")
-    it = await session.get(AssignmentItem, body.item_id)
+    it = await fss.get(session, AssignmentItem, body.item_id)
     if it is None or it.assignment_id != a.id:
         raise ProblemError("not_found")
     lim = a.ai_help_limit
@@ -1440,7 +1624,7 @@ async def tutor(
     except ai.AIError as e:
         raise ai_problem(e.code, str(e) or None) from e
     sub.ai_help_used = max(sub.ai_help_used + 1, int(res.get("used") or 0))
-    await session.flush()
+    await fss.flush(session)
     eff = res.get("limit", lim)
     return {
         "reply_md": res.get("reply_md", ""),
@@ -1459,7 +1643,7 @@ async def tutor_history(
 ) -> dict[str, Any]:
     """The learner's own tutor conversation for this assignment (optionally one item), oldest
     first: ``{"data": [{"role": "learner"|"tutor", "content", "created_at"}]}`` (SEC-17)."""
-    from app.modules.ai import service as ai
+    from app.modules.ai import public as ai
 
     a, _sub, _al = await _learner_ctx(session, principal, assignment_id, for_results=True)
     rows = await ai.tutor_history(
@@ -1496,14 +1680,19 @@ async def my_result(
                     }
                 )
                 items_out.append(d)
-        rr = (
-            await session.execute(
-                select(AssignmentRegradeRequest)
-                .where(AssignmentRegradeRequest.submission_id == sub.id)
-                .order_by(AssignmentRegradeRequest.created_at.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
+        rr: AssignmentRegradeRequest | None
+        if fss.fs():
+            reqs = await fsa.regrades_of(session, submission_id=sub.id)
+            rr = max(reqs, key=lambda r: (r.created_at, str(r.id))) if reqs else None
+        else:
+            rr = (
+                await session.execute(
+                    select(AssignmentRegradeRequest)
+                    .where(AssignmentRegradeRequest.submission_id == sub.id)
+                    .order_by(AssignmentRegradeRequest.created_at.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
         regrade = st.regrade_out(rr) if rr else None
     return {
         "assignment": base._assignment_out(a, utcnow()),
@@ -1543,10 +1732,10 @@ async def request_regrade(
     principal: Principal = Depends(require_active_principal),
 ) -> Any:
     async def op() -> IdemResult:
-        sub = await session.get(AssignmentSubmission, submission_id)
+        sub = await fss.get(session, AssignmentSubmission, submission_id)
         if sub is None or sub.user_id != principal.user_id:
             raise ProblemError("not_found")
-        a = await session.get(Assignment, sub.assignment_id)
+        a = await fss.get(session, Assignment, sub.assignment_id)
         if a is None or a.submission_type != "structured":
             raise ProblemError("not_found")
         if a.grades_released_at is None or sub.status != "graded":
@@ -1554,17 +1743,23 @@ async def request_regrade(
                 "invalid_state_transition", detail="You can ask for changes once results are out."
             )
         if body.item_id is not None:
-            it = await session.get(AssignmentItem, body.item_id)
+            it = await fss.get(session, AssignmentItem, body.item_id)
             if it is None or it.assignment_id != a.id:
                 raise st._vf("item_id", "unknown", "Not a question of this assignment")
-        open_ = (
-            await session.execute(
-                select(AssignmentRegradeRequest.id).where(
-                    AssignmentRegradeRequest.submission_id == sub.id,
-                    AssignmentRegradeRequest.status == "open",
-                )
+        open_: Any
+        if fss.fs():
+            open_ = next(
+                (r for r in await fsa.regrades_of(session, submission_id=sub.id) if r.status == "open"), None
             )
-        ).first()
+        else:
+            open_ = (
+                await session.execute(
+                    select(AssignmentRegradeRequest.id).where(
+                        AssignmentRegradeRequest.submission_id == sub.id,
+                        AssignmentRegradeRequest.status == "open",
+                    )
+                )
+            ).first()
         if open_ is not None:
             raise ProblemError("conflict", detail="You already have an open request for this submission.")
         rr = AssignmentRegradeRequest(
@@ -1577,9 +1772,10 @@ async def request_regrade(
             reason=body.reason,
             status="open",
         )
-        session.add(rr)
-        await session.flush()
-        await session.refresh(rr)
+        # one open request per submission: ux_arr_one_open / Firestore regrade_open key -> 409
+        fss.add(session, rr)
+        await fss.flush(session)
+        await fss.refresh(session, rr)
         await audit(
             session,
             principal,

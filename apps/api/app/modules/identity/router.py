@@ -24,7 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import ratelimit as rl
 from app.core.audit import AuditActor, audit
 from app.core.auth import STEP_UP_WINDOWS, require_active_principal
-from app.core.db import DbSession, PrincipalDbSession, system_context
+from app.core.config import get_settings
+from app.core.db import DbSession, PrincipalDbSession
 from app.core.errors import ProblemError, problem_response
 from app.core.idempotency import IdemResult, idempotent
 from app.core.ids import uuid7
@@ -34,10 +35,12 @@ from app.core.request_context import get_request_id
 from app.core.routing import authenticated_router, public_router
 from app.core.security import hash_password, hash_token
 from app.core.time import ist_date, to_rfc3339, within
-from app.modules.identity import clock
+from app.modules.identity import clock, fs_uow, google
+from app.modules.identity import public as ipub
 from app.modules.identity import service as ids
 from app.modules.identity.contacts import (
     classify_identifier,
+    classify_login_identifier,
     identifier_digest,
     identifier_digests,
     mask_email,
@@ -56,6 +59,7 @@ from app.modules.identity.models import (
     VerificationToken,
 )
 from app.modules.identity.passwords import password_problems
+from app.modules.identity.pgctx import sys_ctx, sys_scope
 from app.modules.identity.policy import get_policy
 from app.modules.identity.schemas import (
     ChangePasswordIn,
@@ -63,6 +67,8 @@ from app.modules.identity.schemas import (
     DeviceSendIn,
     DeviceVerifyIn,
     ForgotIn,
+    GoogleLoginIn,
+    GoogleSignupIn,
     GuardianDecisionIn,
     LoginIn,
     MfaVerifyIn,
@@ -79,6 +85,7 @@ from app.modules.identity.schemas import (
 )
 from app.modules.identity.totp import provisioning_uri, random_base32
 from app.modules.notifications.service import notify, send_email, send_sms
+from app.modules.sessions import public as spub
 from app.modules.sessions import service as ss
 from app.modules.sessions.hooks import lookup_restriction
 from app.modules.sessions.login import (
@@ -88,7 +95,7 @@ from app.modules.sessions.login import (
     session_summary,
     trust_current_device,
 )
-from app.modules.sessions.models import AuthSession, Device, UserDevice
+from app.modules.sessions.public import AuthSession, Device, UserDevice
 
 pub = public_router(prefix="/auth", tags=["auth"])
 lc = authenticated_router(prefix="/auth", tags=["auth"], route_tag="login_continuation", idle="extends")
@@ -159,14 +166,20 @@ def _respond(outcome: LoginOutcome, extra_cookies: list[str] | None = None) -> J
     return resp
 
 
-def step_up_problem(principal: Principal, seconds: int) -> ProblemError | None:
+def step_up_problem(
+    principal: Principal, seconds: int, methods: list[str] | None = None
+) -> ProblemError | None:
+    if get_settings().simple_auth:  # TD_SIMPLE_AUTH: no re-confirm prompts
+        return None
     if within(principal.last_step_up_at, timedelta(seconds=seconds), now=clock.now()):
         return None
-    # Passkeys are not built yet (SEC-11), so they are not advertised; AUTH-19 returns the
-    # methods actually usable by this account (password only as a student's last resort).
-    methods = ["totp"]
-    if principal.tier == "student":
-        methods += ["sms_otp", "email_otp"]
+    # Passkeys are not built yet (SEC-11), so they are not advertised. Without ``methods`` this
+    # is the tier's generic list; ``step_up_problem_for`` passes the account's real methods
+    # (AUTH-19), so the hint matches what /auth/step-up/options will offer.
+    if methods is None:
+        methods = ["totp"]
+        if principal.tier == "student":
+            methods += ["sms_otp", "email_otp"]
     return ProblemError(
         "step_up_required",
         detail="This action needs a fresh confirmation.",
@@ -176,6 +189,16 @@ def step_up_problem(principal: Principal, seconds: int) -> ProblemError | None:
             "options_url": "/api/v1/auth/step-up/options",
         },
     )
+
+
+async def step_up_problem_for(
+    session: AsyncSession, principal: Principal, seconds: int
+) -> ProblemError | None:
+    """``step_up_problem`` advertising only the methods this account can actually use."""
+    if within(principal.last_step_up_at, timedelta(seconds=seconds), now=clock.now()):
+        return None
+    user = await _user(session, principal.user_id)
+    return step_up_problem(principal, seconds, await _step_up_methods(session, principal, user))
 
 
 def totp_replay_problem() -> ProblemError:
@@ -194,19 +217,59 @@ def tier_window(principal: Principal) -> int:
     )
 
 
+async def _insert(session: AsyncSession, obj: Any) -> None:
+    """``session.add(obj); await session.flush()`` on either store (Firestore: inserted now,
+    later changes to ``obj`` are written at the end of the request by ``fs_uow``)."""
+    if fs_uow.on_firestore(obj) and fs_uow.current() is None:
+        async with fs_uow.open_uow():
+            fs_uow.add(session, obj)
+        return
+    fs_uow.add(session, obj)
+    await fs_uow.flush(session, obj)
+
+
+async def _emit(session: AsyncSession, event_type: str, payload: dict[str, Any], **kw: Any) -> None:
+    """Outbox event: Postgres outbox, or the Firestore outbox when identity is on Firestore
+    (the event must commit with the identity change it describes)."""
+    if ids._fs():
+        from app.core.firestore.core_store import emit_event_firestore
+
+        await emit_event_firestore(event_type, payload, **kw)
+        return
+    await emit_event(session, event_type, payload, **kw)
+
+
 async def _current_session(session: AsyncSession, request: Request) -> AuthSession:
     sid = getattr(request.state, "auth_session_id", None)
-    s = await session.get(AuthSession, sid) if sid else None
+    s = await spub.get_session(session, sid) if sid else None
     if s is None:
         raise ProblemError("unauthenticated")
     return s
 
 
 async def _user(session: AsyncSession, user_id: uuid.UUID) -> User:
-    u = await session.get(User, user_id)
+    u = await ipub.get_user(session, user_id)
     if u is None:
         raise ProblemError("unauthenticated")
     return u
+
+
+async def _create_user(session: AsyncSession, user: User, profile: UserProfile) -> None:
+    """Insert a user and profile (Firestore: with the email/phone/username reservations)."""
+    if ids._fs():
+        created = await ipub.create_user(session, user, profile)
+        fs_uow.discard(created)
+        from app.modules.identity.fs_codec import columns, obj_doc
+
+        for attr in columns(User):  # server defaults, as Postgres eager_defaults fills them
+            setattr(user, attr, getattr(created, attr))
+        uow = fs_uow.current()
+        if uow is not None:  # later changes to ``user`` (e.g. last_login_at) are written at the end
+            uow.tracked[id(user)] = (user, obj_doc(user))
+        return
+    session.add(user)
+    await session.flush()
+    session.add(profile)
 
 
 async def _login_identifier(user: User) -> tuple[int, bytes]:
@@ -240,10 +303,68 @@ async def _send_verification_email(session: AsyncSession, user: User, ip: str | 
 # =========================================================================== AUTH-01 signup
 
 
+async def _record_signup_consents(
+    session: AsyncSession,
+    uid: uuid.UUID,
+    consents: list[Any],
+    is_minor: bool,
+    *,
+    ip: str | None,
+    user_agent: str | None,
+) -> None:
+    for c in consents:
+        if not c.granted or (is_minor and c.purpose in ids.MINOR_FORBIDDEN):
+            continue  # optional items are simply not granted; minors cannot grant B, C, E, F, H
+        await ids.record_consent(
+            session, uid, c.purpose, "granted", c.notice_version, ip=ip, user_agent=user_agent
+        )
+
+
+async def _start_guardian_consent(
+    session: AsyncSession,
+    uid: uuid.UUID,
+    full_name: str,
+    guardian: Any,
+    g_email: str | None,
+    g_phone: str | None,
+    *,
+    ip: str | None,
+) -> None:
+    gc = GuardianConsent(
+        id=uuid7(),
+        child_user_id=uid,
+        guardian_name=guardian.name,
+        guardian_email=g_email,
+        guardian_phone_e164=g_phone,
+        relationship=guardian.relationship,
+        verification_method="guardian_otp_declaration",
+        status="pending",
+        expires_at=None,
+    )
+    await _insert(session, gc)
+    if g_email:
+        raw = await ids.issue_link_token(
+            session,
+            user_id=uid,
+            purpose="guardian_verify",
+            channel="email",
+            destination=g_email,
+            ttl=timedelta(days=7),
+            ip=ip,
+        )
+        await send_email(
+            g_email,
+            "Consent needed for your child's Tech Drona account",
+            f"{full_name} has asked to join Tech Drona. Review and decide: "
+            f"{web_link('guardian_consent', token=raw)}\n\nThis link expires in 7 days.",
+            template_key="auth.guardian_consent_request",
+        )
+
+
 @pub.post("/signup", status_code=201)
 async def signup(body: SignupIn, request: Request, session: DbSession) -> JSONResponse:
     started = time.monotonic()
-    await system_context(session, "identity.signup")
+    await sys_ctx(session, "identity.signup")
     info = ss.client_info(request)
     if info.ip:
         await _limit("auth01_signup_ip_device", f"{info.ip}|{info.device_token or '-'}")
@@ -329,53 +450,24 @@ async def signup(body: SignupIn, request: Request, session: DbSession) -> JSONRe
         age_verification_method="self_declared",
         account_origin="self_signup",
     )
-    session.add(user)
-    await session.flush()
-    session.add(UserProfile(user_id=uid, full_name=body.full_name.strip(), date_of_birth=body.date_of_birth))
+    await _create_user(
+        session,
+        user,
+        UserProfile(user_id=uid, full_name=body.full_name.strip(), date_of_birth=body.date_of_birth),
+    )
     await ids.set_password(session, uid, body.password)
-    ua = request.headers.get("user-agent")
-    for c in body.consents:
-        if not c.granted or (is_minor and c.purpose in ids.MINOR_FORBIDDEN):
-            continue  # optional items are simply not granted; minors cannot grant B, C, E, F, H
-        await ids.record_consent(
-            session, uid, c.purpose, "granted", c.notice_version, ip=info.ip, user_agent=ua
-        )
+    await _record_signup_consents(
+        session, uid, body.consents, is_minor, ip=info.ip, user_agent=request.headers.get("user-agent")
+    )
     next_steps = []
     if email:
         next_steps.append("verify_email")
     if phone:
         next_steps.append("verify_mobile")
     if is_minor and body.guardian:
-        gc = GuardianConsent(
-            id=uuid7(),
-            child_user_id=uid,
-            guardian_name=body.guardian.name,
-            guardian_email=g_email,
-            guardian_phone_e164=g_phone,
-            relationship=body.guardian.relationship,
-            verification_method="guardian_otp_declaration",
-            status="pending",
-            expires_at=None,
+        await _start_guardian_consent(
+            session, uid, body.full_name, body.guardian, g_email, g_phone, ip=info.ip
         )
-        session.add(gc)
-        await session.flush()
-        if g_email:
-            raw = await ids.issue_link_token(
-                session,
-                user_id=uid,
-                purpose="guardian_verify",
-                channel="email",
-                destination=g_email,
-                ttl=timedelta(days=7),
-                ip=info.ip,
-            )
-            await send_email(
-                g_email,
-                "Consent needed for your child's Tech Drona account",
-                f"{body.full_name} has asked to join Tech Drona. Review and decide: "
-                f"{web_link('guardian_consent', token=raw)}\n\nThis link expires in 7 days.",
-                template_key="auth.guardian_consent_request",
-            )
         next_steps.insert(0, "guardian_consent")
 
     device, raw_dev, _issued = await ss.resolve_device(session, info)
@@ -405,7 +497,7 @@ async def signup(body: SignupIn, request: Request, session: DbSession) -> JSONRe
         ip=info.ip,
         after={"is_minor": is_minor, "status": user.status},
     )
-    await emit_event(
+    await _emit(
         session,
         "identity.user_registered",
         {"user_id": str(uid), "is_minor": is_minor},
@@ -439,12 +531,13 @@ async def signup(body: SignupIn, request: Request, session: DbSession) -> JSONRe
 @pub.post("/verify/email")
 async def verify_email(body: TokenIn, request: Request, session: DbSession) -> dict[str, Any]:
     await _limit("auth02_verify_email_ip", ss.client_info(request).ip)
-    await system_context(session, "identity.verify_email")
+    await sys_ctx(session, "identity.verify_email")
     tok = await ids.consume_link_token(session, body.token, "email_verify")
     if tok is None or tok.user_id is None:
         raise _vf("token", "invalid_or_expired", "This link is invalid or has expired")
     user = await _user(session, tok.user_id)
-    tok.consumed_at = clock.now()
+    if not await ids.mark_token_consumed(session, tok):
+        raise _vf("token", "invalid_or_expired", "This link is invalid or has expired")
     user.email_verified_at = clock.now()
     if user.status == "pending_verification":
         user.status = "active"
@@ -466,16 +559,12 @@ async def resend_verification(
     user = await _user(session, principal.user_id)
     if not user.email or user.email_verified_at:
         raise ProblemError("invalid_state_transition", current_state="verified", allowed=[])
-    async with system_context(session, "identity.verify_email"):
-        recent = (
-            await session.execute(
-                select(func.count()).where(
-                    VerificationToken.user_id == user.id,
-                    VerificationToken.purpose == "email_verify",
-                    VerificationToken.created_at > clock.now() - timedelta(hours=1),
-                )
+    async with sys_scope(session, "identity.verify_email"):
+        recent = len(
+            await ipub.verification_tokens_of(
+                session, user.id, purpose="email_verify", created_after=clock.now() - timedelta(hours=1)
             )
-        ).scalar_one()
+        )
         if recent >= 3:
             raise ProblemError("rate_limited", headers={"Retry-After": "3600"})
         await _send_verification_email(session, user, ss.client_info(request).ip)
@@ -489,7 +578,7 @@ async def mobile_send_otp(
     user = await _user(session, principal.user_id)
     if not user.phone_e164 or user.phone_verified_at:
         raise ProblemError("invalid_state_transition", current_state="verified", allowed=[])
-    async with system_context(session, "identity.verify_mobile"):
+    async with sys_scope(session, "identity.verify_mobile"):
         wait = await ids.otp_send_allowed(session, "sms", user.phone_e164)
         if wait:
             return problem_response(ProblemError("otp_send_limited", headers={"Retry-After": str(wait)}))
@@ -515,7 +604,7 @@ async def mobile_verify(
     body: TotpConfirmIn, session: PrincipalDbSession, principal: Principal = Depends(require_active_principal)
 ) -> JSONResponse:
     user = await _user(session, principal.user_id)
-    async with system_context(session, "identity.verify_mobile"):
+    async with sys_scope(session, "identity.verify_mobile"):
         chk = await ids.check_otp(session, purpose="phone_verify", code=body.code, user_id=user.id)
     if not chk.ok:
         assert chk.problem is not None
@@ -532,9 +621,10 @@ async def mobile_verify(
 
 @pub.post("/login")
 async def login(body: LoginIn, request: Request, session: DbSession) -> JSONResponse:
-    await system_context(session, "identity.login")
+    await sys_ctx(session, "identity.login")
     info = ss.client_info(request)
-    ident = classify_identifier(body.identifier)
+    # email, mobile number or username (identity_0006), case-insensitive
+    ident = classify_login_identifier(body.identifier)
     kind, value = ident or ("email", body.identifier.strip().lower())
     digests = identifier_digests(kind, value)
     record_id = identifier_digest(kind, value)
@@ -571,15 +661,18 @@ async def login(body: LoginIn, request: Request, session: DbSession) -> JSONResp
     user = await ids.find_user(session, kind, value) if ident else None
     cred = await ids.get_credential(session, user.id) if user else None
     ok = await ids.check_password(cred, body.password)
+    # TD_SIMPLE_AUTH: no "sign-in paused, reset your password" hard lock (the reset email may not
+    # be connected); the IP / per-account back-off throttling above still applies.
+    simple = get_settings().simple_auth
     blocked = user is not None and (
-        user.status in ("deactivated", "deleted") or (cred is not None and cred.hard_locked_at)
+        user.status in ("deactivated", "deleted") or (cred is not None and cred.hard_locked_at and not simple)
     )
     if not ok or user is None or cred is None or blocked:
         fail_outcome = "unknown_identifier" if user is None else ("locked" if blocked else "bad_credentials")
         if user is not None and cred is not None and not ok and not blocked:
             cred.consecutive_failures += 1
             limit = int(await get_policy(session, "login.hard_disable_after_failures"))
-            if cred.consecutive_failures >= limit and cred.hard_locked_at is None:
+            if cred.consecutive_failures >= limit and cred.hard_locked_at is None and not simple:
                 cred.hard_locked_at = clock.now()
                 await audit(
                     session,
@@ -661,6 +754,316 @@ async def login(body: LoginIn, request: Request, session: DbSession) -> JSONResp
     return _respond(outcome, [ss.device_cookie(raw_dev)])
 
 
+# =========================================================================== Google sign-in (Firebase Auth)
+
+# docs/firebase/MIGRATION-PLAN.md §5.1. Students only (owner default for F3): staff keep
+# password + TOTP. Login needs a fresh Google sign-in (auth_time); completing a new account
+# allows time to fill in the details form.
+GOOGLE_LOGIN_MAX_AUTH_AGE = timedelta(minutes=5)
+GOOGLE_SIGNUP_MAX_AUTH_AGE = timedelta(minutes=30)
+AUTH_LIMITS["auth29_google_ip"] = (rl.Rule(30, rl.HOUR),)
+
+
+def _google_problem(code: str, status: int, title: str, detail: str, **ext: Any) -> JSONResponse:
+    return problem_response(ProblemError(code, status, title, detail, **ext))
+
+
+def _google_token_invalid() -> JSONResponse:
+    return _google_problem(
+        "google_token_invalid",
+        401,
+        "Google sign-in could not be verified",
+        "Please try signing in with Google again.",
+    )
+
+
+async def _claim_unverified_account(session: AsyncSession, user: User, info: ss.ClientInfo) -> None:
+    """An LMS account with this email exists but its email was never verified. Google proves
+    the person controls the address, so the pending account becomes theirs: the email is
+    marked verified, and the password, sessions and devices set up before verification are
+    removed (stops pre-hijacking: someone who registered the address first cannot keep a way
+    in)."""
+    now = clock.now()
+    cred = await ids.get_credential(session, user.id)
+    had_password = cred is not None
+    if cred is not None:
+        if ids._fs():
+            await ids._repo().delete_credential(user.id)
+            fs_uow.discard(cred)
+        else:
+            await session.delete(cred)
+    revoked = await ss.revoke_all_sessions(session, user.id, "password_changed")
+    await spub.remove_user_devices(session, user.id, reason="security_action", now=now)
+    user.email_verified_at = now
+    if user.status == "pending_verification":
+        user.status = "active"
+    await fs_uow.flush(session)
+    await audit(
+        session,
+        AuditActor.system("identity.login_google"),
+        "identity.link.google",
+        "user",
+        user.id,
+        subject_user_id=user.id,
+        ip=info.ip,
+        after={"claimed_unverified": True, "password_removed": had_password, "sessions_revoked": revoked},
+    )
+
+
+async def _google_signup(
+    session: AsyncSession, request: Request, info: ss.ClientInfo, email: str, body: GoogleSignupIn
+) -> User:
+    """AUTH-01 rules for a new student account created from Google (email already verified)."""
+    await _limit("auth01_signup_contact", _contact_key("email", email))
+    today = ist_date(clock.now())
+    age = ids.age_on(body.date_of_birth, today)
+    if body.date_of_birth > today or age > 120:
+        raise _vf("signup.date_of_birth", "invalid_date_of_birth", "Enter a valid date of birth")
+    is_minor = age < 18
+    granted = {c.purpose for c in body.consents if c.granted}
+    missing = [p for p in ids.REQUIRED_AT_SIGNUP if p not in granted]
+    if missing:
+        raise ProblemError("consent_required", purposes=missing, notice_version=NOTICE_VERSION_DEFAULT)
+    if is_minor and body.guardian is None:
+        raise _vf(
+            "signup.guardian", "guardian_required", "A parent or guardian is needed for under-18 accounts"
+        )
+    g_email = normalize_email(body.guardian.email) if body.guardian and body.guardian.email else None
+    g_phone = normalize_phone(body.guardian.phone) if body.guardian and body.guardian.phone else None
+    if is_minor and not (g_email or g_phone):
+        raise _vf(
+            "signup.guardian.email", "guardian_contact_required", "Guardian email or mobile is required"
+        )
+    now = clock.now()
+    uid = uuid7()
+    user = User(
+        id=uid,
+        email=email,
+        email_verified_at=now,
+        status="pending_guardian_consent" if is_minor else "active",
+        is_minor=is_minor,
+        age_verified_at=now,
+        age_verification_method="self_declared",
+        account_origin="sso",
+    )
+    await _create_user(
+        session,
+        user,
+        UserProfile(user_id=uid, full_name=body.full_name.strip(), date_of_birth=body.date_of_birth),
+    )
+    await _record_signup_consents(
+        session, uid, body.consents, is_minor, ip=info.ip, user_agent=request.headers.get("user-agent")
+    )
+    if is_minor and body.guardian:
+        await _start_guardian_consent(
+            session, uid, body.full_name, body.guardian, g_email, g_phone, ip=info.ip
+        )
+    await audit(
+        session,
+        AuditActor("user", user_id=uid),
+        "identity.user.signed_up",
+        "user",
+        uid,
+        subject_user_id=uid,
+        ip=info.ip,
+        after={"is_minor": is_minor, "status": user.status, "method": "google"},
+    )
+    await _emit(
+        session,
+        "identity.user_registered",
+        {"user_id": str(uid), "is_minor": is_minor},
+        aggregate_type="user",
+        aggregate_id=uid,
+    )
+    return user
+
+
+@pub.post("/login/google")
+async def login_google(body: GoogleLoginIn, request: Request, session: DbSession) -> JSONResponse:
+    """Sign in (or finish creating a student account) with a Firebase Auth Google ID token.
+
+    Same response shape and pipeline as AUTH-06 ``/auth/login`` (risk gates, login_attempts,
+    device verification, restrictions, session cap, ``td_session`` cookie, audit). Errors:
+    ``google_token_invalid`` 401, ``google_signin_not_allowed`` 403 (staff),
+    ``google_signup_required`` 409 (no account yet: resend with ``signup`` details and a fresh
+    token), ``google_signin_unavailable`` 503 (not configured / switched off)."""
+    await sys_ctx(session, "identity.login")
+    info = ss.client_info(request)
+    if info.ip:
+        await _limit("auth29_google_ip", info.ip)
+    configured = google.get_verifier()
+    if configured is None:
+        return _google_problem(
+            "google_signin_unavailable",
+            503,
+            "Google sign-in is not available",
+            "Sign in with your email and password instead.",
+        )
+    verifier, project_id = configured
+    try:
+        claims = await verifier.verify(body.id_token)
+        ident = google.identity_from_claims(
+            claims,
+            project_id=project_id,
+            now=clock.now(),
+            max_auth_age=GOOGLE_SIGNUP_MAX_AUTH_AGE if body.signup else GOOGLE_LOGIN_MAX_AUTH_AGE,
+        )
+    except google.TokenRejected as e:
+        google.log.info("google_token_rejected", reason=e.reason)
+        return _google_token_invalid()
+    if not await google.claim_token_once(body.id_token):
+        google.log.info("google_token_rejected", reason="replayed")
+        return _google_token_invalid()
+    email = normalize_email(ident.email)
+    if not email:
+        return _google_token_invalid()
+    digests = identifier_digests("email", email)
+    record_id = identifier_digest("email", email)
+
+    if await ss.ip_failures_exceeded(session, info.ip):
+        await ss.record_login_attempt(
+            session,
+            identifier=record_id,
+            user_id=None,
+            outcome="throttled",
+            info=info,
+            method="sso",
+            pre_auth_blocked=True,
+            failure_reason="ip_window",
+        )
+        return problem_response(
+            ProblemError("throttled", headers={"Retry-After": "600"}, retry_after_seconds=600)
+        )
+    wait = await ss.backoff_remaining(session, digests)
+    if wait:
+        await ss.record_login_attempt(
+            session,
+            identifier=record_id,
+            user_id=None,
+            outcome="throttled",
+            info=info,
+            method="sso",
+            pre_auth_blocked=True,
+            failure_reason="account_backoff",
+        )
+        return problem_response(
+            ProblemError("throttled", headers={"Retry-After": str(wait)}, retry_after_seconds=wait)
+        )
+
+    from app.modules.rbac.service import active_grants, tier_for
+
+    user = await ids.find_user(session, "email", email)
+    new_account = False
+    if user is None:
+        if body.signup is None:
+            return _google_problem(
+                "google_signup_required",
+                409,
+                "Finish creating your account",
+                "Tell us a few details to create your Tech Drona account.",
+                suggested_name=ident.name,
+                required_consents=list(ids.REQUIRED_AT_SIGNUP),
+                notice_version=NOTICE_VERSION_DEFAULT,
+            )
+        user = await _google_signup(session, request, info, email, body.signup)
+        new_account = True
+    else:
+        if user.status in ("deactivated", "deleted"):
+            await ss.record_login_attempt(
+                session, identifier=record_id, user_id=user.id, outcome="locked", info=info, method="sso"
+            )
+            return problem_response(ProblemError("invalid_credentials"))
+        # Staff may use Google instead of their password only when the owner turned on
+        # TD_GOOGLE_SIGNIN_STAFF (central login). Google replaces the password step only: advance()
+        # below still demands the staff MFA factor (or MFA enrolment), exactly as after a password.
+        if (
+            tier_for(await active_grants(session, user.id)) != "student"
+            and not get_settings().TD_GOOGLE_SIGNIN_STAFF
+        ):
+            await ss.record_login_attempt(
+                session,
+                identifier=record_id,
+                user_id=user.id,
+                outcome="restricted",
+                info=info,
+                method="sso",
+                failure_reason="google_staff",
+            )
+            return _google_problem(
+                "google_signin_not_allowed",
+                403,
+                "Use your password to sign in",
+                "Staff accounts sign in with email, password and an authenticator code.",
+            )
+        if user.email_verified_at is None:
+            await _claim_unverified_account(session, user, info)
+
+    tier = tier_for(await active_grants(session, user.id))
+    restriction = await lookup_restriction(session, user.id, user.restriction_level)
+    if restriction.takeover_lock:
+        await ss.record_login_attempt(
+            session, identifier=record_id, user_id=user.id, outcome="restricted", info=info, method="sso"
+        )
+        return problem_response(
+            ProblemError("account_protect_locked", recovery_url=web_path("forgot_password"))
+        )
+    device, raw_dev, _issued = await ss.resolve_device(session, info)
+    ud = await ss.ensure_user_device(session, user.id, device)
+    s, token = await ss.create_session(
+        session,
+        user_id=user.id,
+        tier=tier,
+        status="pending_mfa",
+        created_via="sso",
+        info=info,
+        device=device,
+        user_device=ud,
+        amr=["google"],
+        auth_time=ident.auth_time,
+        restriction_level=restriction.level,
+    )
+    outcome = await advance(
+        session,
+        s=s,
+        user=user,
+        ud=ud,
+        device=device,
+        restriction=restriction,
+        remember_requested=body.remember_device,
+        token=token,
+        info=info,
+        rotate_on_activate=False,
+    )
+    result = outcome.body.get("result")
+    la_outcome = {"authenticated": "success", "mfa_required": "mfa_required"}.get(
+        str(result), "device_otp_required" if s.status == "pending_device_otp" else "success"
+    )
+    await ss.record_login_attempt(
+        session,
+        identifier=record_id,
+        user_id=user.id,
+        outcome=la_outcome,
+        info=info,
+        method="sso",
+        device_id=device.id,
+        auth_session_id=s.id,
+    )
+    await audit(
+        session,
+        AuditActor("user", user_id=user.id, session_id=s.id),
+        "identity.login.google",
+        "auth_session",
+        s.id,
+        subject_user_id=user.id,
+        ip=info.ip,
+        after={"result": str(result), "new_account": new_account},
+    )
+    if outcome.problem is None:
+        outcome.body["new_account"] = new_account
+    request.state.login_session_id = s.id
+    return _respond(outcome, [ss.device_cookie(raw_dev)])
+
+
 # =========================================================================== login continuation
 
 
@@ -669,8 +1072,8 @@ async def _pending_context(
 ) -> tuple[AuthSession, User, UserDevice | None, Device | None]:
     s = await _current_session(session, request)
     user = await _user(session, s.user_id)
-    ud = await session.get(UserDevice, s.user_device_id) if s.user_device_id else None
-    device = await session.get(Device, s.device_id) if s.device_id else None
+    ud = await ss.get_user_device_by_id(session, s.user_device_id) if s.user_device_id else None
+    device = await spub.get_device(session, s.device_id) if s.device_id else None
     return s, user, ud, device
 
 
@@ -751,7 +1154,7 @@ async def device_verification_send(
         if not user.email:
             raise _vf("channel", "channel_unavailable", "No email address")
         dest = user.email
-    async with system_context(session, "identity.device_otp"):
+    async with sys_scope(session, "identity.device_otp"):
         wait = await ids.otp_send_allowed(session, body.channel, dest)
         if wait:
             return problem_response(ProblemError("otp_send_limited", headers={"Retry-After": str(wait)}))
@@ -798,7 +1201,7 @@ async def device_verification_verify(
                 return problem_response(ProblemError("otp_invalid", attempts_remaining=None))
             method = "totp"
         else:
-            async with system_context(session, "identity.device_otp"):
+            async with sys_scope(session, "identity.device_otp"):
                 chk = await ids.check_otp(
                     session, purpose="new_device_otp", code=body.code, auth_session_id=s.id
                 )
@@ -808,7 +1211,7 @@ async def device_verification_verify(
             assert chk.token is not None
             method = "sms_otp" if chk.token.channel == "sms" else "email_otp"
         ud.verification_method = method  # this pending login passed verification
-        await session.flush()
+        await fs_uow.flush(session)
     if body.remove_user_device_id is not None:
         problem = await free_device_slot(session, user, body.remove_user_device_id, ud)
         if problem is not None:
@@ -860,16 +1263,9 @@ async def session_choice(
         return JSONResponse({"result": "cancelled"})
     if body.end_session_id is None:
         raise _vf("end_session_id", "required", "Choose a session to end")
-    target = (
-        await session.execute(
-            select(AuthSession).where(
-                AuthSession.id == body.end_session_id,
-                AuthSession.user_id == user.id,
-                AuthSession.status == "active",
-                AuthSession.id != s.id,
-            )
-        )
-    ).scalar_one_or_none()
+    target = await spub.get_session(session, body.end_session_id)
+    if target is not None and (target.user_id != user.id or target.status != "active" or target.id == s.id):
+        target = None
     if target is None:
         raise ProblemError("not_found")
     if (
@@ -939,19 +1335,25 @@ async def issue_password_reset(
     AUTH-16 and by support (SUP-13). Returns False when rate-limited or no email."""
     if not user.email or user.status == "deleted":
         return False
-    recent = (
-        await session.execute(
-            select(func.count()).where(
-                PasswordResetToken.user_id == user.id,
-                PasswordResetToken.created_at > clock.now() - timedelta(hours=1),
-            )
+    if ids._fs():
+        recent = len(
+            await ipub.reset_tokens_of(session, user.id, created_after=clock.now() - timedelta(hours=1))
         )
-    ).scalar_one()
+    else:
+        recent = (
+            await session.execute(
+                select(func.count()).where(
+                    PasswordResetToken.user_id == user.id,
+                    PasswordResetToken.created_at > clock.now() - timedelta(hours=1),
+                )
+            )
+        ).scalar_one()
     if recent >= 3:
         return False
     raw = ss.generate_token()
     ttl = int(await get_policy(session, "auth.password_reset_ttl_minutes"))
-    session.add(
+    await _insert(
+        session,
         PasswordResetToken(
             id=uuid7(),
             user_id=user.id,
@@ -959,9 +1361,8 @@ async def issue_password_reset(
             expires_at=clock.now() + timedelta(minutes=ttl),
             requested_ip=ip,
             created_at=clock.now(),
-        )
+        ),
     )
-    await session.flush()
     await send_email(
         user.email,
         "Reset your Tech Drona password",
@@ -989,7 +1390,7 @@ async def send_verification_email(session: AsyncSession, user: User, ip: str | N
 
 @pub.post("/password/forgot", status_code=202)
 async def password_forgot(body: ForgotIn, request: Request, session: DbSession) -> dict[str, str]:
-    await system_context(session, "identity.password_reset")
+    await sys_ctx(session, "identity.password_reset")
     info = ss.client_info(request)
     await _limit("auth16_forgot_ip", info.ip)
     ident = classify_identifier(body.identifier)
@@ -1004,14 +1405,17 @@ async def password_forgot(body: ForgotIn, request: Request, session: DbSession) 
 @pub.post("/password/reset")
 async def password_reset(body: ResetIn, request: Request, session: DbSession) -> dict[str, str]:
     await _limit("auth17_reset_ip", ss.client_info(request).ip)
-    await system_context(session, "identity.password_reset")
-    tok = (
-        await session.execute(
-            select(PasswordResetToken)
-            .where(PasswordResetToken.token_hash == hash_token(body.token))
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    await sys_ctx(session, "identity.password_reset")
+    if ids._fs():
+        tok = await ids._repo().reset_token_by_hash(hash_token(body.token))
+    else:
+        tok = (
+            await session.execute(
+                select(PasswordResetToken)
+                .where(PasswordResetToken.token_hash == hash_token(body.token))
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
     if tok is None or tok.consumed_at is not None or tok.expires_at <= clock.now():
         raise _vf("token", "invalid_or_expired", "This reset link is invalid, used or expired")
     user = await _user(session, tok.user_id)
@@ -1021,18 +1425,22 @@ async def password_reset(body: ResetIn, request: Request, session: DbSession) ->
     )
     if probs:
         raise _vf("new_password", probs[0], "Choose a longer or less common password")
-    # E2E-12 / RE §T-protect: a protective lock marks the password must_change, so recovery
-    # must set a different password (the old one is presumed known to an attacker).
-    restriction = await lookup_restriction(session, user.id, user.restriction_level)
-    if restriction.takeover_lock and await ids.check_password(
-        await ids.get_credential(session, user.id), body.new_password
-    ):
+    # A reset must set a different password (owner rule; E2E-12 / RE §T-protect: after a
+    # protective lock the old one is presumed known to an attacker). The token is not consumed,
+    # so the learner can pick another password with the same link.
+    if await ids.check_password(await ids.get_credential(session, user.id), body.new_password):
         raise _vf(
             "new_password",
             "password_reuse_not_allowed",
             "Choose a new password that is different from your current one",
         )
-    tok.consumed_at = clock.now()
+    if ids._fs():
+        # single use under concurrency (Postgres: the FOR UPDATE row lock above)
+        if not await ids._repo().claim_reset_token(tok.id):
+            raise _vf("token", "invalid_or_expired", "This reset link is invalid, used or expired")
+        fs_uow.discard(tok)
+    else:
+        tok.consumed_at = clock.now()
     await ids.set_password(session, user.id, body.new_password)
     revoked = await ss.revoke_all_sessions(session, user.id, "password_changed")
     info = ss.client_info(request)
@@ -1121,6 +1529,13 @@ async def _step_up_methods(session: AsyncSession, principal: Principal, user: Us
             methods.append("sms_otp")
         if not methods:
             methods.append("password")
+    if not methods:
+        # TD_MFA_EXEMPT_EMAILS (demo owner override, never in production) signs in with a password
+        # only and has no TOTP; without this it could never confirm a step-up (approvals, revokes).
+        from app.core.config import get_settings as _settings
+
+        if _settings().mfa_exempt(user.email):
+            methods.append("password")
     return methods
 
 
@@ -1142,7 +1557,7 @@ async def step_up_options(
         dest = user.email if body.send_otp_via == "email" else user.phone_e164
         assert dest is not None
         s = await _current_session(session, request)
-        async with system_context(session, "identity.step_up"):
+        async with sys_scope(session, "identity.step_up"):
             wait = await ids.otp_send_allowed(session, body.send_otp_via, dest)
             if wait:
                 return problem_response(ProblemError("otp_send_limited", headers={"Retry-After": str(wait)}))
@@ -1186,7 +1601,7 @@ async def step_up(
     elif body.method == "password":
         ok = await ids.check_password(await ids.get_credential(session, user.id), body.password or "")
     else:
-        async with system_context(session, "identity.step_up"):
+        async with sys_scope(session, "identity.step_up"):
             chk = await ids.check_otp(
                 session, purpose="step_up_otp", code=body.code or "", auth_session_id=s.id
             )
@@ -1245,15 +1660,18 @@ async def _guardian_link(
     tok = await ids.consume_link_token(session, token, "guardian_verify")
     if tok is None or tok.user_id is None:
         raise ProblemError("not_found")
-    gc = (
-        await session.execute(
-            select(GuardianConsent)
-            .where(GuardianConsent.child_user_id == tok.user_id)
-            .order_by(GuardianConsent.created_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    child = await session.get(User, tok.user_id)
+    if ids._fs():
+        gc = await ids._repo().latest_guardian_consent(tok.user_id)
+    else:
+        gc = (
+            await session.execute(
+                select(GuardianConsent)
+                .where(GuardianConsent.child_user_id == tok.user_id)
+                .order_by(GuardianConsent.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    child = await ipub.get_user(session, tok.user_id)
     if gc is None or child is None:
         raise ProblemError("not_found")
     return tok, gc, child
@@ -1261,9 +1679,9 @@ async def _guardian_link(
 
 @pub.get("/guardian-consent/{token}")
 async def guardian_view(token: str, session: DbSession) -> dict[str, Any]:
-    await system_context(session, "identity.guardian")
+    await sys_ctx(session, "identity.guardian")
     _tok, gc, child = await _guardian_link(session, token)
-    prof = await session.get(UserProfile, child.id)
+    prof = await ipub.get_profile(session, child.id)
     first = prof.full_name.split()[0] if prof and prof.full_name else "Your child"
     return {
         "child_first_name": first,
@@ -1283,7 +1701,7 @@ async def guardian_view(token: str, session: DbSession) -> dict[str, Any]:
 
 @pub.post("/guardian-consent/{token}/verify-contact")
 async def guardian_verify_contact(token: str, request: Request, session: DbSession) -> JSONResponse:
-    await system_context(session, "identity.guardian")
+    await sys_ctx(session, "identity.guardian")
     _tok, gc, child = await _guardian_link(session, token)
     if gc.status != "pending":
         raise ProblemError("invalid_state_transition", current_state=gc.status, allowed=[])
@@ -1314,7 +1732,7 @@ async def guardian_decision(
     token: str, body: GuardianDecisionIn, request: Request, session: DbSession
 ) -> JSONResponse:
     async def op() -> IdemResult:
-        await system_context(session, "identity.guardian")
+        await sys_ctx(session, "identity.guardian")
         _tok, gc, child = await _guardian_link(session, token)
         if gc.status != "pending":
             raise ProblemError("invalid_state_transition", current_state=gc.status, allowed=[])
@@ -1329,9 +1747,10 @@ async def guardian_decision(
             raise _vf("declaration", "required", "Please confirm you are the parent or legal guardian")
         now = clock.now()
         info = ss.client_info(request)
-        _tok.consumed_at = now
+        if not await ids.mark_token_consumed(session, _tok):
+            raise ProblemError("not_found")
         if body.decision == "consent":
-            prof = await session.get(UserProfile, child.id)
+            prof = await ipub.get_profile(session, child.id)
             gc.status = "verified"
             gc.verified_at = now
             gc.verification_ref = f"otp:{chk.token.id}" if chk.token else None
@@ -1367,7 +1786,7 @@ async def guardian_decision(
             subject_user_id=child.id,
             ip=info.ip,
         )
-        await emit_event(
+        await _emit(
             session,
             "consent.changed",
             {"user_id": str(child.id), "guardian_consent": gc.status},
@@ -1376,8 +1795,9 @@ async def guardian_decision(
         )
         return IdemResult(body={"status": gc.status, "child_status": child.status})
 
-    await system_context(session, "identity.guardian")  # idempotency row has no user (RLS: platform)
-    return await idempotent(request, session, user_id=None, operation=op)
+    await sys_ctx(session, "identity.guardian")  # idempotency row has no user (RLS: platform)
+    # NO_POSTGRES is falsy: the Firestore idempotency store then takes no Postgres savepoint
+    return await idempotent(request, session or None, user_id=None, operation=op)  # type: ignore[arg-type]
 
 
 # =========================================================================== AUTH-28 remember-device
@@ -1387,16 +1807,10 @@ async def guardian_decision(
 async def remember_refresh(body: RememberIn, request: Request, session: DbSession) -> JSONResponse:
     if not getattr(request.state, "service_authenticated", False):
         raise ProblemError("remember_invalid")
-    await system_context(session, "identity.remember")
+    await sys_ctx(session, "identity.remember")
     info = ss.client_info(request)
     await _limit("auth28_remember_device", hash_token(info.device_token).hex() if info.device_token else None)
-    ud = (
-        await session.execute(
-            select(UserDevice)
-            .where(UserDevice.remember_token_hash == hash_token(body.remember_token))
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    ud = await spub.user_device_by_remember(session, hash_token(body.remember_token), for_update=True)
     now = clock.now()
     if ud is None or ud.trust_status != "trusted" or ud.remember_until is None or now >= ud.remember_until:
         raise ProblemError("remember_invalid")
@@ -1418,7 +1832,7 @@ async def remember_refresh(body: RememberIn, request: Request, session: DbSessio
         )
     ):
         raise ProblemError("remember_invalid")
-    device = await session.get(Device, ud.device_id)
+    device = await spub.get_device(session, ud.device_id)
     days = int(await get_policy(session, "sessions.remember_device.max_days", user_id=user.id))
     original_auth = ud.remember_until - timedelta(days=days)
     s, token = await ss.create_session(
@@ -1479,7 +1893,7 @@ async def me(
     request: Request, session: PrincipalDbSession, principal: Principal = Depends(require_active_principal)
 ) -> dict[str, Any]:
     user = await _user(session, principal.user_id)
-    prof = await session.get(UserProfile, user.id)
+    prof = await ipub.get_profile(session, user.id)
     s = await _current_session(session, request)
     portals = sorted({g.role for g in principal.grants}) or ["student"]
     restriction: dict[str, Any] = {"level": principal.restriction_level}
@@ -1487,6 +1901,7 @@ async def me(
         "user": {
             "id": str(user.id),
             "email": user.email,
+            "username": user.username,
             "email_verified": user.email_verified_at is not None,
             "mobile_masked": mask_phone(user.phone_e164),
             "mobile_verified": user.phone_verified_at is not None,
@@ -1494,6 +1909,9 @@ async def me(
             "is_minor": user.is_minor,
             "privacy_tier": user.privacy_tier,
             "locale": user.locale,
+            # true: every route but this one, password change and logout answers 403
+            # password_change_required until the person chooses a new password.
+            "must_change_password": user.must_change_password,
         },
         "profile": {
             "full_name": prof.full_name if prof else None,
@@ -1519,7 +1937,7 @@ async def patch_profile(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
-    prof = await session.get(UserProfile, principal.user_id)
+    prof = await ipub.get_profile(session, principal.user_id)
     if prof is None:
         raise ProblemError("not_found")
     changes = body.model_dump(exclude_unset=True)
@@ -1527,7 +1945,7 @@ async def patch_profile(
         if k == "full_name" and v is None:
             continue
         setattr(prof, k, v)
-    await session.flush()
+    await fs_uow.flush(session)
     await audit(
         session,
         principal,
@@ -1601,7 +2019,7 @@ async def change_consent(
         subject_user_id=principal.user_id,
         after={"purpose": body.purpose, "notice_version": body.notice_version},
     )
-    await emit_event(
+    await _emit(
         session,
         "consent.changed",
         {"user_id": str(principal.user_id), "purpose": body.purpose, "action": body.action},
@@ -1638,7 +2056,7 @@ async def _mfa_change_step_up(session: AsyncSession, principal: Principal) -> No
     has_factor = await ids.has_strong_factor(session, principal.user_id)
     if principal.tier != "student" and not has_factor:
         return
-    p = step_up_problem(principal, tier_window(principal))
+    p = await step_up_problem_for(session, principal, tier_window(principal))
     if p:
         raise p
 
@@ -1663,8 +2081,7 @@ async def totp_begin(
         totp_secret_encrypted=ct,
         totp_wrapped_key=wrapped,
     )
-    session.add(f)
-    await session.flush()
+    await _insert(session, f)
     await audit(
         session, principal, "identity.mfa.totp_enrolment_started", "mfa_factor", f.id, subject_user_id=user.id
     )
@@ -1683,16 +2100,23 @@ async def totp_confirm(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> JSONResponse:
-    f = (
-        await session.execute(
-            select(MfaFactor).where(
-                MfaFactor.id == factor_id,
-                MfaFactor.user_id == principal.user_id,
-                MfaFactor.factor_type == "totp",
-                MfaFactor.revoked_at.is_(None),
+    if ids._fs():
+        f = await ids._repo().get_factor(factor_id)
+        if f is not None and (
+            f.user_id != principal.user_id or f.factor_type != "totp" or f.revoked_at is not None
+        ):
+            f = None
+    else:
+        f = (
+            await session.execute(
+                select(MfaFactor).where(
+                    MfaFactor.id == factor_id,
+                    MfaFactor.user_id == principal.user_id,
+                    MfaFactor.factor_type == "totp",
+                    MfaFactor.revoked_at.is_(None),
+                )
             )
-        )
-    ).scalar_one_or_none()
+        ).scalar_one_or_none()
     if f is None:
         raise ProblemError("not_found")
     if f.totp_confirmed_at is not None:
@@ -1749,7 +2173,7 @@ async def delete_factor(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
-    p = step_up_problem(principal, tier_window(principal))
+    p = await step_up_problem_for(session, principal, tier_window(principal))
     if p:
         raise p
     factors = await ids.active_factors(session, principal.user_id)
@@ -1792,7 +2216,7 @@ async def recovery_codes(
 ) -> dict[str, Any]:
     if not await ids.has_strong_factor(session, principal.user_id):
         raise ProblemError("invalid_state_transition", current_state="no_mfa", allowed=["enrol_totp"])
-    p = step_up_problem(principal, tier_window(principal))
+    p = await step_up_problem_for(session, principal, tier_window(principal))
     if p:
         raise p
     for f in await ids.active_factors(session, principal.user_id):
@@ -1802,8 +2226,8 @@ async def recovery_codes(
     f = MfaFactor(
         id=uuid7(), user_id=principal.user_id, factor_type="recovery_codes", recovery_code_hashes=hashes
     )
-    session.add(f)
-    await session.flush()
+    await fs_uow.flush(session)  # earlier recovery-code factors are revoked first
+    await _insert(session, f)
     await audit(
         session,
         principal,
@@ -1815,6 +2239,8 @@ async def recovery_codes(
     return {"codes": codes, "factor_id": str(f.id)}
 
 
+# Firestore: changes made to loaded rows are written at the end of a successful request (fs_uow).
+_UOW = [Depends(fs_uow.unit_of_work, scope="function")]
 router = APIRouter()
 for _r in (pub, lc, acct, dflt, consent_r, mfa_r):
-    router.include_router(_r)
+    router.include_router(_r, dependencies=_UOW)

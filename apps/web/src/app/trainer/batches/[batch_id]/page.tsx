@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import { PageHeader } from "@/components/ui";
-import { BatchDetail } from "@/features/batches/components/Batches";
-import { BatchProgress } from "@/features/trainer/components/Insights";
+import { TrainerBatchPage } from "@/features/trainer/components/TrainerBatchPage";
 
 export const metadata: Metadata = { title: "Batch" };
 
@@ -12,13 +10,5 @@ export default async function Page({
   params: Promise<{ batch_id: string }>;
 }) {
   const { batch_id } = await params;
-  return (
-    <div>
-      <PageHeader title="Batch" eyebrow="TRN-002" />
-      <div className="space-y-6">
-        <BatchDetail batchId={batch_id} />
-        <BatchProgress batchId={batch_id} />
-      </div>
-    </div>
-  );
+  return <TrainerBatchPage batchId={batch_id} />;
 }

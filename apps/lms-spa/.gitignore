@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env*.local
+
+# Monaco editor assets copied from node_modules by scripts/copy-monaco.mjs
+/public/vendor/monaco/

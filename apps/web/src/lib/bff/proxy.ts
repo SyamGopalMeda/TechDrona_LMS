@@ -15,6 +15,10 @@ const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const ALLOWED_METHODS = new Set(["GET", "HEAD", ...UNSAFE_METHODS]);
 const DEFAULT_MAX_BODY = 256 * 1024;
 const SMALL_MAX_BODY = 64 * 1024;
+/** Course registration / payment proof uploads (signed-in, and the LMS's own public /register
+ *  pages): JSON with one base64 file (<= 2 MiB). */
+const UPLOAD_MAX_BODY = 4 * 1024 * 1024;
+const UPLOAD_PATHS = new Set(["me/admissions/registrations", "me/admissions/claims", "public/admissions/registrations", "public/admissions/claims"]);
 export const BEACON_PATH = "analytics/events/beacon";
 export const CSRF_BOOTSTRAP_PATH = "_bff/csrf";
 /** Problem codes meaning the presented session is over (api-specification §1.4 steps 1–5). */
@@ -46,7 +50,8 @@ export function extractApiPath(pathname: string): PathCheck {
   return { ok: true, path: raw };
 }
 
-function maxBodyFor(path: string): number {
+export function maxBodyFor(path: string): number {
+  if (UPLOAD_PATHS.has(path)) return UPLOAD_MAX_BODY;
   return path.startsWith("analytics/") ? SMALL_MAX_BODY : DEFAULT_MAX_BODY;
 }
 

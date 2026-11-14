@@ -15,12 +15,14 @@ from app.modules.ai import service as ai
 from tests.ai.conftest import disable_app
 
 
+@pytest.mark.usefixtures("ai_backend")
 async def test_defaults_enabled(db: Any) -> None:
     for key in ai.APP_KEYS:
         assert await ai.is_app_enabled(db, key) is True
         await ai.require_app_enabled(db, app_key=key)
 
 
+@pytest.mark.usefixtures("ai_backend")
 @pytest.mark.parametrize("org_id", [None, uuid.uuid4()])
 async def test_disabled_for_everyone(db: Any, org_id: uuid.UUID | None) -> None:
     await disable_app(db, "engage")
@@ -30,6 +32,7 @@ async def test_disabled_for_everyone(db: Any, org_id: uuid.UUID | None) -> None:
     await ai.require_app_enabled(db, org_id=org_id, app_key="paths")  # other apps untouched
 
 
+@pytest.mark.usefixtures("ai_backend")
 async def test_sec19_question_banks_toggle_helper(db: Any) -> None:
     """WS5 calls ``require_app_enabled(session, app_key="question_banks")`` in ``_bank_for`` and
     ``resolve`` so every question-bank route honours the platform toggle."""
@@ -41,6 +44,7 @@ async def test_sec19_question_banks_toggle_helper(db: Any) -> None:
     assert e.value.code == "app_disabled"
 
 
+@pytest.mark.usefixtures("ai_backend")
 async def test_unknown_key(db: Any) -> None:
     with pytest.raises(ValueError):
         await ai.require_app_enabled(db, app_key="nope")
@@ -48,6 +52,7 @@ async def test_unknown_key(db: Any) -> None:
         await ai.is_app_enabled(db, "nope")
 
 
+@pytest.mark.usefixtures("ai_backend")
 async def test_ai_apps_follow_toggle(db: Any) -> None:
     await disable_app(db, "ai_grading")
     assert await ai.ai_enabled(db, org_id=uuid.uuid4(), app_key="ai_grading") is False

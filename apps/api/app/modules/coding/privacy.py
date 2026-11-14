@@ -16,11 +16,16 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import system_context
+from app.core.firestore.backend import uses_firestore
 
 ERASED = "/* erased at the learner's request */"
 
 
 async def erase_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]:
+    if uses_firestore("coding"):
+        from app.modules.coding.repo_firestore import system_repo
+
+        return await system_repo("coding.privacy_erase").erase_user(user_id, ERASED)
     await system_context(session, "coding.privacy_erase")
     drafts = await session.execute(text("DELETE FROM coding_drafts WHERE user_id = :u"), {"u": user_id})
     subs = await session.execute(

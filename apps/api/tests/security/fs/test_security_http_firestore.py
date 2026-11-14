@@ -1,0 +1,50 @@
+"""SEC-01 learner status page through the FastAPI app on Firestore, no Postgres."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from app.core.audit import AuditActor
+from app.core.db import NO_POSTGRES
+from app.modules.identity import clock
+from app.modules.identity import public as idp
+from app.modules.identity.models import User
+from app.modules.security import restrictions as rx
+
+FS_MODULES = ("security", "identity", "sessions", "admin", "audit", "core")
+
+
+async def test_my_security_status(fs_http: Any, make_principal: Any) -> None:
+    client, _rec, auth = fs_http
+    p = make_principal(is_minor=False)
+    now = clock.now()
+    await idp.create_user(
+        NO_POSTGRES,
+        User(
+            id=p.user_id,
+            email="s@example.com",
+            email_verified_at=now,
+            status="active",
+            is_minor=False,
+            age_verified_at=now,
+            age_verification_method="self_declared",
+        ),
+    )
+    h = auth.login(p)
+    r = await client.get("/api/v1/me/security/status", headers=h)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["level"] == 0 and body["history"] == [] and body["takeover"]["protect_locked"] is False
+    assert body["policy"]["max_trusted_devices"] is not None
+
+    actor = AuditActor.system("test.security")
+    _r1, _ = await rx.apply_restriction(
+        NO_POSTGRES, user_id=p.user_id, level=1, family="sharing", source="engine", actor=actor
+    )
+    await rx.apply_restriction(
+        NO_POSTGRES, user_id=p.user_id, level=2, family="sharing", source="engine", actor=actor
+    )
+    body = (await client.get("/api/v1/me/security/status", headers=h)).json()
+    assert body["level"] == 2 and body["family"] == "sharing" and body["scope"] == "learning_access"
+    assert [x["end_reason"] for x in body["history"]] == ["superseded"]
+    assert body["available_actions"] == ["manage_devices", "contact_support"]

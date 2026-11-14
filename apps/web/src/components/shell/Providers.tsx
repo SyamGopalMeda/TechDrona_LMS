@@ -1,9 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { configureApiClient } from "@/lib/api/client";
 import { ToastProvider } from "@/components/ui";
+import { LastPageTracker } from "@/features/hub/LastPageTracker";
 import { StepUpDialog, type StepUpRequest } from "./StepUpDialog";
 
 /**
@@ -28,6 +29,10 @@ export function Providers({ children }: { children: ReactNode }) {
     <ToastProvider>
       {children}
       <StepUpDialog request={stepUp} onDone={() => setStepUp(null)} />
+      {/* Remembers the last portal page for /continue (resume after visiting the website). */}
+      <Suspense fallback={null}>
+        <LastPageTracker />
+      </Suspense>
     </ToastProvider>
   );
 }

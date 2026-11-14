@@ -21,12 +21,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import timedelta
 from decimal import Decimal
+from typing import Any
 
 import structlog
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.db import get_sessionmaker, system_context
+from app.core.firestore.backend import uses_firestore
 from app.core.ids import uuid7
 from app.core.outbox import emit_event
 from app.core.time import utcnow
@@ -86,13 +88,35 @@ class JudgeWork:
     cases: list[_Case] = field(default_factory=list)
 
 
+def _fs() -> bool:
+    """``TD_STORE_CODING=firestore``: the judge reads and writes through ``repo_firestore`` (no
+    sessions; ``session``/``factory`` arguments are ignored). The judge itself is unchanged."""
+    return uses_firestore("coding")
+
+
+def _repo() -> Any:
+    from app.modules.coding.repo_firestore import system_repo
+
+    return system_repo(JOB)
+
+
+_QUEUE_RANK = {"judge_assessment": 0, "judge_submit": 1}
+
+
 def _trim(s: str | None, limit: int) -> str | None:
     if s is None:
         return None
     return s.encode("utf-8")[:limit].decode("utf-8", errors="ignore")
 
 
-async def claim(session: AsyncSession, submission_id: uuid.UUID) -> bool:
+async def claim(session: AsyncSession | None, submission_id: uuid.UUID) -> bool:
+    if _fs():
+        return bool(
+            await _repo().update_submission(
+                submission_id, {"status": "running", "started_at": utcnow()}, if_status="queued"
+            )
+        )
+    assert session is not None
     await system_context(session, JOB)
     res = await session.execute(
         update(CodeSubmission)
@@ -103,28 +127,48 @@ async def claim(session: AsyncSession, submission_id: uuid.UUID) -> bool:
     return res.scalar_one_or_none() is not None
 
 
-async def load_work(session: AsyncSession, submission_id: uuid.UUID) -> JudgeWork:
-    """Build jobs; decrypts hidden cases (worker memory only)."""
-    await system_context(session, JOB)
-    sub = (
-        await session.execute(
-            select(CodeSubmission)
-            .where(CodeSubmission.id == submission_id)
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one()
-    problem = (
-        await session.execute(select(CodingProblem).where(CodingProblem.id == sub.coding_problem_id))
-    ).scalar_one()
-    lang = (
-        await session.execute(select(JudgeLanguage).where(JudgeLanguage.language_key == sub.language_key))
-    ).scalar_one()
-    q = select(CodingTestCase).where(
-        CodingTestCase.coding_problem_id == problem.id, CodingTestCase.problem_version == sub.problem_version
-    )
+async def _fs_load(submission_id: uuid.UUID) -> tuple[Any, Any, Any, list[Any]]:
+    r = _repo()
+    sub = await r.get_submission(submission_id)
+    problem = await r.get_problem(sub.coding_problem_id) if sub is not None else None
+    if sub is None or problem is None:
+        raise LookupError("submission or problem not found")  # Postgres: scalar_one() raises
+    lang = next((x for x in await r.languages() if x.language_key == sub.language_key), None)
+    if lang is None:
+        raise LookupError("judge language not found")
+    rows = await r.cases(problem.id, sub.problem_version)
     if sub.mode == "run":
-        q = q.where(CodingTestCase.is_sample.is_(True))  # Run NEVER touches hidden cases
-    rows = list((await session.execute(q.order_by(CodingTestCase.ordinal))).scalars())
+        rows = [c for c in rows if c.is_sample]  # Run NEVER touches hidden cases
+    return sub, problem, lang, rows
+
+
+async def load_work(session: AsyncSession | None, submission_id: uuid.UUID) -> JudgeWork:
+    """Build jobs; decrypts hidden cases (worker memory only)."""
+    if _fs():
+        sub, problem, lang, rows = await _fs_load(submission_id)
+    else:
+        assert session is not None
+        await system_context(session, JOB)
+        sub = (
+            await session.execute(
+                select(CodeSubmission)
+                .where(CodeSubmission.id == submission_id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+        problem = (
+            await session.execute(select(CodingProblem).where(CodingProblem.id == sub.coding_problem_id))
+        ).scalar_one()
+        lang = (
+            await session.execute(select(JudgeLanguage).where(JudgeLanguage.language_key == sub.language_key))
+        ).scalar_one()
+        q = select(CodingTestCase).where(
+            CodingTestCase.coding_problem_id == problem.id,
+            CodingTestCase.problem_version == sub.problem_version,
+        )
+        if sub.mode == "run":
+            q = q.where(CodingTestCase.is_sample.is_(True))  # Run NEVER touches hidden cases
+        rows = list((await session.execute(q.order_by(CodingTestCase.ordinal))).scalars())
     limits = JudgeLimits.for_problem(
         time_limit_ms=problem.time_limit_ms,
         wall_limit_ms=problem.wall_limit_ms,
@@ -153,8 +197,8 @@ async def load_work(session: AsyncSession, submission_id: uuid.UUID) -> JudgeWor
             stdin, expected = crypto.open_case(
                 problem.id,
                 c.wrapped_data_key,
-                await blobstore.get_blob(session, c.input_s3_key),
-                await blobstore.get_blob(session, c.expected_s3_key),
+                await blobstore.get_blob(session, c.input_s3_key),  # type: ignore[arg-type]
+                await blobstore.get_blob(session, c.expected_s3_key),  # type: ignore[arg-type]
             )
         work.cases.append(_Case(c.ordinal, c.id, c.is_hidden, c.weight, stdin, expected))
     if sub.mode == "run" and sub.custom_input is not None:
@@ -175,8 +219,10 @@ async def load_work(session: AsyncSession, submission_id: uuid.UUID) -> JudgeWor
     return work
 
 
-async def record(session: AsyncSession, work: JudgeWork, results: Sequence[JudgeRunResult]) -> str:
-    await system_context(session, JOB)
+async def record(session: AsyncSession | None, work: JudgeWork, results: Sequence[JudgeRunResult]) -> str:
+    if not _fs():
+        assert session is not None
+        await system_context(session, JOB)
     compile_output = next((r.compile_output for r in results if r.status == "CE"), None)
     verdicts: list[str] = []
     for case, res in zip(work.cases, results, strict=True):
@@ -198,8 +244,9 @@ async def record(session: AsyncSession, work: JudgeWork, results: Sequence[Judge
     else:  # custom-input-only run
         verdict = verdicts[0] if verdicts else "IE"
         score, max_score, passed, total, awarded = Decimal(0), Decimal(0), 0, 0, {}
+    rows: list[SubmissionResult] = []
     for case, res, v in zip(work.cases, results, verdicts, strict=True):
-        session.add(
+        rows.append(
             SubmissionResult(
                 id=uuid7(),
                 code_submission_id=work.submission_id,
@@ -222,34 +269,52 @@ async def record(session: AsyncSession, work: JudgeWork, results: Sequence[Judge
         )
     times = [r.time_ms for r in results if r.time_ms is not None]
     mems = [r.memory_kb for r in results if r.memory_kb is not None]
-    await session.execute(
-        update(CodeSubmission)
-        .where(CodeSubmission.id == work.submission_id)
-        .values(
-            status="completed",
-            verdict=verdict,
-            score=score if work.mode == "submit" else None,
-            max_score=max_score if work.mode == "submit" else None,
-            passed_cases=passed,
-            total_cases=total,
-            max_time_ms=max(times) if times else None,
-            max_memory_kb=max(mems) if mems else None,
-            compile_output=_trim(compile_output, COMPILE_OUTPUT_BYTES),
-            notice=None,
-            completed_at=utcnow(),
+    values: dict[str, Any] = {
+        "status": "completed",
+        "verdict": verdict,
+        "score": score if work.mode == "submit" else None,
+        "max_score": max_score if work.mode == "submit" else None,
+        "passed_cases": passed,
+        "total_cases": total,
+        "max_time_ms": max(times) if times else None,
+        "max_memory_kb": max(mems) if mems else None,
+        "compile_output": _trim(compile_output, COMPILE_OUTPUT_BYTES),
+        "notice": None,
+        "completed_at": utcnow(),
+    }
+    payload = {
+        "submission_id": str(work.submission_id),
+        "user_id": str(work.user_id),
+        "problem_id": str(work.problem_id),
+        "mode": work.mode,
+        "verdict": verdict,
+        "score": str(score) if work.mode == "submit" else None,
+    }
+    if _fs():
+        # results + submission + outbox event in one Firestore transaction
+        await _repo().record_judgement(
+            work.submission_id,
+            rows,
+            values,
+            {
+                "event_type": "submission.judged",
+                "payload": payload,
+                "aggregate_type": "code_submission",
+                "aggregate_id": work.submission_id,
+                "organization_id": work.organization_id,
+            },
         )
+        return verdict
+    assert session is not None
+    for row in rows:
+        session.add(row)
+    await session.execute(
+        update(CodeSubmission).where(CodeSubmission.id == work.submission_id).values(**values)
     )
     await emit_event(
         session,
         "submission.judged",
-        {
-            "submission_id": str(work.submission_id),
-            "user_id": str(work.user_id),
-            "problem_id": str(work.problem_id),
-            "mode": work.mode,
-            "verdict": verdict,
-            "score": str(score) if work.mode == "submit" else None,
-        },
+        payload,
         aggregate_type="code_submission",
         aggregate_id=work.submission_id,
         organization_id=work.organization_id,
@@ -258,8 +323,10 @@ async def record(session: AsyncSession, work: JudgeWork, results: Sequence[Judge
     return verdict
 
 
-async def _release(session: AsyncSession, work: JudgeWork, *, timed_out: bool) -> str:
-    await system_context(session, JOB)
+async def _release(session: AsyncSession | None, work: JudgeWork, *, timed_out: bool) -> str:
+    if not _fs():
+        assert session is not None
+        await system_context(session, JOB)
     if timed_out:
         if work.retry_count < 1:
             values: dict[str, object] = {
@@ -282,6 +349,10 @@ async def _release(session: AsyncSession, work: JudgeWork, *, timed_out: bool) -
     else:
         values = {"status": "queued", "notice": "judge_degraded", "started_at": None}
         outcome = "requeued_judge_degraded"
+    if _fs():
+        await _repo().set_submission(work.submission_id, values)
+        return outcome
+    assert session is not None
     await session.execute(
         update(CodeSubmission).where(CodeSubmission.id == work.submission_id).values(**values)
     )
@@ -296,7 +367,7 @@ async def execute(
 
 
 async def judge_submission(
-    session: AsyncSession,
+    session: AsyncSession | None,
     submission_id: uuid.UUID,
     adapter: JudgeAdapter | None = None,
     *,
@@ -323,6 +394,8 @@ async def judge_by_id(
 ) -> str:
     """Production path: short transactions around the (slow) provider calls."""
     adapter = adapter or get_judge_adapter()
+    if _fs():
+        return await judge_submission(None, submission_id, adapter)
     factory = factory or get_sessionmaker()
     async with factory() as s, s.begin():
         if not await claim(s, submission_id):
@@ -348,7 +421,16 @@ _PICK_SQL = text(
 )
 
 
-async def pending_ids(session: AsyncSession, limit: int) -> list[uuid.UUID]:
+async def pending_ids(session: AsyncSession | None, limit: int) -> list[uuid.UUID]:
+    if _fs():
+        # stale ``running`` rows back to ``queued``, then highest priority first, oldest first.
+        # No SKIP LOCKED: two pollers may list the same id, but only one wins the guarded claim.
+        r = _repo()
+        await r.requeue_stale(utcnow() - STALE_RUNNING)
+        queued = await r.all_submissions((("status", "==", "queued"),))
+        queued.sort(key=lambda s: (_QUEUE_RANK.get(s.queue_name, 2), s.queued_at))
+        return [s.id for s in queued[:limit]]
+    assert session is not None
     await system_context(session, JOB)
     await session.execute(
         update(CodeSubmission)
@@ -365,9 +447,12 @@ async def process_pending(
     factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> dict[uuid.UUID, str]:
     adapter = adapter or get_judge_adapter()
-    factory = factory or get_sessionmaker()
-    async with factory() as s, s.begin():
-        ids = await pending_ids(s, limit)
+    if _fs():
+        ids = await pending_ids(None, limit)
+    else:
+        factory = factory or get_sessionmaker()
+        async with factory() as s, s.begin():
+            ids = await pending_ids(s, limit)
     out: dict[uuid.UUID, str] = {}
     for sid in ids:
         try:

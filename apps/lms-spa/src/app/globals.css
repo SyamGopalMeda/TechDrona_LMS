@@ -1,0 +1,70 @@
+/* Design tokens. The local fallback is loaded first; the UX-owned packages/design-tokens
+   CSS variables (source of truth, required by its Tailwind preset: -rgb channels, z, radius,
+   layout, fonts) are layered after it and win. See README.md "Design tokens" and
+   docs/redesign/design-system.md (Tech Drona brand, v2). */
+@import "../styles/fallback-tokens/tokens.css";
+@import "../../../../packages/design-tokens/tokens.css";
+@import "../styles/fonts.css";
+/* Website chrome + motion (header, footer, sign-in split, back-office hero, reveal-on-scroll). */
+@import "../styles/site.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    /* Focus Not Obscured (WCAG 2.4.11, audit S2): keep scrolled-to / focused controls clear of the
+       sticky portal header and, on the student shell below lg, the fixed bottom tab bar. */
+    scroll-padding-top: calc(var(--td-layout-topbar) + 0.5rem);
+  }
+  /* Public header is one 78px row at every width (website --header-h; PublicShell.tsx). */
+  html:has([data-td-public-header]) {
+    scroll-padding-top: calc(78px + 0.5rem);
+  }
+  @media (max-width: 1023.98px) {
+    html:has([data-td-tabbar]) {
+      scroll-padding-bottom: calc(4rem + env(safe-area-inset-bottom) + 0.5rem);
+    }
+  }
+  body {
+    @apply bg-surface-canvas font-sans text-fg antialiased;
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+  /* Headings use the brand display face (website: --head Plus Jakarta Sans, tight tracking).
+     Colour is left to each component so headings inside coloured callouts keep their tone. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--td-font-display);
+    letter-spacing: -0.01em;
+  }
+  /* Zero-specificity link colours so any utility class (e.g. a LinkButton) wins. */
+  :where(a) {
+    color: var(--td-fg-link);
+    text-underline-offset: 2px;
+  }
+  :where(a):hover {
+    color: var(--td-fg-link-hover);
+  }
+  :focus-visible {
+    outline: 2px solid var(--td-focus);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--td-brand);
+    color: var(--td-brand-on);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

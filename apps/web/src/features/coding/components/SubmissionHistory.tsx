@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { PageHeader, Pagination, Table, nextCursorStack, previousCursorStack, type Column } from "@/components/ui";
 import { formatIstDateTime } from "@/features/assessment/lib/format";
@@ -28,13 +27,13 @@ export function SubmissionHistory({ slug }: { slug: string }) {
   return (
     <div>
       <PageHeader
-        eyebrow="Submissions"
-        title={problem.data?.title ?? "Submission history"}
-        actions={
-          <Link className="text-sm text-fg-link underline" href={`/app/coding/${encodeURIComponent(slug)}`}>
-            Back to problem
-          </Link>
-        }
+        breadcrumbs={[
+          { label: "Coding", href: "/app/coding" },
+          { label: problem.data?.title ?? "Problem", href: `/app/coding/${encodeURIComponent(slug)}` },
+          { label: "Submissions" },
+        ]}
+        title="Submissions"
+        description={problem.data?.title ? `Your submissions for ${problem.data.title}.` : undefined}
       />
       <Table
         caption="My submissions"

@@ -59,6 +59,23 @@ class LoginIn(Strict):
     remember_device: bool = False
 
 
+class GoogleSignupIn(Strict):
+    """Details a new account needs (same rules as AUTH-01; no password: Google proves the email)."""
+
+    full_name: str = Field(min_length=1, max_length=200)
+    date_of_birth: date
+    consents: list[ConsentItem] = Field(default_factory=list, max_length=20)
+    guardian: GuardianIn | None = None
+
+
+class GoogleLoginIn(Strict):
+    """POST /auth/login/google: a Firebase Auth ID token from Google sign-in (students only)."""
+
+    id_token: str = Field(min_length=100, max_length=4096)
+    remember_device: bool = False
+    signup: GoogleSignupIn | None = None
+
+
 class MfaVerifyIn(Strict):
     method: Literal["totp", "recovery_code"]
     code: str = Field(min_length=6, max_length=32)

@@ -141,7 +141,7 @@ async def test_be02_learner_activity_reaches_trainer_batch_report(db, client, sc
     await run_daily_aggregation(db, now=now)
 
     trainer = principal_for(trainer_id, org_ids=(org,), grants=(RoleGrant("trainer", "batch", batch),))
-    scoped_auth.grant(trainer, "analytics.read", "batch", batch)
+    scoped_auth.grant(trainer, "progress.read", "batch", batch)
     h = scoped_auth.login(trainer)
     r = await client.get(f"/api/v1/analytics/reports/batches/{batch}", headers=h)
     assert r.status_code == 200, r.text

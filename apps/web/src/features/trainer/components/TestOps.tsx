@@ -5,10 +5,13 @@ import {
   Badge,
   Button,
   Card,
+  ConfirmDialog,
   Dialog,
+  EmptyState,
   FormField,
   Input,
   Select,
+  StatGrid,
   StatTile,
   Table,
   useToast,
@@ -471,7 +474,15 @@ export function TestReportPanel({
   });
   return (
     <Boundary state={report} rows={4}>
-      {(r) => (
+      {(r) =>
+        r.attempts_count === 0 ? (
+          // One empty state instead of a histogram of zeros, zero tiles and empty tables.
+          <EmptyState
+            icon="chart"
+            title="No graded attempts yet"
+            description="Score distribution and item analysis appear here once students submit and their attempts are graded."
+          />
+        ) : (
         <div className="space-y-6">
           {r.scope === "item_stats_only" ? (
             <p className="text-sm text-fg-muted">
@@ -496,7 +507,7 @@ export function TestReportPanel({
             </Card>
           ) : null}
           {r.submissions ? (
-            <div className="grid gap-4 sm:grid-cols-3">
+            <StatGrid columns={3}>
               <StatTile
                 label="Submitted by student"
                 value={r.submissions.submitted}
@@ -510,7 +521,7 @@ export function TestReportPanel({
                 label="Force-submitted"
                 value={r.submissions.admin_force}
               />
-            </div>
+            </StatGrid>
           ) : null}
           {r.sections ? (
             <Table
@@ -596,7 +607,8 @@ export function TestReportPanel({
             </p>
           </Card>
         </div>
-      )}
+        )
+      }
     </Boundary>
   );
 }
@@ -620,8 +632,11 @@ export function TestReportView({ testId }: { testId: string }) {
   );
   const { batches } = useTrainerBatches();
   const [busy, setBusy] = useState<string | null>(null);
-  const batchLabel = (id: string | null) =>
-    id ? (batches?.find((b) => b.id === id)?.name ?? "Batch") : "No batch (older assignment)";
+  const [confirming, setConfirming] = useState<TestAssignment | null>(null);
+  // Batch staff without batch.read (evaluators) can't look batch names up: show "—", never a
+  // made-up label or a false empty state.
+  const batchName = (id: string | null) => (id ? batches?.find((b) => b.id === id)?.name : undefined);
+  const batchLabel = (id: string | null) => (id ? (batchName(id) ?? "—") : "No batch (older assignment)");
 
   const release = async (a: TestAssignment) => {
     setBusy(a.id);
@@ -681,10 +696,14 @@ export function TestReportView({ testId }: { testId: string }) {
               <Button
                 size="sm"
                 variant="secondary"
-                onClick={() => void release(a)}
+                onClick={() => setConfirming(a)}
                 loading={busy === a.id}
                 disabled={isReleased(a)}
-                aria-label={`Release results for ${batchLabel(a.batch_id)}`}
+                aria-label={
+                  a.batch_id && !batchName(a.batch_id)
+                    ? `Release results for the assignment ${formatDateTime(a.available_from)} – ${formatDateTime(a.available_until)}`
+                    : `Release results for ${batchLabel(a.batch_id)}`
+                }
               >
                 {isReleased(a) ? "Released" : "Release results"}
               </Button>
@@ -697,8 +716,18 @@ export function TestReportView({ testId }: { testId: string }) {
         error={assignments.error}
         onRetry={() => void assignments.reload()}
         empty={{
-          title: "Not assigned yet",
-          description: "Assign the test to a batch first.",
+          title: "No assignments to release",
+          description: "This test isn't assigned to a batch you manage yet.",
+        }}
+      />
+      <ConfirmDialog
+        open={confirming !== null}
+        onClose={() => setConfirming(null)}
+        title="Release results?"
+        description={`Students${confirming?.batch_id && batchName(confirming.batch_id) ? ` in ${batchName(confirming.batch_id)}` : ""} will see their scores for this test.`}
+        confirmLabel="Release results"
+        onConfirm={async () => {
+          if (confirming) await release(confirming);
         }}
       />
     </div>

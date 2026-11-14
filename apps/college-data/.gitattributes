@@ -1,0 +1,2 @@
+*.sh text eol=lf
+portal/deploy/* text eol=lf

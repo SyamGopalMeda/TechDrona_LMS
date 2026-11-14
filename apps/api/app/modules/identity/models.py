@@ -38,6 +38,8 @@ class User(Base):
     email_verified_at: Mapped[datetime | None] = mapped_column(_TS)
     phone_e164: Mapped[str | None] = mapped_column(Text)
     phone_verified_at: Mapped[datetime | None] = mapped_column(_TS)
+    # identity_0006: optional sign-in name (lower case [a-z0-9._-]{3,32}), e.g. admissions "td123456"
+    username: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending_verification")
     is_minor: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     age_verified_at: Mapped[datetime | None] = mapped_column(_TS)

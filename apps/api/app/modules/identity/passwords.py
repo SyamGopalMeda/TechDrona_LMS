@@ -34,9 +34,29 @@ def _normalise(pw: str) -> str:
     return unicodedata.normalize("NFKC", pw)
 
 
+RELAXED_MIN_LENGTH = 6
+
+
+def relaxed_policy() -> bool:
+    """``TD_PASSWORD_POLICY_RELAXED=true`` (owner decision 2026-11-11, testing phase): simple
+    passwords allowed, min 6 characters, no blocklist / personal-info checks. Never in production
+    (``TD_SIMPLE_AUTH`` turns it on in every environment)."""
+    import os
+
+    from app.core.config import get_settings
+
+    flag = os.environ.get("TD_PASSWORD_POLICY_RELAXED", "").strip().lower() in ("1", "true", "yes", "on")
+    # TD_SIMPLE_AUTH (permanent owner decision, every APP_ENV) uses the same relaxed policy.
+    return (flag and not get_settings().is_production) or get_settings().simple_auth
+
+
 def password_problems(password: str, *, has_mfa: bool = False, context: tuple[str, ...] = ()) -> list[str]:
     """Return validation codes (empty list = acceptable)."""
     pw = _normalise(password)
+    if relaxed_policy():
+        if len(pw) > MAX_LENGTH:
+            return ["password_too_long"]
+        return ["password_too_short"] if len(pw) < RELAXED_MIN_LENGTH else []
     minimum = MIN_LENGTH_WITH_MFA if has_mfa else MIN_LENGTH_NO_MFA
     if len(pw) > MAX_LENGTH:
         return ["password_too_long"]

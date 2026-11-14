@@ -34,7 +34,8 @@ from app.core.ids import uuid7
 from app.core.outbox import emit_event
 from app.core.principal import Principal
 from app.core.time import to_rfc3339, utcnow
-from app.modules.assessments import exam
+from app.modules.assessments import datastore as adb
+from app.modules.assessments import exam, xmod
 from app.modules.assessments.models import (
     AttemptEvent,
     AttemptOverride,
@@ -112,7 +113,8 @@ async def add_event(
     ip: str | None = None,
     at: datetime | None = None,
 ) -> None:
-    session.add(
+    adb.add(
+        session,
         AttemptEvent(
             id=uuid7(),
             occurred_at=at or utcnow(),
@@ -125,15 +127,16 @@ async def add_event(
             payload=payload or {},
             auth_session_id=principal.session_id if principal else None,
             ip=ip,
-        )
+        ),
     )
 
 
 async def rebind_overrides(session: AsyncSession, attempt_id: uuid.UUID) -> int:
-    rows = await session.execute(
+    rows = await adb.execute(
+        session,
         select(AttemptEvent.payload).where(
             AttemptEvent.attempt_id == attempt_id, AttemptEvent.event_type == "override_applied"
-        )
+        ),
     )
     return sum(1 for (p,) in rows.all() if isinstance(p, dict) and p.get("kind") == "rebind")
 
@@ -145,7 +148,7 @@ async def load_attempt(session: AsyncSession, attempt_id: uuid.UUID, *, lock: bo
     q = select(TestAttempt).where(TestAttempt.id == attempt_id)
     if lock:
         q = q.with_for_update()
-    att = (await session.execute(q)).scalar_one_or_none()
+    att = (await adb.execute(session, q)).scalar_one_or_none()
     if att is None:
         raise ProblemError("not_found")
     return att
@@ -157,7 +160,7 @@ async def load_owned(
     att = await load_attempt(session, attempt_id, lock=lock)
     if att.user_id != principal.user_id:
         raise ProblemError("not_found")
-    test = await session.get(Test, att.test_id)
+    test = await adb.get(session, Test, att.test_id)
     if test is None:  # pragma: no cover - FK
         raise ProblemError("not_found")
     return att, test
@@ -166,10 +169,11 @@ async def load_owned(
 async def attempt_sections(session: AsyncSession, attempt_id: uuid.UUID) -> list[AttemptSection]:
     return list(
         (
-            await session.execute(
+            await adb.execute(
+                session,
                 select(AttemptSection)
                 .where(AttemptSection.attempt_id == attempt_id)
-                .order_by(AttemptSection.position)
+                .order_by(AttemptSection.position),
             )
         ).scalars()
     )
@@ -179,25 +183,18 @@ async def attempt_sections(session: AsyncSession, attempt_id: uuid.UUID) -> list
 
 
 async def _member_of_batch(session: AsyncSession, user_id: uuid.UUID, batch_id: uuid.UUID) -> bool:
-    from app.modules.orgs.models import BatchMember
-
-    q = select(BatchMember.id).where(
-        BatchMember.batch_id == batch_id,
-        BatchMember.user_id == user_id,
-        BatchMember.status == "active",
-        BatchMember.removed_at.is_(None),
-    )
-    return (await session.execute(q.limit(1))).first() is not None
+    return await xmod.member_of_batch(session, user_id, batch_id)
 
 
 async def eligible_assignments(
     session: AsyncSession, principal: Principal, test_id: uuid.UUID
 ) -> list[TestAssignment]:
     rows = (
-        await session.execute(
+        await adb.execute(
+            session,
             select(TestAssignment)
             .where(TestAssignment.test_id == test_id)
-            .order_by(TestAssignment.available_from.desc())
+            .order_by(TestAssignment.available_from.desc()),
         )
     ).scalars()
     out = []
@@ -220,7 +217,7 @@ async def overrides_for(
 
     q = select(AttemptOverride).where(AttemptOverride.test_id == test_id, or_(*conds))
     t = n = w = 0
-    for o in (await session.execute(q)).scalars():
+    for o in (await adb.execute(session, q)).scalars():
         if o.test_assignment_id is not None and (a is None or o.test_assignment_id != a.id):
             continue
         t += o.extra_time_seconds
@@ -238,15 +235,7 @@ def window_of(test: Test, a: TestAssignment | None) -> tuple[datetime | None, da
 async def _device_owner_verified(session: AsyncSession, principal: Principal) -> bool:
     if principal.device_id is None:
         return False
-    from app.modules.sessions.models import UserDevice
-
-    q = select(UserDevice.id).where(
-        UserDevice.user_id == principal.user_id,
-        UserDevice.device_id == principal.device_id,
-        UserDevice.removed_at.is_(None),
-        UserDevice.owner_verified_at.is_not(None),
-    )
-    return (await session.execute(q.limit(1))).first() is not None
+    return await xmod.device_owner_verified(session, principal)
 
 
 async def _gate_restrictions(session: AsyncSession, principal: Principal) -> None:
@@ -264,15 +253,8 @@ async def hold_session(
 ) -> None:
     if attempt.deadline_at is None:
         return
-    from app.modules.sessions.models import AuthSession
-
     until = attempt.deadline_at + timedelta(seconds=test.grace_seconds) + SESSION_HOLD_SLACK
-    await session.execute(
-        update(AuthSession)
-        .where(AuthSession.id == session_id)
-        .values(idle_hold_until=until)
-        .execution_options(synchronize_session=False)
-    )
+    await xmod.hold_auth_session(session, session_id, until)
 
 
 async def lock_settings(session: AsyncSession, principal: Principal, test: Test, now: datetime) -> None:
@@ -281,15 +263,17 @@ async def lock_settings(session: AsyncSession, principal: Principal, test: Test,
     system job and the principal's context is restored immediately."""
     if test.settings_locked_at is not None:
         return
-    await session.flush()
+    await adb.flush(session)
     async with system_context(session, "assessments.lock_test_settings"):
-        await session.execute(
+        await adb.execute(
+            session,
             update(Test)
             .where(Test.id == test.id, Test.settings_locked_at.is_(None))
             .values(settings_locked_at=now)
-            .execution_options(synchronize_session=False)
+            .execution_options(synchronize_session=False),
         )
     set_committed_value(test, "settings_locked_at", now)
+    adb.written_as_system(session, test)
 
 
 # --------------------------------------------------------------------------- layout
@@ -379,9 +363,7 @@ async def start(
     idempotency_key: str,
     ip: str | None,
 ) -> tuple[TestAttempt, Test]:
-    from app.modules.sessions.models import AuthSession
-
-    test = await session.get(Test, body.test_id)
+    test = await adb.get(session, Test, body.test_id)
     if test is None or test.status != "published":
         raise ProblemError("not_found")
     await _gate_restrictions(session, principal)
@@ -409,30 +391,36 @@ async def start(
     # attempt row exists, so two tabs would both insert attempt_no = max+1 and the loser hit the
     # unique index (500). The transaction-scoped advisory lock makes the loser wait, then see the
     # winner's open attempt -> 409 active_attempt_exists.
-    await session.execute(
-        text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"),
-        {"k": f"assessments.attempt_start:{test.id}:{principal.user_id}"},
-    )
+    if adb.on_firestore():
+        await xmod.lock(f"assessments.attempt_start:{test.id}:{principal.user_id}")
+    else:
+        await adb.execute(
+            session,
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"),
+            {"k": f"assessments.attempt_start:{test.id}:{principal.user_id}"},
+        )
     open_att = (
-        await session.execute(
+        await adb.execute(
+            session,
             select(TestAttempt)
             .where(
                 TestAttempt.test_id == test.id,
                 TestAttempt.user_id == principal.user_id,
                 TestAttempt.status == "in_progress",
             )
-            .with_for_update()
+            .with_for_update(),
         )
     ).scalar_one_or_none()
     if open_att is not None and not await expire_if_due(session, open_att, test, now):
         raise ProblemError("active_attempt_exists", attempt_id=str(open_att.id))
 
     used = (
-        await session.execute(
+        await adb.execute(
+            session,
             select(func.count(), func.coalesce(func.max(TestAttempt.attempt_no), 0)).where(
                 TestAttempt.test_id == test.id,
                 TestAttempt.user_id == principal.user_id,
-            )
+            ),
         )
     ).one()
     n_used = int(used[0])
@@ -456,14 +444,27 @@ async def start(
     # to record those events (the instructions screen shows exactly that list).
     consent = body.integrity_consent or (protocol.exam_mode and body.instructions_agreed)
     if test.integrity_settings.get("consent_mandatory") and not consent:
-        raise ProblemError("consent_required", purposes=["assessment_integrity"])
+        raise ProblemError(
+            "consent_required",
+            status=422,
+            title="Integrity consent needed",
+            detail="This test records integrity events (tab switches, paste). Agree to that to start.",
+            purposes=["assessment_integrity"],
+            errors=[
+                {
+                    "field": "integrity_consent",
+                    "code": "required",
+                    "message": "this test requires consent to record integrity events",
+                }
+            ],
+        )
 
     deadline: datetime | None = None
     if test.duration_seconds:
         deadline = now + timedelta(seconds=test.duration_seconds + extra_time)
     if until_ext is not None:
         deadline = min(deadline, until_ext) if deadline else until_ext
-    auth = await session.get(AuthSession, principal.session_id)
+    auth = await xmod.auth_session(session, principal.session_id)
     if (
         auth is not None
         and deadline is not None
@@ -494,8 +495,8 @@ async def start(
         start_ip=ip,
         idempotency_key=idempotency_key,
     )
-    session.add(attempt)
-    await session.flush()
+    adb.add(session, attempt)
+    await adb.flush(session)
     sequential = test.navigation_mode != "free"
     first = True
     for s in layout["sections"]:
@@ -507,7 +508,8 @@ async def start(
                 sec_deadline = min(sec_deadline, deadline)
         elif active:
             sec_deadline = deadline
-        session.add(
+        adb.add(
+            session,
             AttemptSection(
                 attempt_id=attempt.id,
                 test_section_id=uuid.UUID(s["section_id"]),
@@ -517,7 +519,7 @@ async def start(
                 status="active" if active else "not_started",
                 started_at=now if active else None,
                 deadline_at=sec_deadline,
-            )
+            ),
         )
         if first:
             attempt.current_section_id = uuid.UUID(s["section_id"])
@@ -539,7 +541,7 @@ async def start(
             "extra_time_seconds": extra_time,
         },
     )
-    await session.flush()
+    await adb.flush(session)
     await emit_event(
         session,
         "attempt.started",
@@ -563,19 +565,18 @@ async def start(
 
 
 async def _bound_label(session: AsyncSession, attempt: TestAttempt) -> tuple[str, datetime]:
-    from app.modules.sessions.models import AuthSession
-
     label = "another device"
     if attempt.bound_session_id is not None:
-        s = await session.get(AuthSession, attempt.bound_session_id)
+        s = await xmod.auth_session(session, attempt.bound_session_id)
         if s is not None and (s.ua_family or s.os_family):
             label = f"{s.ua_family or 'Browser'} on {s.os_family or 'unknown OS'}"
     since = (
-        await session.execute(
+        await adb.execute(
+            session,
             select(func.max(AttemptEvent.occurred_at)).where(
                 AttemptEvent.attempt_id == attempt.id,
                 AttemptEvent.event_type.in_(("start", "rebind", "reattach_same_device")),
-            )
+            ),
         )
     ).scalar_one_or_none()
     return label, since or attempt.started_at
@@ -601,10 +602,11 @@ async def binding_info(
 async def answered_count(session: AsyncSession, attempt_id: uuid.UUID) -> int:
     return int(
         (
-            await session.execute(
+            await adb.execute(
+                session,
                 select(func.count()).where(
                     AttemptResponse.attempt_id == attempt_id, AttemptResponse.response.is_not(None)
-                )
+                ),
             )
         ).scalar_one()
     )
@@ -633,7 +635,7 @@ async def ensure_bound(
             principal=principal,
             payload={"previous_session_id": str(previous) if previous else None},
         )
-        await session.flush()
+        await adb.flush(session)
         return True
     label, since = await _bound_label(session, attempt)
     ext: dict[str, Any] = {
@@ -698,7 +700,7 @@ async def advance_sections(
         if nxt is not None:
             _activate(attempt, nxt, active.deadline_at)
             changed = True
-    await session.flush()
+    await adb.flush(session)
     if attempt.status == "in_progress" and secs and all(s.status in ("submitted", "timed_out") for s in secs):
         # BE-10: the last section timed out with no section left -> auto-submit now, stamped at
         # the end of that section (nothing is writable any more).
@@ -763,7 +765,7 @@ async def enter_section(
         session, attempt, "section_enter", principal=principal, payload={"section_id": str(section_id)}
     )
     attempt.last_seen_at = now
-    await session.flush()
+    await adb.flush(session)
 
 
 async def submit_section(
@@ -795,7 +797,7 @@ async def submit_section(
             principal=principal,
             payload={"section_id": str(nxt.test_section_id)},
         )
-        await session.flush()
+        await adb.flush(session)
     else:
         await finalize(session, attempt, test, "section_end")
 
@@ -814,14 +816,9 @@ def _bad_text(message: str, *, code: str = "invalid", status: int = 400) -> Prob
 async def version_settings(session: AsyncSession, qv_ids: list[uuid.UUID]) -> dict[uuid.UUID, dict[str, Any]]:
     """Per-version non-key settings (``question_versions.settings``: poll ``allow_multiple``,
     word-cloud limits, essay ``max_words``) so response limits are enforced server-side."""
-    from app.modules.placement.models import QuestionVersion
-
     if not qv_ids:
         return {}
-    rows = await session.execute(
-        select(QuestionVersion.id, QuestionVersion.settings).where(QuestionVersion.id.in_(set(qv_ids)))
-    )
-    return {qv: dict(st or {}) for qv, st in rows.all()}
+    return await xmod.version_settings(session, qv_ids)
 
 
 def normalise_manual(response: Any, settings: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -851,7 +848,14 @@ async def _write_items(
     secs: list[AttemptSection],
     items: list[AutosaveItem],
     now: datetime,
-) -> None:
+) -> list[dict[str, Any]]:
+    """Save the items; returns the ones whose answer is invalid for their question (not saved).
+
+    One invalid answer (e.g. letters in a numeric box) used to fail the whole batch, so every
+    later answer in the queue (and the final submit) was refused until the test ended. Now each
+    answer is checked on its own: valid ones are saved, invalid ones are reported back with the
+    reason so the learner can fix that one question.
+    """
     index = layout_index(attempt)
     open_sections = {str(s.test_section_id) for s in secs if s.status == "active"}
     qv_ids = []
@@ -873,17 +877,38 @@ async def _write_items(
         qv_ids.append(it.question_version_id)
     shapes = await bank.load_answer_shapes(session, qv_ids)
     settings = await version_settings(session, qv_ids)
-    normalised = [
-        normalise_manual(it.response, settings.get(it.question_version_id))
-        if shapes[it.question_version_id].qtype in MANUAL_TYPES
-        else grading.normalise_response(
-            shapes[it.question_version_id].qtype,
-            it.response,
-            set(shapes[it.question_version_id].option_ids),
-            settings.get(it.question_version_id),
-        )
-        for it in items
-    ]
+    rejected: list[dict[str, Any]] = []
+    valid: list[AutosaveItem] = []
+    normalised: list[dict[str, Any] | None] = []
+    for it in items:
+        try:
+            resp = (
+                normalise_manual(it.response, settings.get(it.question_version_id))
+                if shapes[it.question_version_id].qtype in MANUAL_TYPES
+                else grading.normalise_response(
+                    shapes[it.question_version_id].qtype,
+                    it.response,
+                    set(shapes[it.question_version_id].option_ids),
+                    settings.get(it.question_version_id),
+                )
+            )
+        except ProblemError as e:
+            if e.code != "validation_failed":
+                raise
+            errs = e.ext.get("errors") or [{}]
+            rejected.append(
+                {
+                    "question_version_id": str(it.question_version_id),
+                    "client_seq": it.client_seq,
+                    "field": errs[0].get("field"),
+                    "code": errs[0].get("code"),
+                    "message": errs[0].get("message") or "This answer is not valid for the question",
+                }
+            )
+            continue
+        valid.append(it)
+        normalised.append(resp)
+    items = valid
     for it, resp in zip(items, normalised, strict=True):
         shape = shapes[it.question_version_id]
         if shape.qtype == grading.CODING_TYPE:
@@ -899,7 +924,83 @@ async def _write_items(
         if prev is None or it.client_seq > prev[0].client_seq:
             latest[it.question_version_id] = (it, resp)
     if not latest:
-        return
+        return rejected
+    if adb.on_firestore():
+        applied = await _upsert_responses_store(session, attempt, latest, index, now)
+    else:
+        applied = await _upsert_responses_pg(session, attempt, latest, index, now)
+    for qv, (it, resp) in latest.items():
+        if qv in applied:
+            await add_event(
+                session,
+                attempt,
+                "answer_saved" if resp is not None else "answer_cleared",
+                principal=principal,
+                question_version_id=qv,
+                client_seq=it.client_seq,
+                at=now,
+                payload={"flagged": it.flagged},
+            )
+    return rejected
+
+
+async def _upsert_responses_store(
+    session: AsyncSession, attempt: TestAttempt, latest: dict[uuid.UUID, Any], index: Any, now: datetime
+) -> set[uuid.UUID]:
+    """The ``INSERT ... ON CONFLICT (attempt_id, question_version_id) DO UPDATE ... WHERE
+    client_seq < excluded.client_seq RETURNING`` upsert, on the unit of work (same outcome)."""
+    existing = {
+        r.question_version_id: r
+        for r in (
+            await adb.execute(
+                session,
+                select(AttemptResponse)
+                .where(
+                    AttemptResponse.attempt_id == attempt.id,
+                    AttemptResponse.question_version_id.in_(list(latest)),
+                )
+                .with_for_update(),
+            )
+        ).scalars()
+    }
+    applied: set[uuid.UUID] = set()
+    for qv, (it, resp) in latest.items():
+        cur = existing.get(qv)
+        if cur is None:
+            adb.add(
+                session,
+                AttemptResponse(
+                    id=uuid7(),
+                    attempt_id=attempt.id,
+                    user_id=attempt.user_id,
+                    organization_id=attempt.organization_id,
+                    test_section_id=uuid.UUID(index[str(qv)][0]),
+                    question_version_id=qv,
+                    response=resp,
+                    client_seq=it.client_seq,
+                    flagged=it.flagged,
+                    time_spent_ms=it.time_spent_ms,
+                    first_answered_at=now if resp is not None else None,
+                    saved_at=now,
+                ),
+            )
+            applied.add(qv)
+        elif cur.client_seq < it.client_seq:
+            cur.response = resp
+            cur.client_seq = it.client_seq
+            cur.flagged = it.flagged
+            cur.time_spent_ms = it.time_spent_ms
+            cur.saved_at = now
+            if cur.first_answered_at is None:
+                cur.first_answered_at = now if resp is not None else None
+            applied.add(qv)
+    await adb.flush(session)
+    return applied
+
+
+async def _upsert_responses_pg(
+    session: AsyncSession, attempt: TestAttempt, latest: dict[uuid.UUID, Any], index: Any, now: datetime
+) -> set[uuid.UUID]:
     stmt = pg_insert(AttemptResponse).values(
         [
             {
@@ -932,19 +1033,7 @@ async def _write_items(
         },
         where=AttemptResponse.client_seq < ex.client_seq,
     ).returning(AttemptResponse.question_version_id)
-    applied = set((await session.execute(upsert)).scalars())
-    for qv, (it, resp) in latest.items():
-        if qv in applied:
-            await add_event(
-                session,
-                attempt,
-                "answer_saved" if resp is not None else "answer_cleared",
-                principal=principal,
-                question_version_id=qv,
-                client_seq=it.client_seq,
-                at=now,
-                payload={"flagged": it.flagged},
-            )
+    return set((await adb.execute(session, upsert)).scalars())
 
 
 async def autosave(
@@ -956,7 +1045,7 @@ async def autosave(
         raise ProblemError(
             "attempt_closed", attempt_status=attempt.status, deadline_at=iso(attempt.deadline_at)
         )
-    await _write_items(session, principal, attempt, secs, body.items, now)
+    rejected = await _write_items(session, principal, attempt, secs, body.items, now)
     ignored_events = 0
     protocol = exam.protocol_of(test)
     integrity: dict[str, Any] | None = None
@@ -975,11 +1064,12 @@ async def autosave(
             existing: set[tuple[str, int | None]] = {
                 (str(r[0]), r[1])
                 for r in (
-                    await session.execute(
+                    await adb.execute(
+                        session,
                         select(AttemptEvent.event_type, AttemptEvent.client_seq).where(
                             AttemptEvent.attempt_id == attempt.id,
                             AttemptEvent.client_seq.in_([e.client_seq for e in body.events]),
-                        )
+                        ),
                     )
                 ).all()
             }
@@ -1016,7 +1106,7 @@ async def autosave(
         if any(s.test_section_id == body.current_section_id for s in secs):
             attempt.current_section_id = body.current_section_id
     attempt.last_seen_at = now
-    await session.flush()
+    await adb.flush(session)
     seqs = [i.client_seq for i in body.items] + [e.client_seq for e in body.events]
     active = next((s for s in secs if s.test_section_id == attempt.current_section_id), None)
     if integrity is None and protocol.exam_mode:
@@ -1028,6 +1118,8 @@ async def autosave(
         "section_deadline_at": iso(active.deadline_at) if active else None,
         "status": attempt.status,
         "ignored_events": ignored_events,
+        # answers not saved because they are invalid for their question (fix and save again)
+        "rejected": rejected,
     }
     if integrity is not None:
         out["integrity"] = integrity
@@ -1097,7 +1189,7 @@ async def finalize(
         at=now,
         payload={"submit_reason": reason},
     )
-    await session.flush()
+    await adb.flush(session)
     await emit_event(
         session,
         "attempt.submitted",
@@ -1120,20 +1212,24 @@ async def finalize(
 async def _manual_grades(session: AsyncSession, attempt_id: uuid.UUID) -> dict[uuid.UUID, Any]:
     from app.modules.assessments.models import AttemptItemGrade
 
-    rows = await session.execute(select(AttemptItemGrade).where(AttemptItemGrade.attempt_id == attempt_id))
+    rows = await adb.execute(
+        session, select(AttemptItemGrade).where(AttemptItemGrade.attempt_id == attempt_id)
+    )
     return {g.question_version_id: g for g in rows.scalars()}
 
 
 async def score_attempt(
     session: AsyncSession, attempt: TestAttempt, test: Test, scoring_version: int = 1
 ) -> AttemptResult:
-    existing = await session.get(AttemptResult, attempt.id)
+    existing = await adb.get(session, AttemptResult, attempt.id)
     if existing is not None and existing.scoring_version >= scoring_version:
         return existing
     responses = {
         r.question_version_id: r
         for r in (
-            await session.execute(select(AttemptResponse).where(AttemptResponse.attempt_id == attempt.id))
+            await adb.execute(
+                session, select(AttemptResponse).where(AttemptResponse.attempt_id == attempt.id)
+            )
         ).scalars()
     }
     index = layout_index(attempt)
@@ -1208,7 +1304,11 @@ async def score_attempt(
         )
     pct = _q2(total / max_total * 100) if max_total > 0 else Decimal("0")
     pct = max(Decimal("-999.99"), min(Decimal("100"), pct))
-    a = await session.get(TestAssignment, attempt.test_assignment_id) if attempt.test_assignment_id else None
+    a = (
+        await adb.get(session, TestAssignment, attempt.test_assignment_id)
+        if attempt.test_assignment_id
+        else None
+    )
     released_at = attempt.submitted_at if a is None or a.release_mode == "immediate" else None
     if pending_manual:
         released_at = None  # a person must finish grading before an immediate release
@@ -1246,14 +1346,14 @@ async def score_attempt(
     }
     if existing is None:
         result = AttemptResult(attempt_id=attempt.id, **values)
-        session.add(result)
+        adb.add(session, result)
     else:
         result = existing
         for k, v in values.items():
             setattr(result, k, v)
     if attempt.status != "invalidated":
         attempt.status = "awaiting_manual" if pending_manual else "graded"
-    await session.flush()
+    await adb.flush(session)
     await emit_event(
         session,
         "attempt.scored",
@@ -1276,14 +1376,40 @@ async def score_attempt(
 
 
 async def submit(
-    session: AsyncSession, principal: Principal, attempt: TestAttempt, test: Test, items: list[AutosaveItem]
+    session: AsyncSession,
+    principal: Principal,
+    attempt: TestAttempt,
+    test: Test,
+    items: list[AutosaveItem],
+    confirm_unanswered: int | None = None,
 ) -> dict[str, Any]:
+    """User submit. With unanswered questions the learner must confirm how many they leave blank
+    (``confirm_unanswered`` >= the server's count; the UI counts marked-for-review ones too, so
+    it may be higher): otherwise ``422 confirm_required`` with ``unanswered``. The final items
+    are saved either way, so a retry after confirming loses nothing."""
     if attempt.status == "in_progress":
         now = utcnow()
         secs = await advance_sections(session, attempt, test, now)
         if attempt.status == "in_progress":
             if items:
                 await _write_items(session, principal, attempt, secs, items, now)
+            total = sum(len(s.get("items", [])) for s in (attempt.layout or {}).get("sections", []))
+            unanswered = max(0, total - await answered_count(session, attempt.id))
+            if unanswered and (confirm_unanswered is None or confirm_unanswered < unanswered):
+                raise ProblemError(
+                    "confirm_required",
+                    status=422,
+                    title="Confirm unanswered questions",
+                    detail=f"{unanswered} question(s) are unanswered. Confirm to submit anyway.",
+                    unanswered=unanswered,
+                    errors=[
+                        {
+                            "field": "confirm_unanswered",
+                            "code": "confirm_required",
+                            "message": f"confirm the {unanswered} unanswered question(s)",
+                        }
+                    ],
+                )
             await finalize(session, attempt, test, "user", principal)
     return await submitted_payload(session, attempt, test)
 
@@ -1300,7 +1426,11 @@ def release_info(
 
 
 async def submitted_payload(session: AsyncSession, attempt: TestAttempt, test: Test) -> dict[str, Any]:
-    a = await session.get(TestAssignment, attempt.test_assignment_id) if attempt.test_assignment_id else None
+    a = (
+        await adb.get(session, TestAssignment, attempt.test_assignment_id)
+        if attempt.test_assignment_id
+        else None
+    )
     _, mode, at = release_info(attempt, a, utcnow())
     return {
         "attempt_id": str(attempt.id),
@@ -1373,7 +1503,7 @@ async def state_payload(
             ]
         sections_out.append(d)
     rows = (
-        await session.execute(select(AttemptResponse).where(AttemptResponse.attempt_id == attempt.id))
+        await adb.execute(session, select(AttemptResponse).where(AttemptResponse.attempt_id == attempt.id))
     ).scalars()
     info = await binding_info(session, attempt, test, principal)
     out = {
@@ -1443,7 +1573,7 @@ async def rebind(
             principal=principal,
             payload={"reason": "trainer_override_required" if info["trainer_override_required"] else "limit"},
         )
-        await session.flush()
+        await adb.flush(session)
         if info["trainer_override_required"]:
             raise ProblemError(
                 "permission_denied",
@@ -1456,7 +1586,7 @@ async def rebind(
             await add_event(
                 session, attempt, "rebind_refused", principal=principal, payload={"reason": "otp_required"}
             )
-            await session.flush()
+            await adb.flush(session)
             raise ProblemError(
                 "validation_failed",
                 detail="Enter the code we sent to confirm it's you.",
@@ -1465,7 +1595,7 @@ async def rebind(
                     {"field": "otp_code", "code": "otp_required", "message": "a one-time code is required"}
                 ],
             )
-        from app.modules.identity.service import check_otp
+        from app.modules.identity.public import check_otp
 
         res = await check_otp(
             session,
@@ -1478,7 +1608,7 @@ async def rebind(
             await add_event(
                 session, attempt, "rebind_refused", principal=principal, payload={"reason": "otp_invalid"}
             )
-            await session.flush()
+            await adb.flush(session)
             assert res.problem is not None
             raise res.problem
     previous = (attempt.bound_session_id, attempt.bound_device_id)
@@ -1497,7 +1627,7 @@ async def rebind(
             "rebind_count": attempt.rebind_count,
         },
     )
-    await session.flush()
+    await adb.flush(session)
     return await state_payload(session, principal, attempt, test)
 
 
@@ -1507,11 +1637,11 @@ async def send_rebind_otp(
     info = await binding_info(session, attempt, test, principal)
     if not info["otp_required"]:
         return {"otp_required": False, "sent": False}
-    from app.modules.identity.models import User
-    from app.modules.identity.service import create_otp, otp_send_allowed
+    from app.modules.identity import public as identity_public
+    from app.modules.identity.public import create_otp, otp_send_allowed
     from app.modules.notifications.service import send_email, send_sms
 
-    user = await session.get(User, principal.user_id)
+    user = await identity_public.get_user(session, principal.user_id)
     if user is None:  # pragma: no cover
         raise ProblemError("not_found")
     channel, dest = ("sms", user.phone_e164) if user.phone_e164 else ("email", user.email)
@@ -1583,7 +1713,7 @@ async def test_closes_at(
     ``None`` = open-ended. Reads across users and orgs, so it runs as a named system job and the
     principal's RLS context is restored immediately."""
     if principal is not None:
-        await session.flush()
+        await adb.flush(session)
     ctx = (
         system_context(session, "assessments.test_close")
         if principal is not None
@@ -1591,23 +1721,27 @@ async def test_closes_at(
     )
     async with ctx:
         assigns = list(
-            (await session.execute(select(TestAssignment).where(TestAssignment.test_id == test.id))).scalars()
+            (
+                await adb.execute(session, select(TestAssignment).where(TestAssignment.test_id == test.id))
+            ).scalars()
         )
         overrides = list(
             (
-                await session.execute(
+                await adb.execute(
+                    session,
                     select(AttemptOverride).where(
                         AttemptOverride.test_id == test.id, AttemptOverride.window_extension_seconds > 0
-                    )
+                    ),
                 )
             ).scalars()
         )
         running = (
-            await session.execute(
+            await adb.execute(
+                session,
                 select(
                     func.max(TestAttempt.deadline_at),
                     func.count().filter(TestAttempt.deadline_at.is_(None)),
-                ).where(TestAttempt.test_id == test.id, TestAttempt.status == "in_progress")
+                ).where(TestAttempt.test_id == test.id, TestAttempt.status == "in_progress"),
             )
         ).one()
     if running[1]:
@@ -1652,11 +1786,15 @@ async def result_payload(
     now = utcnow()
     if attempt.status == "in_progress":
         raise ProblemError("results_not_released", release_mode="after_submit", release_at=None)
-    a = await session.get(TestAssignment, attempt.test_assignment_id) if attempt.test_assignment_id else None
+    a = (
+        await adb.get(session, TestAssignment, attempt.test_assignment_id)
+        if attempt.test_assignment_id
+        else None
+    )
     released, mode, at = release_info(attempt, a, now)
     if not released and not staff:
         raise ProblemError("results_not_released", release_mode=mode, release_at=iso(at))
-    res = await session.get(AttemptResult, attempt.id)
+    res = await adb.get(session, AttemptResult, attempt.id)
     close = await test_closes_at(session, principal, test, a)
     phase = phase_of(attempt, test, a, now, test_close=close, close_known=True)
     vis = (
@@ -1725,7 +1863,11 @@ async def review_payload(
     now = utcnow()
     if attempt.status == "in_progress":
         raise ProblemError("results_not_released", release_mode="after_submit", release_at=None)
-    a = await session.get(TestAssignment, attempt.test_assignment_id) if attempt.test_assignment_id else None
+    a = (
+        await adb.get(session, TestAssignment, attempt.test_assignment_id)
+        if attempt.test_assignment_id
+        else None
+    )
     released, mode, at = release_info(attempt, a, now)
     if not released and not staff:
         raise ProblemError("results_not_released", release_mode=mode, release_at=iso(at))
@@ -1740,7 +1882,9 @@ async def review_payload(
     responses = {
         r.question_version_id: r
         for r in (
-            await session.execute(select(AttemptResponse).where(AttemptResponse.attempt_id == attempt.id))
+            await adb.execute(
+                session, select(AttemptResponse).where(AttemptResponse.attempt_id == attempt.id)
+            )
         ).scalars()
     }
     sections = []
@@ -1789,10 +1933,15 @@ async def review_payload(
 
 async def sessions_holding_attempts(session: AsyncSession, ids: list[uuid.UUID]) -> set[uuid.UUID]:
     """``sessions.register_active_attempt_lookup``: sessions bound to an in-progress attempt are
-    never auto-evicted by the session cap (AUTH-06)."""
-    rows = await session.execute(
-        select(TestAttempt.bound_session_id).where(
-            TestAttempt.bound_session_id.in_(ids), TestAttempt.status == "in_progress"
+    never auto-evicted by the session cap (AUTH-06). Called by the sessions module with its own
+    session (``public._sess``: never Postgres on the Firestore store)."""
+    from app.modules.assessments.public import _sess
+
+    async with _sess(session) as s:
+        rows = await adb.execute(
+            s,
+            select(TestAttempt.bound_session_id).where(
+                TestAttempt.bound_session_id.in_(ids), TestAttempt.status == "in_progress"
+            ),
         )
-    )
-    return {r for (r,) in rows.all() if r is not None}
+        return {r for (r,) in rows.all() if r is not None}

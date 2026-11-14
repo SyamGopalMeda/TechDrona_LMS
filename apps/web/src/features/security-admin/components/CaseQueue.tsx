@@ -1,17 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { Badge, Button, FormField, Input, PageHeader, Pagination, Select, StatTile, Table, useToast, type Column } from "@/components/ui";
+import { useEffect, useState } from "react";
+import { Badge, Button, FormField, Input, LinkButton, PageHeader, Pagination, Select, StatGrid, StatTile, statusLabel, Table, useToast, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import { FilterBar, linkButton, StateBadge, textLink } from "@/features/admin/components/console-ui";
-import { cleanQuery, formatCountdown, humanize, ifMatchFor, useCursorList } from "@/features/admin/lib/console";
+import { FilterBar, StateBadge, textLink } from "@/features/admin/components/console-ui";
+import { cleanQuery, formatCountdown, ifMatchFor, useCursorList } from "@/features/admin/lib/console";
+import { staffRef } from "../lib/ids";
 import { ASSIGNEE_OPTIONS, CASE_STATUS_OPTIONS, FAMILY_OPTIONS, LEVEL_OPTIONS, SLA_OPTIONS } from "../lib/catalogue";
 import type { CaseSummary } from "../lib/types";
 import { RiskBadge } from "./RiskLevel";
 
-function SlaCell({ row }: { row: CaseSummary }) {
+/** Response-time (SLA) cell shared by the case and unblock queues: icon + word + due time, never colour alone. */
+export function SlaCell({ row }: { row: { sla_state: string; sla_decision_due?: string | null; sla_first_response_due?: string | null } }) {
   const due = row.sla_decision_due ?? row.sla_first_response_due;
   // verified: app/modules/security/cases.py sla_state → "on_track" | "breaching" (≥ 80 %) | "breached" | "n/a"
   if (row.sla_state === "n/a") return <span className="text-fg-muted">—</span>;
@@ -26,10 +28,22 @@ function SlaCell({ row }: { row: CaseSummary }) {
   );
 }
 
-/** SEC-002 suspicious-activity queue (H1, SEC-03) with filters, counts and claim. */
+/** Case age in words ("5 h", "3 days"). */
+function ageText(hours: number): string {
+  if (hours < 48) return `${hours} h`;
+  const days = Math.round(hours / 24);
+  return `${days} days`;
+}
+
+/** Suspicious-activity case queue (SEC-03) with filters, counts and claim. */
 export function CaseQueue() {
   const toast = useToast();
   const [status, setStatus] = useState("open,under_review,escalated");
+  // Dashboard tiles link here with ?status=…; read it once on the client (no Suspense boundary needed).
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("status");
+    if (wanted && /^[a-z_,]+$/.test(wanted)) setStatus(wanted);
+  }, []);
   const [level, setLevel] = useState("");
   const [family, setFamily] = useState("");
   const [sla, setSla] = useState("");
@@ -71,26 +85,30 @@ export function CaseQueue() {
       ),
     },
     { key: "level", header: "Level", cell: (r) => <RiskBadge level={r.level} compact /> },
-    { key: "score", header: "Score", align: "right", cell: (r) => (typeof r.score === "number" ? r.score.toFixed(1) : "—") },
-    { key: "hc", header: "HC rule", cell: (r) => r.hc_rule ?? "—" },
+    { key: "score", header: "Score", align: "right", priority: "secondary", cell: (r) => (typeof r.score === "number" ? r.score.toFixed(1) : "—") },
+    { key: "hc", header: "Automatic rule", priority: "secondary", cell: (r) => r.hc_rule ?? "—" },
     { key: "status", header: "Status", cell: (r) => <StateBadge state={r.status} /> },
-    { key: "age", header: "Age", align: "right", cell: (r) => (typeof r.age_hours === "number" ? (r.age_hours < 48 ? `${r.age_hours} h` : `${Math.round(r.age_hours / 24)} d`) : "—") },
+    { key: "age", header: "Age", align: "right", cell: (r) => (typeof r.age_hours === "number" ? ageText(r.age_hours) : "—") },
     { key: "sla", header: "SLA", cell: (r) => <SlaCell row={r} /> },
     {
       key: "assignee",
       header: "Assignee",
       cell: (r) =>
         r.assignee_id ? (
-          <span className="font-mono text-xs">{r.assignee_id}</span>
+          <span className="text-sm">{staffRef(r.assignee_id, "Reviewer")}</span>
         ) : (
-          <Button size="sm" variant="secondary" loading={claiming === r.case_id} onClick={() => void claim(r)} aria-label={`Claim ${r.case_ref}`}>
-            Claim
-          </Button>
+          <>
+            <Button className="hidden lg:inline-flex" size="sm" variant="secondary" loading={claiming === r.case_id} onClick={() => void claim(r)} aria-label={`Claim ${r.case_ref}`}>
+              Claim
+            </Button>
+            <span className="text-fg-muted lg:hidden">Unassigned</span>
+          </>
         ),
     },
     {
       key: "flags",
       header: "Flags",
+      priority: "secondary",
       cell: (r) => (
         <span className="flex flex-wrap gap-1">
           {r.is_high_risk ? <Badge tone="warning">⚑ High-risk</Badge> : null}
@@ -104,27 +122,27 @@ export function CaseQueue() {
   return (
     <div>
       <PageHeader
-        eyebrow="SEC-002 · H1"
-        title="Suspicious-activity queue"
-        description="Open cases by priority, then SLA. Students are shown by internal id only; names appear inside a case after you give a reason."
+        breadcrumbs={[{ label: "Security", href: "/security" }, { label: "Cases" }]}
+        title="Cases"
+        description="Suspicious-activity cases, most urgent first. Student names appear inside a case after you give a reason for opening it."
         actions={
-          <Link href="/security/reports/top-suspicious-accounts" className={linkButton}>
-            High score, no case (H1 tab 2)
-          </Link>
+          <LinkButton href="/security/reports/top-suspicious-accounts" variant="secondary">
+            High-risk accounts without a case
+          </LinkButton>
         }
       />
       {counts ? (
-        <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatGrid className="mb-4">
           {Object.entries(counts).map(([k, v]) => (
-            <StatTile key={k} label={humanize(k)} value={v.toLocaleString("en-IN")} />
+            <StatTile key={k} size="compact" label={statusLabel(k)} value={v.toLocaleString("en-IN")} tone={v > 0 && (k === "escalated" || k === "breached") ? "danger" : v > 0 && (k === "open" || k === "breaching") ? "warning" : "neutral"} />
           ))}
-        </div>
+        </StatGrid>
       ) : null}
       <FilterBar label="Case filters">
         <FormField label="Status">{(f) => <Select {...f} value={status} onChange={(e) => setStatus(e.target.value)} options={CASE_STATUS_OPTIONS} />}</FormField>
         <FormField label="Level">{(f) => <Select {...f} value={level} onChange={(e) => setLevel(e.target.value)} options={LEVEL_OPTIONS} />}</FormField>
         <FormField label="Family">{(f) => <Select {...f} value={family} onChange={(e) => setFamily(e.target.value)} options={FAMILY_OPTIONS} />}</FormField>
-        <FormField label="SLA">{(f) => <Select {...f} value={sla} onChange={(e) => setSla(e.target.value)} options={SLA_OPTIONS} />}</FormField>
+        <FormField label="Response time">{(f) => <Select {...f} value={sla} onChange={(e) => setSla(e.target.value)} options={SLA_OPTIONS} />}</FormField>
         <FormField label="Assignee">{(f) => <Select {...f} value={assignee} onChange={(e) => setAssignee(e.target.value)} options={ASSIGNEE_OPTIONS} />}</FormField>
         <FormField label="High-risk">
           {(f) => (
@@ -139,7 +157,7 @@ export function CaseQueue() {
             />
           )}
         </FormField>
-        <FormField label="Rule" hint="e.g. SH-01 or HC-01">
+        <FormField label="Rule" hint="Rule key, e.g. SH-01 or HC-01">
           {(f) => <Input {...f} value={rule} onChange={(e) => setRule(e.target.value)} />}
         </FormField>
       </FilterBar>
@@ -151,10 +169,10 @@ export function CaseQueue() {
         loading={list.loading}
         error={list.error}
         onRetry={() => void list.reload()}
-        empty={{ title: "No cases match these filters", description: "Try widening the status or level filters." }}
+        empty={{ title: "No cases match these filters", description: "Try “All open” status and “Any level”." }}
         footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} loading={list.loading} label="Case pages" />}
       />
-      <p className="mt-3 text-xs text-fg-muted lg:hidden">Decisions are made on a larger screen (≥ 1024 px). This list is read-only on phones.</p>
+      <p className="mt-3 text-xs text-fg-muted lg:hidden">Claiming and deciding cases needs a larger screen (1024 px or wider). On this screen the queue is read-only.</p>
     </div>
   );
 }

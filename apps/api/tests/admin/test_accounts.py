@@ -34,6 +34,8 @@ async def test_dashboard_and_user_search_detail(client, db) -> None:
     assert d["users"]["total"] >= 3 and d["users"]["active"] >= 1
     assert {"support", "security", "approvals", "privacy", "break_glass", "commerce"} <= d.keys()
     assert "organizations" not in d  # single company: no org tiles
+    assert d["learning"]["learners"] >= 1  # the adult student; staff accounts are not counted
+    assert {"courses_published", "courses_draft", "batches_active", "batches_planned"} <= d["learning"].keys()
     assert (await bsec.get("/admin/dashboard")).status_code == 403
 
     found = await bsa.get("/admin/users", params={"q": student.email})
@@ -210,3 +212,52 @@ async def test_break_glass_activation_retired_history_still_managed(
     row2 = (await db.execute(select(BreakGlassSession).where(BreakGlassSession.id == bid2))).scalar_one()
     assert row2.status == "expired" and row2.end_reason == "expired"
     monkeypatch.undo()
+
+
+async def test_approvals_status_filter_is_validated(client, db) -> None:
+    """Admin audit 2026-11-11: an unknown ``status`` returned an empty list instead of a 400."""
+    b = await staff_browser(client, await staff(db, "super_admin"), ip="198.18.1.9")
+    for s in ("pending", "approved", "rejected", "expired", "cancelled", "executed"):
+        assert (await b.get("/admin/approvals", params={"status": s})).status_code == 200
+    bad = await b.get("/admin/approvals", params={"status": "all"})
+    assert bad.status_code == 400 and bad.json()["code"] == "validation_failed"
+
+
+async def test_admin_sets_a_new_password_for_a_user(client, db) -> None:
+    """Owner request 2026-11-12: without integrated email a reset link never arrives, so an admin
+    can set a new password (step-up + reason + audit); the person's sessions end; not for self."""
+    sa = await staff(db, "super_admin")
+    student = await adult(db)
+    sb = Browser(client)
+    assert (await sb.login(student.email)).json()["result"] == "authenticated"
+    bsa = await staff_browser(client, sa, ip="198.18.1.9")
+    await db.execute(
+        update(AuthSession).where(AuthSession.user_id == sa.id).values(last_step_up_at=clock.now())
+    )
+    new_pw = "a-brand-new-password-2026"
+    bad = await bsa.post(
+        f"/admin/users/{student.id}/password", {"password": new_pw, "reason": "x"}, headers=idem()
+    )
+    assert bad.status_code in (400, 422)
+    me = await bsa.post(
+        f"/admin/users/{sa.id}/password", {"password": new_pw, "reason": "Own reset"}, headers=idem()
+    )
+    assert me.status_code == 403 and me.json()["code"] == "sod_violation"
+    # never another Admin's password (audit 2026-11-12: no admin-to-admin takeover)
+    other_admin = await staff(db, "super_admin")
+    oa = await bsa.post(
+        f"/admin/users/{other_admin.id}/password",
+        {"password": new_pw, "reason": "Takeover try"},
+        headers=idem(),
+    )
+    assert oa.status_code == 403 and oa.json()["code"] == "permission_denied"
+    r = await bsa.post(
+        f"/admin/users/{student.id}/password",
+        {"password": new_pw, "reason": "Locked out, no email"},
+        headers=idem(),
+    )
+    assert r.status_code == 200 and r.json()["password_set"] is True and r.json()["sessions_revoked"] >= 1
+    ok = await Browser(client).login(student.email, new_pw)
+    assert ok.status_code == 200 and ok.json()["result"] in ("authenticated", "device_verification_required")
+    old = await Browser(client).login(student.email)
+    assert old.status_code == 401

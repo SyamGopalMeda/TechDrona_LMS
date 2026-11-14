@@ -47,6 +47,7 @@ from app.modules.placement.schemas import (
     TagIn,
 )
 from app.seeds import seeds_allowed
+from app.seeds.sync import sync_touched
 
 # Seeds run standalone: register every module's tables so cross-module FKs resolve.
 import_all_models()
@@ -372,6 +373,7 @@ async def main() -> int:
     try:
         async with async_sessionmaker(engine, expire_on_commit=False)() as session, session.begin():
             result = await seed(session)
+            await sync_touched(session, "placement", "assessments", "identity")
     finally:
         await engine.dispose()
     print("DEV/DEMO placement content ready (synthetic, original sample items):", result)

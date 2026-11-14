@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { Badge, Button, Card, Checkbox, Dialog, EmptyState, FormField, Input, Select, useToast } from "@/components/ui";
+import { Badge, Button, buttonClasses, Card, Checkbox, ConfirmDialog, Dialog, EmptyState, FormField, Input, PageHeader, Segmented, Select, StatusBadge, useToast } from "@/components/ui";
+import { StickyActionBar } from "@/features/studio/components/EditorChrome";
 import { Boundary, TextArea, fieldErrorsOf, formatDateTime, useFailToast } from "@/features/trainer/shared/ui";
 import { useApi } from "@/features/trainer/shared/use-api";
 import { pathsApi, seg } from "../lib/api";
@@ -26,6 +27,15 @@ Write the lesson here.
 The one thing to remember.
 :::
 `;
+
+/** Article state through the shared status vocabulary: "Published · Chosen batches" or "Not published" (draft tone). */
+export function ArticleStatusBadge({ article }: { article: Pick<ArticleSummary, "status" | "audience"> }) {
+  return article.status === "published" ? (
+    <StatusBadge status="published" label={article.audience ? `Published · ${AUDIENCE_LABEL[article.audience]}` : "Published"} />
+  ) : (
+    <StatusBadge status="draft" label="Not published" />
+  );
+}
 
 /* ------------------------------------------------------------------ list */
 
@@ -64,7 +74,11 @@ export function ArticleList() {
           <Boundary state={list}>
             {(l) =>
               l.data.length === 0 ? (
-                <EmptyState title="No articles yet" description="Articles are lessons you write once and use as path steps or share with a link." />
+                <EmptyState
+                  icon="document"
+                  title={q.trim() ? "No articles match" : "No articles yet"}
+                  description={q.trim() ? "Try a different search." : "Articles are lessons you write once and use as path steps or share with a link. Use New article to start one."}
+                />
               ) : (
                 <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
                   {l.data.map((a) => (
@@ -76,7 +90,9 @@ export function ArticleList() {
                         {a.subtitle ? <p className="text-sm text-fg-muted">{a.subtitle}</p> : null}
                         <p className="text-xs text-fg-muted">Updated {formatDateTime(a.updated_at)}</p>
                       </div>
-                      <Badge tone={a.status === "published" ? "success" : "neutral"}>{a.status === "published" ? (a.audience ? AUDIENCE_LABEL[a.audience] : "Published") : "Not published"}</Badge>
+                      <span className="self-start sm:self-center">
+                        <ArticleStatusBadge article={a} />
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -101,9 +117,23 @@ const SNIPPETS: { label: string; text: string }[] = [
   { label: "Exercise", text: "\n:::exercise Try it yourself\nWhat does this print?\n:::answer\nThe answer.\n:::\n" },
 ];
 
+function articleCrumbs(base: string, title: string) {
+  return [
+    { label: "Learning paths", href: base },
+    { label: "Articles", href: `${base}/articles` },
+    { label: title },
+  ];
+}
+
 export function ArticleEditor({ articleId }: { articleId: string }) {
+  const base = usePathsBase();
   const state = useApi<ArticleDetail>(`path-articles/${seg(articleId)}`);
-  return <Boundary state={state}>{(a) => <ArticleEditorBody key={`${a.id}:${a.updated_at}`} article={a} reload={state.reload} />}</Boundary>;
+  return (
+    <>
+      {state.data === undefined ? <PageHeader breadcrumbs={articleCrumbs(base, "Article")} title="Article" /> : null}
+      <Boundary state={state}>{(a) => <ArticleEditorBody key={`${a.id}:${a.updated_at}`} article={a} reload={state.reload} />}</Boundary>
+    </>
+  );
 }
 
 function ArticleEditorBody({ article, reload }: { article: ArticleDetail; reload: () => Promise<void> }) {
@@ -119,6 +149,7 @@ function ArticleEditorBody({ article, reload }: { article: ArticleDetail; reload
   const [busy, setBusy] = useState(false);
   const [errs, setErrs] = useState<Record<string, string>>({});
   const [shareOpen, setShareOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [view, setView] = useState<"write" | "preview">("write");
   const area = useRef<HTMLTextAreaElement>(null);
   const toc = useArticleToc(body);
@@ -158,38 +189,29 @@ function ArticleEditorBody({ article, reload }: { article: ArticleDetail; reload
     }
   };
 
+  // Runs from the ConfirmDialog: a thrown error is shown inside the dialog, which stays open.
   const remove = async () => {
-    if (!window.confirm(`Delete "${article.title}"? This cannot be undone.`)) return;
-    try {
-      await pathsApi.deleteArticle(article.id);
-      router.push(`${base}/articles`);
-    } catch (e) {
-      fail(e);
-    }
+    await pathsApi.deleteArticle(article.id);
+    router.push(`${base}/articles`);
   };
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-2">
-          <Link href={`${base}/articles`} className="text-sm text-fg-link underline">
-            ← Articles
-          </Link>
-          <Badge tone={article.status === "published" ? "success" : "neutral"}>{article.status === "published" ? (article.audience ? AUDIENCE_LABEL[article.audience] : "Published") : "Not published"}</Badge>
-          {dirty ? <Badge tone="warning">Unsaved changes</Badge> : null}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="ghost" onClick={() => void remove()}>
-            Delete
+      <PageHeader
+        breadcrumbs={articleCrumbs(base, article.title || "Article")}
+        title={article.title || "Article"}
+        meta={
+          <>
+            <ArticleStatusBadge article={article} />
+            {dirty ? <Badge tone="warning">Unsaved changes</Badge> : null}
+          </>
+        }
+        actions={
+          <Button variant="danger-secondary" onClick={() => setDeleteOpen(true)}>
+            Delete article
           </Button>
-          <Button variant="secondary" onClick={() => void save()} loading={busy} disabled={!dirty}>
-            Save
-          </Button>
-          <Button onClick={() => setShareOpen(true)} disabled={dirty}>
-            Publish &amp; share
-          </Button>
-        </div>
-      </div>
+        }
+      />
       <Card>
         <div className="grid gap-3 md:grid-cols-2">
           <FormField label="Title" required error={errs.title}>{(p) => <Input {...p} value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />}</FormField>
@@ -212,14 +234,19 @@ function ArticleEditorBody({ article, reload }: { article: ArticleDetail; reload
           <FormField label="Study time (minutes)" error={errs.est_minutes}>{(p) => <Input {...p} type="number" min={1} max={1440} value={minutes} onChange={(e) => setMinutes(e.target.value)} />}</FormField>
         </div>
       </Card>
-      <div className="flex gap-2 lg:hidden" role="group" aria-label="Editor view">
-        <Button size="sm" variant={view === "write" ? "primary" : "secondary"} onClick={() => setView("write")}>
-          Write
-        </Button>
-        <Button size="sm" variant={view === "preview" ? "primary" : "secondary"} onClick={() => setView("preview")}>
-          Preview
-        </Button>
-      </div>
+      <Segmented
+        className="lg:hidden"
+        variant="pills"
+        legend="Editor view"
+        hideLegend
+        name="article-view"
+        value={view}
+        onChange={setView}
+        options={[
+          { value: "write", label: "Write" },
+          { value: "preview", label: "Preview" },
+        ]}
+      />
       <div className="grid gap-4 lg:grid-cols-2">
         <div className={view === "preview" ? "hidden lg:block" : undefined}>
           <div className="mb-2 flex flex-wrap gap-1" role="toolbar" aria-label="Insert block">
@@ -241,7 +268,33 @@ function ArticleEditorBody({ article, reload }: { article: ArticleDetail; reload
           </div>
         </div>
       </div>
+      {/* Save / Publish stay in view below the long Markdown editor. Publish is the page's one primary. */}
+      <StickyActionBar
+        status={
+          dirty ? (
+            <span className="font-medium text-warning-fg">Unsaved changes. Save before you publish.</span>
+          ) : (
+            <span className="text-fg-muted">All changes saved.</span>
+          )
+        }
+      >
+        <Button variant="secondary" onClick={() => void save()} loading={busy} disabled={!dirty}>
+          Save
+        </Button>
+        <Button onClick={() => setShareOpen(true)} disabled={dirty}>
+          Publish &amp; share
+        </Button>
+      </StickyActionBar>
       <PublishDialog open={shareOpen} onClose={() => setShareOpen(false)} article={article} onDone={() => void reload()} />
+      <ConfirmDialog
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        title="Delete this article?"
+        description={`"${article.title}" will be deleted. Path steps that use it will lose their content. This cannot be undone.`}
+        confirmLabel="Delete article"
+        danger
+        onConfirm={remove}
+      />
     </div>
   );
 }
@@ -301,16 +354,6 @@ function PublishDialog({ open, onClose, article, onDone }: { open: boolean; onCl
     }
   };
 
-  const radio = (value: Audience, hint: string) => (
-    <label className={`flex cursor-pointer flex-col rounded-lg border p-3 ${audience === value ? "border-brand bg-brand-subtle" : "border-line"}`}>
-      <span className="flex items-center gap-2 text-sm font-semibold">
-        <input type="radio" name="audience" value={value} checked={audience === value} onChange={() => setAudience(value)} />
-        {AUDIENCE_LABEL[value]}
-      </span>
-      <span className="mt-1 text-xs text-fg-muted">{hint}</span>
-    </label>
-  );
-
   return (
     <Dialog
       open={open}
@@ -320,7 +363,7 @@ function PublishDialog({ open, onClose, article, onDone }: { open: boolean; onCl
       footer={
         <>
           {published ? (
-            <Button variant="danger" onClick={() => void unpublish()} disabled={busy} className="mr-auto">
+            <Button variant="danger-secondary" onClick={() => void unpublish()} disabled={busy} className="mr-auto">
               Unpublish
             </Button>
           ) : null}
@@ -334,11 +377,16 @@ function PublishDialog({ open, onClose, article, onDone }: { open: boolean; onCl
       }
     >
       <div className="space-y-3">
-        <fieldset className="space-y-2">
-          <legend className="mb-1 text-sm font-medium">Who can read it</legend>
-          {radio("batches", "Signed-in members of the batches you pick")}
-          {radio("people", "Only the people you pick")}
-        </fieldset>
+        <Segmented
+          legend="Who can read it"
+          name="audience"
+          value={audience}
+          onChange={setAudience}
+          options={[
+            { value: "batches", label: AUDIENCE_LABEL.batches, hint: "Signed-in members of the batches you pick" },
+            { value: "people", label: AUDIENCE_LABEL.people, hint: "Only the people you pick" },
+          ]}
+        />
         {audience === "batches" ? (
           <fieldset className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-line p-2">
             <legend className="sr-only">Batches</legend>
@@ -374,8 +422,8 @@ function PublishDialog({ open, onClose, article, onDone }: { open: boolean; onCl
               <Button variant="secondary" size="md" onClick={() => void copy()} aria-label="Copy link">
                 Copy
               </Button>
-              <a href={link} target="_blank" rel="noopener noreferrer" className="inline-flex h-10 items-center rounded-md border border-line-control px-3 text-sm" aria-label="Open in a new tab">
-                ↗
+              <a href={link} target="_blank" rel="noopener noreferrer" className={buttonClasses({ variant: "secondary", className: "shrink-0" })}>
+                Open<span className="sr-only"> the article in a new tab</span>
               </a>
             </div>
           )}

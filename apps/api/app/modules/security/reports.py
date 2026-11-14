@@ -17,7 +17,7 @@ import io
 import itertools
 import statistics
 import uuid
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -29,6 +29,8 @@ from app.core.errors import ProblemError
 from app.core.time import to_rfc3339
 from app.modules.admin.policy import get_value
 from app.modules.identity import clock
+from app.modules.rbac import public as rbac_public
+from app.modules.security import repo_fs_controls as secx
 from app.modules.security.models import (
     AccountRestriction,
     CaseDecision,
@@ -39,7 +41,7 @@ from app.modules.security.models import (
     SecurityUserState,
     UnblockRequest,
 )
-from app.modules.sessions.models import AuthSession, LoginAttempt, SessionNetworkObservation, UserDevice
+from app.modules.sessions import public as sessions_public
 
 REPORTS: dict[str, dict[str, Any]] = {
     "top-suspicious-accounts": {
@@ -228,27 +230,28 @@ async def _h1(
     if assignee := _uuid_filter(f, "assignee"):
         q = q.where(SecurityCase.assignee_id == assignee)
     rule, sla_want = _str_filter(f, "rule"), _str_filter(f, "sla_state")
-    cases = (await session.execute(q.order_by(SecurityCase.created_at))).scalars().all()
+    cases = (await secx.execute(session, q.order_by(SecurityCase.created_at))).scalars().all()
     prio = {"urgent": 0, "high": 1, "medium": 2, "low": 3}
     rows = []
     for c in sorted(cases, key=lambda c: (prio.get(c.priority, 9), c.sla_decision_due or now)):
         sla = sla_state(c, now)
         if sla_want and sla != sla_want:
             continue
-        st = await session.get(SecurityUserState, c.user_id)
+        st = await secx.get(session, SecurityUserState, c.user_id)
         ev = (
-            await session.execute(
+            await secx.execute(
+                session,
                 select(RiskEvaluation.explanation_keys)
                 .where(RiskEvaluation.user_id == c.user_id)
                 .order_by(RiskEvaluation.evaluated_at.desc())
-                .limit(1)
+                .limit(1),
             )
         ).scalar_one_or_none()
         keys = list(ev or [])
         if rule and c.hc_rule != rule:
             rule_keys = (
-                await session.execute(
-                    select(AccountRestriction.rule_keys).where(AccountRestriction.case_id == c.id)
+                await secx.execute(
+                    session, select(AccountRestriction.rule_keys).where(AccountRestriction.case_id == c.id)
                 )
             ).scalars()
             if not any(rule in (rk or []) for rk in rule_keys):
@@ -271,7 +274,8 @@ async def _h1(
         )
     no_case = (
         (
-            await session.execute(
+            await secx.execute(
+                session,
                 select(SecurityUserState)
                 .where(
                     SecurityUserState.sharing_score > 0,
@@ -280,7 +284,7 @@ async def _h1(
                     ),
                 )
                 .order_by(SecurityUserState.sharing_score.desc())
-                .limit(50)
+                .limit(50),
             )
         )
         .scalars()
@@ -303,13 +307,11 @@ async def _h2(
 ) -> tuple[list[Any], dict[str, Any]]:
     n = _int_filter(f, "min_accounts") or 4
     days = _int_filter(f, "days") or 7
-    q = (
-        select(UserDevice.device_id, func.count(func.distinct(UserDevice.user_id)).label("accounts"))
-        .where(UserDevice.last_used_at > now - timedelta(days=days))
-        .group_by(UserDevice.device_id)
-        .having(func.count(func.distinct(UserDevice.user_id)) >= n)
-    )
-    rows = [{"device_id": str(d), "accounts": int(a)} for d, a in (await session.execute(q)).all()]
+    # COUNT(DISTINCT user_id) per device HAVING >= n, through the sessions module's API
+    accounts: dict[Any, set[Any]] = defaultdict(set)
+    for ud in await sessions_public.list_user_devices(session, last_used_after=now - timedelta(days=days)):
+        accounts[ud.device_id].add(ud.user_id)
+    rows = [{"device_id": str(d), "accounts": len(u)} for d, u in accounts.items() if len(u) >= n]
     return rows, {"note": "Per-user device/account graph: SEC-15 /security/users/{user_id}/device-graph"}
 
 
@@ -329,7 +331,11 @@ async def _h3(
         q = q.where(SecuritySignal.user_id == uid)
     if rule := _str_filter(f, "rule"):
         q = q.where(SecuritySignal.rule_key == rule)
-    sigs = (await session.execute(q.order_by(SecuritySignal.occurred_at.desc()).limit(500))).scalars().all()
+    sigs = (
+        (await secx.execute(session, q.order_by(SecuritySignal.occurred_at.desc()).limit(500)))
+        .scalars()
+        .all()
+    )
     rows = [
         {
             "at": _iso(s.occurred_at),
@@ -350,30 +356,31 @@ async def _h4(
     session: AsyncSession, f: dict[str, Any], since: datetime, now: datetime
 ) -> tuple[list[Any], dict[str, Any]]:
     k = await _k(session)
-    q = (
-        select(
-            SessionNetworkObservation.net_cluster,
-            func.count(func.distinct(SessionNetworkObservation.user_id)),
-        )
-        .where(
-            SessionNetworkObservation.first_seen_at > since, SessionNetworkObservation.first_seen_at <= now
-        )
-        .group_by(SessionNetworkObservation.net_cluster)
-        .order_by(func.count(func.distinct(SessionNetworkObservation.user_id)).desc())
-        .limit(100)
-    )
+    # sessions.public (was a GROUP BY on ``session_network_observations``): distinct accounts per
+    # network cluster first seen in (since, now], most accounts first, top 100.
+    from app.modules.sessions import public as sessions_public
+
+    per: dict[Any, set[Any]] = {}
+    for o in await sessions_public.list_observations(session, since=since, until=now):
+        per.setdefault(o.net_cluster, set()).add(o.user_id)
+    from app.core.firestore.collation import order_key
+
+    # most accounts first; equal counts by cluster in the VM collation (NULL cluster last)
+    top = sorted(per.items(), key=lambda kv: order_key(kv[0]))
+    top = sorted(top, key=lambda kv: -len(kv[1]))[:100]
     rows = []
-    for cluster, n in (await session.execute(q)).all():
+    for cluster, n in ((c, len(us)) for c, us in top):
         rows.append(
             {"cluster": cluster, "accounts": int(n)} if n >= k else {"cluster": cluster, "suppressed": True}
         )
     flagged = (
-        await session.execute(
+        await secx.execute(
+            session,
             select(SecuritySignal.rule_key, SecuritySignal.evidence).where(
                 SecuritySignal.rule_key.in_(("AB-04", "AB-05")),
                 SecuritySignal.occurred_at > since,
                 SecuritySignal.occurred_at <= now,
-            )
+            ),
         )
     ).all()
     return rows, {"flagged_sources": [{"rule": r, "source": e.get("source")} for r, e in flagged], "k_min": k}
@@ -391,10 +398,10 @@ async def _h5(
     if fam := _str_filter(f, "family"):
         q = q.where(AccountRestriction.family == fam)
     source = _str_filter(f, "source")
-    rs_ = (await session.execute(q.order_by(AccountRestriction.starts_at.desc()))).scalars().all()
+    rs_ = (await secx.execute(session, q.order_by(AccountRestriction.starts_at.desc()))).scalars().all()
     rows = []
     for r in rs_:
-        case = await session.get(SecurityCase, r.case_id) if r.case_id else None
+        case = await secx.get(session, SecurityCase, r.case_id) if r.case_id else None
         src = f"HC rule {r.hc_rule}" if r.hc_rule and r.family == "sharing" else r.source
         if source and source not in (r.source, src, r.hc_rule):
             continue
@@ -417,17 +424,17 @@ async def _h5(
 async def _h6(
     session: AsyncSession, f: dict[str, Any], since: datetime, now: datetime
 ) -> tuple[list[Any], dict[str, Any]]:
-    from app.modules.rbac.models import ApprovalRequest
 
     states = ("submitted", "under_review", "info_requested", "escalated")
     want_state = _str_filter(f, "state")
     want_level = _int_filter(f, "level")
     urs = (
         (
-            await session.execute(
+            await secx.execute(
+                session,
                 select(UnblockRequest)
                 .where(UnblockRequest.state.in_((want_state,) if want_state else states))
-                .order_by(UnblockRequest.submitted_at)
+                .order_by(UnblockRequest.submitted_at),
             )
         )
         .scalars()
@@ -436,21 +443,15 @@ async def _h6(
     rows = []
     kept = []
     for u in urs:
-        case = await session.get(SecurityCase, u.case_id)
+        case = await secx.get(session, SecurityCase, u.case_id)
         if want_level is not None and (case is None or case.level != want_level):
             continue
         kept.append(u)
-        pend = (
-            await session.execute(
-                select(func.count())
-                .select_from(ApprovalRequest)
-                .where(
-                    ApprovalRequest.action_type == "security.case.decision",
-                    ApprovalRequest.target_id == u.case_id,
-                    ApprovalRequest.status == "pending",
-                )
+        pend = len(
+            await rbac_public.find_approvals(
+                session, action_type="security.case.decision", target_id=u.case_id, status="pending"
             )
-        ).scalar_one()
+        )
         rows.append(
             {
                 "reference": u.reference,
@@ -485,7 +486,7 @@ async def _h7(
     if (lvl := _int_filter(f, "level")) is not None:
         q = q.where(SecurityCase.level == lvl)
     groups: dict[tuple[str, int], list[tuple[Any, Any]]] = defaultdict(list)
-    for u, c in (await session.execute(q)).all():
+    for u, c in (await secx.execute(session, q)).all():
         assert u.submitted_at is not None
         wk = u.submitted_at.astimezone(IST).isocalendar()
         groups[(f"{wk[0]}-W{wk[1]:02d}", c.level)].append((u, c))
@@ -545,7 +546,7 @@ async def _h8(
         )
     )
     decisions: dict[uuid.UUID, tuple[str, datetime, set[tuple[str, str]]]] = {}
-    for did, outcome, at, rv, hc, keys in (await session.execute(q)).all():
+    for did, outcome, at, rv, hc, keys in (await secx.execute(session, q)).all():
         dims = (
             {("ruleset", rv or "-")}
             | ({("hc_rule", hc)} if hc else set())
@@ -616,7 +617,7 @@ async def _h9(
     )
     first: dict[uuid.UUID, dict[uuid.UUID, datetime]] = defaultdict(dict)
     latest: dict[uuid.UUID, str] = {}
-    for user_id, case_id, at, outcome in (await session.execute(q)).all():
+    for user_id, case_id, at, outcome in (await secx.execute(session, q)).all():
         first[user_id].setdefault(case_id, at)
         latest[user_id] = outcome
     rows = []
@@ -642,27 +643,21 @@ async def _h10(
     session: AsyncSession, f: dict[str, Any], since: datetime, now: datetime
 ) -> tuple[list[Any], dict[str, Any]]:
     k = await _k(session)
-    active = (AuthSession.status == "active", AuthSession.absolute_expires_at > now)
-    q = select(AuthSession.session_tier, AuthSession.client_type, func.count()).where(*active)
-    if tier := _str_filter(f, "tier"):
-        q = q.where(AuthSession.session_tier == tier)
-    if ct := _str_filter(f, "client_type"):
-        q = q.where(AuthSession.client_type == ct)
+    # GROUP BY tier, client_type over active sessions, through the sessions module's API
+    live = await sessions_public.list_sessions(
+        session, active_at=now, session_tier=_str_filter(f, "tier"), client_type=_str_filter(f, "client_type")
+    )
+    by_kind = Counter((s.session_tier, s.client_type) for s in live)
     rows = [
         {"tier": t, "client_type": c, "active_sessions": int(n)}
         if n >= k
         else {"tier": t, "client_type": c, "active_sessions": None, "suppressed": True}
-        for t, c, n in (
-            await session.execute(q.group_by(AuthSession.session_tier, AuthSession.client_type))
-        ).all()
+        for (t, c), n in by_kind.items()
     ]
-    per_user = (
-        select(AuthSession.user_id, func.count().label("n"))
-        .where(*active, AuthSession.session_tier == "student")
-        .group_by(AuthSession.user_id)
-        .subquery()
+    per_user = Counter(
+        s.user_id for s in await sessions_public.list_sessions(session, active_at=now, session_tier="student")
     )
-    dist_rows = (await session.execute(select(per_user.c.n, func.count()).group_by(per_user.c.n))).all()
+    dist_rows = list(Counter(per_user.values()).items())
     distribution = {str(int(n)): (int(users) if users >= k else None) for n, users in sorted(dist_rows)}
     cap = int(await get_value(session, "sessions.student.max_concurrent"))
     at_cap = sum(int(users) for n, users in dist_rows if int(n) >= cap)
@@ -732,47 +727,46 @@ async def _eng(
     from app.modules.security.controls import engine_state
 
     dist = (
-        await session.execute(
+        await secx.execute(
+            session,
             select(AccountRestriction.level, func.count())
             .where(AccountRestriction.ended_at.is_(None), AccountRestriction.family == "sharing")
-            .group_by(AccountRestriction.level)
+            .group_by(AccountRestriction.level),
         )
     ).all()
     shadow = (
-        await session.execute(
+        await secx.execute(
+            session,
             select(func.count())
             .select_from(RiskEvaluation)
             .where(
                 RiskEvaluation.mode == "shadow",
                 RiskEvaluation.evaluated_at > since,
                 RiskEvaluation.gates["hc_rule"].astext.is_not(None),
-            )
+            ),
         )
     ).scalar_one()
     enforced = (
-        await session.execute(
+        await secx.execute(
+            session,
             select(func.count())
             .select_from(AccountRestriction)
-            .where(AccountRestriction.hc_rule.is_not(None), AccountRestriction.created_at > since)
+            .where(AccountRestriction.hc_rule.is_not(None), AccountRestriction.created_at > since),
         )
     ).scalar_one()
     vol = (
-        await session.execute(
+        await secx.execute(
+            session,
             select(SecuritySignal.rule_key, func.count())
             .where(SecuritySignal.occurred_at > since)
-            .group_by(SecuritySignal.rule_key)
+            .group_by(SecuritySignal.rule_key),
         )
     ).all()
-    failures = (
-        await session.execute(
-            select(func.count())
-            .select_from(LoginAttempt)
-            .where(
-                LoginAttempt.attempted_at > now - timedelta(minutes=10),
-                LoginAttempt.outcome.in_(("bad_credentials", "unknown_identifier")),
-            )
+    failures = len(
+        await sessions_public.list_login_attempts(
+            session, since=now - timedelta(minutes=10), outcomes=("bad_credentials", "unknown_identifier")
         )
-    ).scalar_one()
+    )
     return [], {
         "state": await engine_state(session),
         "level_distribution": {str(lvl): int(n) for lvl, n in dist},
@@ -837,4 +831,4 @@ async def render_export(session: AsyncSession, job: SecurityReportExport) -> Non
     job.status = "completed"
     job.completed_at = clock.now()
     job.download_expires_at = clock.now() + timedelta(hours=24)
-    await session.flush()
+    await secx.flush(session)

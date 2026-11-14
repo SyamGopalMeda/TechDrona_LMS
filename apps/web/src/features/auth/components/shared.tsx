@@ -1,22 +1,105 @@
 "use client";
 
+import Link from "next/link";
 import { forwardRef, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { Button, Input } from "@/components/ui";
+import { Button, Input, LinkButton } from "@/components/ui";
 import { cn } from "@/lib/ui/cn";
 import type { FormErrorInfo } from "../lib/errors";
 
 /* --------------------------------------------------------------- AuthCard */
 
-/** Single-column card, max 480 px (wireframes §3/§4). */
+const featIcon = { "aria-hidden": true, viewBox: "0 0 24 24", width: 22, height: 22, fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" } as const;
+
+/** Brand-panel features (website `.al-feats`: icon in a white circle + one line). */
+const AUTH_FEATURES: { label: string; path: string }[] = [
+  { label: "Live classes & recorded lessons", path: "M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5zM13 4h5.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H13z" },
+  { label: "Tests & coding practice", path: "m8 9-3 3 3 3m8-6 3 3-3 3M14 5l-4 14" },
+  { label: "Mentoring & placement prep", path: "M16 20v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm13 9v-1a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8" },
+  { label: "Verified certificates", path: "M12 15a6 6 0 1 0 0-12 6 6 0 0 0 0 12zm-3.5-1.2L7 22l5-3 5 3-1.5-8.2" },
+];
+
+/**
+ * Sign-in layout, after the website's back-office login (tech drona/src/pages/Admin.jsx `Login`,
+ * CSS §27 `.al-*` → src/styles/site.css `td-al-*`): from 1024px a brand panel (classroom photo,
+ * navy lockup, "Every course. Every learner. One place.", rule, tagline, feature list) beside a
+ * white rounded card on a soft navy/green wash; below that just the card, with the logo on top.
+ * The brand panel is decorative (aria-hidden), so the card's h1 stays the page's only h1.
+ * Used by every auth step (log in, sign-up, MFA, device, recovery, verification).
+ */
 export function AuthCard({ title, description, children, eyebrow }: { title: string; description?: ReactNode; children: ReactNode; eyebrow?: string }) {
   return (
-    <div className="mx-auto w-full max-w-[480px]">
-      <div className="rounded-xl border border-line bg-surface p-6 shadow-xs">
-        {eyebrow ? <p className="text-xs font-semibold uppercase tracking-wide text-fg-muted">{eyebrow}</p> : null}
-        <h1 className="font-display text-2xl font-bold text-fg">{title}</h1>
-        {description ? <div className="mt-1 text-sm text-fg-muted">{description}</div> : null}
-        <div className="mt-6">{children}</div>
+    <div className="td-al td-enter">
+      <section className="td-al-brand" aria-hidden="true">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="td-al-photo" src="/brand/login-photo.webp" alt="" decoding="async" />
+        <div className="td-al-brand-in">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="td-al-logo" src="/brand/logo-lockup-navy.svg" alt="" width={240} height={52} />
+          <p className="td-al-head td-enter" style={{ ["--td-i" as string]: 1 }}>
+            Every course.
+            <br />
+            Every learner.
+            <br />
+            <span>One place.</span>
+          </p>
+          <i className="td-al-rule" />
+          <p className="td-al-tag">Debug your career. Deploy your dreams.</p>
+          <ul className="td-al-feats">
+            {AUTH_FEATURES.map((f, i) => (
+              <li key={f.label} className="td-enter" style={{ ["--td-i" as string]: i + 2 }}>
+                <span>
+                  <svg {...featIcon}>
+                    <path d={f.path} />
+                  </svg>
+                </span>
+                {f.label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+      <div className="td-al-side">
+        <Link href="/help" className="td-al-help">
+          <svg {...featIcon} width={18} height={18}>
+            <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
+          </svg>
+          Need help? <b>Contact support</b>
+        </Link>
+        <div className="td-al-card">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="td-al-card-logo" src="/brand/logo-lockup-navy.svg" alt="" width={200} height={44} />
+          {eyebrow ? <p className="td-al-eyebrow">{eyebrow}</p> : null}
+          <h1 className="td-al-title font-extrabold">{title}</h1>
+          {description ? <div className="td-al-sub">{description}</div> : null}
+          <div className="mt-7">{children}</div>
+        </div>
+        <p className="td-al-foot">Your Tech Drona learning portal · one sign-in for every module</p>
       </div>
+    </div>
+  );
+}
+
+/** "or" rule between Google sign-in and the password form (decorative). */
+export function OrDivider() {
+  return (
+    <div className="my-5 flex items-center gap-3 text-xs text-fg-muted" aria-hidden="true">
+      <span className="h-px flex-1 bg-line" />
+      or
+      <span className="h-px flex-1 bg-line" />
+    </div>
+  );
+}
+
+/** Up-front "this step/link no longer works" card shown instead of a form that can't succeed. */
+export function ExpiredNotice({ title, children, href, linkLabel }: { title: string; children: ReactNode; href: string; linkLabel: string }) {
+  return (
+    <div className="space-y-4">
+      <Notice tone="warning" title={title}>
+        <p>{children}</p>
+      </Notice>
+      <LinkButton href={href} size="lg" className="w-full">
+        {linkLabel}
+      </LinkButton>
     </div>
   );
 }

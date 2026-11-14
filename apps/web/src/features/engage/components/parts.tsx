@@ -1,24 +1,21 @@
 "use client";
 
-import { useEffect, useId, useState, type ReactNode } from "react";
-import { Badge, Skeleton } from "@/components/ui";
+import { useEffect, useState, type ReactNode } from "react";
+import { Badge, LoadingBlock, StatusBadge as KitStatusBadge } from "@/components/ui";
 import { isApiError } from "@/lib/api/errors";
 import { cn } from "@/lib/ui/cn";
-import { formatMs, KIND_LABEL, STATUS_LABEL, STATUS_TONE } from "../lib/labels";
+import { formatMs, KIND_LABEL, STATUS_LABEL } from "../lib/labels";
 import type { LeaderRow, ResultOption, ResultQuestion, RunStatus, WinnerInfo } from "../lib/types";
 
+/* A live run ("open") is the kit's "live" state; the other run statuses map one to one. */
+const RUN_TO_KIT: Record<RunStatus, string> = { scheduled: "scheduled", open: "live", closed: "closed", finalised: "finalised" };
+
 export function StatusBadge({ status }: { status: RunStatus }) {
-  return <Badge tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Badge>;
+  return <KitStatusBadge status={RUN_TO_KIT[status] ?? status} label={STATUS_LABEL[status]} />;
 }
 
 export function Loading({ label = "Loading", rows = 3 }: { label?: string; rows?: number }) {
-  return (
-    <div aria-busy="true" aria-label={label} className="space-y-3">
-      {Array.from({ length: rows }, (_, i) => (
-        <Skeleton key={i} className="h-16 w-full" />
-      ))}
-    </div>
-  );
+  return <LoadingBlock label={label} rows={rows} size="card" />;
 }
 
 /** Problem title + detail for toasts. */
@@ -50,63 +47,8 @@ export function useJoinUrl(joinPath: string | null | undefined): string {
 
 /* ------------------------------------------------------------------ segmented choice */
 
-export interface SegmentOption<V extends string> {
-  value: V;
-  label: string;
-  hint?: string;
-}
-
-/** Radio group styled as side-by-side cards. */
-export function Segmented<V extends string>({
-  legend,
-  name,
-  value,
-  options,
-  onChange,
-}: {
-  legend: string;
-  name: string;
-  value: V;
-  options: SegmentOption<V>[];
-  onChange: (v: V) => void;
-}) {
-  const id = useId();
-  return (
-    <fieldset className="space-y-1.5">
-      <legend className="text-sm font-medium text-fg">{legend}</legend>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {options.map((o) => {
-          const checked = o.value === value;
-          const inputId = `${id}-${o.value}`;
-          return (
-            <label
-              key={o.value}
-              htmlFor={inputId}
-              className={cn(
-                "flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm transition-colors focus-within:shadow-focus",
-                checked ? "border-brand bg-brand-subtle" : "border-line-control bg-surface hover:bg-surface-hover",
-              )}
-            >
-              <input
-                id={inputId}
-                type="radio"
-                name={`${name}-${id}`}
-                value={o.value}
-                checked={checked}
-                onChange={() => onChange(o.value)}
-                className="mt-0.5 h-4 w-4 accent-[var(--td-brand)] focus-visible:outline-none"
-              />
-              <span>
-                <span className="block font-medium text-fg">{o.label}</span>
-                {o.hint ? <span className="block text-xs text-fg-muted">{o.hint}</span> : null}
-              </span>
-            </label>
-          );
-        })}
-      </div>
-    </fieldset>
-  );
-}
+/** Radio group styled as side-by-side cards: the kit Segmented. */
+export { Segmented, type SegmentOption } from "@/components/ui";
 
 /* ------------------------------------------------------------------ results */
 

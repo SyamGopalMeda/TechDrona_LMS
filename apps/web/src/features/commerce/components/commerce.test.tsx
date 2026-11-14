@@ -1,12 +1,13 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PLANS_HREF } from "@/lib/site/website";
 import { mockApi, problem, renderWithProviders } from "@/features/auth/test/mock-api";
 import { downloadSink } from "../lib/download";
 import { isTestMode, providerFor, razorpayProvider, testGatewayProvider } from "../lib/payment-provider";
-import { AccessList } from "./AccessList";
+import { AccessList, accessTitle } from "./AccessList";
 import { Billing } from "./Billing";
-import { Checkout } from "./Checkout";
+import { Checkout, cadenceLabel, checkoutItem } from "./Checkout";
 import { OrderStatus } from "./OrderStatus";
 
 const push = vi.fn();
@@ -486,5 +487,40 @@ describe("AccessList (STU-019)", () => {
     expect(screen.getByText("Mentor sessions: 2 left")).toBeInTheDocument();
     expect(screen.getByText("Payment due")).toBeInTheDocument();
     expect(screen.getByText(/Update your payment method by 6 Nov 2026/)).toBeInTheDocument();
+  });
+
+  it("never shows a raw access key as the title", () => {
+    expect(accessTitle("all_practice", "subscription")).toBe("All practice questions");
+    expect(accessTitle("mock_tests_pack", "purchase")).toBe("Mock tests pack");
+    expect(accessTitle("TCS NQT Placement Package", "placement_package")).toBe("TCS NQT Placement Package");
+    expect(accessTitle(null, "free_enrolment")).toBe("Free enrolment");
+  });
+});
+
+describe("Checkout summary first (UI audit: checkout)", () => {
+  it("names the product and price before a state is chosen, and the summary comes before the form", async () => {
+    restore = mockApi({ "GET commerce/products": { body: products } }).restore;
+    renderWithProviders(<Checkout priceId="one" returnTo="/pricing" />);
+    const summary = screen.getByRole("complementary", { name: "Order summary" });
+    expect(await within(summary).findByText("Placement Package")).toBeInTheDocument();
+    expect(within(summary).getByText("₹3,499")).toBeInTheDocument();
+    expect(within(summary).getByText(/Choose your state to see/)).toBeInTheDocument();
+    const form = screen.getByRole("form", { name: "Billing details" });
+    // Reading order: summary, then the billing form (phones see what they're buying first).
+    expect(summary.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Back/ })).toHaveAttribute("href", "/pricing");
+  });
+
+  it("finds the plan behind a price id and describes its cadence", () => {
+    const item = checkoutItem(products.data as never, "pm");
+    expect(item?.productName).toBe("All-access Monthly");
+    expect(cadenceLabel(item!.plan)).toBe("per month");
+    expect(checkoutItem(products.data as never, "missing")).toBeNull();
+  });
+
+  it("gives the no-plan state a page heading and a real button", () => {
+    renderWithProviders(<Checkout priceId={null} />);
+    expect(screen.getByRole("heading", { level: 1, name: "Checkout" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "See plans" })).toHaveAttribute("href", PLANS_HREF);
   });
 });

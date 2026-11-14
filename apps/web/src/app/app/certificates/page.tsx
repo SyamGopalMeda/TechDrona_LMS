@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Certificates" };
 export default function Page() {
   return (
     <div>
-      <PageHeader title="Certificates" description="Anyone can check a certificate with its verification link." />
+      <PageHeader title="Certificates" description="Certificates you've earned. Share the verification link with employers." />
       <Certificates />
     </div>
   );

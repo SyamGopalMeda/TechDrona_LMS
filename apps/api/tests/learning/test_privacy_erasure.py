@@ -39,6 +39,7 @@ def test_providers_registered_for_owned_modules() -> None:
         assert m in regs, m
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_learning_erasure(browser, db) -> None:
     from app.modules.learning import privacy
     from app.modules.learning import service as ls
@@ -72,6 +73,7 @@ async def test_learning_erasure(browser, db) -> None:
     assert all(v == 0 for v in again.values()), again
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_placement_and_mentoring_erasure(db) -> None:
     from app.modules.mentoring import privacy as mp
     from app.modules.mentoring.models import Resume

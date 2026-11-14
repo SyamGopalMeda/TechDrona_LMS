@@ -75,7 +75,7 @@ test.describe("identity flows against the api", { tag: "@integration" }, () => {
     await p2.goto("/login?next=%2Fapp%2Fsettings%2Fdevices");
     await p2.getByLabel("Email or mobile").fill(email);
     await p2.getByLabel(/^Password/).fill(password);
-    await p2.getByRole("button", { name: "Sign in" }).click();
+    await p2.getByRole("button", { name: "Log in", exact: true }).click();
     await p2.waitForURL(/\/(app|login\/verify-device)/);
     await completeDeviceVerificationIfAsked(p2, request, email);
     await p2.waitForURL(/\/app/);

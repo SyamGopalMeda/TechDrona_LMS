@@ -17,6 +17,7 @@ from app.core.errors import ProblemError
 from app.core.ids import uuid7
 from app.core.principal import Principal
 from app.core.time import to_rfc3339, utcnow
+from app.modules.assessments import datastore as adb
 from app.modules.assessments.models import (
     AttemptEvent,
     AttemptOverride,
@@ -37,14 +38,7 @@ from app.modules.assessments.schemas import (
     TestSettings,
 )
 from app.modules.placement import bank, grading
-from app.modules.placement.models import (
-    Company,
-    CompanyPath,
-    Question,
-    QuestionTag,
-    QuestionVersion,
-    Topic,
-)
+from app.modules.placement import public as placement_public
 from app.modules.placement.policies import batch_org, has_permission, require
 
 POOL_FACTOR = 3  # recommended pool size per random rule (system-architecture §7.2, policy)
@@ -104,7 +98,7 @@ def test_out(t: Test) -> dict[str, Any]:
 
 
 async def get_test(session: AsyncSession, test_id: uuid.UUID) -> Test:
-    t = await session.get(Test, test_id)
+    t = await adb.get(session, Test, test_id)
     if t is None:
         raise ProblemError("not_found")
     return t
@@ -115,8 +109,9 @@ async def sections_of(
 ) -> list[tuple[TestSection, list[TestSectionRule]]]:
     secs = list(
         (
-            await session.execute(
-                select(TestSection).where(TestSection.test_id == test_id).order_by(TestSection.position)
+            await adb.execute(
+                session,
+                select(TestSection).where(TestSection.test_id == test_id).order_by(TestSection.position),
             )
         ).scalars()
     )
@@ -124,10 +119,11 @@ async def sections_of(
     for s in secs:
         rules = list(
             (
-                await session.execute(
+                await adb.execute(
+                    session,
                     select(TestSectionRule)
                     .where(TestSectionRule.test_section_id == s.id)
-                    .order_by(TestSectionRule.position)
+                    .order_by(TestSectionRule.position),
                 )
             ).scalars()
         )
@@ -174,12 +170,12 @@ def sections_out(
 
 
 async def _check_refs(session: AsyncSession, company_id: uuid.UUID | None, path_id: uuid.UUID | None) -> None:
-    if company_id is not None and await session.get(Company, company_id) is None:
+    if company_id is not None and await placement_public.get_company(session, company_id) is None:
         raise ProblemError(
             "validation_failed",
             errors=[{"field": "company_id", "code": "not_found", "message": "unknown company"}],
         )
-    if path_id is not None and await session.get(CompanyPath, path_id) is None:
+    if path_id is not None and await placement_public.get_company_path(session, path_id) is None:
         raise ProblemError(
             "validation_failed",
             errors=[{"field": "company_path_id", "code": "not_found", "message": "unknown company path"}],
@@ -233,8 +229,8 @@ async def create_test(
         created_by=principal.user_id,
         batch_id=body.batch_id,
     )
-    session.add(t)
-    await session.flush()
+    adb.add(session, t)
+    await adb.flush(session)
     return t
 
 
@@ -272,7 +268,7 @@ async def patch_test(session: AsyncSession, t: Test, body: TestSettings) -> Test
             continue
         setattr(t, name, value)
     _window_ok(t.available_from, t.available_until)
-    await session.flush()
+    await adb.flush(session)
     return t
 
 
@@ -296,7 +292,7 @@ async def put_sections(session: AsyncSession, t: Test, body: SectionsPut) -> Non
                     )
                 r.question_id = qid
             if r.rule_type == "fixed":
-                q = await session.get(Question, r.question_id)
+                q = await placement_public.get_question(session, r.question_id) if r.question_id else None
                 if q is None or q.deleted_at is not None:
                     raise ProblemError(
                         "validation_failed",
@@ -305,7 +301,7 @@ async def put_sections(session: AsyncSession, t: Test, body: SectionsPut) -> Non
                         ],
                     )
                 if r.question_version_id is not None:
-                    qv = await session.get(QuestionVersion, r.question_version_id)
+                    qv = await placement_public.get_version(session, r.question_version_id)
                     if qv is None or qv.question_id != q.id:
                         raise ProblemError(
                             "validation_failed",
@@ -321,8 +317,8 @@ async def put_sections(session: AsyncSession, t: Test, body: SectionsPut) -> Non
                 assert r.topic_id is not None
                 await bank.get_topic(session, r.topic_id)
     for s, _rules in await sections_of(session, t.id):
-        await session.delete(s)
-    await session.flush()
+        await adb.delete(session, s)
+    await adb.flush(session)
     for i, sec in enumerate(body.sections):
         s = TestSection(
             id=uuid7(),
@@ -333,10 +329,11 @@ async def put_sections(session: AsyncSession, t: Test, body: SectionsPut) -> Non
             duration_seconds=sec.duration_seconds,
             instructions_md=sec.instructions_md,
         )
-        session.add(s)
-        await session.flush()
+        adb.add(session, s)
+        await adb.flush(session)
         for j, r in enumerate(sec.rules):
-            session.add(
+            adb.add(
+                session,
                 TestSectionRule(
                     id=uuid7(),
                     test_section_id=s.id,
@@ -353,17 +350,17 @@ async def put_sections(session: AsyncSession, t: Test, body: SectionsPut) -> Non
                     draw_count=r.draw_count,
                     marks_each=r.marks_each,
                     negative_marks_each=r.negative_marks_each,
-                )
+                ),
             )
-    await session.flush()
+    await adb.flush(session)
 
 
 async def fixed_version(session: AsyncSession, rule: TestSectionRule) -> uuid.UUID | None:
     """The published version a fixed rule delivers (pinned or current), or None."""
     if rule.question_version_id is not None:
-        qv = await session.get(QuestionVersion, rule.question_version_id)
+        qv = await placement_public.get_version(session, rule.question_version_id)
         return qv.id if qv is not None and qv.status in ("published", "retired") and qv.published_at else None
-    q = await session.get(Question, rule.question_id)
+    q = await placement_public.get_question(session, rule.question_id) if rule.question_id else None
     if q is None or q.status != "active" or q.current_version_id is None:
         return None
     return q.current_version_id
@@ -372,54 +369,16 @@ async def fixed_version(session: AsyncSession, rule: TestSectionRule) -> uuid.UU
 async def coding_question_for_problem(session: AsyncSession, problem_id: uuid.UUID) -> uuid.UUID | None:
     """The active bank ``coding`` question whose current published version wraps ``problem_id``
     (newest first when several do), visible to the caller (RLS), else None."""
-    return (
-        await session.execute(
-            select(Question.id)
-            .join(QuestionVersion, QuestionVersion.id == Question.current_version_id)
-            .where(
-                Question.question_type == grading.CODING_TYPE,
-                Question.status == "active",
-                Question.deleted_at.is_(None),
-                QuestionVersion.status == "published",
-                QuestionVersion.coding_problem_id == problem_id,
-            )
-            .order_by(Question.created_at.desc(), Question.id.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    return await placement_public.coding_question_for_problem(session, problem_id)
 
 
 async def _coding_pool(session: AsyncSession, rule: TestSectionRule) -> list[uuid.UUID]:
     """Published coding question versions of the rule's topic subtree (same filters as the
     objective ``bank.published_pool``: difficulty, company tag)."""
     assert rule.topic_id is not None
-    t = await bank.get_topic(session, rule.topic_id)
-    q = (
-        select(QuestionVersion.id)
-        .join(Question, Question.current_version_id == QuestionVersion.id)
-        .join(Topic, Topic.id == Question.primary_topic_id)
-        .where(
-            Question.status == "active",
-            Question.deleted_at.is_(None),
-            QuestionVersion.status == "published",
-            Question.question_type == grading.CODING_TYPE,
-            QuestionVersion.coding_problem_id.is_not(None),
-            or_(Topic.id == t.id, Topic.path.like(t.path + "/%")),
-        )
+    return await placement_public.coding_pool(
+        session, rule.topic_id, rule.difficulty_min, rule.difficulty_max, rule.company_id
     )
-    if rule.difficulty_min is not None:
-        q = q.where(QuestionVersion.difficulty >= rule.difficulty_min)
-    if rule.difficulty_max is not None:
-        q = q.where(QuestionVersion.difficulty <= rule.difficulty_max)
-    if rule.company_id is not None:
-        q = q.where(
-            Question.id.in_(
-                select(QuestionTag.question_id).where(
-                    QuestionTag.tag_type == "company", QuestionTag.company_id == rule.company_id
-                )
-            )
-        )
-    return list((await session.execute(q.order_by(QuestionVersion.id))).scalars())
 
 
 async def rule_pool(session: AsyncSession, rule: TestSectionRule) -> list[uuid.UUID]:
@@ -518,8 +477,35 @@ async def publish(session: AsyncSession, t: Test) -> Test:
         t.version += 1
     t.status = "published"
     t.published_at = utcnow()
-    await session.flush()
+    await adb.flush(session)
     return t
+
+
+async def archive(session: AsyncSession, t: Test) -> int:
+    """Retire a test (QA 2026-11, F11): it can no longer be published, assigned or started, its
+    open assignment windows end now (a window not yet opened never opens), and learners' lists
+    drop it (``/me/tests`` lists published tests, plus tests the learner already attempted, which
+    keep their attempts and results). Returns how many assignment windows were closed."""
+    if t.status == "archived":
+        raise ProblemError("invalid_state_transition", detail="This test is already archived.")
+    now = utcnow()
+    open_windows = (
+        await adb.execute(
+            session,
+            select(TestAssignment).where(
+                TestAssignment.test_id == t.id, TestAssignment.available_until > now
+            ),
+        )
+    ).scalars()
+    closed = 0
+    for a in open_windows:
+        if a.available_from >= now:
+            a.available_from = now - timedelta(seconds=1)
+        a.available_until = now
+        closed += 1
+    t.status = "archived"
+    await adb.flush(session)
+    return closed
 
 
 # --------------------------------------------------------------------------- permissions
@@ -557,10 +543,11 @@ async def can_read_test(request: Request, session: AsyncSession, principal: Prin
     ):
         return True
     batches = (
-        await session.execute(
+        await adb.execute(
+            session,
             select(TestAssignment.batch_id).where(
                 TestAssignment.test_id == t.id, TestAssignment.batch_id.is_not(None)
-            )
+            ),
         )
     ).scalars()
     for b in set(batches):
@@ -597,6 +584,20 @@ async def attempt_scope_allows(
     batch_id: uuid.UUID | None,
     org_id: uuid.UUID | None,
 ) -> bool:
+    if (
+        permission == "test.results.read"
+        and principal.has_role("content_manager")
+        and not principal.has_role("super_admin")
+    ):
+        # ADM-44 / ASM-22 (QA 2026-11-11, D1): a content manager's test.results.read is "item statistics
+        # only" and never opens one learner's attempt (result, review, evaluation). Any other role they
+        # also hold still applies, exactly like the test-report listing above.
+        rest = tuple(g for g in principal.grants if g.role != "content_manager")
+        if not rest:
+            return False
+        principal = dataclasses.replace(
+            principal, grants=rest, is_platform=any(g.scope_type == "platform" for g in rest)
+        )
     if batch_id is not None and await has_permission(
         request, principal, permission, ScopeRef("batch", batch_id)
     ):
@@ -643,6 +644,11 @@ async def create_assignment(
     if t.organization_id is not None and t.organization_id != org:
         # Another tenant's test can never be assigned here (no existence disclosure).
         raise ProblemError("not_found")
+    if t.organization_id is not None and not await can_read_test(request, session, principal, t):
+        # Single company: every company test shares the org, so the org check above no longer
+        # separates batches. A trainer may assign only company tests they can see (their batch's
+        # tests / their own); another batch's test stays undisclosed (404).
+        raise ProblemError("not_found")
     if t.status != "published":
         raise ProblemError("invalid_state_transition", detail="Publish the test before assigning it.")
     a = TestAssignment(
@@ -657,8 +663,8 @@ async def create_assignment(
         results_release_at=body.results_release_at,
         assigned_by=principal.user_id,
     )
-    session.add(a)
-    await session.flush()
+    adb.add(session, a)
+    await adb.flush(session)
     await audit(
         session,
         principal,
@@ -672,7 +678,7 @@ async def create_assignment(
 
 
 async def get_assignment(session: AsyncSession, assignment_id: uuid.UUID) -> TestAssignment:
-    a = await session.get(TestAssignment, assignment_id)
+    a = await adb.get(session, TestAssignment, assignment_id)
     if a is None:
         raise ProblemError("not_found")
     return a
@@ -691,18 +697,23 @@ async def list_assignments(
     request: Request, session: AsyncSession, principal: Principal, t: Test
 ) -> list[dict[str, Any]]:
     rows = (
-        await session.execute(
+        await adb.execute(
+            session,
             select(TestAssignment)
             .where(TestAssignment.test_id == t.id)
-            .order_by(TestAssignment.available_from)
+            .order_by(TestAssignment.available_from),
         )
     ).scalars()
     out = []
     for a in rows:
-        if await attempt_scope_allows(
-            request, principal, "test.assign", batch_id=a.batch_id, org_id=a.organization_id
-        ):
-            out.append(assignment_out(a))
+        # Assigners see their assignments; evaluators (``test.results.release`` without
+        # ``test.assign``) see the ones they release results for (TRN-011 report page).
+        for perm in ("test.assign", "test.results.release"):
+            if await attempt_scope_allows(
+                request, principal, perm, batch_id=a.batch_id, org_id=a.organization_id
+            ):
+                out.append(assignment_out(a))
+                break
     return out
 
 
@@ -733,7 +744,7 @@ async def patch_assignment(
                 }
             ],
         )
-    await session.flush()
+    await adb.flush(session)
     warnings = []
     if a.available_until < utcnow():
         warnings.append("window_in_past")
@@ -772,24 +783,13 @@ def override_out(o: AttemptOverride) -> dict[str, Any]:
 async def _is_member(
     session: AsyncSession, user_id: uuid.UUID, *, batch_id: uuid.UUID | None, org_id: uuid.UUID | None
 ) -> bool:
-    from app.modules.orgs.models import BatchMember, OrgMembership
+    from app.modules.orgs import public as orgs_public
 
     if batch_id is not None:
-        q = select(BatchMember.id).where(
-            BatchMember.batch_id == batch_id,
-            BatchMember.user_id == user_id,
-            BatchMember.status == "active",
-            BatchMember.removed_at.is_(None),
-        )
-    elif org_id is not None:
-        q = select(OrgMembership.id).where(
-            OrgMembership.organization_id == org_id,
-            OrgMembership.user_id == user_id,
-            OrgMembership.status == "active",
-        )
-    else:
-        return True
-    return (await session.execute(q.limit(1))).first() is not None
+        return await orgs_public.is_batch_member(session, batch_id, user_id)
+    if org_id is not None:
+        return bool(await orgs_public.org_memberships(session, user_ids=[user_id], organization_id=org_id))
+    return True
 
 
 async def create_override(
@@ -807,10 +807,11 @@ async def create_override(
         org_scope = ScopeRef("organization", t.organization_id) if t.organization_id else PLATFORM_SCOPE
         if not await has_permission(request, principal, "test.override.grant", org_scope):
             for cand in (
-                await session.execute(
+                await adb.execute(
+                    session,
                     select(TestAssignment)
                     .where(TestAssignment.test_id == t.id, TestAssignment.batch_id.is_not(None))
-                    .order_by(TestAssignment.available_until.desc())
+                    .order_by(TestAssignment.available_until.desc()),
                 )
             ).scalars():
                 assert cand.batch_id is not None
@@ -861,16 +862,17 @@ async def create_override(
         reason=body.reason,
         granted_by=principal.user_id,
     )
-    session.add(o)
-    await session.flush()
+    adb.add(session, o)
+    await adb.flush(session)
     # Extra time also applies to attempts already in progress (power cut mid-test, FR-ASM-007).
     if body.extra_time_seconds:
         cond = TestAttempt.user_id == body.user_id if body.user_id else TestAttempt.batch_id == body.batch_id
         running = (
-            await session.execute(
+            await adb.execute(
+                session,
                 select(TestAttempt).where(
                     TestAttempt.test_id == t.id, TestAttempt.status == "in_progress", cond
-                )
+                ),
             )
         ).scalars()
         now = utcnow()
@@ -878,7 +880,8 @@ async def create_override(
             if att.deadline_at is not None:
                 att.deadline_at = att.deadline_at + timedelta(seconds=body.extra_time_seconds)
             att.extra_time_seconds += body.extra_time_seconds
-            session.add(
+            adb.add(
+                session,
                 AttemptEvent(
                     id=uuid7(),
                     occurred_at=now,
@@ -891,9 +894,9 @@ async def create_override(
                         "override_id": str(o.id),
                         "seconds": body.extra_time_seconds,
                     },
-                )
+                ),
             )
-        await session.flush()
+        await adb.flush(session)
     await audit(
         session,
         principal,
@@ -912,17 +915,18 @@ async def list_overrides(
     request: Request, session: AsyncSession, principal: Principal, t: Test
 ) -> list[dict[str, Any]]:
     rows = (
-        await session.execute(
+        await adb.execute(
+            session,
             select(AttemptOverride)
             .where(AttemptOverride.test_id == t.id)
-            .order_by(AttemptOverride.created_at)
+            .order_by(AttemptOverride.created_at),
         )
     ).scalars()
     out = []
     for o in rows:
         batch = o.batch_id
         if batch is None and o.test_assignment_id is not None:
-            a = await session.get(TestAssignment, o.test_assignment_id)
+            a = await adb.get(session, TestAssignment, o.test_assignment_id)
             batch = a.batch_id if a else None
         if await attempt_scope_allows(
             request, principal, "test.override.grant", batch_id=batch, org_id=o.organization_id
@@ -938,11 +942,12 @@ async def list_attempts(
     request: Request, session: AsyncSession, principal: Principal, t: Test
 ) -> list[dict[str, Any]]:
     rows = (
-        await session.execute(
+        await adb.execute(
+            session,
             select(TestAttempt, AttemptResult)
             .outerjoin(AttemptResult, AttemptResult.attempt_id == TestAttempt.id)
             .where(TestAttempt.test_id == t.id)
-            .order_by(TestAttempt.started_at)
+            .order_by(TestAttempt.started_at),
         )
     ).all()
     out = []
@@ -1000,13 +1005,14 @@ async def release_results(
     if a.release_mode != "manual":
         a.release_mode = "manual"
     ids = select(TestAttempt.id).where(TestAttempt.test_assignment_id == a.id)
-    res = await session.execute(
+    res = await adb.execute(
+        session,
         update(AttemptResult)
         .where(AttemptResult.attempt_id.in_(ids), or_(AttemptResult.released_at.is_(None)))
         .values(released_at=now)
-        .execution_options(synchronize_session=False)
+        .execution_options(synchronize_session=False),
     )
-    await session.flush()
+    await adb.flush(session)
     await audit(
         session,
         principal,
@@ -1015,4 +1021,4 @@ async def release_results(
         a.id,
         organization_id=a.organization_id,
     )
-    return {"test_assignment_id": str(a.id), "released_at": to_rfc3339(now), "results_released": res.rowcount}  # type: ignore[attr-defined]
+    return {"test_assignment_id": str(a.id), "released_at": to_rfc3339(now), "results_released": res.rowcount}  # type: ignore[attr-defined,unused-ignore]

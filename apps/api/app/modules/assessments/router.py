@@ -24,8 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.access import check_access
 from app.core.audit import audit
 from app.core.auth import require_active_principal, require_step_up
-from app.core.db import PrincipalDbSession
 from app.core.errors import ProblemError, problem_response
+from app.core.firestore.sqlstore import StorePrincipalDbSession as PrincipalDbSession
 from app.core.idempotency import HEADER as IDEM_HEADER
 from app.core.idempotency import IdemResult, idempotent
 from app.core.pagination import MAX_LIMIT, decode_cursor, page_meta
@@ -35,6 +35,7 @@ from app.core.routing import authenticated_router
 from app.core.time import to_rfc3339, utcnow
 from app.modules.ai.service import require_app_enabled
 from app.modules.assessments import attempts as svc
+from app.modules.assessments import datastore as adb
 from app.modules.assessments import evaluation, exam, integrity, report, studio
 from app.modules.assessments import privacy as _privacy  # noqa: F401  (registers the erasure provider)
 from app.modules.assessments import ratelimit as rl
@@ -58,13 +59,22 @@ from app.modules.assessments.schemas import (
     TestSettings,
 )
 from app.modules.placement.policies import can_in_org, require, scope_for
+from app.modules.placement.rls import bind_principal
 from app.modules.sessions.service import register_active_attempt_lookup
 
 register_active_attempt_lookup(svc.sessions_holding_attempts)
 
-dflt = authenticated_router(tags=["assessments"])
-neutral = authenticated_router(tags=["assessments"], idle="neutral")
-l3r = authenticated_router(tags=["assessments"], route_tag="l3_readonly")
+dflt = authenticated_router(tags=["assessments"], dependencies=[Depends(bind_principal)])
+neutral = authenticated_router(tags=["assessments"], idle="neutral", dependencies=[Depends(bind_principal)])
+l3r = authenticated_router(
+    tags=["assessments"], route_tag="l3_readonly", dependencies=[Depends(bind_principal)]
+)
+
+
+def _nopg(session: Any) -> Any:
+    """The request session, or ``None`` without Postgres (``db.NO_POSTGRES`` is falsy): core
+    ``idempotent`` then keeps no Postgres savepoint (it checks ``session is not None``)."""
+    return session or None
 
 
 def _client_ip(request: Request) -> str | None:
@@ -116,7 +126,7 @@ async def att_01_start(
             body=await svc.state_payload(session, principal, att, test), status=201, resource_id=att.id
         )
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=True)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=True)
 
 
 @dflt.get("/attempts/{attempt_id}/state", dependencies=[Depends(rl.limit("att02_state"))])
@@ -189,7 +199,7 @@ async def att_05_rebind(
                 raise
             return _as_result(e)  # stored + committed: keeps rebind_refused / auto-submit writes
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=True)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=True)
 
 
 @dflt.post("/attempts/{attempt_id}/autosave", dependencies=[Depends(rl.limit("att06_autosave"))])
@@ -270,13 +280,17 @@ async def att_10_submit(
     async def op() -> IdemResult:
         try:
             att, test, _ = await _owned_live(session, principal, attempt_id)
-            return IdemResult(body=await svc.submit(session, principal, att, test, body.final_items))
+            return IdemResult(
+                body=await svc.submit(
+                    session, principal, att, test, body.final_items, body.confirm_unanswered
+                )
+            )
         except ProblemError as e:
             if e.status >= 500:
                 raise
             return _as_result(e)
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=True)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=True)
 
 
 async def _attempt_reader(
@@ -284,7 +298,7 @@ async def _attempt_reader(
 ) -> tuple[TestAttempt, Test, bool]:
     """Owner, or staff holding ``test.results.read`` at the attempt's batch/org (ATT-11/12)."""
     att = await svc.load_attempt(session, attempt_id)
-    test = await session.get(Test, att.test_id)
+    test = await adb.get(session, Test, att.test_id)
     if test is None:  # pragma: no cover
         raise ProblemError("not_found")
     if att.user_id == principal.user_id:
@@ -353,7 +367,7 @@ async def att_13_my_attempts(
         except (KeyError, ValueError) as e:
             raise ProblemError("invalid_cursor") from e
         q = q.where(tuple_(TestAttempt.started_at, TestAttempt.id) < tuple_(literal(at), literal(last)))
-    rows = (await session.execute(q)).all()
+    rows = (await adb.execute(session, q)).all()
     more = len(rows) > limit
     rows = rows[:limit]
     nxt = {"s": rows[-1][0].started_at.isoformat(), "i": str(rows[-1][0].id)} if more and rows else None
@@ -387,10 +401,11 @@ async def asm_01_my_tests(
     now = utcnow()
     entries: dict[uuid.UUID, dict[str, Any]] = {}
     rows = (
-        await session.execute(
+        await adb.execute(
+            session,
             select(TestAssignment, Test)
             .join(Test, Test.id == TestAssignment.test_id)
-            .where(Test.status == "published")
+            .where(Test.status == "published"),
         )
     ).all()
     for a, t in rows:
@@ -398,18 +413,18 @@ async def asm_01_my_tests(
             continue
         entries.setdefault(t.id, {"test": t, "assignment": a})
     for t in (
-        await session.execute(select(Test).where(Test.status == "published", Test.is_free.is_(True)))
+        await adb.execute(session, select(Test).where(Test.status == "published", Test.is_free.is_(True)))
     ).scalars():
         entries.setdefault(t.id, {"test": t, "assignment": None})
     attempts_rows = (
-        await session.execute(select(TestAttempt).where(TestAttempt.user_id == principal.user_id))
+        await adb.execute(session, select(TestAttempt).where(TestAttempt.user_id == principal.user_id))
     ).scalars()
     by_test: dict[uuid.UUID, list[TestAttempt]] = {}
     for at in attempts_rows:
         by_test.setdefault(at.test_id, []).append(at)
     for tid in by_test:
         if tid not in entries:
-            t2 = await session.get(Test, tid)
+            t2 = await adb.get(session, Test, tid)
             if t2 is not None:
                 entries[tid] = {"test": t2, "assignment": None}
     items = []
@@ -453,7 +468,7 @@ async def asm_01_my_tests(
 async def asm_02_test_detail(
     test_id: uuid.UUID, session: PrincipalDbSession, principal: Principal = Depends(require_active_principal)
 ) -> dict[str, Any]:
-    t = await session.get(Test, test_id)
+    t = await adb.get(session, Test, test_id)
     if t is None or t.status != "published":
         raise ProblemError("not_found")
     assignments = await svc.eligible_assignments(session, principal, t.id)
@@ -469,10 +484,11 @@ async def asm_02_test_detail(
     _, extra_attempts, window_ext = await svc.overrides_for(session, t.id, principal.user_id, a)
     used = len(
         (
-            await session.execute(
+            await adb.execute(
+                session,
                 select(TestAttempt.id).where(
                     TestAttempt.test_id == t.id, TestAttempt.user_id == principal.user_id
-                )
+                ),
             )
         ).all()
     )
@@ -530,7 +546,7 @@ async def asm_03_list_tests(
         except (KeyError, ValueError) as e:
             raise ProblemError("invalid_cursor") from e
         q = q.where(tuple_(Test.created_at, Test.id) < tuple_(literal(at), literal(last)))
-    rows = list((await session.execute(q)).scalars())
+    rows = list((await adb.execute(session, q)).scalars())
     more = len(rows) > limit
     rows = rows[:limit]
     nxt = {"c": rows[-1].created_at.isoformat(), "i": str(rows[-1].id)} if more and rows else None
@@ -578,7 +594,7 @@ async def asm_04_create_test(
         await audit(session, principal, "test.created", "test", t.id, organization_id=org)
         return IdemResult(body=studio.test_out(t), status=201, resource_id=t.id)
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=False)
 
 
 async def _editable_test(
@@ -680,7 +696,34 @@ async def asm_09_publish(
         )
         return IdemResult(body=studio.test_out(t))
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=False)
+
+
+@dflt.post("/studio/tests/{test_id}/archive")
+async def asm_09b_archive(
+    request: Request,
+    test_id: uuid.UUID,
+    session: PrincipalDbSession,
+    principal: Principal = Depends(require_active_principal),
+) -> JSONResponse:
+    """Retire a test: whoever may edit it (``test.edit``) archives it; open assignment windows
+    close now; existing attempts and results stay readable."""
+    t = await _editable_test(request, session, principal, test_id)
+
+    async def op() -> IdemResult:
+        closed = await studio.archive(session, t)
+        await audit(
+            session,
+            principal,
+            "test.archived",
+            "test",
+            t.id,
+            organization_id=t.organization_id,
+            after={"closed_assignments": closed},
+        )
+        return IdemResult(body={**studio.test_out(t), "closed_assignments": closed})
+
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=False)
 
 
 # =========================================================================== assignments, overrides, results
@@ -700,7 +743,7 @@ async def asm_10_assign(
         a = await studio.create_assignment(request, session, principal, t, body)
         return IdemResult(body=studio.assignment_out(a), status=201, resource_id=a.id)
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=False)
 
 
 @dflt.get("/tests/{test_id}/assignments")
@@ -741,7 +784,7 @@ async def asm_13_override(
         o = await studio.create_override(request, session, principal, t, body)
         return IdemResult(body=studio.override_out(o), status=201, resource_id=o.id)
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=False)
 
 
 @dflt.get("/tests/{test_id}/overrides")
@@ -781,7 +824,7 @@ async def asm_16_release(
             body=await studio.release_results(request, session, principal, t, body.test_assignment_id)
         )
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=False)
 
 
 @dflt.post("/attempts/{attempt_id}/rebind-override", status_code=201)
@@ -822,7 +865,7 @@ async def asm_21_rebind_override(
         )
         return IdemResult(body={"attempt_id": str(att.id), "granted": True}, status=201)
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=False)
 
 
 # =========================================================================== integrity + report
@@ -863,7 +906,7 @@ async def asm_20_integrity_decision(
         out, status = await integrity.decide(request, session, principal, attempt_id, body.outcome, body.note)
         return IdemResult(body=out, status=status, resource_id=attempt_id)
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=False)
 
 
 @dflt.post("/attempts/{attempt_id}/invalidate")
@@ -883,7 +926,7 @@ async def asm_18_invalidate(
             resource_id=att.id,
         )
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=False)
 
 
 @dflt.get("/tests/{test_id}/report")
@@ -939,7 +982,7 @@ async def asm_26_ai_grade(
             )
         )
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=False)
 
 
 @dflt.post("/attempts/{attempt_id}/items/{question_version_id}/grade")
@@ -958,7 +1001,7 @@ async def asm_27_grade_item(
             )
         )
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=False)
 
 
 router = APIRouter()

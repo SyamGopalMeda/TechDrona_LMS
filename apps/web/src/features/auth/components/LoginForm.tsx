@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useRef, useState, type FormEvent } from "react";
 import { Button, Checkbox, FormField, Input } from "@/components/ui";
+import { useSimpleAuth } from "@/components/shell/Integrations";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { formatCountdown, retryAfterSeconds, toFormError, type FormErrorInfo } from "../lib/errors";
@@ -15,9 +16,10 @@ const COPY = {
   invalid: "That email/mobile and password don't match. Check them and try again.",
 };
 
-/** PUB-012 · AUTH-06 password login (passkey and Google sign-in are not in this build). */
+/** PUB-012 · AUTH-06 password login (Google sign-in for students: GoogleSignIn; passkeys are not in this build). */
 export function LoginForm({ next }: { next?: string }) {
   const router = useRouter();
+  const simple = useSimpleAuth();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
@@ -33,7 +35,7 @@ export function LoginForm({ next }: { next?: string }) {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const fe: typeof fieldErr = {};
-    if (!identifier.trim()) fe.identifier = "Enter your email or mobile number.";
+    if (!identifier.trim()) fe.identifier = "Enter your email, username or mobile number.";
     if (!password) fe.password = "Enter your password.";
     setFieldErr(fe);
     if (fe.identifier || fe.password) return;
@@ -105,29 +107,31 @@ export function LoginForm({ next }: { next?: string }) {
           ) : null}
         </FormAlert>
       </div>
-      <FormField label="Email or mobile" error={fieldErr.identifier} required>
+      <FormField label="Email or mobile" hint="Sign in with your email or the username we sent you (e.g. td123456)." error={fieldErr.identifier} required>
         {(f) => (
-          <Input {...f} name="identifier" autoComplete="username" inputMode="email" value={identifier} onChange={(e) => setIdentifier(e.target.value)} />
+          <Input {...f} name="identifier" autoComplete="username" value={identifier} onChange={(e) => setIdentifier(e.target.value)} />
         )}
       </FormField>
-      <FormField label="Password" error={fieldErr.password} required>
-        {(f) => <PasswordInput {...f} name="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />}
-      </FormField>
+      <div className="space-y-1.5">
+        <FormField label="Password" error={fieldErr.password} required>
+          {(f) => <PasswordInput {...f} name="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />}
+        </FormField>
+        <p className="text-right text-sm">
+          <Link href="/forgot-password" className="text-fg-link underline">
+            Forgot password?
+          </Link>
+        </p>
+      </div>
       <Checkbox
-        label="Remember this device (30 days)"
-        description="Only on your own trusted device."
+        label={simple ? "Keep me signed in" : "Remember this device (30 days)"}
+        description={simple ? "Only on your own phone or computer." : "Only on your own trusted device."}
         checked={remember}
         onChange={(e) => setRemember(e.target.checked)}
       />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button type="submit" loading={busy} disabled={throttle > 0}>
-          Sign in
-        </Button>
-        <Link href="/forgot-password" className="text-sm text-fg-link underline">
-          Forgot password?
-        </Link>
-      </div>
-      <p className="text-sm text-fg-muted">
+      <Button type="submit" size="lg" className="w-full" loading={busy} disabled={throttle > 0}>
+        Log in
+      </Button>
+      <p className="text-center text-sm text-fg-muted">
         New to Tech Drona?{" "}
         <Link href={next ? `/signup?next=${encodeURIComponent(next)}` : "/signup"} className="text-fg-link underline">
           Create an account

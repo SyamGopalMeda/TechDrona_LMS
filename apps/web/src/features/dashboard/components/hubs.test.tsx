@@ -1,8 +1,8 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockApi, renderWithProviders } from "@/features/auth/test/mock-api";
-import { DiagnosticLauncher, LearningPath, subjectOf } from "./LearnerHubs";
-import { StudentDashboard } from "./StudentDashboard";
+import { DiagnosticLauncher, GetStarted, LearningPath, subjectOf } from "./LearnerHubs";
+import { StudentDashboard, dueSoonItems } from "./StudentDashboard";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/app", useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 vi.mock("@/lib/analytics/use-activity-tracker", () => ({ useActivityTracker: () => undefined }));
@@ -71,5 +71,45 @@ describe("StudentDashboard upcoming tests (FE-23)", () => {
     expect(screen.getByRole("link", { name: "Test a" })).toBeInTheDocument();
     expect(screen.queryByText("Test c")).not.toBeInTheDocument();
     expect(screen.queryByText(/not shown here yet/)).not.toBeInTheDocument();
+  });
+});
+
+describe("Dashboard layout (UI audit: description, stat tiles, Due soon)", () => {
+  const work = (id: string, due: string | null, my_status = "not_submitted") => ({ id, title: `Work ${id}`, due_at: due, my_status, my_score: null }) as never;
+
+  it("merges open assignments and tests, in-progress first then soonest", () => {
+    const testsIn = [
+      { ...t("x", "mock", "in_progress"), available_until: "2026-12-30T00:00:00Z" },
+      { ...t("y", "mock", "available"), available_until: "2026-11-20T00:00:00Z" },
+      t("z", "mock", "closed"),
+    ];
+    const items = dueSoonItems([work("a1", "2026-11-15T00:00:00Z"), work("a2", null), work("a3", "2026-11-10T00:00:00Z", "graded")], testsIn as never);
+    expect(items.map((i) => i.key)).toEqual(["t-x", "a-a1", "t-y", "a-a2"]);
+    expect(items[1]).toMatchObject({ kind: "Assignment", statusLabel: "To do", href: "/app/assignments/a1" });
+  });
+
+  it("shows a description, linked stat tiles and one Due soon list", async () => {
+    restore = mockApi({ "GET me/dashboard": { body: { ...emptyDash, assigned_work: [work("a1", "2026-11-15T00:00:00Z")] } }, "GET me/tests": { body: tests } }).restore;
+    renderWithProviders(<StudentDashboard />);
+    expect(await screen.findByText("Pick up where you left off and see what's due next.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Assignments to do/ })).toHaveAttribute("href", "/app/assignments");
+    const due = await screen.findByRole("list", { name: "Due soon" });
+    expect(within(due).getByRole("link", { name: "Work a1" })).toBeInTheDocument();
+    expect(await within(due).findByRole("link", { name: "Test a" })).toBeInTheDocument();
+  });
+});
+
+describe("Get started (STU-002)", () => {
+  it("offers a mock test when no diagnostic is open instead of a dead-end page", async () => {
+    restore = mockApi({ "GET me/tests": { body: { items: [t("m", "mock", "available")], server_now: "" } }, "GET placement/subjects": { body: { items: [] } } }).restore;
+    renderWithProviders(<GetStarted />);
+    expect(await screen.findByRole("link", { name: "Take a mock test" })).toHaveAttribute("href", "/app/tests");
+    expect(screen.queryByRole("link", { name: "Take the free diagnostic" })).not.toBeInTheDocument();
+  });
+
+  it("links straight to an open diagnostic test", async () => {
+    restore = mockApi({ "GET me/tests": { body: tests }, "GET placement/subjects": { body: { items: [] } } }).restore;
+    renderWithProviders(<GetStarted />);
+    expect(await screen.findByRole("link", { name: "Take the free diagnostic" })).toHaveAttribute("href", "/app/tests/a");
   });
 });

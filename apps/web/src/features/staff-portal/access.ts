@@ -24,11 +24,26 @@ export function canEnterPortal(portals: readonly string[] | undefined, portal: P
   return portals.includes(PORTALS.admin.prefix) && portal !== "student";
 }
 
-/** The portals the caller can open, in registry order, for the 403 page's portal switcher.
+/** The portals the caller can open, in registry order (a portal-switcher list).
  * Admin sections (finance, support, security, mentoring) are reached through the Admin portal. */
 export function reachablePortals(portals: readonly string[] | undefined): { href: string; title: string }[] {
   const set = new Set(portals ?? []);
   return Object.values(PORTALS)
     .filter((p) => set.has(p.prefix) && !p.parent)
     .map((p) => ({ href: p.prefix, title: p.title }));
+}
+
+/** Home portal priority, most privileged first (api sessions/login.py LANDING_ORDER, then student). */
+const HOME_ORDER: readonly PortalKey[] = ["admin", "studio", "trainer", "evaluator", "student"];
+
+/**
+ * Where to send a signed-in user who opened a portal their roles do not open: their own home
+ * portal (Student → `/app`, Trainer → `/trainer`, Admin → `/admin`…). `null` only when the
+ * account opens no portal at all (then a friendly "no access yet" page is shown instead).
+ */
+export function homePortal(portals: readonly string[] | undefined): string | null {
+  if (!portals?.length) return null;
+  for (const key of HOME_ORDER) if (portals.includes(PORTALS[key].prefix)) return PORTALS[key].prefix;
+  // Any other known portal prefix the api lists (e.g. a legacy /desk grant).
+  return portals.find((p) => Object.values(PORTALS).some((d) => d.prefix === p)) ?? null;
 }

@@ -28,7 +28,8 @@ from app.core.pagination import decode_cursor, page_meta
 from app.core.principal import Principal
 from app.core.time import utcnow
 from app.modules.assessments import attempts as svc
-from app.modules.assessments.models import AttemptIntegrityDecision, TestAttempt
+from app.modules.assessments import datastore as adb
+from app.modules.assessments.models import AttemptIntegrityDecision, Test, TestAttempt
 from app.modules.placement.policies import has_permission
 
 # --------------------------------------------------------------------------- thresholds
@@ -240,6 +241,17 @@ async def _query_flags(
     cursor: dict[str, Any] | None = None,
     limit: int = 25,
 ) -> list[Any]:
+    if adb.on_firestore():
+        return await _query_flags_store(
+            session,
+            scope,
+            test_id=test_id,
+            batch_id=batch_id,
+            attempt_id=attempt_id,
+            status=status,
+            cursor=cursor,
+            limit=limit,
+        )
     stmt = text(FLAGS_SQL).bindparams(_uuid_list("orgs"), _uuid_list("batches"))
     params = {
         "platform": scope.platform,
@@ -253,7 +265,129 @@ async def _query_flags(
         "c_id": uuid.UUID(str(cursor["id"])) if cursor else None,
         "lim": limit,
     }
-    return list((await session.execute(stmt, params)).all())
+    return list((await adb.execute(session, stmt, params)).all())
+
+
+class _FlagRow:
+    """Row with ``_mapping`` like the ``FLAGS_SQL`` result rows."""
+
+    def __init__(self, m: dict[str, Any]) -> None:
+        self._mapping = m
+
+
+async def _code_signals(session: Any, attempts: list[TestAttempt]) -> dict[uuid.UUID, tuple[int, int]]:
+    """``cs`` CTE: (max submits per problem per hour, similarity flags) per attempt, from
+    ``coding.public`` (no join across stores)."""
+    from app.modules.coding import public as coding_public
+
+    return await coding_public.attempt_code_signals(session, [a.id for a in attempts])
+
+
+async def _query_flags_store(
+    session: AsyncSession,
+    scope: Scope,
+    *,
+    test_id: uuid.UUID | None,
+    batch_id: uuid.UUID | None,
+    attempt_id: uuid.UUID | None,
+    status: str,
+    cursor: dict[str, Any] | None,
+    limit: int,
+) -> list[Any]:
+    """``FLAGS_SQL`` evaluated over the store (same filters, signals, decision, order, keyset)."""
+    from collections import Counter
+
+    from app.modules.assessments.models import AttemptEvent, AttemptIntegrityDecision
+
+    q = select(TestAttempt)
+    if attempt_id is not None:
+        q = q.where(TestAttempt.id == attempt_id)
+    if test_id is not None:
+        q = q.where(TestAttempt.test_id == test_id)
+    if batch_id is not None:
+        q = q.where(TestAttempt.batch_id == batch_id)
+    atts = [
+        a
+        for a in (await adb.execute(session, q)).scalars()
+        if scope.platform or a.organization_id in scope.orgs or a.batch_id in scope.batches
+    ]
+    if not atts:
+        return []
+    ids = [a.id for a in atts]
+    ev: dict[uuid.UUID, Counter[str]] = {}
+    for e in (
+        await adb.execute(
+            session,
+            select(AttemptEvent.attempt_id, AttemptEvent.event_type).where(
+                AttemptEvent.attempt_id.in_(ids), AttemptEvent.event_type.in_(EVENT_SIGNALS)
+            ),
+        )
+    ).all():
+        ev.setdefault(e[0], Counter())[e[1]] += 1
+    decs: dict[uuid.UUID, Any] = {}
+    for d in (
+        await adb.execute(
+            session, select(AttemptIntegrityDecision).where(AttemptIntegrityDecision.attempt_id.in_(ids))
+        )
+    ).scalars():
+        cur = decs.get(d.attempt_id)
+        if cur is None or d.created_at > cur.created_at:
+            decs[d.attempt_id] = d
+    tests = {
+        t.id: t
+        for t in (
+            await adb.execute(session, select(Test).where(Test.id.in_({a.test_id for a in atts})))
+        ).scalars()
+    }
+    from app.modules.identity import public as identity_public
+
+    profiles = await identity_public.get_profiles(session, {a.user_id for a in atts})
+    code = await _code_signals(session, atts)
+    rows: list[dict[str, Any]] = []
+    for a in atts:
+        if a.test_id not in tests:
+            continue
+        c = ev.get(a.id, Counter())
+        d = decs.get(a.id)
+        prof = profiles.get(a.user_id)
+        burst, sim = code.get(a.id, (0, 0))
+        m: dict[str, Any] = {
+            "id": a.id,
+            "test_id": a.test_id,
+            "test_title": tests[a.test_id].title,
+            "user_id": a.user_id,
+            "student_name": (prof.display_name or prof.full_name) if prof else None,
+            "organization_id": a.organization_id,
+            "batch_id": a.batch_id,
+            "attempt_status": a.status,
+            "attempt_no": a.attempt_no,
+            "started_at": a.started_at,
+            "submitted_at": a.submitted_at,
+            "integrity_status": a.integrity_status,
+            **{k: c.get(k, 0) for k in EVENT_SIGNALS},
+            "code_submit_burst": burst,
+            "similarity_flags": sim,
+            "decision_id": d.id if d else None,
+            "outcome": d.outcome if d else None,
+            "note": d.note if d else None,
+            "decided_at": d.created_at if d else None,
+            "decided_by": d.decided_by if d else None,
+            "security_case_ref": d.security_case_ref if d else None,
+        }
+        flagged = any((m.get(k) or 0) >= t for k, (t, _) in THRESHOLDS.items())
+        if not (flagged or m["decision_id"] is not None or a.integrity_status == "review_recommended"):
+            continue
+        if status == "open" and m["decision_id"] is not None:
+            continue
+        if status == "decided" and m["decision_id"] is None:
+            continue
+        if cursor is not None:
+            cs, cid = datetime.fromisoformat(str(cursor["s"])), uuid.UUID(str(cursor["id"]))
+            if not ((a.started_at, a.id) < (cs, cid)):
+                continue
+        rows.append(m)
+    rows.sort(key=lambda m: (m["started_at"], m["id"]), reverse=True)
+    return [_FlagRow(m) for m in rows[:limit]]
 
 
 async def list_flags(
@@ -311,11 +445,12 @@ async def attempt_signals(session: AsyncSession, attempt: TestAttempt) -> dict[s
 
 async def _latest_decision(session: AsyncSession, attempt_id: uuid.UUID) -> AttemptIntegrityDecision | None:
     return (
-        await session.execute(
+        await adb.execute(
+            session,
             select(AttemptIntegrityDecision)
             .where(AttemptIntegrityDecision.attempt_id == attempt_id)
             .order_by(AttemptIntegrityDecision.created_at.desc(), AttemptIntegrityDecision.id.desc())
-            .limit(1)
+            .limit(1),
         )
     ).scalar_one_or_none()
 
@@ -363,7 +498,7 @@ async def _open_referral(
     from app.modules.security import cases as sec_cases
     from app.modules.security import engine as sec_engine
 
-    await session.flush()
+    await adb.flush(session)
     async with system_context(session, "assessments.integrity_referral"):
         case = await sec_engine.open_case(
             session,
@@ -383,14 +518,14 @@ async def _open_referral(
             f"Integrity referral for attempt {att.id} (test {att.test_id}). Signals: {summary}. "
             f"Reviewer note: {note}",
         )
-        await session.flush()
+        await adb.flush(session)
         return case.id, case.case_ref
 
 
 async def _notify_invalidated(session: AsyncSession, principal: Principal, att: TestAttempt) -> None:
     from app.modules.notifications.service import notify
 
-    await session.flush()
+    await adb.flush(session)
     async with system_context(session, "assessments.notify_invalidated"):
         await notify(
             session,
@@ -407,7 +542,7 @@ async def _notify_invalidated(session: AsyncSession, principal: Principal, att: 
             priority="high",
             dedupe_key=f"attempt_invalidated:{att.id}",
         )
-        await session.flush()
+        await adb.flush(session)
 
 
 async def invalidate(
@@ -430,7 +565,7 @@ async def invalidate(
         principal=principal,
         payload={"source": source, "by": str(principal.user_id)},
     )
-    await session.flush()
+    await adb.flush(session)
     await audit(
         session,
         principal,
@@ -499,8 +634,8 @@ async def decide(
         decided_by=principal.user_id,
         created_at=utcnow(),
     )
-    session.add(d)
-    await session.flush()
+    adb.add(session, d)
+    await adb.flush(session)
     await audit(
         session,
         principal,

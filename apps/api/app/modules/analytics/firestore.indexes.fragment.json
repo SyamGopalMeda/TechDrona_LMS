@@ -1,0 +1,173 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "lms_topic_mastery",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "topic_id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_security_activity_feed_daily",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "activity_date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_daily_learning_aggregates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "entity_kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "activity_date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_analytics_batches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "event_ids",
+          "arrayConfig": "CONTAINS"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_analytics_batches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "page_instance_ids",
+          "arrayConfig": "CONTAINS"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_analytics_batches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "days",
+          "arrayConfig": "CONTAINS"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_analytics_batches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "session_ids",
+          "arrayConfig": "CONTAINS"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_engagement_intervals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "page_instance_id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_engagement_intervals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "started_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_daily_learning_aggregates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "activity_date",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "lms_analytics_batches",
+      "fieldPath": "heartbeats",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_analytics_batches",
+      "fieldPath": "events",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_analytics_batches",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_analytics_page_heartbeats",
+      "fieldPath": "hbs",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_analytics_page_heartbeats",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": []
+    }
+  ]
+}

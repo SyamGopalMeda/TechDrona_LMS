@@ -16,13 +16,47 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.firestore.backend import uses_firestore
 from app.core.ids import uuid7
 from app.modules.identity import clock
 from app.modules.orgs.models import Batch, BatchMember, Organization, OrgMembership
+
+
+def _fs() -> bool:
+    """``TD_STORE_ORGS=firestore``: orgs tables live in Firestore (repo_firestore)."""
+    return uses_firestore("orgs")
+
+
+def _repo() -> Any:
+    from app.modules.orgs.repo_firestore import system_repo
+
+    return system_repo()
+
+
+async def _fs_learner_org_context(user_id: uuid.UUID, batch_id: uuid.UUID | None) -> LearnerOrgContext | None:
+    repo = _repo()
+    active_orgs = set(await repo.active_student_org_ids(user_id))
+    members = [
+        m
+        for m in await repo.batch_memberships_for(user_id)
+        if m.status == "active" and m.member_role == "student"
+    ]
+    batches = await repo.get_batches(list({m.batch_id for m in members}))
+    live = [m for m in members if m.batch_id in batches and batches[m.batch_id].status != "archived"]
+    if batch_id is not None:
+        for m in live:
+            if m.batch_id == batch_id and m.organization_id in active_orgs:
+                return LearnerOrgContext(organization_id=m.organization_id, batch_id=batch_id)
+    if len(active_orgs) != 1:
+        return None
+    org_id = next(iter(active_orgs))
+    ids = {m.batch_id for m in live if m.organization_id == org_id}
+    return LearnerOrgContext(organization_id=org_id, batch_id=next(iter(ids)) if len(ids) == 1 else None)
 
 
 @dataclass(frozen=True)
@@ -49,6 +83,8 @@ async def get_learner_org_context(
     ``batch_id``, learning module); callers that know the enrolment should pass its
     ``batch_id`` or use the enrolment's organization first.
     """
+    if _fs():
+        return await _fs_learner_org_context(user_id, batch_id)
     live_orgs = select(Organization.id).where(
         Organization.deleted_at.is_(None), Organization.status == "active"
     )
@@ -107,6 +143,8 @@ async def get_learner_org_context(
 async def active_student_org_ids(session: AsyncSession, user_id: uuid.UUID) -> list[uuid.UUID]:
     """Public: the live (active, not deleted) organizations where ``user_id`` has an active
     student membership, ordered by id (analytics BE-02 attribution; requested by ``assess``)."""
+    if _fs():
+        return await _repo().active_student_org_ids(user_id)
     rows = await session.execute(
         select(OrgMembership.organization_id)
         .join(Organization, Organization.id == OrgMembership.organization_id)
@@ -147,6 +185,8 @@ async def ensure_org_membership(
     """Create or reactivate ``user_id``'s membership in ``org_id`` (the company org) when they
     join a batch. ``staff`` is never downgraded to ``student``. Runs on the caller's session
     (RLS family T: the caller must hold the organization in ``app.org_ids`` or be platform)."""
+    if _fs():
+        return await _repo().ensure_membership(org_id, user_id, member_type=member_type, added_by=added_by)
     m = (
         await session.execute(
             select(OrgMembership).where(
@@ -185,6 +225,8 @@ async def end_student_membership_if_no_batches(
     """REMOVAL-PLAN §3: when a student's last active batch membership in ``org_id`` ends,
     their *student* org membership becomes ``left`` (staff memberships are untouched).
     Returns True when the membership was ended."""
+    if _fs():
+        return await _repo().end_student_membership_if_no_batches(org_id, user_id)
     still = (
         await session.execute(
             select(BatchMember.id)
@@ -214,3 +256,46 @@ async def end_student_membership_if_no_batches(
     m.left_at = clock.now()
     await session.flush()
     return True
+
+
+# --------------------------------------------------------------------------- attendance gate
+
+
+async def attendance_certificate_block(
+    session: AsyncSession, batch_id: uuid.UUID, user_id: uuid.UUID
+) -> str | None:
+    """Public (learning certificates, ``due_enrolments``): why ``user_id`` may not get a
+    certificate yet because of attendance in ``batch_id``, else ``None``.
+
+    Off unless the batch plan sets ``min_attendance_percent`` (orgs_0005; NULL = off, the
+    default). Classes never marked for the learner do not block (website ``evaluate`` rule);
+    late counts as attended; cancelled classes are ignored. Runs on the caller's session.
+    """
+    from app.modules.orgs.course_plan import attendance_block_reason, summarize
+    from app.modules.orgs.models import BatchPlan, ClassAttendance, ClassSession
+
+    if _fs():
+        plan = await _repo().batch_plan(batch_id)
+        if plan is None or not plan.min_attendance_percent:
+            return None
+        marks = await _repo().attendance_statuses(batch_id, user_id)
+        return attendance_block_reason(summarize(marks), plan.min_attendance_percent)
+    minimum = (
+        await session.execute(select(BatchPlan.min_attendance_percent).where(BatchPlan.batch_id == batch_id))
+    ).scalar_one_or_none()
+    if not minimum:
+        return None
+    statuses = list(
+        (
+            await session.execute(
+                select(ClassAttendance.status)
+                .join(ClassSession, ClassSession.id == ClassAttendance.session_id)
+                .where(
+                    ClassAttendance.batch_id == batch_id,
+                    ClassAttendance.user_id == user_id,
+                    ClassSession.cancelled.is_(False),
+                )
+            )
+        ).scalars()
+    )
+    return attendance_block_reason(summarize(statuses), minimum)

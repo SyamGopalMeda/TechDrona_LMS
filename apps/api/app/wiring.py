@@ -34,7 +34,6 @@ from decimal import Decimal
 from typing import Any
 
 import structlog
-from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.outbox import OutboxMessage, register_handler
@@ -46,79 +45,56 @@ log = structlog.get_logger("app.wiring")
 
 async def lesson_parents(session: AsyncSession, lesson_id: uuid.UUID) -> list[tuple[str, uuid.UUID]]:
     """lesson (row id or ``lesson_key``) -> its course."""
-    rows = await session.execute(
-        text(
-            "SELECT DISTINCT cv.course_id FROM lessons l "
-            "JOIN course_versions cv ON cv.id = l.course_version_id "
-            "WHERE l.id = :i OR l.lesson_key = :i"
-        ),
-        {"i": lesson_id},
-    )
-    return [("course", r[0]) for r in rows.all()]
+    from app.modules.catalog import api as catalog_api
+
+    ids = await catalog_api.course_ids_for_lessons(session, lesson_id=lesson_id, match_lesson_key=True)
+    return [("course", c) for c in ids]
 
 
 async def resource_parents(session: AsyncSession, resource_id: uuid.UUID) -> list[tuple[str, uuid.UUID]]:
-    row = (
-        await session.execute(
-            text("SELECT course_id, lesson_id FROM resources WHERE id = :i"),
-            {"i": resource_id},
-        )
-    ).first()
-    if row is None:
+    from app.modules.catalog import api as catalog_api
+
+    res = (await catalog_api.get_resources(session, [resource_id])).get(resource_id)
+    if res is None:
         return []
     out: list[tuple[str, uuid.UUID]] = []
-    if row[0] is not None:
-        out.append(("course", row[0]))
-    if row[1] is not None:
-        out.append(("lesson", row[1]))
+    if res.course_id is not None:
+        out.append(("course", res.course_id))
+    if res.lesson_id is not None:
+        out.append(("lesson", res.lesson_id))
     return out
 
 
 async def coding_problem_parents(session: AsyncSession, problem_id: uuid.UUID) -> list[tuple[str, uuid.UUID]]:
     """problem -> topic practice set (its topic and that topic's root subject) and every course
     that embeds it as a lesson."""
+    from app.modules.coding import public as coding
+    from app.modules.placement import public as placement
+
     out: list[tuple[str, uuid.UUID]] = []
-    topics = await session.execute(
-        text(
-            """
-            SELECT t.id, r.id FROM coding_problems p
-            JOIN topics t ON t.id = p.primary_topic_id
-            LEFT JOIN topics r ON r.path = split_part(t.path, '/', 1)
-            WHERE p.id = :i
-            """
-        ),
-        {"i": problem_id},
-    )
-    for tid, rid in topics.all():
+    primary = await coding.problem_primary_topic(session, problem_id)
+    found = await placement.topic_with_root(session, primary) if primary is not None else None
+    if found is not None:
+        tid, rid = found
         out.append(("question_set", tid))
         if rid is not None and rid != tid:
             out.append(("question_set", rid))
-    courses = await session.execute(
-        text(
-            "SELECT DISTINCT cv.course_id FROM lessons l "
-            "JOIN course_versions cv ON cv.id = l.course_version_id "
-            "WHERE l.coding_problem_id = :i"
-        ),
-        {"i": problem_id},
-    )
-    out += [("course", r[0]) for r in courses.all()]
+    from app.modules.catalog import api as catalog_api
+
+    out += [
+        ("course", c) for c in await catalog_api.course_ids_for_lessons(session, coding_problem_id=problem_id)
+    ]
     return out
 
 
 async def test_parents(session: AsyncSession, test_id: uuid.UUID) -> list[tuple[str, uuid.UUID]]:
     """test -> company paths that contain it as a step, and courses that embed it."""
-    paths = await session.execute(
-        text("SELECT DISTINCT company_path_id FROM company_path_steps WHERE test_id = :i"), {"i": test_id}
-    )
-    courses = await session.execute(
-        text(
-            "SELECT DISTINCT cv.course_id FROM lessons l "
-            "JOIN course_versions cv ON cv.id = l.course_version_id "
-            "WHERE l.test_id = :i"
-        ),
-        {"i": test_id},
-    )
-    return [("company_path", r[0]) for r in paths.all()] + [("course", r[0]) for r in courses.all()]
+    from app.modules.catalog import api as catalog_api
+    from app.modules.placement import public as placement
+
+    paths = await placement.company_paths_with_test(session, test_id)
+    courses = await catalog_api.course_ids_for_lessons(session, test_id=test_id)
+    return [("company_path", p) for p in paths] + [("course", c) for c in courses]
 
 
 # --------------------------------------------------------------------------- usage provider
@@ -127,12 +103,9 @@ async def test_parents(session: AsyncSession, test_id: uuid.UUID) -> list[tuple[
 async def _product_items(
     session: AsyncSession, product_id: uuid.UUID
 ) -> tuple[set[uuid.UUID], set[uuid.UUID]]:
-    rows = (
-        await session.execute(
-            text("SELECT course_id, test_id FROM product_items WHERE product_id = :p"), {"p": product_id}
-        )
-    ).all()
-    return {r[0] for r in rows if r[0]}, {r[1] for r in rows if r[1]}
+    from app.modules.commerce import public as commerce
+
+    return await commerce.product_item_refs(session, product_id)
 
 
 class LearningUsageProvider:
@@ -150,16 +123,10 @@ class LearningUsageProvider:
     ) -> Decimal:
         courses, tests = await _product_items(session, product_id)
         if courses:
-            rows = (
-                await session.execute(
-                    text(
-                        "SELECT course_id, max(progress_pct) FROM enrolments "
-                        "WHERE user_id = :u AND course_id = ANY(:c) GROUP BY course_id"
-                    ),
-                    {"u": user_id, "c": list(courses)},
-                )
-            ).all()
-            total = sum((Decimal(r[1]) for r in rows), Decimal("0"))
+            from app.modules.learning import public as learning
+
+            best = await learning.max_progress_by_course(session, user_id, courses)
+            total = sum((Decimal(v) for v in best.values()), Decimal("0"))
             return (total / len(courses)).quantize(Decimal("0.01"))
         if tests:
             started = await self._attempted_tests(session, user_id, tests)
@@ -172,38 +139,23 @@ class LearningUsageProvider:
         courses, _ = await _product_items(session, product_id)
         if not courses:
             return False
-        row = (
-            await session.execute(
-                text("SELECT 1 FROM certificates WHERE user_id = :u AND course_id = ANY(:c) LIMIT 1"),
-                {"u": user_id, "c": list(courses)},
-            )
-        ).first()
-        return row is not None
+        from app.modules.learning import public as learning
+
+        return await learning.has_certificate_for_courses(session, user_id, courses)
 
     async def mocks_started(self, session: AsyncSession, user_id: uuid.UUID, product_id: uuid.UUID) -> int:
         _, tests = await _product_items(session, product_id)
         if not tests:
             return 0
-        row = (
-            await session.execute(
-                text("SELECT count(*) FROM test_attempts WHERE user_id = :u AND test_id = ANY(:t)"),
-                {"u": user_id, "t": list(tests)},
-            )
-        ).first()
-        return int(row[0]) if row else 0
+        from app.modules.assessments import public as assessments
+
+        return int(await assessments.count_attempts(session, user_id, tests))
 
     @staticmethod
     async def _attempted_tests(session: AsyncSession, user_id: uuid.UUID, tests: set[uuid.UUID]) -> int:
-        row = (
-            await session.execute(
-                text(
-                    "SELECT count(DISTINCT test_id) FROM test_attempts "
-                    "WHERE user_id = :u AND test_id = ANY(:t)"
-                ),
-                {"u": user_id, "t": list(tests)},
-            )
-        ).first()
-        return int(row[0]) if row else 0
+        from app.modules.assessments import public as assessments
+
+        return int(await assessments.count_attempted_tests(session, user_id, tests))
 
 
 # --------------------------------------------------------------------------- learning lookups
@@ -217,36 +169,39 @@ async def video_coverage_lookup(
     BE-01 (assess request): per asset the covered seconds are capped at the asset's duration
     (``lesson_assets.duration_seconds``, else the duration recorded with the coverage), so
     coverage summed across rows can never exceed the video length."""
-    row = (
-        await session.execute(
-            text(
-                "SELECT max(s) FROM (SELECT LEAST(sum(c.covered_s), "
-                "COALESCE(max(la.duration_seconds), max(c.duration_s), sum(c.covered_s))) AS s "
-                "FROM video_watch_coverage c LEFT JOIN lesson_assets la ON la.id = c.lesson_asset_id "
-                "WHERE c.user_id = :u AND (c.lesson_id = :k OR c.lesson_id IN "
-                "(SELECT id FROM lessons WHERE lesson_key = :k)) GROUP BY c.lesson_asset_id) x"
-            ),
-            {"u": user_id, "k": lesson_key},
+    from app.modules.catalog import api as catalog_api
+
+    # Was one statement joining ``lesson_assets`` / ``lessons``; the catalog side now comes from
+    # catalog.api and the LEAST / COALESCE / max run here with SQL NULL semantics.
+    lesson_ids = [lesson_key] + [
+        le.id for le in await catalog_api.find_lessons(session, lesson_key=lesson_key)
+    ]
+    from app.modules.analytics import public as analytics
+
+    groups = await analytics.coverage_groups(session, user_id, lesson_ids)
+    if not groups:
+        return None
+    assets = await catalog_api.get_assets(session, {g[0] for g in groups if g[0] is not None})
+    best: Any = None
+    for asset_id, covered, max_dur in groups:
+        asset = assets.get(asset_id) if asset_id is not None else None
+        cap = next(
+            (v for v in (asset.duration_seconds if asset else None, max_dur, covered) if v is not None), None
         )
-    ).first()
-    return int(row[0]) if row and row[0] is not None else None
+        vals = [v for v in (covered, cap) if v is not None]  # LEAST ignores NULLs
+        s = min(vals) if vals else None
+        if s is not None and (best is None or s > best):
+            best = s
+    return int(best) if best is not None else None
 
 
 async def final_test_lookup(
     session: AsyncSession, user_id: uuid.UUID, test_id: uuid.UUID
 ) -> tuple[uuid.UUID, float] | None:
     """Best graded attempt of the final test (certificate rule)."""
-    from app.modules.assessments.models import AttemptResult
+    from app.modules.assessments import public as assessments
 
-    row = (
-        await session.execute(
-            select(AttemptResult.attempt_id, AttemptResult.percentage)
-            .where(AttemptResult.user_id == user_id, AttemptResult.test_id == test_id)
-            .order_by(AttemptResult.percentage.desc(), AttemptResult.graded_at)
-            .limit(1)
-        )
-    ).first()
-    return (row[0], float(row[1])) if row else None
+    return await assessments.best_result(session, user_id, test_id)
 
 
 # --------------------------------------------------------------------------- analytics adapters
@@ -276,18 +231,24 @@ def _catalog_lesson_meta() -> Any:
         async def lessons(self, session: AsyncSession, ids: set[uuid.UUID]) -> dict[uuid.UUID, LessonMeta]:
             if not ids:
                 return {}
-            rows = await session.execute(
-                text("SELECT id, est_reading_minutes FROM lessons WHERE id = ANY(:i)"), {"i": list(ids)}
-            )
-            return {r[0]: LessonMeta(float(r[1]) if r[1] is not None else None) for r in rows.all()}
+            from app.modules.catalog import api as catalog_api
+
+            lessons = await catalog_api.get_lessons(session, ids)
+            return {
+                i: LessonMeta(float(le.est_reading_minutes) if le.est_reading_minutes is not None else None)
+                for i, le in lessons.items()
+            }
 
         async def assets(self, session: AsyncSession, ids: set[uuid.UUID]) -> dict[uuid.UUID, AssetMeta]:
             if not ids:
                 return {}
-            rows = await session.execute(
-                text("SELECT id, duration_seconds FROM lesson_assets WHERE id = ANY(:i)"), {"i": list(ids)}
-            )
-            return {r[0]: AssetMeta(float(r[1]) if r[1] else None) for r in rows.all()}
+            from app.modules.catalog import api as catalog_api
+
+            assets = await catalog_api.get_assets(session, ids)
+            return {
+                i: AssetMeta(float(a.duration_seconds) if a.duration_seconds else None)
+                for i, a in assets.items()
+            }
 
     return CatalogLessonMeta()
 
@@ -304,11 +265,18 @@ def _uuid(v: Any) -> uuid.UUID | None:
 
 async def on_stream_cap_hit(session: AsyncSession, msg: OutboxMessage) -> None:
     """media ``stream_cap_hit`` -> security signal ``cap.stream`` (deterministic, RE §7.3)."""
-    from app.modules.security.signals import report_event
+    from app.modules.security.public import report_event
+    from app.modules.security.repo_fs_engine import detector_scope
 
     uid = _uuid(msg.payload.get("user_id"))
     if uid is None:
         return
+    # A failed detector rolls its Firestore writes back (savepoint equivalent; no-op on Postgres).
+    async with detector_scope():
+        await _report_cap(session, report_event, uid, msg)
+
+
+async def _report_cap(session: AsyncSession, report_event: Any, uid: uuid.UUID, msg: OutboxMessage) -> None:
     await report_event(
         session,
         "cap.stream",
@@ -324,8 +292,7 @@ async def on_stream_cap_hit(session: AsyncSession, msg: OutboxMessage) -> None:
 async def on_false_positive_credit(session: AsyncSession, msg: OutboxMessage) -> None:
     """security false-positive lift -> credit the restricted days to time-bound entitlements
     (BR-ENT-12 / FR-SEC-008). Idempotent per decision (``source_ref``)."""
-    from app.modules.entitlements.models import EntitlementEvent
-    from app.modules.entitlements.service import extend_entitlements_for_restriction
+    from app.modules.entitlements.public import event_exists, extend_entitlements_for_restriction
 
     p = msg.payload
     uid = _uuid(p.get("user_id"))
@@ -333,18 +300,7 @@ async def on_false_positive_credit(session: AsyncSession, msg: OutboxMessage) ->
     if uid is None or days <= 0:
         return
     decision = _uuid(p.get("decision_id")) or msg.id
-    done = (
-        await session.execute(
-            select(func.count())
-            .select_from(EntitlementEvent)
-            .where(
-                EntitlementEvent.user_id == uid,
-                EntitlementEvent.event_type == "fp_extension",
-                EntitlementEvent.source_ref == decision,
-            )
-        )
-    ).scalar_one()
-    if done:
+    if await event_exists(session, uid, "fp_extension", decision):
         return
     await extend_entitlements_for_restriction(
         session,

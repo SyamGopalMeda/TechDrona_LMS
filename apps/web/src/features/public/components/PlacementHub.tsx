@@ -25,7 +25,7 @@ export function PlacementHub({ subjects, signedIn }: { subjects: TaxonomyNode[];
         <LinkButton href={signedIn ? "/app/practice" : "/signup?next=%2Fapp%2Fpractice"}>{signedIn ? "Start practising" : "Sign up to practise"}</LinkButton>
       </header>
       {subjects.length === 0 ? (
-        <EmptyState
+        <EmptyState icon="book"
           title="No subjects published yet"
           description="Check back soon, or browse the courses."
           action={

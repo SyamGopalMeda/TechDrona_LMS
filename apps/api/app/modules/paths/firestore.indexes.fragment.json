@@ -1,0 +1,118 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "lms_path_allocations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "path_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_path_allocations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "path_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_path_allocations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "user_ids",
+          "arrayConfig": "CONTAINS"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_path_allocations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "batch_id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_path_step_progress",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "allocation_id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_path_articles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "deleted_at",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "updated_at",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "lms_learning_paths",
+      "fieldPath": "steps",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_learning_path_versions",
+      "fieldPath": "steps",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_path_articles",
+      "fieldPath": "body_md",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_path_articles",
+      "fieldPath": "toc",
+      "indexes": []
+    }
+  ]
+}

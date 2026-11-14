@@ -65,3 +65,11 @@ async def _any_user(db: Any) -> uuid.UUID:
     from tests.identity.factory import make_user
 
     return (await make_user(db)).id
+
+
+# Store matrix (docs/firebase/p2.md): ``@pytest.mark.usefixtures("ai_backend")`` runs a test on
+# Postgres and on the Firestore emulator (platform AI settings + app toggles).
+from tests.firestore.conftest import firestore_emulator  # noqa: E402, F401
+from tests.firestore.matrix import backend_fixture  # noqa: E402
+
+ai_backend = backend_fixture("ai")

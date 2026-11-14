@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Button, Card, Checkbox, Dialog, FormField, Input, Pagination, Select, Table, nextCursorStack, previousCursorStack, useToast } from "@/components/ui";
+import { Button, Card, Checkbox, ConfirmDialog, Dialog, FormField, Input, PageHeader, Pagination, Select, Table, nextCursorStack, previousCursorStack, useToast, type Crumb } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import type { Body, Schema } from "@/lib/api-types";
@@ -12,6 +12,7 @@ import { Boundary, StatusBadge, fieldErrorsOf, localInputToIso, useFailToast } f
 import type { TestSummary } from "@/features/trainer/lib/types";
 import { ExamProtocolSettings, validateProtocol } from "@/features/assessment/components/ExamProtocolSettings";
 import { QuestionBankPicker } from "@/features/question-bank/QuestionBankPicker";
+import { EntityHeader, SectionNav, StickyActionBar } from "./EditorChrome";
 import type { PublishedCodingProblem, QuestionSummary, TestDefinition, TestSectionOut, ValidationResult } from "../lib/types";
 
 type TestKind = Schema<"TestCreate">["test_kind"];
@@ -125,8 +126,11 @@ export function BatchOwned({ batchId }: { batchId: string }) {
   );
 }
 
-/** CMS-011 test blueprints / template mocks (ASM-03, ASM-04). */
-export function TestBlueprints({ hrefPattern }: { hrefPattern: string }) {
+/**
+ * CMS-011 test blueprints / template mocks (ASM-03, ASM-04). With `header`, the page header is
+ * rendered here so "New test" sits in its actions slot (one primary per view).
+ */
+export function TestBlueprints({ hrefPattern, header }: { hrefPattern: string; header?: { title: string; description?: string } }) {
   const editHref = (id: string) => hrefPattern.replace(":id", encodeURIComponent(id));
   const router = useRouter();
   // verified: app/modules/assessments/router.py asm_03_list_tests → {items: test_out[], page} (BE-21 cursor)
@@ -139,9 +143,13 @@ export function TestBlueprints({ hrefPattern }: { hrefPattern: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button onClick={() => setOpen(true)}>New test</Button>
-      </div>
+      {header ? (
+        <PageHeader title={header.title} description={header.description} actions={<Button onClick={() => setOpen(true)}>New test</Button>} />
+      ) : (
+        <div className="flex justify-end">
+          <Button onClick={() => setOpen(true)}>New test</Button>
+        </div>
+      )}
       <Table
         caption="Tests"
         columns={[
@@ -154,7 +162,7 @@ export function TestBlueprints({ hrefPattern }: { hrefPattern: string }) {
               </Link>
             ),
           },
-          { key: "k", header: "Kind", cell: (t) => KINDS.find((k) => k.value === t.test_kind)?.label ?? t.test_kind },
+          { key: "k", header: "Kind", cell: (t) => testKindLabel(t.test_kind) },
           { key: "d", header: "Duration", cell: (t) => (t.duration_seconds ? `${Math.round(t.duration_seconds / 60)} min` : "—") },
           { key: "o", header: "Owner", cell: (t) => (t.batch_id ? <BatchOwned batchId={t.batch_id} /> : <span className="text-fg-muted">—</span>) },
           { key: "s", header: "Status", cell: (t) => <StatusBadge status={t.status} /> },
@@ -164,7 +172,7 @@ export function TestBlueprints({ hrefPattern }: { hrefPattern: string }) {
         loading={tests.loading}
         error={tests.error}
         onRetry={() => void tests.reload()}
-        empty={{ title: "No tests yet", action: <Button onClick={() => setOpen(true)}>New test</Button> }}
+        empty={{ title: "No tests yet", description: "Create a template mock, add sections and draw rules, then publish it for trainers to assign." }}
       />
       {page?.has_more || cursors.length > 1 ? (
         <Pagination
@@ -518,7 +526,28 @@ function stripHtml(html: string): string {
  * Settings lock after the first attempt (409 test_settings_locked). Coding sections: fixed
  * coding items by `coding_problem_id`, and random rules restricted to `question_types: ["coding"]`.
  */
-export function TestBuilder({ testId }: { testId: string }) {
+const BUILDER_SECTIONS = [
+  { id: "test-settings", label: "Settings" },
+  { id: "test-review-policy", label: "Review policy" },
+  { id: "test-integrity", label: "Integrity" },
+  { id: "test-protocol", label: "Exam protocol" },
+  { id: "test-sections", label: "Sections" },
+];
+
+/** "mock" → "Mock test": the label authors see in the studio, for every list that shows a kind. */
+export function testKindLabel(kind: string | null | undefined): string {
+  if (!kind) return "—";
+  const known = KINDS.find((k) => k.value === kind)?.label;
+  if (known) return known;
+  const words = kind.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * CMS-011 / TRN-006 test builder. `crumbs` is the parent trail of the page (studio "Template
+ * mocks" or trainer "Tests"); the test's title becomes the h1.
+ */
+export function TestBuilder({ testId, crumbs = [] }: { testId: string; crumbs?: Crumb[] }) {
   const toast = useToast();
   const fail = useFailToast();
   const test = useApi<TestDefinition>(`studio/tests/${seg(testId)}`);
@@ -531,8 +560,10 @@ export function TestBuilder({ testId }: { testId: string }) {
   const [picking, setPicking] = useState<number | null>(null);
   const [pickingCoding, setPickingCoding] = useState<number | null>(null);
   const [pickingBank, setPickingBank] = useState<number | null>(null);
+  const [confirmArchive, setConfirmArchive] = useState(false);
 
   const t = test.data;
+  const archived = t?.status === "archived";
   useEffect(() => {
     if (!t) return;
     setS(toSettings(t));
@@ -611,12 +642,19 @@ export function TestBuilder({ testId }: { testId: string }) {
   const otherErrors = Object.entries(errors).filter(([k]) => !known(k));
 
   return (
+    <>
+    <EntityHeader
+      title={t?.title}
+      fallback="Test builder"
+      crumbs={crumbs}
+      meta={t ? <StatusBadge status={t.status} /> : null}
+      description={t ? testKindLabel(t.test_kind) : undefined}
+    />
     <Boundary state={test}>
       {(def) =>
         !s ? null : (
           <div className="space-y-6">
             <div className="flex flex-wrap items-center gap-3">
-              <StatusBadge status={def.status} />
               {def.version ? <span className="text-sm text-fg-muted">Version {def.version}</span> : null}
               {def.batch_id ? <BatchOwned batchId={def.batch_id} /> : null}
               {locked ? (
@@ -625,7 +663,8 @@ export function TestBuilder({ testId }: { testId: string }) {
                 </p>
               ) : null}
             </div>
-            <Card title="Settings">
+            <SectionNav sections={BUILDER_SECTIONS} label="Test builder sections" />
+            <Card id="test-settings" className="scroll-mt-20" title="Settings">
               <fieldset disabled={locked} className="grid gap-4 md:grid-cols-3">
                 <legend className="sr-only">Test settings</legend>
                 <div className="md:col-span-3">
@@ -680,13 +719,13 @@ export function TestBuilder({ testId }: { testId: string }) {
                 <FormField label="Closes" error={errors.available_until}>
                   {(p) => <Input {...p} type="datetime-local" value={s.available_until} onChange={(e) => set("available_until", e.target.value)} />}
                 </FormField>
-                <div className="flex flex-col justify-end gap-2">
-                  <Checkbox label="Shuffle question order" checked={s.shuffle_questions} onChange={(e) => set("shuffle_questions", e.target.checked)} />
-                  <Checkbox label="Shuffle answer options" checked={s.shuffle_options} onChange={(e) => set("shuffle_options", e.target.checked)} />
+                <div className="flex flex-col justify-end">
+                  <Checkbox className="min-h-touch items-center" label="Shuffle question order" checked={s.shuffle_questions} onChange={(e) => set("shuffle_questions", e.target.checked)} />
+                  <Checkbox className="min-h-touch items-center" label="Shuffle answer options" checked={s.shuffle_options} onChange={(e) => set("shuffle_options", e.target.checked)} />
                 </div>
               </fieldset>
             </Card>
-            <Card title="Review policy">
+            <Card id="test-review-policy" className="scroll-mt-20" title="Review policy">
               <fieldset disabled={locked} className="space-y-4">
                 <legend className="sr-only">What students see and when</legend>
                 <div className="grid gap-4 md:grid-cols-3">
@@ -697,11 +736,12 @@ export function TestBuilder({ testId }: { testId: string }) {
                       ["after_close", "After the window closes"],
                     ] as const
                   ).map(([phase, label]) => (
-                    <fieldset key={phase} className="space-y-1">
-                      <legend className="text-sm font-semibold text-fg">{label}</legend>
+                    <fieldset key={phase}>
+                      <legend className="mb-1 text-sm font-semibold text-fg">{label}</legend>
                       {PHASE_KEYS.map(({ key, label: l }) => (
                         <Checkbox
                           key={key}
+                          className="min-h-touch items-center"
                           label={l}
                           aria-label={`${label}: ${l}`}
                           checked={s[phase][key]}
@@ -718,8 +758,8 @@ export function TestBuilder({ testId }: { testId: string }) {
                 </div>
               </fieldset>
             </Card>
-            <Card title="Integrity">
-              <fieldset disabled={locked} className="grid gap-3 md:grid-cols-2">
+            <Card id="test-integrity" className="scroll-mt-20" title="Integrity">
+              <fieldset disabled={locked} className="grid gap-x-3 gap-y-4 md:grid-cols-2">
                 <legend className="sr-only">Integrity settings</legend>
                 {INTEGRITY_KEYS.map(({ key, label, description }) => (
                   <Checkbox
@@ -732,8 +772,10 @@ export function TestBuilder({ testId }: { testId: string }) {
                 ))}
               </fieldset>
             </Card>
-            <ExamProtocolSettings value={s.integrity} onChange={(v) => set("integrity", v)} disabled={locked} errors={errors} />
-            <Card title={`Sections (${total} questions)`}>
+            <div id="test-protocol" className="scroll-mt-20">
+              <ExamProtocolSettings value={s.integrity} onChange={(v) => set("integrity", v)} disabled={locked} errors={errors} />
+            </div>
+            <Card id="test-sections" className="scroll-mt-20" title={`Sections (${total} questions)`}>
               <fieldset disabled={locked} className="space-y-6">
                 <legend className="sr-only">Sections and draw rules</legend>
                 {errors.sections ? <p className="text-sm text-danger-fg">{errors.sections}</p> : null}
@@ -757,7 +799,7 @@ export function TestBuilder({ testId }: { testId: string }) {
                       </FormField>
                       <div className="flex items-end">
                         {sections.length > 1 ? (
-                          <Button size="sm" variant="ghost" onClick={() => setSections((ss) => ss.filter((_, i) => i !== si))}>
+                          <Button size="sm" variant="ghost" aria-label={`Remove section ${si + 1}${sec.title ? ` (${sec.title})` : ""}`} onClick={() => setSections((ss) => ss.filter((_, i) => i !== si))}>
                             Remove section
                           </Button>
                         ) : null}
@@ -787,7 +829,7 @@ export function TestBuilder({ testId }: { testId: string }) {
                               {(p) => <Input {...p} type="number" min={0} step="0.25" value={r.negative_marks_each} onChange={(e) => updRule(si, ri, { negative_marks_each: Number(e.target.value) })} />}
                             </FormField>
                             <div className="flex items-end">
-                              <Button size="sm" variant="ghost" onClick={() => removeRule(si, ri)}>
+                              <Button size="sm" variant="ghost" aria-label={`Remove rule ${ri + 1} from section ${si + 1}`} onClick={() => removeRule(si, ri)}>
                                 Remove
                               </Button>
                             </div>
@@ -813,12 +855,13 @@ export function TestBuilder({ testId }: { testId: string }) {
                               {(p) => <Input {...p} type="number" min={0} step="0.25" value={r.negative_marks_each} onChange={(e) => updRule(si, ri, { negative_marks_each: Number(e.target.value) })} />}
                             </FormField>
                             <div className="flex items-end">
-                              <Button size="sm" variant="ghost" onClick={() => removeRule(si, ri)}>
+                              <Button size="sm" variant="ghost" aria-label={`Remove rule ${ri + 1} from section ${si + 1}`} onClick={() => removeRule(si, ri)}>
                                 Remove
                               </Button>
                             </div>
                           </div>
                           <Checkbox
+                            className="min-h-touch items-center"
                             label="Coding questions only (coding section)"
                             checked={!!r.question_types?.includes("coding")}
                             onChange={(e) => updRule(si, ri, { question_types: e.target.checked ? ["coding"] : null })}
@@ -864,16 +907,25 @@ export function TestBuilder({ testId }: { testId: string }) {
                 </ul>
               </div>
             ) : null}
-            {validation ? (
-              <p role="status" className={validation.feasible ? "text-sm text-success-fg" : "text-sm text-danger-fg"}>
-                {validation.feasible
-                  ? "Every draw rule has enough published questions."
-                  : !validation.has_sections
-                    ? "Save at least one section before checking."
-                    : "Some draw rules don't have enough published questions. Adjust the highlighted rules."}
-              </p>
-            ) : null}
-            <div className="flex flex-wrap gap-2">
+            <StickyActionBar
+              status={
+                validation ? (
+                  <span className={validation.feasible ? "text-success-fg" : "text-danger-fg"}>
+                    {validation.feasible
+                      ? "Every draw rule has enough published questions."
+                      : !validation.has_sections
+                        ? "Save at least one section before checking."
+                        : "Some draw rules don't have enough published questions. Adjust the highlighted rules."}
+                  </span>
+                ) : (
+                  <span className="text-fg-muted">
+                    {archived
+                      ? "Archived: learners can't start it; earlier attempts and results stay available."
+                      : `${total} question${total === 1 ? "" : "s"} · check the question supply before publishing.`}
+                  </span>
+                )
+              }
+            >
               {!locked ? (
                 <Button onClick={() => void saveAll()} loading={busy === "save"}>
                   Save
@@ -882,10 +934,28 @@ export function TestBuilder({ testId }: { testId: string }) {
               <Button variant="secondary" onClick={() => void validate()} loading={busy === "validate"}>
                 Check question supply
               </Button>
-              <Button variant="secondary" onClick={() => void publish()} loading={busy === "publish"} disabled={!validation?.feasible}>
+              <Button variant="secondary" onClick={() => void publish()} loading={busy === "publish"} disabled={archived || !validation?.feasible}>
                 Publish
               </Button>
-            </div>
+              {t && !archived ? (
+                <Button variant="danger-secondary" onClick={() => setConfirmArchive(true)}>
+                  Archive
+                </Button>
+              ) : null}
+            </StickyActionBar>
+            <ConfirmDialog
+              open={confirmArchive}
+              onClose={() => setConfirmArchive(false)}
+              title="Archive this test?"
+              description="Learners can no longer start it and it leaves their test lists. Open assignment windows close now. Attempts already made and their results stay available. This can't be undone."
+              confirmLabel="Archive test"
+              danger
+              onConfirm={async () => {
+                await api.post(`studio/tests/${seg(testId)}/archive`, {}, { idempotencyKey: true });
+                toast.show({ tone: "success", title: "Test archived" });
+                await test.reload();
+              }}
+            />
             {picking !== null ? (
               <QuestionPicker
                 onClose={() => setPicking(null)}
@@ -956,5 +1026,6 @@ export function TestBuilder({ testId }: { testId: string }) {
         )
       }
     </Boundary>
+    </>
   );
 }

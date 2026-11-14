@@ -5,6 +5,8 @@
 @import "../styles/fallback-tokens/tokens.css";
 @import "../../../../packages/design-tokens/tokens.css";
 @import "../styles/fonts.css";
+/* Website chrome + motion (header, footer, sign-in split, back-office hero, reveal-on-scroll). */
+@import "../styles/site.css";
 
 @tailwind base;
 @tailwind components;
@@ -18,16 +20,13 @@
        sticky portal header and, on the student shell below lg, the fixed bottom tab bar. */
     scroll-padding-top: calc(var(--td-layout-topbar) + 0.5rem);
   }
+  /* Public header is one 78px row at every width (website --header-h; PublicShell.tsx). */
   html:has([data-td-public-header]) {
-    scroll-padding-top: 4.5rem;
+    scroll-padding-top: calc(78px + 0.5rem);
   }
   @media (max-width: 1023.98px) {
     html:has([data-td-tabbar]) {
       scroll-padding-bottom: calc(4rem + env(safe-area-inset-bottom) + 0.5rem);
-    }
-    /* Public header is two rows on phones (logo + scrolling section links). */
-    html:has([data-td-public-header]) {
-      scroll-padding-top: 7.5rem;
     }
   }
   body {

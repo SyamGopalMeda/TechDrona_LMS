@@ -9,6 +9,7 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
+import pytest
 from sqlalchemy import text
 
 from app.core.db import system_context
@@ -83,6 +84,7 @@ async def _remove_member(db: Any, user_id: uuid.UUID, batch: uuid.UUID) -> None:
         await db.flush()
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_sec02_grader_of_other_batch_cannot_read_or_grade(client, world: World) -> None:  # noqa: F811
     w = world
     stu = w.personas["student"]
@@ -122,6 +124,7 @@ async def test_sec02_grader_of_other_batch_cannot_read_or_grade(client, world: W
     assert (await client.get(f"{API}/assignments/{aid}/evaluation", headers=admin.headers)).status_code == 403
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_evaluator_ids_grant_grading_on_that_allocation_only(client, world: World) -> None:  # noqa: F811
     w = world
     stu = w.personas["student"]
@@ -178,6 +181,7 @@ async def test_evaluator_ids_grant_grading_on_that_allocation_only(client, world
     assert aid in {a["id"] for a in r.json()["data"]}
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_evaluator_grades_and_releases_but_cannot_author(client, world: World) -> None:  # noqa: F811
     w = world
     stu = w.personas["student"]
@@ -217,6 +221,7 @@ async def test_evaluator_grades_and_releases_but_cannot_author(client, world: Wo
     ).status_code == 403
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_sec03_removed_member_loses_workspace_and_coding_grant(client, world: World, db) -> None:  # noqa: F811
     from app.core import access
     from app.core.principal import Principal
@@ -276,6 +281,7 @@ async def test_sec03_removed_member_loses_workspace_and_coding_grant(client, wor
         access.register_access_checker(prev)
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_sec09_sec11_sec12(client, world: World, db) -> None:  # noqa: F811
     w = world
     stu = w.personas["student"]
@@ -330,6 +336,7 @@ async def test_sec09_sec11_sec12(client, world: World, db) -> None:  # noqa: F81
     assert r.status_code in (404, 409), r.text
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_company_wide_assignment_needs_platform_and_no_org_input(client, world: World) -> None:  # noqa: F811
     w = world
     tr = w.personas["trainer_a"]
@@ -342,3 +349,76 @@ async def test_company_wide_assignment_needs_platform_and_no_org_input(client, w
     assert (
         await client.get(f"{API}/enrolments", params={"organization_id": str(w.org_a)}, headers=tr.headers)
     ).status_code == 403
+
+
+async def _alloc_users(client: Any, who: Any, aid: str, sec: str, users: list[uuid.UUID]) -> Any:
+    return await client.post(
+        f"{API}/assignments/{aid}/allocations",
+        json={
+            "user_ids": [str(u) for u in users],
+            "due_at": (utcnow() + timedelta(days=1)).isoformat(),
+            "section_engines": {sec: "pure_manual"},
+        },
+        headers=who.headers,
+    )
+
+
+@pytest.mark.usefixtures("catalog_backend")
+async def test_individual_allocation_limited_to_callers_batches(client, world: World) -> None:  # noqa: F811
+    """A trainer may name individual learners only from batches where they hold
+    ``assignment.manage``. Another batch's learner of the same company and an unknown id get the
+    same 422 (no existence oracle)."""
+    w = world
+    tr = w.personas["trainer_a"]
+    aid, sec = await _make(client, tr, w.batch_a, ESSAY)
+    errors = []
+    for target in (w.personas["student_b"].id, uuid.uuid4()):
+        r = await _alloc_users(client, tr, aid, sec, [target])
+        assert r.status_code == 422, r.text
+        errors.append(r.json()["errors"])
+    assert errors[0] == errors[1] and errors[0][0]["code"] == "not_member"
+    # a mix is refused as a whole, pointing at the out-of-scope entry
+    r = await _alloc_users(client, tr, aid, sec, [w.personas["student"].id, w.personas["student_b"].id])
+    assert r.status_code == 422 and r.json()["errors"][0]["field"] == "user_ids.1", r.text
+    # own batch's learner: allowed
+    r = await _alloc_users(client, tr, aid, sec, [w.personas["student"].id])
+    assert r.status_code == 201, r.text
+    # a trainer holding both batches may name either learner
+    boss = await w.persona(
+        "boss_users",
+        grants=(("trainer", "batch", w.batch_a), ("trainer", "batch", w.batch_b)),
+        org_ids=(w.org_a,),
+        tier="staff",
+    )
+    r = await _alloc_users(client, boss, aid, sec, [w.personas["student"].id, w.personas["student_b"].id])
+    assert r.status_code == 201, r.text
+
+
+@pytest.mark.usefixtures("catalog_backend")
+async def test_patch_allocation_checks_the_allocations_own_batch(client, world: World) -> None:  # noqa: F811
+    """Managing the assignment (batch_a) is not enough to edit its batch_a2 allocation."""
+    w = world
+    tr = w.personas["trainer_a"]  # trainer @ batch_a only
+    boss = await w.persona(
+        "boss_patch",
+        grants=(("trainer", "batch", w.batch_a), ("trainer", "batch", w.batch_a2)),
+        org_ids=(w.org_a,),
+        tier="staff",
+    )
+    aid, sec = await _make(client, boss, w.batch_a, ESSAY)
+    own = await _alloc(client, boss, aid, w.batch_a, sec)
+    other = await _alloc(client, boss, aid, w.batch_a2, sec)
+    r = await client.patch(
+        f"{API}/assignment-allocations/{other}", json={"status": "revoked"}, headers=tr.headers
+    )
+    assert r.status_code == 403 and r.json()["permission"] == "assignment.manage", r.text
+    r = await client.patch(
+        f"{API}/assignment-allocations/{own}",
+        json={"due_at": (utcnow() + timedelta(days=2)).isoformat()},
+        headers=tr.headers,
+    )
+    assert r.status_code == 200, r.text
+    r = await client.patch(
+        f"{API}/assignment-allocations/{other}", json={"status": "revoked"}, headers=boss.headers
+    )
+    assert r.status_code == 200 and r.json()["status"] == "revoked", r.text

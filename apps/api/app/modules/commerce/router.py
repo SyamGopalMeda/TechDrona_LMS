@@ -12,7 +12,7 @@ GSTIN for a tax invoice (D1). Per-endpoint rate limits: ``ratelimit.py`` (backlo
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -23,8 +23,10 @@ from app.core import auth as core_auth
 from app.core.audit import audit
 from app.core.auth import PLATFORM_SCOPE, require_permission, require_step_up
 from app.core.config import get_settings
-from app.core.db import DbSession, PrincipalDbSession, get_sessionmaker
 from app.core.errors import ProblemError, problem_response
+from app.core.firestore.sqlstore import StoreDbSession as DbSession
+from app.core.firestore.sqlstore import StorePrincipalDbSession as PrincipalDbSession
+from app.core.firestore.sqlstore import store_session
 from app.core.idempotency import IdemResult, idempotent
 from app.core.ids import uuid7
 from app.core.outbox import emit_event
@@ -33,8 +35,9 @@ from app.core.principal import Principal
 from app.core.routing import authenticated_router, public_router
 from app.core.time import utcnow
 from app.modules.commerce import admin, billing, billing_approvals, documents, policy, schemas, webhooks
+from app.modules.commerce import datastore as ds
 from app.modules.commerce import service as svc
-from app.modules.commerce.gateway import get_gateway
+from app.modules.commerce.gateway import gateway_status, get_gateway
 from app.modules.commerce.models import (
     Coupon,
     GstExport,
@@ -200,7 +203,7 @@ async def create_order(
 
 async def _own_order(session: Any, principal: Principal, order_id: uuid.UUID, lock: bool = False) -> Order:
     q = select(Order).where(Order.id == order_id, Order.user_id == principal.user_id)
-    o = (await session.execute(q.with_for_update() if lock else q)).scalar_one_or_none()
+    o = (await ds.execute(session, q.with_for_update() if lock else q)).scalar_one_or_none()
     if o is None:
         raise ProblemError("not_found")
     return o
@@ -214,7 +217,7 @@ async def get_order(
     _rl: Principal = Depends(limit("com05_order_status")),
 ) -> dict[str, Any]:
     o = await _own_order(session, principal, order_id)
-    items = list((await session.execute(select(OrderItem).where(OrderItem.order_id == o.id))).scalars())
+    items = list((await ds.execute(session, select(OrderItem).where(OrderItem.order_id == o.id))).scalars())
     out = svc.order_json(o, items)
     out["entitlements"] = await svc.order_entitlements(session, o.id)
     # FE-26: an unexpired pending order carries the checkout payload so payment can resume.
@@ -225,10 +228,11 @@ async def get_order(
         out["message"] = (
             "Payment received by bank, confirming…"
             if (
-                await session.execute(
+                await ds.execute(
+                    session,
                     select(func.count())
                     .select_from(Payment)
-                    .where(Payment.order_id == o.id, Payment.status == "authorized")
+                    .where(Payment.order_id == o.id, Payment.status == "authorized"),
                 )
             ).scalar_one()
             else None
@@ -285,7 +289,7 @@ async def my_orders(
     cursor: str | None = None,
 ) -> dict[str, Any]:
     q = _keyset(select(Order).where(Order.user_id == principal.user_id), Order, cursor, limit)
-    rows, page = _page(list((await session.execute(q)).scalars()), limit)
+    rows, page = _page(list((await ds.execute(session, q)).scalars()), limit)
     return {"data": [svc.order_json(o) for o in rows], "page": page}
 
 
@@ -321,10 +325,11 @@ async def create_subscription(
 
 async def _own_sub(session: Any, principal: Principal, sub_id: uuid.UUID) -> Subscription:
     s = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(Subscription)
             .where(Subscription.id == sub_id, Subscription.user_id == principal.user_id)
-            .with_for_update()
+            .with_for_update(),
         )
     ).scalar_one_or_none()
     if s is None:
@@ -377,10 +382,11 @@ async def my_subscriptions(
     session: PrincipalDbSession, principal: Principal = Depends(core_auth.require_active_principal)
 ) -> dict[str, Any]:
     rows = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(Subscription)
             .where(Subscription.user_id == principal.user_id)
-            .order_by(Subscription.created_at.desc())
+            .order_by(Subscription.created_at.desc()),
         )
     ).scalars()
     return _list([svc.sub_json(s) for s in rows], 100)
@@ -414,8 +420,9 @@ async def my_invoices(
     session: PrincipalDbSession, principal: Principal = Depends(core_auth.require_active_principal)
 ) -> dict[str, Any]:
     rows = (
-        await session.execute(
-            select(Invoice).where(Invoice.user_id == principal.user_id).order_by(Invoice.created_at.desc())
+        await ds.execute(
+            session,
+            select(Invoice).where(Invoice.user_id == principal.user_id).order_by(Invoice.created_at.desc()),
         )
     ).scalars()
     return _list([svc.invoice_json(i) for i in rows], 100)
@@ -469,8 +476,9 @@ async def my_refunds(
     session: PrincipalDbSession, principal: Principal = Depends(core_auth.require_active_principal)
 ) -> dict[str, Any]:
     rows = (
-        await session.execute(
-            select(Refund).where(Refund.requested_by == principal.user_id).order_by(Refund.created_at.desc())
+        await ds.execute(
+            session,
+            select(Refund).where(Refund.requested_by == principal.user_id).order_by(Refund.created_at.desc()),
         )
     ).scalars()
     return _list([svc.refund_json(x) for x in rows], 100)
@@ -500,7 +508,7 @@ async def fin_create_product(
 
 async def _product(session: Any, product_id: uuid.UUID) -> Product:
     p = (
-        await session.execute(select(Product).where(Product.id == product_id).with_for_update())
+        await ds.execute(session, select(Product).where(Product.id == product_id).with_for_update())
     ).scalar_one_or_none()
     if p is None:
         raise ProblemError("not_found")
@@ -519,7 +527,7 @@ async def fin_patch_product(
     before = admin.product_json(p)
     for k, v in body.model_dump(exclude_unset=True).items():
         setattr(p, k, v)
-    await session.flush()
+    await ds.flush(session)
     await audit(
         session, principal, "product.updated", "product", p.id, before=before, after=admin.product_json(p)
     )
@@ -554,7 +562,7 @@ async def fin_create_price(
         from app.modules.rbac.service import create_approval_request
 
         plan = (
-            await session.execute(select(Plan).where(Plan.id == plan_id).with_for_update())
+            await ds.execute(session, select(Plan).where(Plan.id == plan_id).with_for_update())
         ).scalar_one_or_none()
         if plan is None:
             raise ProblemError("not_found")
@@ -612,7 +620,7 @@ async def fin_coupons(
     q = select(Coupon)
     if status:
         q = q.where(Coupon.status == status)
-    rows, page = _page(list((await session.execute(_keyset(q, Coupon, cursor, limit))).scalars()), limit)
+    rows, page = _page(list((await ds.execute(session, _keyset(q, Coupon, cursor, limit))).scalars()), limit)
     pending = await admin.pending_coupon_approvals(session, [c.id for c in rows])
     return {"data": [admin.coupon_json(c, pending.get(c.id)) for c in rows], "page": page}
 
@@ -630,7 +638,7 @@ async def fin_create_coupon(
     from app.modules.rbac.service import create_approval_request
 
     dup = (
-        await session.execute(select(Coupon.id).where(func.lower(Coupon.code) == body.code.lower()))
+        await ds.execute(session, select(Coupon.id).where(func.lower(Coupon.code) == body.code.lower()))
     ).scalar_one_or_none()
     if dup:
         raise ProblemError(
@@ -653,8 +661,8 @@ async def fin_create_coupon(
         status="paused" if dual else "active",
         created_by=principal.user_id,
     )
-    session.add(c)
-    await session.flush()
+    ds.add(session, c)
+    await ds.flush(session)
     await audit(session, principal, "coupon.created", "coupon", c.id, after=admin.coupon_json(c))
     out = admin.coupon_json(c)
     if dual:
@@ -693,7 +701,7 @@ async def fin_patch_coupon(
     _s: Principal = P5,
 ) -> dict[str, Any]:
     c = (
-        await session.execute(select(Coupon).where(Coupon.id == coupon_id).with_for_update())
+        await ds.execute(session, select(Coupon).where(Coupon.id == coupon_id).with_for_update())
     ).scalar_one_or_none()
     if c is None:
         raise ProblemError("not_found")
@@ -713,7 +721,7 @@ async def fin_patch_coupon(
         )
     for k, v in upd.items():
         setattr(c, k, v)
-    await session.flush()
+    await ds.flush(session)
     await audit(
         session, principal, "coupon.updated", "coupon", c.id, before=before, after=admin.coupon_json(c)
     )
@@ -738,7 +746,7 @@ async def fin_orders(
         q = q.where(Order.status == status)
     if user_id:
         q = q.where(Order.user_id == user_id)
-    rows, page = _page(list((await session.execute(_keyset(q, Order, cursor, limit))).scalars()), limit)
+    rows, page = _page(list((await ds.execute(session, _keyset(q, Order, cursor, limit))).scalars()), limit)
     return {"data": [svc.order_json(o) for o in rows], "page": page}
 
 
@@ -749,13 +757,13 @@ async def fin_order(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_permission("order.read")),
 ) -> dict[str, Any]:
-    o = (await session.execute(select(Order).where(Order.id == order_id))).scalar_one_or_none()
+    o = (await ds.execute(session, select(Order).where(Order.id == order_id))).scalar_one_or_none()
     if o is None:
         raise ProblemError("not_found")
-    items = list((await session.execute(select(OrderItem).where(OrderItem.order_id == o.id))).scalars())
+    items = list((await ds.execute(session, select(OrderItem).where(OrderItem.order_id == o.id))).scalars())
     out = svc.order_json(o, items)
     if await has_permission(principal, "payment.read", request):
-        pays = (await session.execute(select(Payment).where(Payment.order_id == o.id))).scalars()
+        pays = (await ds.execute(session, select(Payment).where(Payment.order_id == o.id))).scalars()
         out["payments"] = [
             {
                 "payment_id": str(p.id),
@@ -770,10 +778,11 @@ async def fin_order(
             for p in pays
         ]
     events = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(PaymentWebhookEvent)
             .where(PaymentWebhookEvent.order_id == o.id)
-            .order_by(PaymentWebhookEvent.received_at)
+            .order_by(PaymentWebhookEvent.received_at),
         )
     ).scalars()
     out["webhook_events"] = [
@@ -789,7 +798,7 @@ async def fin_order(
     out["entitlements"] = await svc.order_entitlements(session, o.id)
     out["invoices"] = [
         svc.invoice_json(i)
-        for i in (await session.execute(select(Invoice).where(Invoice.order_id == o.id))).scalars()
+        for i in (await ds.execute(session, select(Invoice).where(Invoice.order_id == o.id))).scalars()
     ]
     return out
 
@@ -806,11 +815,11 @@ async def fin_refunds(
     if status:
         q = q.where(Refund.status == status)
     rows, page = _page(
-        list((await session.execute(_keyset(q, Refund, cursor, limit, desc=False))).scalars()), limit
+        list((await ds.execute(session, _keyset(q, Refund, cursor, limit, desc=False))).scalars()), limit
     )
     out = []
     for rf in rows:  # eligibility is computed for at most ``limit`` rows (was unbounded)
-        o = (await session.execute(select(Order).where(Order.id == rf.order_id))).scalar_one()
+        o = (await ds.execute(session, select(Order).where(Order.id == rf.order_id))).scalar_one()
         elig = (
             await svc.refund_eligibility(session, o) if o.status in ("paid", "partially_refunded") else None
         )
@@ -827,10 +836,12 @@ async def _decide_refund(
         raise ProblemError("invalid_state_transition", current_state=rf.status, allowed=["requested"])
     if body.decision == "reject":
         rf.status = "rejected"
-        await session.flush()
+        await ds.flush(session)
         await audit(session, principal, "refund.rejected", "refund", rf.id, reason=body.note)
         return IdemResult(svc.refund_json(rf))
-    o = (await session.execute(select(Order).where(Order.id == rf.order_id).with_for_update())).scalar_one()
+    o = (
+        await ds.execute(session, select(Order).where(Order.id == rf.order_id).with_for_update())
+    ).scalar_one()
     elig = await svc.refund_eligibility(session, o)
     if not elig["eligible"] and not body.goodwill:
         raise ProblemError("refund_not_eligible", reasons=elig["reasons"])
@@ -865,7 +876,7 @@ async def _decide_refund(
             required_approver_role=ADMIN_ROLE,
         )
         rf.approval_request_id = req.id
-        await session.flush()
+        await ds.flush(session)
         return IdemResult({**svc.refund_json(rf), "status": "approval_pending"}, 202)
     await svc.execute_refund(session, get_gateway(), rf, principal, order_item_ids=body.order_item_ids)
     return IdemResult(svc.refund_json(rf))
@@ -882,7 +893,7 @@ async def fin_refund_decision(
 ) -> JSONResponse:
     async def op() -> IdemResult:
         rf = (
-            await session.execute(select(Refund).where(Refund.id == refund_id).with_for_update())
+            await ds.execute(session, select(Refund).where(Refund.id == refund_id).with_for_update())
         ).scalar_one_or_none()
         if rf is None:
             raise ProblemError("not_found")
@@ -905,7 +916,7 @@ async def fin_create_refund(
 
     async def op() -> IdemResult:
         o = (
-            await session.execute(select(Order).where(Order.id == body.order_id).with_for_update())
+            await ds.execute(session, select(Order).where(Order.id == body.order_id).with_for_update())
         ).scalar_one_or_none()
         if o is None:
             raise ProblemError("not_found")
@@ -948,7 +959,7 @@ async def fin_subscriptions(
     if status:
         q = q.where(Subscription.status == status)
     rows, page = _page(
-        list((await session.execute(_keyset(q, Subscription, cursor, limit))).scalars()), limit
+        list((await ds.execute(session, _keyset(q, Subscription, cursor, limit))).scalars()), limit
     )
     return {"data": [{**svc.sub_json(s), "user_id": str(s.user_id)} for s in rows], "page": page}
 
@@ -964,8 +975,8 @@ async def fin_cancel_subscription(
 ) -> JSONResponse:
     async def op() -> IdemResult:
         s = (
-            await session.execute(
-                select(Subscription).where(Subscription.id == subscription_id).with_for_update()
+            await ds.execute(
+                session, select(Subscription).where(Subscription.id == subscription_id).with_for_update()
             )
         ).scalar_one_or_none()
         if s is None:
@@ -996,7 +1007,7 @@ async def fin_invoices(
     q = select(Invoice)
     if invoice_type:
         q = q.where(Invoice.invoice_type == invoice_type)
-    rows, page = _page(list((await session.execute(_keyset(q, Invoice, cursor, limit))).scalars()), limit)
+    rows, page = _page(list((await ds.execute(session, _keyset(q, Invoice, cursor, limit))).scalars()), limit)
     return {"data": [svc.invoice_json(i) for i in rows], "page": page}
 
 
@@ -1010,15 +1021,18 @@ async def fin_credit_note(
     _s: Principal = P5,
 ) -> JSONResponse:
     async def op() -> IdemResult:
-        inv = (await session.execute(select(Invoice).where(Invoice.id == invoice_id))).scalar_one_or_none()
+        inv = (
+            await ds.execute(session, select(Invoice).where(Invoice.id == invoice_id))
+        ).scalar_one_or_none()
         if inv is None or inv.invoice_type != "tax_invoice":
             raise ProblemError("not_found")
-        o = (await session.execute(select(Order).where(Order.id == inv.order_id))).scalar_one()
+        o = (await ds.execute(session, select(Order).where(Order.id == inv.order_id))).scalar_one()
         credited = (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(func.coalesce(func.sum(Invoice.total_paise), 0)).where(
                     Invoice.original_invoice_id == inv.id
-                )
+                ),
             )
         ).scalar_one()
         if body.amount_paise + int(credited) > inv.total_paise:
@@ -1043,11 +1057,12 @@ async def fin_reconciliation(
     session: PrincipalDbSession, _p: Principal = Depends(require_permission("reconciliation.run"))
 ) -> dict[str, Any]:
     rows = (
-        await session.execute(
-            select(ReconciliationRun).order_by(ReconciliationRun.created_at.desc()).limit(30)
+        await ds.execute(
+            session, select(ReconciliationRun).order_by(ReconciliationRun.created_at.desc()).limit(30)
         )
     ).scalars()
-    return _list([admin.run_json(x) for x in rows], 30)
+    # ``gateway``: lets the screen say the online gateway is not integrated yet (fake adapter).
+    return {**_list([admin.run_json(x) for x in rows], 30), "gateway": gateway_status()}
 
 
 @fin.post("/reconciliation/runs", status_code=201)
@@ -1082,9 +1097,17 @@ async def fin_revenue(
     range_from: datetime | None = None,
     range_to: datetime | None = None,
 ) -> dict[str, Any]:
+    # A query value without an offset is read as UTC (comparing naive with aware would fail).
+    range_from = range_from.replace(tzinfo=UTC) if range_from and range_from.tzinfo is None else range_from
+    range_to = range_to.replace(tzinfo=UTC) if range_to and range_to.tzinfo is None else range_to
     to = range_to or utcnow()
     frm = range_from or (to - timedelta(days=1))
-    return await admin.revenue_report(session, frm, to)
+    if frm >= to:
+        raise ProblemError(
+            "validation_failed",
+            errors=[{"field": "range_to", "code": "invalid_range", "message": "End must be after start"}],
+        )
+    return {**await admin.revenue_report(session, frm, to), "gateway": gateway_status()}
 
 
 # =========================================================================== commerce Dual approvals
@@ -1093,48 +1116,48 @@ async def fin_revenue(
 async def _decide_approval(
     session: Any, principal: Principal, approval_id: uuid.UUID, approve: bool, note: str | None
 ) -> dict[str, Any]:
-    from app.modules.rbac.models import ApprovalRequest
+    from app.modules.rbac import public as rbac
     from app.modules.rbac.service import payload_hash
 
-    req = (
-        await session.execute(
-            select(ApprovalRequest).where(ApprovalRequest.id == approval_id).with_for_update()
-        )
-    ).scalar_one_or_none()
+    req = await rbac.get_approval(session, approval_id, for_update=True)
     if req is None or req.action_type not in admin.COMMERCE_ACTIONS:
         raise ProblemError("not_found")
     if req.status != "pending":
         raise ProblemError("invalid_state_transition", current_state=req.status, allowed=["pending"])
     if req.expires_at <= utcnow():
         # ADM-23: persist ``expired`` (raising would roll the status change back).
-        req.status = "expired"
-        await session.flush()
+        await rbac.expire_if_due(session, req)
         return {"_expired": True}
-    if req.requested_by == principal.user_id:
+    from app.modules.rbac.service import is_sole_admin
+
+    if req.requested_by == principal.user_id and not await is_sole_admin(session, principal.user_id):
         raise ProblemError("sod_violation", rule="SoD-dual-control")
     if not principal.has_role(req.required_approver_role, "platform"):
         raise ProblemError("permission_denied", permission="approval.decide")
     if payload_hash(req.payload) != req.payload_hash:
         raise ProblemError("invalid_state_transition", current_state="payload_tampered", allowed=[])
-    req.decided_by, req.decided_at, req.decision_note = principal.user_id, utcnow(), note
+    sole = req.requested_by == principal.user_id  # sole Admin only (rbac_0006)
     if not approve:
-        req.status = "rejected"
-        if req.action_type == "commerce.refund":
-            rf = (
-                await session.execute(select(Refund).where(Refund.id == req.target_id))
-            ).scalar_one_or_none()
-            if rf is not None and rf.status == "requested":
-                rf.status = "rejected"
-        await audit(session, principal, "approval.rejected", "approval_request", req.id, reason=note)
+        # rbac.public.decision: the pending -> rejected claim (Postgres: fields on the locked row)
+        async with rbac.decision(
+            session, req, status="rejected", decided_by=principal.user_id, note=note, sole_admin=sole
+        ):
+            if req.action_type == "commerce.refund":
+                rf = (
+                    await ds.execute(session, select(Refund).where(Refund.id == req.target_id))
+                ).scalar_one_or_none()
+                if rf is not None and rf.status == "requested":
+                    rf.status = "rejected"
+            await audit(session, principal, "approval.rejected", "approval_request", req.id, reason=note)
         return {"approval_request_id": str(req.id), "status": "rejected"}
-    req.status = "approved"
-    await session.flush()
-    async with as_system(session, "commerce.approval_execute", principal):
-        result = await admin.execute_approval(
-            session, get_gateway(), principal, req.action_type, req.payload, req.requested_by
-        )
-    req.status = "executed"
-    req.executed_at = utcnow()
+    async with rbac.decision(
+        session, req, status="approved", decided_by=principal.user_id, note=note, sole_admin=sole
+    ):
+        async with as_system(session, "commerce.approval_execute", principal):
+            result = await admin.execute_approval(
+                session, get_gateway(), principal, req.action_type, req.payload, req.requested_by
+            )
+        await rbac.mark_executed(session, req)
     await audit(
         session,
         principal,
@@ -1186,7 +1209,7 @@ async def _cashfree_enabled() -> bool:
     """ADM-17 flag consumer: ``payments.cashfree_enabled`` (admin feature flag, platform-wide)."""
     from app.modules.admin.router import flag_enabled
 
-    async with get_sessionmaker()() as session, session.begin():
+    async with store_session() as session:
         return await flag_enabled(session, "payments.cashfree_enabled")
 
 
@@ -1205,7 +1228,7 @@ async def provider_webhook(provider: str, request: Request) -> JSONResponse:
     queued: uuid.UUID | None = None
     inline = get_settings().TD_COMMERCE_WEBHOOK_MODE == "inline"
     try:
-        async with get_sessionmaker()() as session, session.begin():
+        async with store_session() as session:
             if not gw.verify_webhook(raw, headers):
                 # Per-IP sanity limit: counts only unverifiable requests, so a valid signed
                 # event is never dropped; a flood of forgeries stops costing DB writes.
@@ -1299,8 +1322,8 @@ async def my_invoice_pdf(
 ) -> dict[str, Any]:
     """COM-16: own invoice / credit note PDF; signed URL valid 5 minutes."""
     inv = (
-        await session.execute(
-            select(Invoice).where(Invoice.id == invoice_id, Invoice.user_id == principal.user_id)
+        await ds.execute(
+            session, select(Invoice).where(Invoice.id == invoice_id, Invoice.user_id == principal.user_id)
         )
     ).scalar_one_or_none()
     if inv is None:
@@ -1314,7 +1337,7 @@ async def fin_invoice_pdf(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_permission("invoice.read")),
 ) -> dict[str, Any]:
-    inv = (await session.execute(select(Invoice).where(Invoice.id == invoice_id))).scalar_one_or_none()
+    inv = (await ds.execute(session, select(Invoice).where(Invoice.id == invoice_id))).scalar_one_or_none()
     if inv is None:
         raise ProblemError("not_found")
     out = await _pdf_link(session, principal, inv)
@@ -1365,8 +1388,8 @@ async def fin_gst_export(
             reason=body.reason,
             status="awaiting_approval",
         )
-        session.add(job)
-        await session.flush()
+        ds.add(session, job)
+        await ds.flush(session)
         n = await billing.count_gst_rows(session, body.period_from, body.period_to)
         if n > policy.GST_EXPORT_DUAL_ABOVE_ROWS:
             req = await apr.new_request(
@@ -1386,7 +1409,7 @@ async def fin_gst_export(
             )
             job.approval_request_id = req.id
             job.row_count = n
-            await session.flush()
+            await ds.flush(session)
         else:
             await billing.render_gst_export(session, job)
         await audit(
@@ -1408,7 +1431,7 @@ async def fin_gst_export(
 
 
 async def _own_export(session: Any, principal: Principal, export_id: uuid.UUID) -> GstExport:
-    job = (await session.execute(select(GstExport).where(GstExport.id == export_id))).scalar_one_or_none()
+    job = (await ds.execute(session, select(GstExport).where(GstExport.id == export_id))).scalar_one_or_none()
     if job is None or job.requested_by != principal.user_id:
         raise ProblemError("not_found")
     return job
@@ -1420,11 +1443,12 @@ async def fin_gst_exports(
     principal: Principal = Depends(require_permission("invoice.read")),
 ) -> dict[str, Any]:
     rows = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(GstExport)
             .where(GstExport.requested_by == principal.user_id)
             .order_by(GstExport.created_at.desc())
-            .limit(50)
+            .limit(50),
         )
     ).scalars()
     return _list([billing.gst_export_json(x) for x in rows], 50)

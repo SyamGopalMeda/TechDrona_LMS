@@ -32,8 +32,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import AuditActor, audit
 from app.core.auth import ScopeRef
-from app.core.db import get_sessionmaker, system_context
 from app.core.errors import ProblemError
+from app.core.firestore.backend import uses_firestore
 from app.core.ids import uuid7
 from app.core.principal import Principal
 from app.core.time import utcnow
@@ -49,6 +49,17 @@ from app.modules.rbac.models import ApprovalRequest, Permission, Role, RoleGrant
 log = structlog.get_logger("app.rbac")
 
 APPROVAL_TTL = timedelta(hours=72)
+
+
+def _fs() -> bool:
+    """``TD_STORE_RBAC=firestore``: rbac tables live in Firestore (repo_firestore)."""
+    return uses_firestore("rbac")
+
+
+def _repo() -> Any:
+    from app.modules.rbac.repo_firestore import system_repo
+
+    return system_repo()
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +82,10 @@ _CACHE_TTL_S = 60.0
 async def role_permission_map(session: AsyncSession) -> dict[str, frozenset[str]]:
     global _ROLE_PERMS, _ROLE_PERMS_AT
     if _ROLE_PERMS is not None and time.monotonic() - _ROLE_PERMS_AT < _CACHE_TTL_S:
+        return _ROLE_PERMS
+    if _fs():
+        _ROLE_PERMS = await _repo().role_permission_map()
+        _ROLE_PERMS_AT = time.monotonic()
         return _ROLE_PERMS
     rows = (
         await session.execute(
@@ -97,6 +112,11 @@ def reset_role_permission_cache() -> None:
 
 async def active_grants(session: AsyncSession, user_id: uuid.UUID) -> list[GrantInfo]:
     now = utcnow()
+    if _fs():
+        return [
+            GrantInfo(g.id, role_key, g.scope_type, g.scope_id, g.organization_id, g.expires_at)
+            for g, role_key in await _repo().active_grants(user_id, now)
+        ]
     rows = (
         await session.execute(
             select(RoleGrant, Role.role_key)
@@ -112,6 +132,35 @@ async def active_grants(session: AsyncSession, user_id: uuid.UUID) -> list[Grant
         GrantInfo(g.id, role_key, g.scope_type, g.scope_id, g.organization_id, g.expires_at)
         for g, role_key in rows
     ]
+
+
+async def is_sole_admin(session: AsyncSession, user_id: uuid.UUID) -> bool:
+    """True when ``user_id`` is the ONLY active user holding an active platform Admin grant.
+
+    Owner decision 2026-11-11: the platform runs with a single Admin, so dual-control requests
+    (SoD-05: requester != approver) would otherwise stay pending forever. A sole Admin may
+    decide their own request (callers audit it as ``sole_admin``); as soon as a second active
+    Admin exists, the normal second-person rule applies again. Read under a system context so
+    RLS can never hide another Admin (which would wrongly allow self-approval).
+    """
+    from app.modules.identity import public as identity_public
+    from app.modules.identity.pgctx import sys_scope
+    from app.modules.rbac import public as rbac_public
+
+    async with sys_scope(session, "rbac.sole_admin_check"):
+        holders = sorted(
+            {
+                g.user_id
+                for g, _k in await rbac_public.live_grants(
+                    session, role_keys=["super_admin"], scope_type="platform"
+                )
+            },
+            key=str,
+        )
+        users = await identity_public.get_users(session, holders)
+    active = [u for u in holders if u in users and users[u].status == "active"]
+    # compare as text: asyncpg returns its own UUID type, the principal carries uuid.UUID
+    return [str(r) for r in active] == [str(user_id)]
 
 
 def tier_for(grants: list[GrantInfo]) -> str:
@@ -145,21 +194,17 @@ def register_course_org_lookup(fn: CourseOrgLookup | None) -> None:
 
 
 async def batch_org(session: AsyncSession, batch_id: uuid.UUID) -> uuid.UUID | None:
-    from app.modules.orgs.models import Batch
+    from app.modules.orgs import public as orgs_public
 
-    return (
-        await session.execute(select(Batch.organization_id).where(Batch.id == batch_id))
-    ).scalar_one_or_none()
+    b = await orgs_public.get_batch(session, batch_id)
+    return b.organization_id if b is not None else None
 
 
 async def org_exists(session: AsyncSession, org_id: uuid.UUID) -> bool:
-    from app.modules.orgs.models import Organization
+    from app.modules.orgs import public as orgs_public
 
-    return (
-        await session.execute(
-            select(Organization.id).where(Organization.id == org_id, Organization.deleted_at.is_(None))
-        )
-    ).scalar_one_or_none() is not None
+    o = await orgs_public.get_org(session, org_id)
+    return o is not None and o.deleted_at is None
 
 
 async def _scope_chain(
@@ -220,8 +265,9 @@ class RbacPermissionChecker:
     async def has_permission(
         self, principal: Principal, permission: str, scope: ScopeRef, request: Request
     ) -> bool:
-        async with get_sessionmaker()() as session, session.begin():
-            await system_context(session, "rbac.check")
+        from app.modules.sessions.service import system_session
+
+        async with system_session("rbac.check") as session:
             perms = await role_permission_map(session)
             chain, target_org = await _scope_chain(session, scope)
             chain |= await _org_private_batch_links(session, principal, permission, scope, target_org)
@@ -280,7 +326,10 @@ def payload_hash(payload: dict[str, Any]) -> bytes:
 
 
 async def _role(session: AsyncSession, role_key: str) -> Role:
-    role = (await session.execute(select(Role).where(Role.role_key == role_key))).scalar_one_or_none()
+    if _fs():
+        role = await _repo().role_by_key(role_key)
+    else:
+        role = (await session.execute(select(Role).where(Role.role_key == role_key))).scalar_one_or_none()
     if role is None:
         raise ProblemError(
             "validation_failed",
@@ -350,6 +399,40 @@ async def create_grant(
     role = await _role(session, role_key)
     org_id = await resolve_grant_scope(session, role, scope_type, scope_id)
     await check_sod(session, user_id, role_key)
+    if _fs():
+        gid = uuid7()
+        await _repo().create_grant(
+            RoleGrant(
+                id=gid,
+                user_id=user_id,
+                role_id=role.id,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                organization_id=org_id,
+                granted_by=granted_by,
+                expires_at=expires_at,
+                reason=reason,
+            ),
+            role_key,
+        )
+        await audit(
+            session,
+            actor,
+            "rbac.grant.created",
+            "role_grant",
+            gid,
+            organization_id=org_id,
+            subject_user_id=user_id,
+            reason=reason,
+            after={
+                "role": role_key,
+                "scope_type": scope_type,
+                "scope_id": scope_id,
+                "expires_at": expires_at,
+            },
+        )
+        await _rotate_grantee_sessions(session, user_id, actor, role_key=role_key)
+        return gid
     existing = (
         await session.execute(
             select(RoleGrant.id).where(
@@ -389,7 +472,7 @@ async def create_grant(
         reason=reason,
         after={"role": role_key, "scope_type": scope_type, "scope_id": scope_id, "expires_at": expires_at},
     )
-    await _rotate_grantee_sessions(session, user_id, actor)
+    await _rotate_grantee_sessions(session, user_id, actor, role_key=role_key)
     return gid
 
 
@@ -400,6 +483,21 @@ async def revoke_grant(
     revoked_by: uuid.UUID,
     reason: str | None,
 ) -> RoleGrant:
+    if _fs():
+        found = await _repo().get_grant(grant_id)
+        fs_grant = await _repo().revoke_grant(grant_id, revoked_by, utcnow())
+        await audit(
+            session,
+            actor,
+            "rbac.grant.revoked",
+            "role_grant",
+            fs_grant.id,
+            organization_id=fs_grant.organization_id,
+            subject_user_id=fs_grant.user_id,
+            reason=reason,
+        )
+        await _rotate_grantee_sessions(session, fs_grant.user_id, actor, role_key=found[1] if found else None)
+        return fs_grant
     grant = (await session.execute(select(RoleGrant).where(RoleGrant.id == grant_id))).scalar_one_or_none()
     if grant is None:
         raise ProblemError("not_found")
@@ -418,12 +516,19 @@ async def revoke_grant(
         subject_user_id=grant.user_id,
         reason=reason,
     )
-    await _rotate_grantee_sessions(session, grant.user_id, actor)
+    role = await session.get(Role, grant.role_id)
+    await _rotate_grantee_sessions(
+        session, grant.user_id, actor, role_key=role.role_key if role is not None else None
+    )
     return grant
 
 
 async def _rotate_grantee_sessions(
-    session: AsyncSession, user_id: uuid.UUID, actor: Principal | AuditActor
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    actor: Principal | AuditActor,
+    *,
+    role_key: str | None = None,
 ) -> None:
     """A grant change forces re-login (session_tier is fixed at login). The grantee's sessions
     are not visible to an org-scoped granter under RLS, so this runs as a named system job and
@@ -431,9 +536,27 @@ async def _rotate_grantee_sessions(
     from app.modules.sessions.service import revoke_all_sessions
 
     by = actor.user_id if isinstance(actor, Principal) else None
-    async with system_context(session, "rbac.session_rotation"):
-        await revoke_all_sessions(session, user_id, "privilege_change", ended_by=by)
-        await session.flush()
+    # An Admin changing their own NON-Admin grant (granting: only "trainer of a batch" is
+    # possible, see rbac.router ``_self_grant_allowed``; or revoking their own trainer grant)
+    # keeps the session they are using: it is already at the top ("privileged") tier, so a
+    # re-login could not change it, and permissions come from the live grants on every request.
+    # Their other sessions still end. This is what lets the Admin open their Teacher portal
+    # without signing in again. Changes to an Admin grant itself always end every session.
+    keep = (
+        actor.session_id
+        if isinstance(actor, Principal)
+        and actor.user_id == user_id
+        and actor.tier == "privileged"
+        and role_key is not None
+        and not is_dual_role(role_key)
+        else None
+    )
+    from app.modules.identity.pgctx import sys_scope
+
+    async with sys_scope(session, "rbac.session_rotation"):
+        await revoke_all_sessions(session, user_id, "privilege_change", ended_by=by, except_session_id=keep)
+        if session:
+            await session.flush()
 
 
 async def create_approval_request(
@@ -462,8 +585,11 @@ async def create_approval_request(
         status="pending",
         expires_at=utcnow() + APPROVAL_TTL,
     )
-    session.add(req)
-    await session.flush()
+    if _fs():
+        req = await _repo().add_approval(req)
+    else:
+        session.add(req)
+        await session.flush()
     await audit(
         session,
         principal,
@@ -490,6 +616,10 @@ async def grants_in_scope(
     scope_id: uuid.UUID | None,
     org_ids: tuple[uuid.UUID, ...] | None,
 ) -> list[tuple[RoleGrant, str]]:
+    if _fs():
+        return await _repo().query_grants(
+            user_id=user_id, role_key=role_key, scope_type=scope_type, scope_id=scope_id, org_ids=org_ids
+        )
     q = (
         select(RoleGrant, Role.role_key)
         .join(Role, Role.id == RoleGrant.role_id)
@@ -510,6 +640,8 @@ async def grants_in_scope(
 
 
 async def expire_stale_approvals(session: AsyncSession) -> int:
+    if _fs():
+        return await _repo().expire_stale_approvals(utcnow())
     r = await session.execute(
         update(ApprovalRequest)
         .where(ApprovalRequest.status == "pending", ApprovalRequest.expires_at <= utcnow())

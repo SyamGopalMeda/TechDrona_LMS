@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button, Checkbox, Dialog, FormField, Input, Select, Table, useToast } from "@/components/ui";
+import { Badge, Button, Checkbox, Dialog, FormField, Input, PageHeader, Select, StatusBadge, Table, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import type { Body } from "@/lib/api-types";
 import { seg, type SendBody } from "@/features/trainer/shared/use-api";
@@ -32,7 +32,11 @@ export function validateTopic(f: TopicForm): Record<string, string> {
  * `studio/topics` (deactivated nodes included, so they can be reactivated), create
  * (PLC-02) and edit / deactivate (PLC-03). Moving a topic to a new parent isn't offered here.
  */
-export function TaxonomyManager() {
+const TAXONOMY_PURPOSE =
+  "Subjects are top-level; topics sit under them. Deactivated topics stay listed here (marked Inactive) but are hidden from students and authors.";
+
+/** CMS-008. With `header`, renders the page header so its description and primary action sit in the header. */
+export function TaxonomyManager({ header }: { header?: { title: string } } = {}) {
   const toast = useToast();
   const fail = useFailToast();
   const topics = useTopics("studio");
@@ -88,10 +92,14 @@ export function TaxonomyManager() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-fg-muted">Subjects are top-level; topics sit under them. Deactivated topics stay listed here (marked Inactive) but are hidden from students and authors.</p>
-        <Button onClick={() => openNew()}>New subject or topic</Button>
-      </div>
+      {header ? (
+        <PageHeader title={header.title} description={TAXONOMY_PURPOSE} actions={<Button onClick={() => openNew()}>New subject or topic</Button>} />
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-fg-muted">{TAXONOMY_PURPOSE}</p>
+          <Button onClick={() => openNew()}>New subject or topic</Button>
+        </div>
+      )}
       <Boundary state={topics}>
         {() => (
           <Table
@@ -103,16 +111,12 @@ export function TaxonomyManager() {
                 cell: (t: TopicOption) => (
                   <span style={{ paddingLeft: `${t.level * 1.25}rem` }} className={t.level === 0 ? "font-medium" : undefined}>
                     {t.name}
-                    {t.node.is_active ? null : (
-                      <Badge className="ml-2" tone="warning">
-                        Inactive
-                      </Badge>
-                    )}
+                    {t.node.is_active ? null : <StatusBadge className="ml-2" status="inactive" />}
                   </span>
                 ),
               },
-              { key: "k", header: "Kind", cell: (t) => <Badge tone={t.level === 0 ? "brand" : "neutral"}>{t.node.kind}</Badge> },
-              { key: "s", header: "Slug", cell: (t) => <span className="font-mono text-xs">{t.node.slug}</span> },
+              { key: "k", header: "Kind", cell: (t) => <Badge tone={t.level === 0 ? "brand" : "neutral"}>{t.node.kind === "subject" ? "Subject" : t.node.kind === "topic" ? "Topic" : t.node.kind}</Badge> },
+              { key: "s", header: "Slug", priority: "secondary", cell: (t) => <span className="font-mono text-xs">{t.node.slug}</span> },
               { key: "q", header: "Published questions", cell: (t) => t.node.question_count, align: "right" },
               {
                 key: "x",
@@ -120,8 +124,8 @@ export function TaxonomyManager() {
                 align: "right",
                 cell: (t) => (
                   <span className="inline-flex gap-1">
-                    <Button size="sm" variant="ghost" onClick={() => openNew(t.id)} aria-label={`Add a topic under ${t.name}`}>
-                      Add child
+                    <Button size="sm" variant="secondary" onClick={() => openNew(t.id)} aria-label={`Add a topic under ${t.name}`}>
+                      Add topic
                     </Button>
                     <Button size="sm" variant="secondary" onClick={() => openEdit(t)} aria-label={`Edit ${t.name}`}>
                       Edit
@@ -132,7 +136,7 @@ export function TaxonomyManager() {
             ]}
             rows={topics.options}
             rowKey={(t) => t.id}
-            empty={{ title: "No subjects yet", action: <Button onClick={() => openNew()}>New subject</Button> }}
+            empty={{ title: "No subjects yet", description: "Add a subject, then the topics under it. Questions and tests are tagged with these topics." }}
           />
         )}
       </Boundary>

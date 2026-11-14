@@ -53,7 +53,7 @@ from app.modules.coding.models import (
     CodingTestCaseContentToken,
 )
 from app.modules.coding.schemas import MAX_SOURCE_BYTES
-from app.modules.coding.service import language_or_422, list_cases
+from app.modules.coding.service import _fs, _repo, language_or_422, list_cases
 
 DRAFTS_PER_MINUTE = 20
 VALIDATIONS_PER_HOUR = 10
@@ -88,6 +88,11 @@ def draft_out(d: CodingDraft) -> dict[str, Any]:
 async def get_draft(
     session: AsyncSession, principal: Principal, problem_id: uuid.UUID, language_key: str
 ) -> CodingDraft:
+    if _fs():
+        fd = await (await _repo(session)).get_draft(principal.user_id, problem_id, language_key)
+        if fd is None:
+            raise ProblemError("not_found")
+        return fd
     row = (
         await session.execute(
             select(CodingDraft).where(
@@ -109,6 +114,24 @@ async def save_draft(
     await language_or_422(session, problem, language_key)
     now = utcnow()
     window_start = now - timedelta(seconds=60)
+    if _fs():
+        return await (await _repo(session)).save_draft(
+            principal.user_id,
+            CodingDraft(
+                id=uuid7(),
+                user_id=principal.user_id,
+                coding_problem_id=problem.id,
+                language_key=language_key,
+                source_code=source_code,
+                window_started_at=now,
+                window_count=1,
+                created_at=now,
+                updated_at=now,
+            ),
+            window_start=window_start,
+            per_minute=DRAFTS_PER_MINUTE,
+            limited=_drafts_limited,
+        )
     stmt = (
         pg_insert(CodingDraft)
         .values(
@@ -137,12 +160,7 @@ async def save_draft(
         ).scalar_one()
         if existing.window_started_at > window_start:
             if existing.window_count >= DRAFTS_PER_MINUTE:
-                raise ProblemError(
-                    "rate_limited",
-                    detail=f"At most {DRAFTS_PER_MINUTE} draft saves per minute.",
-                    headers={"Retry-After": "60"},
-                    retry_after=60,
-                )
+                raise _drafts_limited()
             existing.window_count += 1
         else:
             existing.window_started_at = now
@@ -151,6 +169,15 @@ async def save_draft(
         existing.updated_at = now
         await session.flush()
     return await get_draft(session, principal, problem.id, language_key)
+
+
+def _drafts_limited() -> ProblemError:
+    return ProblemError(
+        "rate_limited",
+        detail=f"At most {DRAFTS_PER_MINUTE} draft saves per minute.",
+        headers={"Retry-After": "60"},
+        retry_after=60,
+    )
 
 
 # --------------------------------------------------------------------------- reference solutions
@@ -170,6 +197,8 @@ def reference_out(r: CodingReferenceSolution, *, include_source: bool = True) ->
 async def list_reference_solutions(
     session: AsyncSession, problem: CodingProblem
 ) -> list[CodingReferenceSolution]:
+    if _fs():
+        return await (await _repo(session)).ref_solutions(problem.id)
     rows = await session.execute(
         select(CodingReferenceSolution)
         .where(CodingReferenceSolution.coding_problem_id == problem.id)
@@ -186,6 +215,19 @@ async def put_reference_solution(
     _size_or_413(source_code)
     await language_or_422(session, problem, language_key)
     now = utcnow()
+    if _fs():
+        return await (await _repo(session)).put_ref_solution(
+            CodingReferenceSolution(
+                id=uuid7(),
+                coding_problem_id=problem.id,
+                organization_id=problem.organization_id,
+                language_key=language_key,
+                source_code=source_code,
+                updated_by=principal.user_id,
+                created_at=now,
+                updated_at=now,
+            )
+        )
     await session.execute(
         pg_insert(CodingReferenceSolution)
         .values(
@@ -259,6 +301,8 @@ def validation_out(v: CodingProblemValidation, current_fp: bytes) -> dict[str, A
 
 
 async def latest_validation(session: AsyncSession, problem_id: uuid.UUID) -> CodingProblemValidation | None:
+    if _fs():
+        return await (await _repo(session)).latest_validation(problem_id)
     return (
         await session.execute(
             select(CodingProblemValidation)
@@ -328,14 +372,19 @@ async def validate_problem(
 ) -> CodingProblemValidation:
     if problem.status == "retired":
         raise ProblemError("invalid_state_transition", detail="Retired problems cannot be validated.")
-    recent = (
-        await session.execute(
-            select(func.count()).where(
-                CodingProblemValidation.requested_by == principal.user_id,
-                CodingProblemValidation.created_at > utcnow() - timedelta(hours=1),
-            )
+    if _fs():
+        recent = await (await _repo(session)).validations_since(
+            principal.user_id, utcnow() - timedelta(hours=1)
         )
-    ).scalar_one()
+    else:
+        recent = (
+            await session.execute(
+                select(func.count()).where(
+                    CodingProblemValidation.requested_by == principal.user_id,
+                    CodingProblemValidation.created_at > utcnow() - timedelta(hours=1),
+                )
+            )
+        ).scalar_one()
     if int(recent) >= VALIDATIONS_PER_HOUR:
         raise ProblemError(
             "rate_limited",
@@ -443,6 +492,8 @@ async def validate_problem(
         requested_by=principal.user_id,
         created_at=utcnow(),
     )
+    if _fs():
+        return await (await _repo(session)).create_validation(rec)
     session.add(rec)
     await session.flush()
     return rec
@@ -452,6 +503,8 @@ async def validate_problem(
 
 
 async def hidden_reads_last_hour(session: AsyncSession, user_id: uuid.UUID) -> int:
+    if _fs():
+        return await (await _repo(session)).token_requests_since(user_id, utcnow() - timedelta(hours=1))
     n = (
         await session.execute(
             select(func.count(func.distinct(CodingTestCaseContentToken.request_id))).where(
@@ -477,9 +530,10 @@ async def issue_content_tokens(
     now = utcnow()
     expires = now + CONTENT_TOKEN_TTL
     urls: dict[str, str] = {}
+    fs_rows: list[CodingTestCaseContentToken] = []
     for part in ("input", "expected"):
         token = generate_token(32)
-        session.add(
+        (fs_rows.append if _fs() else session.add)(
             CodingTestCaseContentToken(
                 id=uuid7(),
                 token_hash=hash_token(token),
@@ -495,7 +549,10 @@ async def issue_content_tokens(
             )
         )
         urls[part] = DOWNLOAD_PATH + token
-    await session.flush()
+    if _fs():
+        await (await _repo(session)).add_tokens(principal.user_id, fs_rows)
+    else:
+        await session.flush()
     return {
         "test_case_id": str(case.id),
         "ordinal": case.ordinal,
@@ -516,6 +573,15 @@ async def redeem_content_token(
     """Atomically mark the token used (single use, unexpired, same user) — else 404."""
     if not token or len(token) > 128:
         raise ProblemError("not_found")
+    if _fs():
+        frepo = await _repo(session)
+        frow = await frepo.redeem_token(principal.user_id, hash_token(token), utcnow())
+        if frow is None:
+            raise ProblemError("not_found")
+        fcase = await frepo.get_case(frow.test_case_id)
+        if fcase is None or not fcase.is_hidden:
+            raise ProblemError("not_found")
+        return frow, fcase
     row = (
         await session.execute(
             update(CodingTestCaseContentToken)

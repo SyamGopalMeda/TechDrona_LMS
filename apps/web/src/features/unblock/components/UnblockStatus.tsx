@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Badge, Button, Card, Dialog, ErrorState, FormField, Input, Skeleton, useToast, type BadgeTone } from "@/components/ui";
+import { StatusBadge, Button, Card, Dialog, ErrorState, FormField, Input, Skeleton, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { FormAlert } from "@/features/auth/components/shared";
@@ -11,17 +11,6 @@ import { formatDateTime } from "@/features/auth/lib/format";
 import { cn } from "@/lib/ui/cn";
 import { APL_REF, CLOSURE_COPY, EXPLANATION_MAX, EXPLANATION_MIN, NO_SECRETS_HINT, STATE_BADGE, STEPPER, looksLikeSecret, stepIndex, type UnblockState } from "../lib/copy";
 import type { UnblockDetail, UnblockSla, UnblockTextBody } from "../lib/types";
-
-const TONE: Record<string, BadgeTone> = {
-  draft: "neutral",
-  submitted: "info",
-  under_review: "info",
-  info_requested: "warning",
-  escalated: "warning",
-  approved: "success",
-  rejected: "danger",
-  closed: "neutral",
-};
 
 /**
  * Find an own request by its APL reference (GET security/unblock-requests/by-reference/{ref}).
@@ -174,7 +163,7 @@ export function UnblockStatusCard({ reference, requestId: knownId, sla }: { refe
     >
       <div className="space-y-4">
         <div className="rounded-lg border border-line bg-surface-subtle p-4" role="status">
-          <Badge tone={TONE[state] ?? "neutral"}>{STATE_BADGE[state] ?? detail.state_label ?? detail.state}</Badge>
+          <StatusBadge status={state} label={STATE_BADGE[state] ?? detail.state_label ?? detail.state} />
           <p className="mt-2 text-sm text-fg-secondary">{body}</p>
         </div>
 

@@ -1,0 +1,325 @@
+# =============================================================================
+# Tech Drona LMS — GCP DEMO stack (single Compute Engine VM, docs/deploy/gcp-demo.md)
+#
+#   cd /opt/techdrona/src/infra/gcp-demo
+#   sudo docker compose -p techdrona --env-file /opt/techdrona/server.env up -d --build
+#
+# Secrets live ONLY in /opt/techdrona/server.env and /opt/techdrona/s3.json (root, 0600).
+# Nothing here publishes a port except Caddy (80/443). Postgres, Redis, S3, Mailpit and the
+# API are reachable only on the internal compose network; the browser talks to the web BFF.
+# APP_ENV=staging: fake payments/judge/AI/video adapters are allowed (demo), production gate off.
+# =============================================================================
+
+name: techdrona
+
+x-app: &app
+  image: techdrona/td-api:gcp-demo
+  env_file:
+    - path: /opt/techdrona/server.env
+      required: true
+  restart: unless-stopped
+  # Firebase Admin SDK key of service account td-lms-api (roles/datastore.user + roles/firebaseauth.admin):
+  # central login SSO into the website admin (custom tokens) and Firestore lms_*/col_*. Host file is
+  # owned by uid 10001 (the image user), mode 0400; server.env sets FIREBASE_PROJECT_ID=billing-f4fe3 and
+  # FIREBASE_SERVICE_ACCOUNT_FILE=/run/secrets/firebase-sa.json (docs/firebase/single-project.md §3).
+  volumes:
+    - /opt/techdrona/firebase/td-lms-api.json:/run/secrets/firebase-sa.json:ro
+  logging: &logging
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+x-app-depends: &app-depends
+  postgres: { condition: service_healthy }
+  redis: { condition: service_healthy }
+  redis-queue: { condition: service_healthy }
+  s3-init: { condition: service_completed_successfully }
+  migrate: { condition: service_completed_successfully }
+
+services:
+  postgres:
+    build: { context: ../docker/postgres }
+    image: techdrona/postgres:16-gcp-demo
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_DB: techdrona
+      POSTGRES_USER: techdrona
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      TD_PG_OWNER_PASSWORD: ${TD_PG_OWNER_PASSWORD:?}
+      TD_PG_APP_PASSWORD: ${TD_PG_APP_PASSWORD:?}
+      TD_PG_READONLY_PASSWORD: ${TD_PG_READONLY_PASSWORD:?}
+      TD_PG_SEALER_PASSWORD: ${TD_PG_SEALER_PASSWORD:?}
+      TD_PG_MAINT_PASSWORD: ${TD_PG_MAINT_PASSWORD:?}
+      TZ: UTC
+      PGTZ: UTC
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - idle_in_transaction_session_timeout=60s
+      - -c
+      - max_connections=120
+      - -c
+      - shared_buffers=256MB
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U techdrona -d techdrona"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  redis:
+    image: redis:7.4-bookworm
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      REDISCLI_AUTH: ${REDIS_CACHE_PASSWORD:?}
+    command: ["redis-server", "--requirepass", "${REDIS_CACHE_PASSWORD}", "--maxmemory", "192mb",
+              "--maxmemory-policy", "allkeys-lru", "--save", ""]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis-queue:
+    image: redis:7.4-bookworm
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      REDISCLI_AUTH: ${REDIS_QUEUE_PASSWORD:?}
+    command: ["redis-server", "--requirepass", "${REDIS_QUEUE_PASSWORD}", "--maxmemory-policy", "noeviction",
+              "--appendonly", "yes"]
+    volumes:
+      - redis-queue-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Internal SMTP sink: no outbound mail leaves the VM. UI is NOT published.
+  mailpit:
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      MP_MAX_MESSAGES: "5000"
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    volumes:
+      - mailpit-data:/data
+
+  s3:
+    image: chrislusf/seaweedfs:3.80
+    restart: unless-stopped
+    logging: *logging
+    command: >-
+      server -dir=/data -ip.bind=0.0.0.0 -volume.max=0 -master.volumeSizeLimitMB=256
+      -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json
+    volumes:
+      - s3-data:/data
+      - /opt/techdrona/s3.json:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8333/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  s3-init:
+    image: amazon/aws-cli:2.22.35
+    depends_on: { s3: { condition: service_healthy } }
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?}
+      AWS_DEFAULT_REGION: ap-south-1
+      S3_ENDPOINT: http://s3:8333
+    entrypoint: ["/bin/sh", "/init/create-buckets.sh"]
+    volumes:
+      - ../docker/s3/create-buckets.sh:/init/create-buckets.sh:ro
+    restart: "no"
+
+  migrate:
+    <<: *app
+    build: { context: ../../apps/api, target: runtime, args: { TD_RELEASE: gcp-demo } }
+    environment: { TD_SERVICE_NAME: migrate }
+    command: ["alembic", "upgrade", "heads"]
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+
+  api:
+    <<: *app
+    environment:
+      TD_SERVICE_NAME: api
+      TD_ROUTER_SET: user
+      UVICORN_WORKERS: "2"
+      DB_POOL_SIZE: "10"
+      DB_MAX_OVERFLOW: "5"
+    depends_on: *app-depends
+    healthcheck: &api-health
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).status == 200 else 1)"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  # Provider webhooks (fake payments in the demo): internal only, not routed by Caddy.
+  api-webhooks:
+    <<: *app
+    environment: { TD_SERVICE_NAME: api-webhooks, TD_ROUTER_SET: webhooks, UVICORN_WORKERS: "1", DB_POOL_SIZE: "3" }
+    depends_on: *app-depends
+    healthcheck: *api-health
+
+  worker:
+    <<: *app
+    environment:
+      TD_SERVICE_NAME: worker-default
+      TD_CELERY_NODE: default
+      TD_WORKER_HEALTH_FILE: /tmp/td-celery-worker.alive
+      CELERY_QUEUES: critical,default,notifications,analytics,reports
+      DB_POOL_SIZE: "4"
+    command: ["sh", "-c", "exec celery -A app.worker.celery_app worker -n $${TD_CELERY_NODE}@%h -Q $${CELERY_QUEUES} -c 2 --loglevel=INFO"]
+    depends_on: *app-depends
+    healthcheck: &celery-health
+      test: ["CMD", "python", "-c", "import os,sys,time; p=os.environ.get('TD_WORKER_HEALTH_FILE') or '/tmp/td-celery-worker.alive'; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p) < 90 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  worker-maintenance:
+    <<: *app
+    environment:
+      TD_SERVICE_NAME: worker-maintenance
+      TD_CELERY_NODE: maintenance
+      TD_WORKER_HEALTH_FILE: /tmp/td-celery-worker.alive
+      CELERY_QUEUES: maintenance
+      DB_POOL_SIZE: "3"
+    command: ["sh", "-c", "exec celery -A app.worker.celery_app worker -n $${TD_CELERY_NODE}@%h -Q $${CELERY_QUEUES} -c 1 --loglevel=INFO"]
+    depends_on: *app-depends
+    healthcheck: *celery-health
+
+  scheduler:
+    <<: *app
+    environment: { TD_SERVICE_NAME: scheduler, DB_POOL_SIZE: "2" }
+    command: ["sh", "-c", "exec celery -A app.worker.celery_app beat --loglevel=INFO --schedule /tmp/celerybeat-schedule"]
+    depends_on: *app-depends
+    healthcheck: &proc-health
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  worker-judge:
+    <<: *app
+    environment: { TD_SERVICE_NAME: worker-judge, DB_POOL_SIZE: "2" }
+    command: ["python", "-m", "app.modules.coding.worker"]
+    depends_on: *app-depends
+    healthcheck: *proc-health
+
+  audit-sealer:
+    <<: *app
+    environment: { TD_SERVICE_NAME: audit-sealer, DB_POOL_SIZE: "2" }
+    command: ["python", "-m", "app.modules.audit.sealer"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    healthcheck: *proc-health
+
+  # College Data Portal (apps/college-data/portal): Node 24 + SQLite, reachable ONLY through the
+  # web BFF at /college-portal/* (LMS admin session checked there; identity passed with the shared
+  # secret). No published port; it gets no LMS secrets except the proxy secret.
+  # The SQLite DB lives in the college-portal-data volume: `vm.sh portal-import <file.db>` loads it,
+  # `vm.sh portal-backup` writes a consistent copy to /opt/techdrona/backups/.
+  college-portal:
+    build: { context: ../../apps/college-data/portal }
+    image: techdrona/td-college-portal:gcp-demo
+    init: true
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "4173"
+      DB_PATH: /data/techdrona.db
+      TRUST_PROXY: "1"
+      PORTAL_PROXY_SECRET: ${TD_COLLEGE_PORTAL_SECRET:?}
+      TZ: Asia/Kolkata
+    volumes:
+      - college-portal-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4173/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_BASE_URL: https://${TD_HOST:?}
+        NEXT_PUBLIC_APP_NAME: Tech Drona (Demo)
+        TD_RELEASE: gcp-demo
+    image: techdrona/td-web:gcp-demo
+    env_file:
+      - path: /opt/techdrona/server.env
+        required: true
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      TD_COLLEGE_PORTAL_URL: http://college-portal:4173
+      TD_COLLEGE_PORTAL_SECRET: ${TD_COLLEGE_PORTAL_SECRET:?}
+    restart: unless-stopped
+    # the image is read-only (root-owned); Next's prerender/image cache needs a small writable dir
+    tmpfs:
+      - /app/.next/cache:uid=10001,gid=10001,mode=0700,size=64m
+    logging: *logging
+    depends_on:
+      api: { condition: service_healthy }
+      # started, not healthy: a portal problem must never keep the LMS down (the proxy answers 502)
+      college-portal: { condition: service_started }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  caddy:
+    image: caddy:2.8.4
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      TD_HOST: ${TD_HOST:?}
+      TD_FILES_HOST: ${TD_FILES_HOST:?}
+      TD_SITE_HOST: ${TD_SITE_HOST:?}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # company website build (docs/deploy/gcp-demo.md: "Company website on the main host")
+      - /opt/techdrona/website:/srv/website:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      default:
+        # App containers reach the S3 presign host through Caddy on the internal network.
+        aliases: ["${TD_FILES_HOST}"]
+    depends_on: [web, s3]
+
+volumes:
+  pgdata:
+  redis-queue-data:
+  mailpit-data:
+  s3-data:
+  caddy-data:
+  caddy-config:
+  college-portal-data:

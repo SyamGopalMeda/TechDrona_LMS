@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { Button, Card, EmptyState, ErrorState, PageHeader, Skeleton } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorState, LinkButton, PageHeader, Skeleton } from "@/components/ui";
 import { formatPercent } from "@/features/assessment/lib/format";
 import { useLoader } from "@/features/assessment/lib/use-resource";
 import { practiceApi } from "../lib/api";
@@ -18,13 +17,23 @@ export function SubjectTopics({ subject: subjectKey }: { subject: string }) {
   if (!subjects.data) return <Skeleton className="h-64 w-full" />;
   const subject = subjects.data.find((s) => s.slug === subjectKey || s.id === subjectKey);
   if (!subject)
-    return <EmptyState title="Subject not found" action={<Link className="text-sm text-fg-link underline" href="/app/practice">Back to practice</Link>} />;
+    return (
+      <EmptyState
+        icon="search"
+        title="Subject not found"
+        action={
+          <LinkButton href="/app/practice" variant="secondary" size="sm">
+            Back to practice
+          </LinkButton>
+        }
+      />
+    );
 
   const byTopic = new Map((mastery.data?.topics ?? []).map((t) => [t.topic_id, t]));
 
   return (
     <div>
-      <PageHeader eyebrow="Practice" title={subject.name} actions={<Link className="text-sm text-fg-link underline" href="/app/practice">All subjects</Link>} />
+      <PageHeader breadcrumbs={[{ label: "Practice", href: "/app/practice" }, { label: subject.name }]} title={subject.name} description="Pick a topic to practise. Your mastery updates as you answer." />
       <Card title="Start a set" className="mb-6">
         <TopicPicker subjects={subjects.data} initialSubjectId={subject.id} />
       </Card>

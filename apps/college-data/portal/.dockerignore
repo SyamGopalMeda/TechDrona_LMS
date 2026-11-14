@@ -1,0 +1,15 @@
+data
+node_modules
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.md
+export_static_data.js
+public/api_static
+public/api_static_index.json
+.git
+.dockerignore
+qa*.db
+server/*.test.js
+server/selftest.js

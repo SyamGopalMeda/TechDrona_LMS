@@ -46,19 +46,21 @@ EXPORT_SWEEP = "analytics.exports_sweep"
 
 async def run_export(job_id: uuid.UUID) -> str:
     """Task body: generate one export job in its own transaction (system context)."""
-    from app.core.db import get_sessionmaker, system_context
+    from app.core.db import system_context
+    from app.core.firestore.sqlstore import store_session
     from app.modules.analytics.exports import generate
 
-    async with get_sessionmaker()() as session, session.begin():
+    async with store_session() as session:
         await system_context(session, "analytics.export_generate")
         return await generate(session, job_id)
 
 
 async def run_exports_sweep() -> dict[str, int]:
-    from app.core.db import get_sessionmaker, system_context
+    from app.core.db import system_context
+    from app.core.firestore.sqlstore import store_session
     from app.modules.analytics.exports import sweep
 
-    async with get_sessionmaker()() as session, session.begin():
+    async with store_session() as session:
         await system_context(session, "analytics.exports_sweep")
         return await sweep(session)
 

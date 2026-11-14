@@ -1,0 +1,152 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "lms_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "action",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "actor_user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "subject_user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "target_type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "target_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "organization_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "reason_code",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "target_type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "target_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "lms_audit_log",
+      "fieldPath": "before_state_json",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "fieldPath": "after_state_json",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "fieldPath": "prev_hash",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "fieldPath": "row_hash",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "fieldPath": "reason",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_audit_outbox",
+      "fieldPath": "record_json",
+      "indexes": []
+    }
+  ]
+}

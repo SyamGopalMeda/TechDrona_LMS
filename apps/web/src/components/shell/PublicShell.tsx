@@ -1,131 +1,118 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { LinkButton } from "@/components/ui/Button";
-import { Logo } from "@/components/ui/Logo";
+import { LMS_CONTACT_HREF, LMS_COURSES_HREF, LMS_LEGAL_LINKS, LMS_SUPPORT_LINKS, SITE_CONTACT_HREF, SITE_FOOTER_COLS, SITE_INFO, siteHref, type SiteMenuLink } from "@/lib/site/website";
+import { SiteHeader } from "./SiteHeader";
 
 const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME ?? "Tech Drona";
-/** Organisation slogan from the website's structured data (tech drona/index.html, "slogan"). */
-const TAGLINE = "Debug your career. Deploy your dreams.";
-
-const NAV = [
-  { href: "/courses", label: "Courses" },
-  { href: "/placement", label: "Placement prep" },
-  { href: "/companies", label: "Companies" },
-  { href: "/pricing", label: "Pricing" },
-  { href: "/enquiries", label: "Corporate enquiries" },
-];
-
-/** Footer per sitemap §2 ("every public page"), grouped for scanning. */
-export const FOOTER_GROUPS: { label: string; links: { href: string; label: string }[] }[] = [
-  {
-    label: "Learn",
-    links: [
-      { href: "/courses", label: "Courses" },
-      { href: "/placement", label: "Placement" },
-      { href: "/companies", label: "Companies" },
-      { href: "/free-resources", label: "Free resources" },
-      { href: "/pricing", label: "Pricing" },
-      { href: "/enquiries", label: "Corporate enquiries" },
-    ],
-  },
-  {
-    label: "Support",
-    links: [
-      { href: "/help", label: "Help" },
-      { href: "/status", label: "Status" },
-      { href: "/help/grievance", label: "Grievance officer" },
-      { href: "/verify", label: "Certificate verification" },
-    ],
-  },
-  {
-    label: "Policies",
-    links: [
-      { href: "/legal/terms", label: "Terms" },
-      { href: "/legal/privacy", label: "Privacy" },
-      { href: "/legal/refund-policy", label: "Refund policy" },
-      { href: "/legal/device-policy", label: "Device policy" },
-    ],
-  },
-];
-
-const navLinkCls =
-  "inline-flex min-h-[2.5rem] items-center whitespace-nowrap rounded-md px-3 font-display text-sm font-semibold text-fg no-underline transition-colors duration-fast hover:bg-brand-subtle hover:text-brand focus-visible:shadow-focus focus-visible:outline-none";
-const footLinkCls = "inline-block py-1 text-sm text-white/80 no-underline hover:text-white hover:underline focus-visible:shadow-focus focus-visible:outline-none";
 
 /**
- * Public chrome, styled after the Tech Drona website (`tech drona/src/styles/global.css`):
- * ivory canvas (#FAF8F4), white header with the navy logo lockup, navy footer band with the white
- * lockup and mint column headings. `signedIn` is a UX hint from the session-cookie presence (the
- * api decides); a signed-in visitor gets "Go to dashboard" instead of Log in / Sign up (FE-11).
- * Phones: logo + account actions on the first row, the section links scroll sideways below.
+ * Footer link groups: the website's columns + the LMS's own support pages. Website links stay
+ * absolute except where the LMS has its own page: Contact → the help centre's contact section and,
+ * signed in, "All courses" → the in-app catalogue.
  */
-export function PublicShell({ children, signedIn = false }: { children: ReactNode; signedIn?: boolean }) {
+export function footerGroups(signedIn = false): { label: string; links: SiteMenuLink[] }[] {
+  const websiteCourses = siteHref("/courses");
+  const local = (l: SiteMenuLink): SiteMenuLink =>
+    l.href === SITE_CONTACT_HREF ? { ...l, href: LMS_CONTACT_HREF } : signedIn && l.href === websiteCourses ? { ...l, href: LMS_COURSES_HREF } : l;
+  return [...SITE_FOOTER_COLS.map((c) => ({ label: c.title, links: c.links.map(local) })), { label: "Learner support", links: LMS_SUPPORT_LINKS }];
+}
+
+function MailIcon() {
   return (
-    <div className="flex min-h-dvh flex-col bg-surface-warm text-fg">
-      <header data-td-public-header="" className="sticky top-0 z-topbar border-b border-line bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/85">
-        <div className="mx-auto flex max-w-content flex-wrap items-center gap-x-4 px-4 sm:px-6">
-          <Link href="/" aria-label={`${APP_NAME} home`} className="flex h-16 shrink-0 items-center rounded-md focus-visible:shadow-focus focus-visible:outline-none">
-            <Logo alt="" className="h-8 sm:h-9" />
-          </Link>
-          <nav aria-label="Main" className="order-last -mx-4 w-[calc(100%+2rem)] overflow-x-auto border-t border-line-subtle px-2 py-1 md:order-none md:mx-0 md:ml-auto md:w-auto md:border-t-0 md:p-0">
-            <ul className="flex items-center gap-0.5">
-              {NAV.map((n) => (
-                <li key={n.href}>
-                  <Link href={n.href} className={navLinkCls}>
-                    {n.label}
-                  </Link>
-                </li>
-              ))}
+    <svg aria-hidden="true" viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 6h16v12H4zM4 7l8 6 8-6" />
+    </svg>
+  );
+}
+function PinIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21zM12 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z" />
+    </svg>
+  );
+}
+
+/**
+ * Footer, a copy of the website footer (Layout.jsx `Footer`; CSS §46 .footer/.ft-grid/.ft-col/
+ * .ft-bottom): navy gradient band, white lockup + about + contact, the website's columns, and an
+ * LMS "Learner support" column. Legal links stay in the LMS.
+ */
+export function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
+  return (
+    <footer className="td-footer">
+      <div className="td-ft-container">
+        <div className="td-ft-grid">
+          <div className="td-ft-brand">
+            {/* LMS home; a full page load because the edge proxy decides where "/" goes. */}
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+            <a href="/" className="td-ft-logo inline-block rounded-md" aria-label={`${APP_NAME} LMS home`}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/logo-lockup-white.svg" alt="" width={220} height={48} loading="lazy" decoding="async" />
+            </a>
+            <p className="td-ft-about">{SITE_INFO.about}</p>
+            <ul className="td-ft-contact">
+              <li>
+                <a href={`mailto:${SITE_INFO.email}`}>
+                  <span className="td-ft-ic">
+                    <MailIcon />
+                  </span>
+                  {SITE_INFO.email}
+                </a>
+              </li>
+              <li>
+                <span className="td-ft-ic">
+                  <PinIcon />
+                </span>
+                {SITE_INFO.location}
+              </li>
             </ul>
-          </nav>
-          <div className="ml-auto flex items-center gap-2 md:ml-0">
-            {signedIn ? (
-              <LinkButton href="/app" size="sm">
-                Go to dashboard
-              </LinkButton>
-            ) : (
-              <>
-                <LinkButton href="/login" variant="ghost" size="sm">
-                  Log in
-                </LinkButton>
-                <LinkButton href="/signup" size="sm">
-                  Sign up
-                </LinkButton>
-              </>
-            )}
           </div>
-        </div>
-      </header>
-      <main id="main" tabIndex={-1} className="mx-auto w-full max-w-content flex-1 px-4 py-8 focus:outline-none sm:px-6 sm:py-10">
-        {children}
-      </main>
-      <footer className="bg-surface-brand text-white/75">
-        <div className="mx-auto grid max-w-content gap-8 px-4 pb-8 pt-12 sm:grid-cols-2 sm:px-6 lg:grid-cols-[1.4fr_repeat(3,minmax(0,1fr))]">
-          <div>
-            <Logo tone="white" alt={APP_NAME} className="h-10" />
-            <p className="mt-4 max-w-xs text-sm leading-relaxed text-white/70">{TAGLINE}</p>
-          </div>
-          {FOOTER_GROUPS.map((g) => (
-            <nav key={g.label} aria-label={g.label}>
-              <p className="font-display text-xs font-bold uppercase tracking-[0.1em] text-accent-on-brand">{g.label}</p>
-              <ul className="mt-3 space-y-1">
+          {footerGroups(signedIn).map((g) => (
+            <nav key={g.label} className="td-ft-col" aria-label={g.label}>
+              <h2>{g.label}</h2>
+              <ul>
                 {g.links.map((l) => (
-                  <li key={l.href}>
-                    <Link href={l.href} className={footLinkCls}>
-                      {l.label}
-                    </Link>
-                  </li>
+                  <li key={l.href + l.label}>{l.href.startsWith("/") ? <Link href={l.href}>{l.label}</Link> : <a href={l.href}>{l.label}</a>}</li>
                 ))}
               </ul>
             </nav>
           ))}
         </div>
-        <div className="border-t border-white/10">
-          <p className="mx-auto max-w-content px-4 py-5 text-xs text-white/60 sm:px-6">
+        <div className="td-ft-bottom">
+          <p>
             © {new Date().getFullYear()} {APP_NAME}. All rights reserved.
           </p>
+          <p className="td-ft-tag">{SITE_INFO.tagline}</p>
+          <nav aria-label="Policies">
+            <ul className="td-ft-legal">
+              {LMS_LEGAL_LINKS.map((l) => (
+                <li key={l.href}>
+                  <Link href={l.href}>{l.label}</Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
         </div>
-      </footer>
+      </div>
+    </footer>
+  );
+}
+
+/**
+ * Public chrome (login, signup, password recovery, verification, legal, help, 404): the company
+ * website's header and footer, so the LMS reads as part of techdrona's site. The website's own
+ * sections go to the main website (NEXT_PUBLIC_SITE_URL); logo, Contact, help, legal and (signed
+ * in) Courses stay in the LMS. The LMS's own marketing nav is retired. Ivory canvas
+ * (website --cream #FAF8F4). `signedIn` is a UX hint from the session cookie (the api decides).
+ */
+export function PublicShell({ children, signedIn = false }: { children: ReactNode; signedIn?: boolean }) {
+  return (
+    <div className="flex min-h-dvh flex-col bg-surface-warm text-fg">
+      <SiteHeader signedIn={signedIn} />
+      <main id="main" tabIndex={-1} className="mx-auto w-full max-w-[1240px] flex-1 px-4 py-8 focus:outline-none sm:px-6 sm:py-10 lg:px-8">
+        {children}
+      </main>
+      <SiteFooter signedIn={signedIn} />
     </div>
   );
 }

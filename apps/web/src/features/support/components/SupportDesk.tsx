@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
-import { Badge, Button, Card, ErrorState, FormField, Input, PageHeader, Pagination, Select, Skeleton, StatTile, Table, useToast, type Column } from "@/components/ui";
+import { useEffect, useMemo, useState } from "react";
+import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, FormField, Input, LoadingBlock, PageHeader, Pagination, Select, StatGrid, StatTile, Table, useToast, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/errors";
 import type { Schema } from "@/lib/api-types";
 import { useResource } from "@/features/account/lib/use-resource";
-import { ActionDialog, FilterBar, InlineProblem, KeyValueList, StateBadge, TextArea, textLink } from "@/features/admin/components/console-ui";
-import { cleanQuery, formatCountdown, formatDate, formatDateTime, formatINR, humanize, toOutcome, useCursorList, useVersioned } from "@/features/admin/lib/console";
+import { ActionDialog, ConfirmDialog, FilterBar, InlineProblem, KeyValueList, StateBadge, TextArea, textLink } from "@/features/admin/components/console-ui";
+import { cleanQuery, formatCountdown, formatDate, formatDateTime, formatINR, humanize, shortRef, toOutcome, useCursorList, useVersioned } from "@/features/admin/lib/console";
 import { RiskBadge } from "@/features/security-admin/components/RiskLevel";
 import { DESK_CATEGORIES, STATUS_LABELS, TICKET_PRIORITIES, TICKET_STATUSES, UUID_RE, type Macro, type SupportUserNote, type SupportUserSummary, type Ticket, type TicketMessage, type TicketThread } from "../lib/types";
 import { AttachmentList, MessageThread, TicketStatusBadge } from "./Thread";
@@ -42,6 +43,21 @@ const anyOptions = (values: readonly string[], any = "Any") => [{ value: "", lab
 
 const ticketHref = (id: string) => `/desk/tickets/${id}`;
 
+/** The api returns only the assignee's id: show a short, readable reference (audit 1.11). */
+export const agentLabel = (id: string | null | undefined) => (id ? `Agent ${shortRef(id)}` : "Unassigned");
+
+/** Value that follows `value` after `ms` without changes (search-as-you-type without a request per key). */
+export function useDebounced<T>(value: T, ms = 300): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return v;
+}
+
+const DESK_CRUMB = { label: "Ticket queue", href: "/desk" };
+
 /** SUP-001 ticket queue (SUP-07): filters, SLA timers, priority, assignment, quick user lookup. */
 export function TicketQueue() {
   const router = useRouter();
@@ -51,8 +67,11 @@ export function TicketQueue() {
   const [category, setCategory] = useState("");
   const [assigned, setAssigned] = useState("any");
   const [q, setQ] = useState("");
-  const list = useCursorList<Ticket>("support/queue", cleanQuery({ status, priority, category, assigned, q: q.trim() }));
+  const query = useDebounced(q.trim());
+  const list = useCursorList<Ticket>("support/queue", cleanQuery({ status, priority, category, assigned, q: query }));
   const counts = list.envelope?.counts as QueueCounts | undefined;
+  const filtered = !!(status || priority || category || query || assigned !== "any");
+  const tile = (n: number | undefined) => (counts ? String(n ?? 0) : null);
   const cols: Column<Ticket>[] = [
     {
       key: "num",
@@ -77,23 +96,24 @@ export function TicketQueue() {
     { key: "prio", header: "Priority", cell: (t) => <Badge tone={PRIORITY_TONE[t.priority] ?? "neutral"}>{humanize(t.priority)}</Badge> },
     { key: "status", header: "Status", cell: (t) => <TicketStatusBadge status={t.status} /> },
     { key: "sla", header: "SLA", cell: (t) => <SlaCell t={t} /> },
-    { key: "who", header: "Assignee", cell: (t) => (t.assigned_to ? <span className="font-mono text-xs">{t.assigned_to.slice(0, 8)}</span> : <span className="text-fg-muted">Unassigned</span>) },
+    { key: "who", header: "Assignee", cell: (t) => (t.assigned_to ? <span title={t.assigned_to}>{agentLabel(t.assigned_to)}</span> : <span className="text-fg-muted">Unassigned</span>) },
   ];
   return (
     <div>
-      <PageHeader eyebrow="SUP-001" title="Ticket queue" />
-      {counts ? (
-        <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
-          <StatTile label="Open" value={String(counts.open ?? 0)} />
-          <StatTile label="Waiting on user" value={String(counts.pending_user ?? 0)} />
-          <StatTile label="With internal team" value={String(counts.pending_internal ?? 0)} />
-          <StatTile label="SLA breached" value={String(counts.breached ?? 0)} />
-          <StatTile label="Unassigned" value={String(counts.unassigned ?? 0)} />
-        </div>
+      <PageHeader title="Ticket queue" description="Questions and problems from learners, soonest deadline first." />
+      {counts || list.loading ? (
+        // Tiles stay in place while loading (value "—"), so the page does not jump. 5 tiles: 2 + 2 + 1 wide on phones.
+        <StatGrid columns={2} className="mb-4 sm:grid-cols-3 lg:grid-cols-5">
+          <StatTile size="compact" label="Open" value={tile(counts?.open)} />
+          <StatTile size="compact" label="Waiting on user" value={tile(counts?.pending_user)} />
+          <StatTile size="compact" label="With internal team" value={tile(counts?.pending_internal)} />
+          <StatTile size="compact" label="SLA breached" value={tile(counts?.breached)} tone={counts?.breached ? "danger" : "neutral"} hint={counts?.breached ? "Reply to these first" : undefined} />
+          <StatTile size="compact" className="col-span-2 sm:col-span-1" label="Unassigned" value={tile(counts?.unassigned)} tone={counts?.unassigned ? "warning" : "neutral"} />
+        </StatGrid>
       ) : null}
       <FilterBar label="Ticket filters">
-        <FormField label="Search">{(f) => <Input {...f} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Number or subject" />}</FormField>
-        <FormField label="Status">{(f) => <Select {...f} value={status} onChange={(e) => setStatus(e.target.value)} options={anyOptions(TICKET_STATUSES, "Active")} />}</FormField>
+        <FormField label="Search" hint="Ticket number or words in the subject.">{(f) => <Input {...f} type="search" value={q} onChange={(e) => setQ(e.target.value)} />}</FormField>
+        <FormField label="Status">{(f) => <Select {...f} value={status} onChange={(e) => setStatus(e.target.value)} options={anyOptions(TICKET_STATUSES, "All open tickets")} />}</FormField>
         <FormField label="Priority">{(f) => <Select {...f} value={priority} onChange={(e) => setPriority(e.target.value)} options={anyOptions(TICKET_PRIORITIES)} />}</FormField>
         <FormField label="Category">{(f) => <Select {...f} value={category} onChange={(e) => setCategory(e.target.value)} options={anyOptions(DESK_CATEGORIES)} />}</FormField>
         <FormField label="Assigned">
@@ -111,26 +131,51 @@ export function TicketQueue() {
           )}
         </FormField>
       </FilterBar>
-      <Table caption="Tickets" columns={cols} rows={list.rows} rowKey={(t) => t.ticket_id} loading={list.loading} error={list.error} onRetry={() => void list.reload()} empty={{ title: "No tickets match" }} footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />} />
-      <form
-        className="mt-6 flex flex-wrap items-end gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (lookup.trim()) router.push(`/desk/users/${encodeURIComponent(lookup.trim())}`);
-        }}
-      >
-        <div className="w-full max-w-sm">
-          <FormField label="Look up a user by id">{(f) => <Input {...f} value={lookup} onChange={(e) => setLookup(e.target.value)} />}</FormField>
-        </div>
-        <Button type="submit" variant="secondary" disabled={!lookup.trim()}>
-          Look up
-        </Button>
-      </form>
+      <Table
+        caption="Tickets"
+        columns={cols}
+        rows={list.rows}
+        rowKey={(t) => t.ticket_id}
+        loading={list.loading}
+        error={list.error}
+        onRetry={() => void list.reload()}
+        empty={filtered ? { title: "No tickets match", description: "Change or clear the filters to see more tickets.", icon: "search" } : { title: "No open tickets", description: "New tickets from learners appear here.", icon: "check" }}
+        footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />}
+      />
+      <Card title="Look up a user" className="mt-6" description="The quickest way is the Requester link on a ticket. You can also paste the user's id here.">
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (lookup.trim()) router.push(`/desk/users/${encodeURIComponent(lookup.trim())}`);
+          }}
+        >
+          <div className="w-full max-w-sm">
+            <FormField label="User id">{(f) => <Input {...f} value={lookup} onChange={(e) => setLookup(e.target.value)} autoComplete="off" spellCheck={false} />}</FormField>
+          </div>
+          <Button type="submit" variant="secondary" disabled={!lookup.trim()}>
+            Look up
+          </Button>
+        </form>
+      </Card>
     </div>
   );
 }
 
 /* ----------------------------------------------------------------- Ticket */
+
+/**
+ * Turn what the agent typed (a ticket number, or a full id) into the ticket id the merge api needs.
+ * Looks the number up among open tickets (the queue's search); throws a readable error otherwise.
+ */
+export async function resolveTicketId(input: string): Promise<string> {
+  const v = input.trim();
+  if (UUID_RE.test(v)) return v;
+  const res = await api.get<{ data: Ticket[] }>("support/queue", { query: { q: v, limit: 5 } });
+  const hit = (res.data ?? []).find((t) => t.ticket_number.toUpperCase() === v.toUpperCase());
+  if (!hit) throw new ApiError(404, { type: "about:blank", title: "Ticket not found", status: 404, detail: `No open ticket is numbered ${v}. Check the number in the ticket queue.`, code: "not_found", request_id: "" }, null);
+  return hit.ticket_id;
+}
 
 /** SUP-002 ticket thread for agents (SUP-03/04/08/09/10/15): replies, internal notes, triage. */
 export function TicketDetail({ ticketId }: { ticketId: string }) {
@@ -145,9 +190,10 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
   const [escalateTo, setEscalateTo] = useState("security");
   const [note, setNote] = useState("");
   const [mergeInto, setMergeInto] = useState("");
+  const [confirmClose, setConfirmClose] = useState(false);
 
-  if (t.error) return <ErrorState error={t.error} onRetry={() => void t.reload()} />;
-  if (!t.data) return <Skeleton className="h-60 w-full" />;
+  if (t.error) return <ErrorState error={t.error} onRetry={() => void t.reload()} secondaryAction={{ href: "/desk", label: "Back to the ticket queue" }} />;
+  if (!t.data) return <LoadingBlock label="Loading the ticket…" rows={6} />;
   const d = t.data;
   const closed = d.status === "closed";
   const macroList = macros.data?.data ?? [];
@@ -182,8 +228,14 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
   return (
     <div>
       <PageHeader
-        eyebrow="SUP-002"
+        breadcrumbs={[DESK_CRUMB, { label: d.ticket_number }]}
         title={d.subject}
+        meta={
+          <>
+            <TicketStatusBadge status={d.status} />
+            <Badge tone={PRIORITY_TONE[d.priority] ?? "neutral"}>{humanize(d.priority)} priority</Badge>
+          </>
+        }
         description={`${d.ticket_number} · ${humanize(d.category)} · opened ${formatDateTime(d.created_at)}`}
         actions={
           <div className="flex flex-wrap gap-2">
@@ -237,10 +289,7 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
                 <FormField label={internal ? "Internal note" : "Reply to requester"} required>
                   {(f) => <TextArea {...f} value={reply} onChange={(e) => setReply(e.target.value)} maxLength={10000} />}
                 </FormField>
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} />
-                  Internal note (never shown to the requester)
-                </label>
+                <Checkbox label="Internal note (never shown to the requester)" checked={internal} onChange={(e) => setInternal(e.target.checked)} />
                 <Button type="submit" loading={sending} disabled={!reply.trim()}>
                   {internal ? "Add note" : "Send reply"}
                 </Button>
@@ -252,7 +301,18 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
           <Card title="Triage">
             <div className="space-y-3">
               <FormField label="Status">
-                {(f) => <Select {...f} value={d.status} onChange={(e) => void patch({ status: e.target.value }, "Status updated.")} options={TICKET_STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))} />}
+                {(f) => (
+                  <Select
+                    {...f}
+                    value={d.status}
+                    onChange={(e) => {
+                      // Closing ends the conversation for the requester: confirm first (audit 0.7).
+                      if (e.target.value === "closed") setConfirmClose(true);
+                      else void patch({ status: e.target.value }, "Status updated.");
+                    }}
+                    options={TICKET_STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))}
+                  />
+                )}
               </FormField>
               <FormField label="Priority">
                 {(f) => <Select {...f} value={d.priority} disabled={closed} onChange={(e) => void patch({ priority: e.target.value }, "Priority updated.")} options={TICKET_PRIORITIES.map((p) => ({ value: p, label: humanize(p) }))} />}
@@ -272,18 +332,18 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
                     </Link>
                   ),
                 },
-                { label: "Assignee", value: d.assigned_to ? <span className="font-mono text-xs">{d.assigned_to}</span> : "Unassigned" },
+                { label: "Assignee", value: d.assigned_to ? <span title={d.assigned_to}>{agentLabel(d.assigned_to)}</span> : "Unassigned" },
                 { label: "First reply", value: d.first_responded_at ? formatDateTime(d.first_responded_at) : `Due ${formatCountdown(d.first_response_due_at)}${d.sla.first_response_breached ? " · breached" : ""}` },
                 { label: "Resolution due", value: `${formatDateTime(d.resolution_due_at)}${d.sla.resolution_breached ? " · breached" : ""}` },
                 { label: "Escalated to", value: d.escalated_to ? humanize(d.escalated_to) : "—" },
-                { label: "Linked unblock request", value: d.related_unblock_request_id ? <span className="font-mono text-xs">{d.related_unblock_request_id}</span> : "—" },
-                { label: "Linked test attempt", value: d.related_attempt_id ? <span className="font-mono text-xs">{d.related_attempt_id}</span> : "—" },
-                { label: "Linked case", value: d.related_case_id ? <span className="font-mono text-xs">{d.related_case_id}</span> : "—" },
+                { label: "Linked unblock request", value: d.related_unblock_request_id ? <span title={d.related_unblock_request_id}>Request {shortRef(d.related_unblock_request_id)}</span> : "—" },
+                { label: "Linked test attempt", value: d.related_attempt_id ? <span title={d.related_attempt_id}>Attempt {shortRef(d.related_attempt_id)}</span> : "—" },
+                { label: "Linked security case", value: d.related_case_id ? <span title={d.related_case_id}>Case {shortRef(d.related_case_id)}</span> : "—" },
                 {
                   label: "Merged into",
                   value: d.merged_into_id ? (
-                    <Link className={textLink} href={ticketHref(d.merged_into_id)}>
-                      {d.merged_into_id}
+                    <Link className={`${textLink} inline-flex min-h-6 items-center`} href={ticketHref(d.merged_into_id)}>
+                      Ticket {shortRef(d.merged_into_id)}
                     </Link>
                   ) : (
                     "—"
@@ -298,6 +358,10 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
       <ActionDialog
         open={dialog === "escalate"}
         onClose={() => setDialog(null)}
+        onOpen={() => {
+          setNote("");
+          setEscalateTo("security");
+        }}
         title="Escalate ticket"
         description="Routes the ticket to another team and marks it as waiting on an internal team."
         submitLabel="Escalate"
@@ -315,19 +379,36 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
       <ActionDialog
         open={dialog === "merge"}
         onClose={() => setDialog(null)}
+        onOpen={() => setMergeInto("")}
         title="Merge into another ticket"
-        description="This ticket is closed and points to the target. Both tickets must belong to the same requester."
+        description="This ticket is closed and points to the target. Both tickets must belong to the same requester, and the target must still be open."
         submitLabel="Merge"
-        validate={() => (!UUID_RE.test(mergeInto.trim()) ? "Enter the target ticket id." : null)}
-        onSubmit={async () => toOutcome(await api.post<Ticket>(`support/tickets/${ticketId}/merge`, { into_ticket_id: mergeInto.trim() }, { idempotencyKey: true }))}
+        validate={() => (!mergeInto.trim() ? "Enter the target ticket number." : mergeInto.trim().toUpperCase() === d.ticket_number.toUpperCase() ? "Choose a different ticket from this one." : null)}
+        onSubmit={async () => toOutcome(await api.post<Ticket>(`support/tickets/${ticketId}/merge`, { into_ticket_id: await resolveTicketId(mergeInto) }, { idempotencyKey: true }))}
         onDone={() => {
           setMergeInto("");
           toast.show({ title: "Tickets merged.", tone: "success" });
           void t.reload();
         }}
       >
-        <FormField label="Target ticket id" required>{(f) => <Input {...f} value={mergeInto} onChange={(e) => setMergeInto(e.target.value)} />}</FormField>
+        <FormField label="Target ticket number" required hint="For example TD-T-2026-000123 (from the ticket queue).">
+          {(f) => <Input {...f} value={mergeInto} onChange={(e) => setMergeInto(e.target.value)} autoComplete="off" spellCheck={false} />}
+        </FormField>
       </ActionDialog>
+      <ConfirmDialog
+        open={confirmClose}
+        onClose={() => setConfirmClose(false)}
+        title="Close this ticket?"
+        description="A closed ticket cannot be reopened, and no one can reply on it. Choose Resolved if the requester may still need to follow up."
+        confirmLabel="Close ticket"
+        cancelLabel="Keep open"
+        danger
+        onConfirm={async () => {
+          await api.patch<Ticket>(`support/tickets/${ticketId}`, { status: "closed" });
+          toast.show({ title: "Ticket closed.", tone: "success" });
+          await t.reload();
+        }}
+      />
     </div>
   );
 }
@@ -386,7 +467,7 @@ export function UserLookup({ userId, ticketId }: { userId: string; ticketId?: st
   if (!chosen) {
     return (
       <div>
-        <PageHeader eyebrow="SUP-003" title="User lookup" />
+        <PageHeader breadcrumbs={[DESK_CRUMB, { label: "User lookup" }]} title="User lookup" description="Lookups are recorded in the audit log, so they need the ticket you are working on." />
         <form
           className="max-w-lg space-y-3 rounded-xl border border-line bg-surface p-5"
           onSubmit={(e) => {
@@ -394,8 +475,9 @@ export function UserLookup({ userId, ticketId }: { userId: string; ticketId?: st
             if (ticket.trim()) setChosen(ticket.trim());
           }}
         >
-          <p className="text-sm text-fg-muted">Lookups are audited and need the ticket you are working on.</p>
-          <FormField label="Ticket id" required>{(f) => <Input {...f} value={ticket} onChange={(e) => setTicket(e.target.value)} />}</FormField>
+          <FormField label="Ticket number" required hint="The ticket you are working on, e.g. TD-T-2026-000123. Opening the user from a ticket's Requester link fills this in.">
+            {(f) => <Input {...f} value={ticket} onChange={(e) => setTicket(e.target.value)} autoComplete="off" />}
+          </FormField>
           <Button type="submit" disabled={!ticket.trim()}>
             Open
           </Button>
@@ -406,11 +488,9 @@ export function UserLookup({ userId, ticketId }: { userId: string; ticketId?: st
   return <UserLookupView userId={userId} ticketId={chosen} />;
 }
 
-function UserSummaryCard({ userId, ticketId }: { userId: string; ticketId: string }) {
+function UserSummaryCard({ userId, ticketId, summary }: { userId: string; ticketId: string; summary: { data: SupportUserSummary | null | undefined; error: unknown } }) {
   const toast = useToast();
   const ticketUuid = UUID_RE.test(ticketId) ? ticketId : null;
-  const query = useMemo(() => cleanQuery({ reason_code: "ticket", ticket_id: ticketUuid }), [ticketUuid]);
-  const summary = useVersioned<SupportUserSummary>(`support/users/${userId}`, query);
   const [action, setAction] = useState<"verify" | "reset" | null>(null);
   const [noteBody, setNoteBody] = useState("");
   const [noteBusy, setNoteBusy] = useState(false);
@@ -424,7 +504,7 @@ function UserSummaryCard({ userId, ticketId }: { userId: string; ticketId: strin
       </Card>
     );
   }
-  if (!summary.data) return <Skeleton className="mb-4 h-32 w-full" />;
+  if (!summary.data) return <LoadingBlock className="mb-4" label="Loading the account…" size="card" rows={1} />;
   const s = summary.data;
   const notes = [...addedNotes, ...s.notes];
   const actionBody = { reason_code: "ticket", ticket_id: ticketUuid };
@@ -447,7 +527,7 @@ function UserSummaryCard({ userId, ticketId }: { userId: string; ticketId: strin
   return (
     <>
       <Card
-        title={s.display_name ?? "Account"}
+        title="Account"
         className="mb-4"
         actions={
           <div className="flex flex-wrap gap-2">
@@ -575,6 +655,9 @@ function UserSummaryCard({ userId, ticketId }: { userId: string; ticketId: strin
 
 function UserLookupView({ userId, ticketId }: { userId: string; ticketId: string }) {
   const toast = useToast();
+  const ticketUuid = UUID_RE.test(ticketId) ? ticketId : null;
+  const summaryQuery = useMemo(() => cleanQuery({ reason_code: "ticket", ticket_id: ticketUuid }), [ticketUuid]);
+  const summary = useVersioned<SupportUserSummary>(`support/users/${userId}`, summaryQuery);
   const query = useMemo(() => ({ reason_code: "ticket" }), []);
   const devices = useVersioned<DevicesPayload>(`users/${userId}/devices`, query);
   const sessions = useVersioned<{ data: StaffSession[] }>(`users/${userId}/sessions`, query);
@@ -586,20 +669,24 @@ function UserLookupView({ userId, ticketId }: { userId: string; ticketId: string
   const used = devices.data?.limits?.support_resets_used_30d;
   const quotaLeft = typeof used === "number" ? Math.max(SUPPORT_RESETS_MAX_30D - used, 0) : null;
   const active = sessions.data?.data.filter((s) => s.status === "active") ?? [];
+  const noResetsLeft = quotaLeft === 0;
+  // Name (or masked email) from the account summary; never the raw id as the page title (audit 1.11).
+  const who = summary.data?.display_name || summary.data?.email_masked || `User ${shortRef(userId)}`;
+  const ticketLabel = ticketUuid ? `ticket ${shortRef(ticketUuid)}` : `ticket ${ticketId}`;
 
   return (
     <div>
       <PageHeader
-        eyebrow="SUP-003"
-        title={userId}
-        description={`Ticket ${ticketId}`}
+        breadcrumbs={[DESK_CRUMB, ...(ticketUuid ? [{ label: "Ticket", href: `/desk/tickets/${ticketUuid}` }] : []), { label: who }]}
+        title={who}
+        description={`Looked up for ${ticketLabel}. Support sees masked contact details only.`}
         actions={
           <Button variant="secondary" onClick={() => setRevokeOpen(true)}>
             Revoke sessions
           </Button>
         }
       />
-      <UserSummaryCard userId={userId} ticketId={ticketId} />
+      <UserSummaryCard userId={userId} ticketId={ticketId} summary={summary} />
       {error ? (
         <ErrorState
           error={error}
@@ -609,10 +696,15 @@ function UserLookupView({ userId, ticketId }: { userId: string; ticketId: string
           }}
         />
       ) : !devices.data || !sessions.data ? (
-        <Skeleton className="h-40 w-full" />
+        <LoadingBlock label="Loading devices and sessions…" rows={4} />
       ) : (
         <>
-          <Card title="Devices" className="mb-4" actions={quotaLeft !== null ? <span className="text-xs text-fg-muted">Support resets left (30 d): {quotaLeft}</span> : null}>
+          <Card
+            title="Devices"
+            className="mb-4"
+            actions={quotaLeft !== null ? <span className="text-xs text-fg-muted">Support resets left (last 30 days): {quotaLeft}</span> : null}
+            description={noResetsLeft ? "No support resets are left for this user this month. A security reviewer must approve another reset." : undefined}
+          >
             <Table
               caption="Devices"
               columns={[
@@ -623,7 +715,7 @@ function UserLookupView({ userId, ticketId }: { userId: string; ticketId: string
                   key: "act",
                   header: <span className="sr-only">Actions</span>,
                   cell: (d) => (
-                    <Button size="sm" variant="secondary" onClick={() => setReset(d)} aria-label={`Reset ${deviceName(d)}`}>
+                    <Button size="sm" variant="secondary" onClick={() => setReset(d)} disabled={noResetsLeft} aria-label={`Reset ${deviceName(d)}`}>
                       Reset device
                     </Button>
                   ),
@@ -631,28 +723,32 @@ function UserLookupView({ userId, ticketId }: { userId: string; ticketId: string
               ]}
               rows={devices.data.data}
               rowKey={(d) => d.user_device_id}
-              empty={{ title: "No devices" }}
+              empty={{ title: "No devices", description: "The user has not signed in on any device yet.", icon: "lock" }}
             />
           </Card>
           <Card title="Active sessions">
-            <ul className="space-y-1 text-sm">
-              {active.map((s) => (
-                <li key={s.session_id}>
-                  {s.device_label ?? "Device"} · {s.approx_region ?? "—"} · <span className="font-mono text-xs">{s.ip ?? "—"}</span> · {formatDateTime(s.last_active_at)}
-                </li>
-              ))}
-            </ul>
-            {!active.length ? <p className="text-sm text-fg-muted">None</p> : null}
+            {active.length ? (
+              <ul className="space-y-1 text-sm">
+                {active.map((s) => (
+                  <li key={s.session_id}>
+                    {s.device_label ?? "Device"} · {s.approx_region ?? "—"} · <span className="font-mono text-xs">{s.ip ?? "—"}</span> · {formatDateTime(s.last_active_at)}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptyState variant="inline" icon="lock" title="Not signed in anywhere" description="Nothing to revoke. The user can sign in again as usual." />
+            )}
           </Card>
         </>
       )}
       <ActionDialog
         open={reset !== null}
         onClose={() => setReset(null)}
+        onOpen={() => setReason("")}
         title={`Reset ${reset ? deviceName(reset) : "device"}?`}
         description="Removes this trusted device so the user can add a new one (one support reset per 30 days; beyond that a security reviewer decides)."
         submitLabel="Reset device"
-        validate={() => (reason.trim().length < 5 ? "Give a reason." : null)}
+        validate={() => (reason.trim().length < 5 ? "Give a reason of at least 5 characters." : null)}
         onSubmit={async () =>
           toOutcome(
             await api.post(
@@ -673,10 +769,11 @@ function UserLookupView({ userId, ticketId }: { userId: string; ticketId: string
       <ActionDialog
         open={revokeOpen}
         onClose={() => setRevokeOpen(false)}
+        onOpen={() => setReason("")}
         title="Sign the user out everywhere?"
         submitLabel="Revoke sessions"
         danger
-        validate={() => (reason.trim().length < 5 ? "Give a reason." : null)}
+        validate={() => (reason.trim().length < 5 ? "Give a reason of at least 5 characters." : null)}
         onSubmit={async () => toOutcome(await api.post<{ revoked: number }>(`users/${userId}/sessions/revoke`, { session_id: null, all: true, reason_code: "ticket", reason: `Ticket ${ticketId}: ${reason.trim()}`.slice(0, 500) } satisfies Schema<"AdminRevokeIn">, { idempotencyKey: true }))}
         onDone={(o) => {
           setReason("");
@@ -712,6 +809,10 @@ interface SupportUnblockRow {
 
 type TriageAction = { kind: "lift"; row: SupportUnblockRow; restriction: SupportUnblockRestriction } | { kind: "forward"; row: SupportUnblockRow };
 
+/** Restriction levels in plain words (L1–L4 are security-team shorthand). */
+export const RESTRICTION_NAME: Record<number, string> = { 0: "no restriction", 1: "notice", 2: "verification check", 3: "temporary restriction", 4: "suspension" };
+const restrictionName = (level: number) => RESTRICTION_NAME[level] ?? "restriction";
+
 /**
  * SUP-005 support unblock triage (UNB-17). Support lifts L1/L2 (SEC-21,
  * `security.restriction.lift_l1l2`) and forwards L3/L4 to security review (UNB-18). Actions are
@@ -743,8 +844,14 @@ export function SupportUnblockTriage() {
           <div className="flex flex-wrap gap-2">
             {r.route === "support"
               ? liftable.map((x) => (
-                  <Button key={x.restriction_id} size="sm" variant="secondary" onClick={() => open({ kind: "lift", row: r, restriction: x })} aria-label={`Lift L${x.level} restriction for ${r.reference}`}>
-                    Lift L{x.level}
+                  <Button
+                    key={x.restriction_id}
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => open({ kind: "lift", row: r, restriction: x })}
+                    aria-label={`Lift ${humanize(x.family).toLowerCase()} ${restrictionName(x.level)} for ${r.reference}`}
+                  >
+                    Lift {restrictionName(x.level)}
                   </Button>
                 ))
               : null}
@@ -762,13 +869,23 @@ export function SupportUnblockTriage() {
   const isLift = action?.kind === "lift";
   return (
     <div>
-      <PageHeader eyebrow="SUP-005" title="Unblock requests" description="Support clears L1/L2. L3/L4 and escalated requests go to the security queue." />
-      <Table caption="Unblock requests" columns={cols} rows={list.rows} rowKey={(r) => r.request_id ?? r.reference} loading={list.loading} error={list.error} onRetry={() => void list.reload()} empty={{ title: "Nothing to triage" }} footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />} />
-      {missingIds ? <p className="mt-3 text-sm text-fg-muted">Some requests arrived without a request id, so lift and forward cannot be started for them here.</p> : null}
+      <PageHeader title="Unblock requests" description="Support can lift notices and verification checks. Temporary restrictions and suspensions go to the security team." />
+      <Table
+        caption="Unblock requests"
+        columns={cols}
+        rows={list.rows}
+        rowKey={(r) => r.request_id ?? r.reference}
+        loading={list.loading}
+        error={list.error}
+        onRetry={() => void list.reload()}
+        empty={{ title: "Nothing to triage", description: "Requests from blocked learners appear here.", icon: "check" }}
+        footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />}
+      />
+      {missingIds ? <p className="mt-3 text-sm text-fg-muted">Some older requests cannot be lifted or forwarded from this page. Ask the security team to handle them.</p> : null}
       <ActionDialog
         open={action !== null}
         onClose={() => setAction(null)}
-        title={isLift ? `Lift the L${action.restriction.level} restriction?` : `Forward ${action?.row.reference ?? "request"} to security?`}
+        title={isLift ? `Lift the ${restrictionName(action.restriction.level)}?` : `Forward ${action?.row.reference ?? "request"} to security?`}
         description={isLift ? "The student regains access. The reason is kept in the audit log." : "The case is flagged for the security review queue with your note."}
         submitLabel={isLift ? "Lift restriction" : "Forward"}
         validate={() => (reason.trim().length < 3 ? "Give a reason (at least 3 characters)." : null)}

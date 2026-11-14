@@ -15,8 +15,8 @@ from __future__ import annotations
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.principal import Principal
@@ -96,19 +96,14 @@ async def _default_org(session: AsyncSession, principal: Principal, ref: EntityR
     ``org_memberships`` / ``batch_members`` / ``enrolments``).
     """
     from app.core.errors import ProblemError
-    from app.modules.assessments.models import TestAttempt
     from app.modules.learning import service as learning_service
     from app.modules.orgs import service as orgs_service
 
     u = principal.user_id
     if ref.test_attempt_id is not None:
-        org = (
-            await session.execute(
-                select(TestAttempt.organization_id).where(
-                    TestAttempt.id == ref.test_attempt_id, TestAttempt.user_id == u
-                )
-            )
-        ).scalar_one_or_none()
+        from app.modules.assessments import public as assessments
+
+        org = await assessments.attempt_org_of_user(session, ref.test_attempt_id, u)
         if org is not None:
             return org
     course = ref.course_id
@@ -142,3 +137,12 @@ async def touch_engaged(session_id: uuid.UUID) -> None:
 
         fn = sessions_touch
     await fn(session_id)
+
+
+async def synthetic_user_ids(session: Any) -> list[uuid.UUID]:
+    """Synthetic accounts (identity): the analytics rollups exclude them. Replaces the
+    ``JOIN users u ... AND NOT u.is_synthetic`` of the SQL (analytics rows always belong to an
+    existing account: erasure deletes them)."""
+    from app.modules.identity import public as identity
+
+    return [u.id for u in await identity.list_users(session, is_synthetic=True)]

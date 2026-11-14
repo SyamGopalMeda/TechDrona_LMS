@@ -1,4 +1,9 @@
-"""Support desk domain logic: SLA clocks, visibility scopes, ticket/message serialisation."""
+"""Support desk domain logic: SLA clocks, visibility scopes, ticket/message serialisation.
+
+Storage: Postgres, or Firestore with ``TD_STORE_SUPPORT=firestore`` (``repo_firestore``). The
+functions below are backend-neutral: tickets are ORM rows or ``TicketRow`` (same attributes);
+callers mutate them and then ``save`` (a flush on Postgres, one optimistic transaction on
+Firestore)."""
 
 from __future__ import annotations
 
@@ -12,12 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import PLATFORM_SCOPE
 from app.core.errors import ProblemError
+from app.core.firestore.backend import uses_firestore
 from app.core.ids import uuid7
 from app.core.principal import Principal
 from app.core.time import to_rfc3339
 from app.modules.identity import clock
 from app.modules.identity.contacts import mask_email
-from app.modules.identity.models import User, UserProfile
 from app.modules.rbac import service as rs
 from app.modules.support.models import SupportTicket, SupportTicketMessage
 
@@ -63,6 +68,10 @@ ROLE_CATEGORIES: dict[str, frozenset[str] | None] = {
     "content_manager": frozenset({"content", "assessment", "certificate"}),
 }
 ROLE_ESCALATION = {"content_manager": "content"}
+# Live audit 2026-11-14 (F3): no Studio screen lists tickets, so content-lane tickets and tickets
+# escalated to "content" are worked by Admin in the Admin Support queue (Admin sees every
+# category). The content manager keeps its lane permissions (API only) for when a Studio
+# "Content tickets" view is built; the lane exposes nothing outside content/assessment/certificate.
 
 
 def sla_due(priority: str, is_grievance: bool, start: datetime) -> tuple[datetime, datetime]:
@@ -78,23 +87,59 @@ async def derive_priority(session: AsyncSession, user_id: uuid.UUID, category: s
     cannot reach paid content (access categories) or has a test attempt in progress."""
     priority = DEFAULT_PRIORITY.get(category, "normal")
     if category == "assessment" and priority != "high":
-        from app.modules.assessments.models import TestAttempt
+        from app.modules.assessments import public as assessments
 
-        running = (
-            await session.execute(
-                select(TestAttempt.id)
-                .where(TestAttempt.user_id == user_id, TestAttempt.status == "in_progress")
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if running is not None:
+        if await assessments.has_attempt_in_progress(session, user_id):
             priority = "high"
     return priority
 
 
+def ticket_number(n: int) -> str:
+    return f"TD-T-{clock.now().year}-{int(n):06d}"
+
+
 async def next_ticket_number(session: AsyncSession) -> str:
     n = (await session.execute(text("SELECT nextval('support_ticket_number_seq')"))).scalar_one()
-    return f"TD-T-{clock.now().year}-{int(n):06d}"
+    return ticket_number(int(n))
+
+
+def on_firestore() -> bool:
+    return uses_firestore("support")
+
+
+async def fs_repo(session: AsyncSession, job: str = "support.desk") -> Any:
+    """The Firestore repository bound to the caller's RLS scope (``app.user_id``/``is_platform``)."""
+    from app.core.db import rls_scope
+    from app.modules.support.repo_firestore import repo
+
+    return repo(await rls_scope(session), job)
+
+
+def new_ticket(**kw: Any) -> Any:
+    """An unsaved ticket (ORM row, or ``TicketRow`` on Firestore); ``insert_ticket`` numbers it."""
+    if on_firestore():
+        from app.modules.support.repo_firestore import TicketRow
+
+        return TicketRow(ticket_number="", **kw)
+    return SupportTicket(**kw)
+
+
+async def insert_ticket(session: AsyncSession, t: Any) -> Any:
+    """Insert with the next gap-free ticket number (the number commits with the row)."""
+    if on_firestore():
+        return await (await fs_repo(session)).insert_ticket(t.requester_id, t, ticket_number)
+    t.ticket_number = await next_ticket_number(session)
+    session.add(t)
+    await session.flush()
+    return t
+
+
+async def save(session: AsyncSession, *tickets: Any) -> None:
+    """Persist changes made to loaded tickets (and their queued messages)."""
+    if on_firestore():
+        await (await fs_repo(session)).save(None, tickets)
+        return
+    await session.flush()
 
 
 # --------------------------------------------------------------------------- staff scope
@@ -171,6 +216,11 @@ async def user_has_platform_permission(session: AsyncSession, user_id: uuid.UUID
 async def load_ticket(
     session: AsyncSession, ticket_id: uuid.UUID, *, for_update: bool = False
 ) -> SupportTicket:
+    if on_firestore():
+        row = await (await fs_repo(session)).get_ticket(None, ticket_id)
+        if row is None:
+            raise ProblemError("not_found")
+        return row  # type: ignore[no-any-return,unused-ignore]
     q = select(SupportTicket).where(SupportTicket.id == ticket_id)
     if for_update:
         q = q.with_for_update()
@@ -182,7 +232,7 @@ async def load_ticket(
 
 async def add_message(
     session: AsyncSession,
-    t: SupportTicket,
+    t: Any,
     *,
     author_id: uuid.UUID | None,
     author_kind: str,
@@ -190,6 +240,21 @@ async def add_message(
     visibility: str = "public",
     attachments: list[dict[str, Any]] | None = None,
 ) -> SupportTicketMessage:
+    if on_firestore():
+        from app.modules.support.repo_firestore import new_message
+
+        fm = new_message(
+            t,
+            author_id=author_id,
+            author_kind=author_kind,
+            visibility=visibility,
+            body=body,
+            attachments=list(attachments or []),
+            created_at=clock.now(),
+        )
+        t._new_messages.append(fm)
+        t.last_message_at = fm.created_at
+        return fm  # type: ignore[return-value]
     m = SupportTicketMessage(
         id=uuid7(),
         support_ticket_id=t.id,
@@ -212,6 +277,11 @@ async def message_counts(
 ) -> dict[uuid.UUID, int]:
     if not ids:
         return {}
+    if on_firestore():
+        counts: dict[uuid.UUID, int] = await (await fs_repo(session)).message_counts(
+            None, ids, internal=internal
+        )
+        return counts
     q = select(SupportTicketMessage.support_ticket_id, func.count()).where(
         SupportTicketMessage.support_ticket_id.in_(ids)
     )
@@ -224,13 +294,9 @@ async def message_counts(
 async def requester_info(session: AsyncSession, ids: set[uuid.UUID]) -> dict[uuid.UUID, dict[str, Any]]:
     if not ids:
         return {}
-    rows = (
-        await session.execute(
-            select(User.id, User.email, UserProfile.full_name, UserProfile.display_name)
-            .outerjoin(UserProfile, UserProfile.user_id == User.id)
-            .where(User.id.in_(ids))
-        )
-    ).all()
+    from app.modules.identity import public as identity
+
+    rows = list((await identity.user_cards(session, ids)).values())
     return {
         r.id: {
             "user_id": str(r.id),
@@ -340,6 +406,8 @@ async def auto_close_resolved(session: AsyncSession) -> int:
     from app.core.audit import AuditActor, audit
 
     cutoff = clock.now() - AUTO_CLOSE_AFTER
+    if on_firestore():
+        return await _auto_close_firestore(session, cutoff)
     rows = (
         (
             await session.execute(
@@ -368,3 +436,73 @@ async def auto_close_resolved(session: AsyncSession) -> int:
             subject_user_id=t.requester_id,
         )
     return len(rows)
+
+
+async def _auto_close_firestore(session: AsyncSession, cutoff: datetime) -> int:
+    """Firestore ``auto_close``: a ticket changed concurrently is skipped (``SKIP LOCKED``) and
+    picked up by the next hourly run."""
+    from app.core.audit import AuditActor, audit
+
+    repo = await fs_repo(session, "support.auto_close")
+    closed = 0
+    for t in await repo.resolved_before(cutoff, 500):
+        t.status = "closed"
+        t.closed_at = clock.now()
+        await add_message(
+            session, t, author_id=None, author_kind="system", body="Ticket closed automatically after 7 days."
+        )
+        try:
+            await repo.save(None, [t])
+        except ProblemError as e:
+            if e.code != "conflict":
+                raise
+            continue
+        closed += 1
+        await audit(
+            session,
+            AuditActor.system("support.auto_close"),
+            "support.ticket.auto_closed",
+            "support_ticket",
+            t.id,
+            organization_id=t.organization_id,
+            subject_user_id=t.requester_id,
+        )
+    return closed
+
+
+async def dashboard_counts(session: AsyncSession, now: datetime) -> dict[str, int]:
+    """Open / SLA-breached / unassigned ticket counts (admin dashboard; caller is platform)."""
+    if on_firestore():
+        rows = await (await fs_repo(session, "support.dashboard")).open_tickets(OPEN_STATUSES)
+        return {
+            "open": len(rows),
+            "breached": sum(
+                1
+                for t in rows
+                if (t.resolution_due_at is not None and t.resolution_due_at < now)
+                or (
+                    t.first_responded_at is None
+                    and t.first_response_due_at is not None
+                    and t.first_response_due_at < now
+                )
+            ),
+            "unassigned": sum(1 for t in rows if t.assigned_to is None),
+        }
+    from sqlalchemy import or_
+
+    async def n(*conds: Any) -> int:
+        q = select(func.count()).select_from(SupportTicket).where(*conds)
+        return int((await session.execute(q)).scalar_one())
+
+    is_open = SupportTicket.status.in_(OPEN_STATUSES)
+    return {
+        "open": await n(is_open),
+        "breached": await n(
+            is_open,
+            or_(
+                SupportTicket.resolution_due_at < now,
+                (SupportTicket.first_responded_at.is_(None)) & (SupportTicket.first_response_due_at < now),
+            ),
+        ),
+        "unassigned": await n(is_open, SupportTicket.assigned_to.is_(None)),
+    }

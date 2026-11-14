@@ -180,7 +180,7 @@ export function QuestionPalette({ states, current, onSelect, counts }: PalettePr
       <ul aria-label="Legend" className="mb-3 grid grid-cols-1 gap-1 text-xs text-fg-secondary sm:grid-cols-2">
         {(Object.keys(PALETTE_LABEL) as PaletteState[]).map((s) => (
           <li key={s} className="flex items-center gap-2">
-            <span aria-hidden="true" className={cn("inline-flex h-4 w-4 items-center justify-center text-[9px]", tileClass[s])}>
+            <span aria-hidden="true" className={cn("inline-flex h-5 w-5 shrink-0 items-center justify-center text-xs leading-none", tileClass[s])}>
               {s === "answered" || s === "answered_marked" ? "✓" : s === "not_answered" ? "–" : ""}
             </span>
             {PALETTE_LABEL[s]} <span className="tabular-nums">{counts[s]}</span>
@@ -206,10 +206,10 @@ export function QuestionPalette({ states, current, onSelect, counts }: PalettePr
             )}
           >
             {i + 1}
-            {s === "answered" ? <span aria-hidden="true" className="absolute right-0.5 top-0 text-[10px]">✓</span> : null}
-            {s === "not_answered" ? <span aria-hidden="true" className="absolute bottom-0 text-[10px] leading-none">–</span> : null}
+            {s === "answered" ? <span aria-hidden="true" className="absolute right-0.5 top-0 text-xs leading-none">✓</span> : null}
+            {s === "not_answered" ? <span aria-hidden="true" className="absolute bottom-0 text-xs leading-none">–</span> : null}
             {s === "answered_marked" ? (
-              <span aria-hidden="true" className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-qstate-answered text-[9px] text-qstate-answered-fg">
+              <span aria-hidden="true" className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-qstate-answered text-xs leading-none text-qstate-answered-fg">
                 ✓
               </span>
             ) : null}

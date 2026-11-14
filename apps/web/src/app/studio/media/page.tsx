@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Media" };
 export default function Page() {
   return (
     <div>
-      <PageHeader title="Media" eyebrow="CMS-012" description="Upload lesson videos and attach PDFs or captions, then follow processing until they are ready." />
+      <PageHeader title="Media" description="Open a course to upload lesson videos, attach PDFs or captions, and follow processing until they are ready." />
       <MediaLibrary />
     </div>
   );

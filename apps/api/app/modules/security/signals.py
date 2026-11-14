@@ -7,6 +7,7 @@ Network evidence stores only /16 prefixes, network types, state codes and counts
 
 from __future__ import annotations
 
+import functools
 import ipaddress
 import math
 import uuid
@@ -15,10 +16,10 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import pairwise
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import structlog
-from sqlalchemy import and_, func, select, text
+from sqlalchemy import and_, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,11 +28,10 @@ from app.core.ids import uuid7
 from app.core.outbox import emit_event
 from app.modules.admin.policy import get_value
 from app.modules.identity import clock
-from app.modules.identity.models import User
 from app.modules.security import engine
+from app.modules.security import repo_fs_engine as fx
 from app.modules.security import restrictions as rx
 from app.modules.security.models import (
-    AccountRestriction,
     CaseNote,
     SecurityCounter,
     SecurityNotice,
@@ -39,13 +39,10 @@ from app.modules.security.models import (
 )
 from app.modules.security.refs import make_ref
 from app.modules.security.rules import CLASS_ORDER, NetLeg, classify_pair, ist_day
-from app.modules.sessions.models import (
-    AuthSession,
-    Device,
-    LoginAttempt,
-    SessionNetworkObservation,
-    UserDevice,
-)
+
+if TYPE_CHECKING:  # annotations only: rows come from identity.public / sessions.public
+    from app.modules.identity.models import User
+    from app.modules.sessions.models import AuthSession, LoginAttempt, UserDevice
 
 log = structlog.get_logger("app.security.signals")
 FAILURES = ("bad_credentials", "unknown_identifier")
@@ -116,10 +113,86 @@ def mask16(cluster: str | None) -> str | None:
     return f"{asn}:{ipaddress.ip_network(f'{n.network_address}/32', strict=False)}"
 
 
+async def _user(session: AsyncSession, user_id: uuid.UUID) -> User | None:
+    """``identity.public.get_user`` (Postgres: ``session.get(User, id)``)."""
+    u: User | None = await fx.get_user(session, user_id)
+    return u
+
+
+async def _scalar(session: AsyncSession, stmt: Any, on_firestore: Callable[[], Awaitable[Any]]) -> Any:
+    """``(await session.execute(stmt)).scalar_one()``; Firestore: ``on_firestore()``."""
+    if fx.fs():
+        return await on_firestore()
+    return (await session.execute(stmt)).scalar_one()
+
+
+async def _attempts(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    outcome: str,
+    since: datetime,
+    *,
+    country: str | None = None,
+    exclude_id: Any = None,
+) -> int:
+    """Firestore: login attempts of a user with ``outcome`` and ``attempted_at > since``."""
+    from app.modules.sessions import public as sp
+
+    rows = await sp.list_login_attempts(session, since=since, user_id=user_id, outcomes=[outcome])
+    return sum(
+        1
+        for a in rows
+        if (country is None or a.geo_country == country) and (exclude_id is None or a.id != exclude_id)
+    )
+
+
+def _in_net(ip: Any, net: Any) -> bool:
+    """``ip << net`` (inet containment; other address families never match)."""
+    if not ip:
+        return False
+    try:
+        addr = ipaddress.ip_address(str(ip).split("/")[0])
+    except ValueError:
+        return False
+    return addr.version == net.version and addr in net
+
+
+def _source_aggregates(rows: list[Any]) -> tuple[Any, int]:
+    """The two ``login_attempts`` aggregates of AB-04 / AB-05 over the attempts of one source:
+    (failures not pre-auth-blocked, distinct identifiers among them) and the number of
+    identifiers with <= 2 attempts (``GROUP BY identifier_hash``; NULL is a group)."""
+    from collections import Counter
+    from types import SimpleNamespace
+
+    fails = [a for a in rows if a.outcome in FAILURES and a.pre_auth_blocked is False]
+    per_ident = Counter(a.identifier_hash for a in rows)
+    n = SimpleNamespace(
+        n=len(fails), accts=len({a.identifier_hash for a in fails if a.identifier_hash is not None})
+    )
+    return n, sum(1 for c in per_ident.values() if c <= 2)
+
+
+async def _source_counts(session: AsyncSession, ip: str | None, since: datetime) -> tuple[Any, int]:
+    """AB-04 / AB-05 aggregates for the /24 (/48) source of ``ip`` over
+    ``sessions.public.list_login_attempts_in_prefix`` (Postgres: ``ip << network``; Firestore:
+    the indexed ``ip_prefix``). The containment is re-checked on each row."""
+    from app.modules.sessions import public as sp
+
+    src = source24(ip)
+    if src is None or ip is None:
+        return _source_aggregates([])
+    net = ipaddress.ip_network(src, strict=False)
+    rows = [a for a in await sp.list_login_attempts_in_prefix(session, ip, since=since) if _in_net(a.ip, net)]
+    return _source_aggregates(rows)
+
+
 # --------------------------------------------------------------------------- counters
 
 
 async def bump(session: AsyncSession, key: str, now: datetime) -> None:
+    if fx.fs():
+        await fx.repo().bump(key, now)
+        return
     bucket = now.replace(second=0, microsecond=0)
     await session.execute(
         pg_insert(SecurityCounter)
@@ -131,6 +204,8 @@ async def bump(session: AsyncSession, key: str, now: datetime) -> None:
 
 
 async def count_since(session: AsyncSession, key: str, since: datetime) -> int:
+    if fx.fs():
+        return await fx.repo().count_since(key, since)
     return int(
         (
             await session.execute(
@@ -150,6 +225,14 @@ async def recent_signal(
     user_id: uuid.UUID | None = None,
     source: str | None = None,
 ) -> bool:
+    if fx.fs():
+        r = fx.repo()
+        rows = (
+            [s for s in await r.user_signals(user_id, rule_key=rule) if s.occurred_at > since]
+            if user_id is not None
+            else await r.rule_signals_since(rule, since)
+        )
+        return any(source is None or (s.evidence or {}).get("source") == source for s in rows)
     conds: list[Any] = [SecuritySignal.rule_key == rule, SecuritySignal.occurred_at > since]
     if user_id is not None:
         conds.append(SecuritySignal.user_id == user_id)
@@ -176,20 +259,19 @@ async def _owner_verified_refresh(
     """AMB-22: any SMS-OTP / passkey / TOTP challenge on a device refreshes owner verification."""
     if device_id is None:
         return
-    ud = (
-        await session.execute(
-            select(UserDevice).where(
-                UserDevice.user_id == user_id,
-                UserDevice.device_id == device_id,
-                UserDevice.trust_status != "removed",
-            )
-        )
-    ).scalar_one_or_none()
-    if ud is not None:
+    from app.modules.sessions import public as sp
+
+    uds = await sp.list_user_devices(session, user_id=user_id, device_id=device_id, live_only=True)
+    if len(uds) > 1:
+        from sqlalchemy.exc import MultipleResultsFound
+
+        raise MultipleResultsFound("Multiple rows were found when one or none was required")
+    if uds:
+        ud = uds[0]
         ud.owner_verified_at = clock.now()
         if ud.verification_method is None:
             ud.verification_method = method
-        await session.flush()
+        await sp.add_user_device(session, ud)
 
 
 async def check_l2_pass(session: AsyncSession, user_id: uuid.UUID) -> bool:
@@ -198,18 +280,16 @@ async def check_l2_pass(session: AsyncSession, user_id: uuid.UUID) -> bool:
     r = await rx.active_for(session, user_id, "sharing")
     if r is None or r.level != 2:
         return False
-    rows = (
-        await session.execute(
-            select(UserDevice.device_id, UserDevice.owner_verified_at).where(UserDevice.user_id == user_id)
-        )
-    ).all()
+    from app.modules.sessions import public as sp
+
+    rows = [(d.device_id, d.owner_verified_at) for d in await sp.list_user_devices(session, user_id=user_id)]
     verified = {d for d, ts in rows if ts is not None and ts >= r.starts_at}
     needed = set(r.reverify_device_ids)
     if needed and not needed <= verified:
         return False
     st = await rx.get_state(session, user_id)
     st.l2_passed_at = clock.now()
-    await session.flush()
+    await fx.flush(session, st)
     await engine.evaluate_sharing(session, user_id, trigger="verification")
     return True
 
@@ -219,16 +299,7 @@ async def _ab_source_checks(session: AsyncSession, la: LoginAttempt, now: dateti
     if src is None:
         return
     p = await abuse_params(session)
-    row = (
-        await session.execute(
-            text(
-                "SELECT count(*) AS n, count(DISTINCT identifier_hash) AS accts FROM login_attempts "
-                "WHERE ip << CAST(:src AS inet) AND attempted_at > :since "
-                "AND outcome IN ('bad_credentials','unknown_identifier') AND NOT pre_auth_blocked"
-            ),
-            {"src": src, "since": now - timedelta(hours=1)},
-        )
-    ).one()
+    row, spray = await _source_counts(session, la.ip, now - timedelta(hours=1))
     if (
         row.n >= int(p["ab04_failures"])
         and row.accts >= int(p["ab04_accounts"])
@@ -248,16 +319,6 @@ async def _ab_source_checks(session: AsyncSession, la: LoginAttempt, now: dateti
             aggregate_type="security_source",
             aggregate_id=uuid7(),
         )
-    spray = (
-        await session.execute(
-            text(
-                "SELECT count(*) FROM (SELECT identifier_hash, count(*) c FROM login_attempts "
-                "WHERE ip << CAST(:src AS inet) AND attempted_at > :since "
-                "GROUP BY identifier_hash) t WHERE c <= 2"
-            ),
-            {"src": src, "since": now - timedelta(hours=1)},
-        )
-    ).scalar_one()
     if spray >= int(p["ab05_accounts"]) and not await recent_signal(
         session, "AB-05", now - timedelta(hours=1), source=src
     ):
@@ -281,24 +342,7 @@ async def _device_checks(session: AsyncSession, user: User, la: LoginAttempt, no
     if la.device_id is None:
         return
     # AB-10: a device of an account under active L3/L4 used by another account within 7 days.
-    others = (
-        (
-            await session.execute(
-                select(AccountRestriction)
-                .join(UserDevice, UserDevice.user_id == AccountRestriction.user_id)
-                .where(
-                    UserDevice.device_id == la.device_id,
-                    AccountRestriction.user_id != user.id,
-                    AccountRestriction.ended_at.is_(None),
-                    AccountRestriction.level >= 3,
-                    AccountRestriction.family == "sharing",
-                    UserDevice.last_used_at > now - timedelta(days=7),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    others = await _ab10_restricted(session, user, la.device_id, now)
     for r in others:
         if await recent_signal(session, "AB-10", now - timedelta(days=1), user_id=user.id):
             break
@@ -312,16 +356,39 @@ async def _device_checks(session: AsyncSession, user: User, la: LoginAttempt, no
             user=user,
         )
         if r.case_id:
-            session.add(
-                CaseNote(
+            await fx.add(
+                session,
+                fx.new(
+                    CaseNote,
                     id=uuid7(),
                     case_id=r.case_id,
                     author_id=None,
                     visibility="internal",
                     body=f"AB-10: a device of this account signed in to another account "
                     f"({str(user.id)[:8]}) on {now:%Y-%m-%d}.",
-                )
+                ),
             )
+
+
+async def _ab10_restricted(
+    session: AsyncSession, user: User, device_id: uuid.UUID, now: datetime
+) -> list[Any]:
+    """Active sharing L3+ restrictions of other accounts that used ``device_id`` in the last 7
+    days (the join ``account_restrictions x user_devices``: one row per pair), devices through
+    ``sessions.public``."""
+    from app.modules.sessions import public as sp
+
+    out: list[Any] = []
+    since = now - timedelta(days=7)
+    for ud in await sp.list_user_devices(session, device_id=device_id, last_used_after=since):
+        if ud.user_id == user.id:
+            continue
+        out += [
+            r
+            for r in await rx.active_restrictions(session, ud.user_id)
+            if r.level >= 3 and r.family == "sharing"
+        ]
+    return out
 
 
 async def on_login_attempt(session: AsyncSession, la: LoginAttempt) -> None:
@@ -330,24 +397,15 @@ async def on_login_attempt(session: AsyncSession, la: LoginAttempt) -> None:
         await _ab_source_checks(session, la, now)
     if la.user_id is None:
         return
-    user = await session.get(User, la.user_id)
+    user = await _user(session, la.user_id)
     if user is None:
         return
     tdef, _ = await engine.ruleset(session, "takeover")
     tp = tdef["params"]
     takeover_changed = False
     if la.outcome == "bad_credentials" and not la.pre_auth_blocked:
-        n = (
-            await session.execute(
-                select(func.count())
-                .select_from(LoginAttempt)
-                .where(
-                    LoginAttempt.user_id == user.id,
-                    LoginAttempt.outcome == "bad_credentials",
-                    LoginAttempt.attempted_at > now - timedelta(minutes=int(tp["to01_minutes"])),
-                )
-            )
-        ).scalar_one()
+        since01 = now - timedelta(minutes=int(tp["to01_minutes"]))
+        n = await _attempts(session, user.id, "bad_credentials", since01)
         if n >= int(tp["to01_failures"]) and not await recent_signal(
             session, "TO-01", now - timedelta(minutes=int(tp["to01_minutes"])), user_id=user.id
         ):
@@ -361,17 +419,8 @@ async def on_login_attempt(session: AsyncSession, la: LoginAttempt) -> None:
             )
             takeover_changed = True
     elif la.outcome == "mfa_failed":
-        n = (
-            await session.execute(
-                select(func.count())
-                .select_from(LoginAttempt)
-                .where(
-                    LoginAttempt.user_id == user.id,
-                    LoginAttempt.outcome == "mfa_failed",
-                    LoginAttempt.attempted_at > now - timedelta(minutes=int(tp["to03_minutes"])),
-                )
-            )
-        ).scalar_one()
+        since03 = now - timedelta(minutes=int(tp["to03_minutes"]))
+        n = await _attempts(session, user.id, "mfa_failed", since03)
         if n >= int(tp["to03_count"]):
             await engine.record_signal(
                 session,
@@ -385,28 +434,8 @@ async def on_login_attempt(session: AsyncSession, la: LoginAttempt) -> None:
             takeover_changed = True
     elif la.outcome == "success":
         p = await abuse_params(session)
-        n1 = (
-            await session.execute(
-                select(func.count())
-                .select_from(LoginAttempt)
-                .where(
-                    LoginAttempt.user_id == user.id,
-                    LoginAttempt.outcome == "success",
-                    LoginAttempt.attempted_at > now - timedelta(hours=1),
-                )
-            )
-        ).scalar_one()
-        n24 = (
-            await session.execute(
-                select(func.count())
-                .select_from(LoginAttempt)
-                .where(
-                    LoginAttempt.user_id == user.id,
-                    LoginAttempt.outcome == "success",
-                    LoginAttempt.attempted_at > now - timedelta(hours=24),
-                )
-            )
-        ).scalar_one()
+        n1 = await _attempts(session, user.id, "success", now - timedelta(hours=1))
+        n24 = await _attempts(session, user.id, "success", now - timedelta(hours=24))
         if (n1 >= int(p["ab01_per_hour"]) or n24 >= int(p["ab01_per_day"])) and not await recent_signal(
             session, "AB-01", now - timedelta(hours=1), user_id=user.id
         ):
@@ -453,19 +482,14 @@ async def on_login_attempt(session: AsyncSession, la: LoginAttempt) -> None:
                 user=user,
             )
         if la.geo_country and la.geo_country != "IN":
-            seen = (
-                await session.execute(
-                    select(func.count())
-                    .select_from(LoginAttempt)
-                    .where(
-                        LoginAttempt.user_id == user.id,
-                        LoginAttempt.outcome == "success",
-                        LoginAttempt.geo_country == la.geo_country,
-                        LoginAttempt.id != la.id,
-                        LoginAttempt.attempted_at > now - timedelta(days=180),
-                    )
-                )
-            ).scalar_one()
+            seen = await _attempts(
+                session,
+                user.id,
+                "success",
+                now - timedelta(days=180),
+                country=la.geo_country,
+                exclude_id=la.id,
+            )
             if not seen:
                 await engine.record_signal(
                     session,
@@ -508,7 +532,7 @@ async def on_replay_blocked(
     the owner with a "This wasn't me" reference and run the takeover evaluation (RE §6.2).
     Evidence carries the session's expected UA family / OS and, when the resolver passes them,
     the observed ones (E2E-09), so a drift block can be explained."""
-    user = await session.get(User, s.user_id)
+    user = await _user(session, s.user_id)
     if user is None:
         return
     evidence: dict[str, Any] = {
@@ -531,8 +555,10 @@ async def on_replay_blocked(
         user=user,
     )
     ref = make_ref("ACC")
-    session.add(
-        SecurityNotice(
+    await fx.add(
+        session,
+        fx.new(
+            SecurityNotice,
             id=uuid7(),
             created_at=clock.now(),
             event_ref=ref,
@@ -540,9 +566,9 @@ async def on_replay_blocked(
             kind="replay",
             rule_key=rule,
             auth_session_id=s.id,
-        )
+        ),
     )
-    await session.flush()
+    await fx.flush(session)
     await engine.notify_user(
         session,
         user.id,
@@ -557,18 +583,15 @@ async def on_replay_blocked(
 
 
 async def _network_at(session: AsyncSession, auth_session_id: uuid.UUID, at: datetime) -> dict[str, Any]:
-    obs = (
-        await session.execute(
-            select(SessionNetworkObservation)
-            .where(
-                SessionNetworkObservation.auth_session_id == auth_session_id,
-                SessionNetworkObservation.first_seen_at <= at,
-            )
-            .order_by(SessionNetworkObservation.first_seen_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    s = await session.get(AuthSession, auth_session_id)
+    """The session's newest network observation at ``at`` (else its first network), through
+    ``sessions.public``."""
+    from app.modules.sessions import public as sp
+
+    seen = await sp.list_observations(session, auth_session_id=auth_session_id, until=at)
+    return _network_of(seen[-1] if seen else None, await sp.get_session(session, auth_session_id))
+
+
+def _network_of(obs: Any, s: Any) -> dict[str, Any]:
     if obs is not None:
         return {
             "net_cluster": obs.net_cluster,
@@ -588,7 +611,7 @@ async def _network_at(session: AsyncSession, auth_session_id: uuid.UUID, at: dat
 
 async def on_device_trusted(session: AsyncSession, ud: UserDevice, method: str | None) -> None:
     """SH-13 (verification at a distance) + L2 re-verification bookkeeping."""
-    user = await session.get(User, ud.user_id)
+    user = await _user(session, ud.user_id)
     if user is None:
         return
     now = clock.now()
@@ -603,50 +626,40 @@ async def check_sh13(
 ) -> SecuritySignal | None:
     sdef, _ = await engine.ruleset(session, "sharing")
     win = timedelta(minutes=int(sdef["params"].get("sh13_window_minutes", 15)))
-    mine = (
-        await session.execute(
-            select(AuthSession)
-            .where(AuthSession.user_id == user.id, AuthSession.device_id == device_id)
-            .order_by(AuthSession.created_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if mine is None:
+    return await _check_sh13(session, user, device_id, now, win)
+
+
+async def _check_sh13(
+    session: AsyncSession, user: User, device_id: uuid.UUID, now: datetime, win: timedelta
+) -> Any:
+    """SH-13: sessions through ``sessions.public``; the per-device signal check on the security
+    store."""
+    from app.modules.sessions import public as sp
+
+    mine_all = await sp.list_sessions(session, user_id=user.id, device_id=device_id)
+    if not mine_all:
         return None
+    mine = mine_all[-1]  # newest created_at
     net_b = await _network_at(session, mine.id, now)
     if net_b["network_type"] not in FIXED_LINE:
         return None
-    others = (
-        (
-            await session.execute(
-                select(AuthSession).where(
-                    AuthSession.user_id == user.id,
-                    AuthSession.device_id != device_id,
-                    AuthSession.last_seen_at >= now - win,
-                    AuthSession.last_seen_at <= now + win,
-                )
-            )
+    others = [
+        o
+        for o in await sp.list_sessions(
+            session,
+            user_id=user.id,
+            exclude_device_id=device_id,
+            last_seen_after=now - win,
+            last_seen_until=now + win,
         )
-        .scalars()
-        .all()
-    )
+        if o.device_id is not None  # SQL: NULL <> :device is not true
+    ]
     for o in others:
         net_a = await _network_at(session, o.id, o.last_seen_at)
         if net_a["network_type"] in FIXED_LINE and net_a["net_cluster"] != net_b["net_cluster"]:
-            if (
-                await recent_signal(session, "SH-13", now - timedelta(days=30), user_id=user.id)
-                and (
-                    await session.execute(
-                        select(func.count())
-                        .select_from(SecuritySignal)
-                        .where(
-                            SecuritySignal.rule_key == "SH-13",
-                            SecuritySignal.device_id == device_id,
-                            SecuritySignal.user_id == user.id,
-                        )
-                    )
-                ).scalar_one()
-            ):
+            if await recent_signal(
+                session, "SH-13", now - timedelta(days=30), user_id=user.id
+            ) and await _sh13_on_device(session, user.id, device_id):
                 return None  # one occurrence per verified device
             return await engine.record_signal(
                 session,
@@ -665,6 +678,26 @@ async def check_sh13(
                 user=user,
             )
     return None
+
+
+async def _sh13_on_device(session: AsyncSession, user_id: uuid.UUID, device_id: uuid.UUID) -> int:
+    if fx.fs():
+        return sum(
+            1 for s in await fx.repo().user_signals(user_id, rule_key="SH-13") if s.device_id == device_id
+        )
+    return int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(SecuritySignal)
+                .where(
+                    SecuritySignal.rule_key == "SH-13",
+                    SecuritySignal.device_id == device_id,
+                    SecuritySignal.user_id == user_id,
+                )
+            )
+        ).scalar_one()
+    )
 
 
 async def on_restricted_denial(session: AsyncSession, user_id: uuid.UUID, path: str) -> None:
@@ -726,10 +759,19 @@ class SecurityEventSink:
         self, session: AsyncSession, name: str, fn: Callable[[], Awaitable[Any]], default: Any = None
     ) -> Any:
         try:
+            if not session:
+                # Firebase stack (``NO_POSTGRES``): no savepoint; the Firestore writes of the
+                # detector are immediate. The system-job scope still applies (notifications).
+                async with fx.detector_scope(), as_system(session, f"security.hook.{name}"):
+                    return await fn()
             # Detectors write engine state (signals, security_user_state, notices) that the
             # subject may only read (DB-05): run as a named system job, restoring the caller's
             # RLS context afterwards.
-            async with session.begin_nested(), as_system(session, f"security.hook.{name}"):
+            async with (
+                session.begin_nested(),
+                as_system(session, f"security.hook.{name}"),
+                fx.detector_scope(),
+            ):
                 return await fn()
         except Exception as e:  # pragma: no cover - defensive
             log.error("security_hook_failed", hook=name, error=type(e).__name__, detail=str(e)[:200])
@@ -791,7 +833,9 @@ async def _leg(session: AsyncSession, user_id: uuid.UUID, b: EngagedBucket, cach
     net = await _network_at(session, b.auth_session_id, b.bucket_start + timedelta(minutes=5))
     dev = cache.get(("dev", b.device_id))
     if dev is None:
-        dev = await session.get(Device, b.device_id)
+        from app.modules.sessions import public as sp
+
+        dev = await sp.get_device(session, b.device_id)
         cache[("dev", b.device_id)] = dev
     cluster = net["net_cluster"]
     return NetLeg(
@@ -810,7 +854,7 @@ async def ingest_engaged_buckets(
 ) -> list[SecuritySignal]:
     """SH-01 per device pair per IST day with ≥ 3 overlapping engaged buckets (most separated
     class of the day) and SH-02 when the pair's states differ."""
-    user = await session.get(User, user_id)
+    user = await _user(session, user_id)
     if user is None or user.is_minor or user.is_synthetic:
         return []
     sdef, _ = await engine.ruleset(session, "sharing")
@@ -835,18 +879,18 @@ async def ingest_engaged_buckets(
     ):
         if len(rows) < min_buckets:
             continue
-        exists = (
-            await session.execute(
-                select(func.count())
-                .select_from(SecuritySignal)
-                .where(
-                    SecuritySignal.user_id == user_id,
-                    SecuritySignal.rule_key == "SH-01",
-                    SecuritySignal.evidence["pair"].astext == f"{da}|{db}",
-                    SecuritySignal.evidence["day"].astext == day.isoformat(),
-                )
-            )
-        ).scalar_one()
+        exists = await _scalar(
+            session,
+            select(func.count())
+            .select_from(SecuritySignal)
+            .where(
+                SecuritySignal.user_id == user_id,
+                SecuritySignal.rule_key == "SH-01",
+                SecuritySignal.evidence["pair"].astext == f"{da}|{db}",
+                SecuritySignal.evidence["day"].astext == day.isoformat(),
+            ),
+            functools.partial(_sh01_exists_fs, user_id, f"{da}|{db}", day.isoformat()),
+        )
         if exists:
             continue
         best = max(rows, key=lambda r: CLASS_ORDER[r[1][:2]])
@@ -907,6 +951,25 @@ async def ingest_engaged_buckets(
     return out
 
 
+async def _sh01_exists_fs(user_id: uuid.UUID, pair: str, day: str) -> int:
+    return sum(
+        1
+        for s in await fx.repo().user_signals(user_id, rule_key="SH-01")
+        if _astext((s.evidence or {}).get("pair")) == pair and _astext((s.evidence or {}).get("day")) == day
+    )
+
+
+def _astext(v: Any) -> str | None:
+    """JSONB ``->>``: strings as is, other scalars as their JSON text, null as NULL."""
+    if v is None:
+        return None
+    if isinstance(v, str):
+        return v
+    import json
+
+    return json.dumps(v)
+
+
 async def run_heartbeat_batch(
     session: AsyncSession, user_ids: Sequence[uuid.UUID], start: datetime, end: datetime
 ) -> int:
@@ -929,12 +992,13 @@ async def derive_daily_signals(
 ) -> list[str]:
     """Nightly per-adult derivations: SH-04, SH-05, SH-06, SH-07, SH-10, SH-11 (RE §4.2)."""
     now = now or clock.now()
-    user = await session.get(User, user_id)
+    user = await _user(session, user_id)
     if user is None or user.is_minor or user.is_synthetic:
         return []
     sdef, _ = await engine.ruleset(session, "sharing")
     p = sdef["params"]
     made: list[str] = []
+    dd = _Daily(session, user_id, now)
 
     async def once(rule: str, evidence: dict[str, Any], points: float | None = None) -> None:
         if not await recent_signal(session, rule, now - timedelta(hours=23), user_id=user_id):
@@ -950,92 +1014,31 @@ async def derive_daily_signals(
             ):
                 made.append(rule)
 
-    n30 = (
-        await session.execute(
-            select(func.count(func.distinct(AuthSession.device_id))).where(
-                AuthSession.user_id == user_id,
-                AuthSession.created_at > now - timedelta(days=30),
-                AuthSession.device_id.is_not(None),
-            )
-        )
-    ).scalar_one()
+    n30 = await dd.n30()
     if n30 >= int(p["sh05_high"]):
         await once("SH-05", {"distinct_devices_30d": int(n30)}, float(p.get("sh05_high_points", 16)))
     elif n30 >= int(p["sh05_low"]):
         await once("SH-05", {"distinct_devices_30d": int(n30)})
-    new24 = (
-        await session.execute(
-            select(func.count())
-            .select_from(UserDevice)
-            .where(UserDevice.user_id == user_id, UserDevice.created_at > now - timedelta(hours=24))
-        )
-    ).scalar_one()
+    new24 = await dd.new24()
     if new24 >= int(p["sh06_new_devices"]):
         await once("SH-06", {"new_devices_24h": int(new24)})
-    evicted = (
-        await session.execute(
-            select(func.count())
-            .select_from(AuthSession)
-            .where(
-                AuthSession.user_id == user_id,
-                AuthSession.end_reason == "session_cap_evicted",
-                AuthSession.ended_at > now - timedelta(hours=24),
-            )
-        )
-    ).scalar_one()
+    evicted = await dd.evicted()
     if evicted >= int(p["sh04_evictions"]):
         await once("SH-04", {"evictions_24h": int(evicted)})
-    from app.modules.identity.models import VerificationToken
-
-    abandoned = (
-        await session.execute(
-            select(func.count())
-            .select_from(VerificationToken)
-            .where(
-                VerificationToken.user_id == user_id,
-                VerificationToken.purpose == "new_device_otp",
-                VerificationToken.consumed_at.is_(None),
-                VerificationToken.expires_at < now,
-                VerificationToken.created_at > now - timedelta(days=7),
-            )
-        )
-    ).scalar_one()
+    abandoned = await dd.abandoned()
     if abandoned >= int(p["sh07_abandoned"]):
         await once("SH-07", {"abandoned_7d": int(abandoned)})
-    # SH-11: a device used by ≥ 4 accounts in 7 days.
-    shared = (
-        (
-            await session.execute(
-                select(UserDevice.device_id)
-                .where(UserDevice.user_id == user_id)
-                .where(
-                    UserDevice.device_id.in_(
-                        select(UserDevice.device_id)
-                        .where(UserDevice.last_used_at > now - timedelta(days=7))
-                        .group_by(UserDevice.device_id)
-                        .having(func.count(func.distinct(UserDevice.user_id)) >= int(p["sh11_accounts"]))
-                    )
-                )
-            )
-        )
-        .scalars()
-        .all()
+    # SH-11: a device used by ≥ 4 accounts in 7 days (sessions.public runs the GROUP BY on Postgres).
+    from app.modules.sessions import public as sp
+
+    shared = await sp.shared_devices_of_user(
+        session, user_id, min_accounts=int(p["sh11_accounts"]), since=now - timedelta(days=7)
     )
     if shared:
         await once("SH-11", {"devices": [str(d) for d in shared][:5]})
     # SH-10: consecutive sessions in far-apart states within 2 h (excluding mobile/CGNAT legs).
     cgnat = frozenset(int(a) for a in await get_value(session, "risk.cgnat_asns"))
-    recent = (
-        (
-            await session.execute(
-                select(AuthSession)
-                .where(AuthSession.user_id == user_id, AuthSession.created_at > now - timedelta(days=1))
-                .order_by(AuthSession.created_at)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    recent = await dd.recent()
     for a, b in pairwise(recent):
         if b.created_at - a.created_at > timedelta(hours=int(p["sh10_max_hours"])):
             continue
@@ -1046,6 +1049,60 @@ async def derive_daily_signals(
             await once("SH-10", {"region_a": a.geo_region, "region_b": b.geo_region, "km": round(km)})
             break
     return made
+
+
+class _Daily:
+    """Reads of ``derive_daily_signals`` through ``sessions.public`` / ``identity.public``."""
+
+    def __init__(self, session: AsyncSession, user_id: uuid.UUID, now: datetime) -> None:
+        self.session, self.user_id, self.now = session, user_id, now
+
+    async def n30(self) -> int:
+        from app.modules.sessions import public as sp
+
+        rows = await sp.list_sessions(
+            self.session, user_id=self.user_id, created_after=self.now - timedelta(days=30)
+        )
+        return len({s.device_id for s in rows if s.device_id is not None})
+
+    async def new24(self) -> int:
+        from app.modules.sessions import public as sp
+
+        rows = await sp.list_user_devices(
+            self.session, user_id=self.user_id, created_after=self.now - timedelta(hours=24)
+        )
+        return len(rows)
+
+    async def evicted(self) -> int:
+        from app.modules.sessions import public as sp
+
+        rows = await sp.list_sessions(
+            self.session,
+            user_id=self.user_id,
+            end_reason="session_cap_evicted",
+            ended_after=self.now - timedelta(hours=24),
+        )
+        return len(rows)
+
+    async def abandoned(self) -> int:
+        from app.modules.identity import public as idp
+
+        rows = await idp.verification_tokens_of(
+            self.session,
+            self.user_id,
+            purpose="new_device_otp",
+            created_after=self.now - timedelta(days=7),
+        )
+        return sum(1 for t in rows if t.consumed_at is None and t.expires_at < self.now)
+
+    async def recent(self) -> list[Any]:
+        from app.modules.sessions import public as sp
+
+        return list(
+            await sp.list_sessions(
+                self.session, user_id=self.user_id, created_after=self.now - timedelta(days=1)
+            )
+        )
 
 
 # --------------------------------------------------------------------------- external detections

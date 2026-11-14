@@ -14,15 +14,18 @@ from sqlalchemy import select
 from app.core.auth import require_active_principal
 from app.core.db import PrincipalDbSession, system_context
 from app.core.errors import ProblemError
+from app.core.firestore.backend import uses_firestore
+from app.core.firestore.store import ScopedStore
 from app.core.idempotency import IdemResult, idempotent
 from app.core.principal import Principal
 from app.core.request_context import get_request_id
 from app.core.routing import authenticated_router
 from app.core.time import to_rfc3339
+from app.modules.admin.fs_rows import pg_system
 from app.modules.admin.policy import get_value
 from app.modules.identity import clock
+from app.modules.identity import public as identity_public
 from app.modules.identity.links import web_link, web_path
-from app.modules.identity.models import User
 from app.modules.security import engine
 from app.modules.security import restrictions as rx
 from app.modules.security import unblock as unb
@@ -34,6 +37,7 @@ from app.modules.security.models import (
     SecurityNotice,
     UnblockRequest,
 )
+from app.modules.security.repo_fs_cases import sec_route
 from app.modules.sessions import service as ss
 
 r = authenticated_router(tags=["security"], route_tag="account_status", idle="extends")
@@ -112,12 +116,19 @@ class ReverifyIn(BaseModel):
 
 
 @r.get("/me/security/status", openapi_extra=NEUTRAL)
+@sec_route
 async def my_status(
     session: PrincipalDbSession, principal: Principal = Depends(require_active_principal)
 ) -> dict[str, Any]:
-    async with system_context(session, "security.status"):
+    fs = uses_firestore("security")
+    reads: Any = None
+    if fs:
+        from app.modules.security.repo_firestore import StatusReads
+
+        reads = StatusReads(ScopedStore.system("security.status"))
+    async with pg_system(session, "security.status"):
         uid = principal.user_id
-        user = await session.get(User, uid)
+        user = await identity_public.get_user(session, uid)
         active = await rx.active_restrictions(session, uid)
         sharing = next((x for x in active if x.family == "sharing"), None)
         takeover = next((x for x in active if x.family == "takeover"), None)
@@ -127,10 +138,14 @@ async def my_status(
         if sharing is not None and not (user and user.is_minor):
             if sharing.evaluation_id:
                 ev = (
-                    await session.execute(
-                        select(RiskEvaluation).where(RiskEvaluation.id == sharing.evaluation_id)
-                    )
-                ).scalar_one_or_none()
+                    await reads.evaluation(uid, sharing.evaluation_id)
+                    if fs
+                    else (
+                        await session.execute(
+                            select(RiskEvaluation).where(RiskEvaluation.id == sharing.evaluation_id)
+                        )
+                    ).scalar_one_or_none()
+                )
                 if ev is not None:
                     reasons = [
                         {"explanation_key": k, "text": _KEY_TEXT.get(k, "")} for k in ev.explanation_keys
@@ -138,14 +153,18 @@ async def my_status(
                     categories = [
                         _CATEGORY[c] for c in (ev.gates or {}).get("categories", []) if c in _CATEGORY
                     ]
-            if sharing.case_id:
+            if sharing.case_id and fs:
+                case_ref = await reads.case_ref(sharing.case_id)
+            elif sharing.case_id:
                 case_ref = (
                     await session.execute(
                         select(SecurityCase.case_ref).where(SecurityCase.id == sharing.case_id)
                     )
                 ).scalar_one_or_none()
         ur = None
-        if case_ref:
+        if case_ref and fs:
+            ur = await reads.latest_open_unblock(uid)
+        elif case_ref:
             ur = (
                 await session.execute(
                     select(UnblockRequest)
@@ -155,7 +174,9 @@ async def my_status(
                 )
             ).scalar_one_or_none()
         history = (
-            (
+            await reads.ended_history(uid)
+            if fs
+            else (
                 await session.execute(
                     select(AccountRestriction)
                     .where(AccountRestriction.user_id == uid, AccountRestriction.ended_at.is_not(None))
@@ -225,17 +246,19 @@ async def my_status(
 
 
 @r.get("/me/security/cases/{case_ref}", openapi_extra=NEUTRAL)
+@sec_route
 async def my_case(
     case_ref: str, session: PrincipalDbSession, principal: Principal = Depends(require_active_principal)
 ) -> dict[str, Any]:
     from app.modules.security.cases import student_projection
 
-    async with system_context(session, "security.status"):
+    async with pg_system(session, "security.status"):
         case = await unb.own_case_by_ref(session, principal.user_id, case_ref)
         return await student_projection(session, case)
 
 
 @r.post("/me/security/events/{event_ref}/disown")
+@sec_route
 async def disown(
     event_ref: str,
     body: DisownIn,
@@ -252,7 +275,7 @@ async def disown(
             raise ProblemError("not_found")
         if n.disowned_at is not None:
             raise ProblemError("invalid_state_transition", current_state="disowned", allowed=[])
-        user = await session.get(User, principal.user_id)
+        user = await identity_public.get_user(session, principal.user_id)
         assert user is not None
         await engine.disown(session, user, n)
         await session.flush()
@@ -281,6 +304,7 @@ async def _own_request(session: Any, principal: Principal, request_id: uuid.UUID
 
 
 @r.get("/security/unblock-requests/form", openapi_extra=NEUTRAL)
+@sec_route
 async def unblock_form(
     session: PrincipalDbSession,
     case_ref: str | None = None,
@@ -293,6 +317,7 @@ async def unblock_form(
 
 
 @r.post("/security/unblock-requests", status_code=201)
+@sec_route
 async def create_unblock(
     body: UnblockIn,
     request: Request,
@@ -311,6 +336,7 @@ async def create_unblock(
 
 
 @r.patch("/security/unblock-requests/{request_id}")
+@sec_route
 async def patch_unblock(
     request_id: uuid.UUID,
     body: DraftPatch,
@@ -332,6 +358,7 @@ class AttachmentIn(BaseModel):
 
 
 @r.post("/security/unblock-requests/{request_id}/attachments", status_code=201)
+@sec_route
 async def attach(
     request_id: uuid.UUID,
     body: AttachmentIn,
@@ -357,6 +384,7 @@ async def attach(
 
 
 @r.post("/security/unblock-requests/{request_id}/submit")
+@sec_route
 async def submit_unblock(
     request_id: uuid.UUID,
     body: SubmitIn,
@@ -375,6 +403,7 @@ async def submit_unblock(
 
 
 @r.get("/security/unblock-requests", openapi_extra=NEUTRAL)
+@sec_route
 async def list_unblock(
     session: PrincipalDbSession, principal: Principal = Depends(require_active_principal)
 ) -> dict[str, Any]:
@@ -394,6 +423,7 @@ async def list_unblock(
 
 
 @r.get("/security/unblock-requests/by-reference/{reference}", openapi_extra=NEUTRAL)
+@sec_route
 async def unblock_by_reference(
     reference: str, session: PrincipalDbSession, principal: Principal = Depends(require_active_principal)
 ) -> dict[str, Any]:
@@ -409,6 +439,7 @@ async def unblock_by_reference(
 
 
 @r.get("/security/unblock-requests/{request_id}", openapi_extra=NEUTRAL)
+@sec_route
 async def get_unblock(
     request_id: uuid.UUID,
     session: PrincipalDbSession,
@@ -420,6 +451,7 @@ async def get_unblock(
 
 
 @r.post("/security/unblock-requests/{request_id}/responses")
+@sec_route
 async def respond_unblock(
     request_id: uuid.UUID,
     body: TextIn,
@@ -438,6 +470,7 @@ async def respond_unblock(
 
 
 @r.post("/security/unblock-requests/{request_id}/withdraw")
+@sec_route
 async def withdraw_unblock(
     request_id: uuid.UUID,
     session: PrincipalDbSession,
@@ -451,6 +484,7 @@ async def withdraw_unblock(
 
 
 @r.post("/security/unblock-requests/{request_id}/appeal")
+@sec_route
 async def appeal_unblock(
     request_id: uuid.UUID,
     body: TextIn,
@@ -472,6 +506,7 @@ async def appeal_unblock(
 
 
 @r.post("/auth/reverify/start")
+@sec_route
 async def reverify_start(
     body: ReverifyStartIn,
     request: Request,
@@ -485,6 +520,7 @@ async def reverify_start(
 
 
 @r.post("/auth/reverify/complete")
+@sec_route
 async def reverify_complete(
     body: ReverifyIn,
     request: Request,

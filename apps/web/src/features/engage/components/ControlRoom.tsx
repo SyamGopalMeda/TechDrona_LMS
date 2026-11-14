@@ -1,11 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
-import { Badge, Button, Card, EmptyState, ErrorState, StatTile, useToast } from "@/components/ui";
+import { Badge, Button, buttonClasses, Card, Chip, EmptyState, ErrorState, LinkButton, PageHeader, StatGrid, StatTile, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { isApiError } from "@/lib/api/errors";
-import { cn } from "@/lib/ui/cn";
 import { seg, useApi } from "@/features/trainer/shared/use-api";
 import { plural, settingsSummary, TYPE_LABEL } from "../lib/labels";
 import { usePoll } from "../lib/use-poll";
@@ -13,9 +11,6 @@ import type { Activity, ControlAction, InviteResult, PresenterState, RunSummary 
 import { QrCode } from "./QrCode";
 import { errorText, Loading, QuestionHeading, QuestionResults, StatusBadge, useJoinUrl } from "./parts";
 import { useEngageScope } from "../lib/scope";
-
-export const linkBtn =
-  "inline-flex h-8 items-center justify-center rounded-md px-3 text-sm font-medium focus-visible:outline-none focus-visible:shadow-focus";
 
 /** Run control helper shared by the control room and the big screen. */
 export function useRunControl(onDone: () => void | Promise<void>) {
@@ -87,8 +82,8 @@ function ShareCard({ run }: { run: RunSummary }) {
             <Button size="sm" variant="secondary" onClick={() => void email()} loading={sending} disabled={!live}>
               Email
             </Button>
-            <a href={`${base}/runs/${seg(run.id)}/present`} target="_blank" rel="noopener" className={cn(linkBtn, "bg-brand text-brand-on hover:bg-brand-hover")}>
-              Present on big screen
+            <a href={`${base}/runs/${seg(run.id)}/present`} target="_blank" rel="noopener" className={buttonClasses({ variant: "secondary", size: "sm" })}>
+              Present on big screen<span className="sr-only"> (opens in a new tab)</span>
             </a>
           </div>
         </div>
@@ -146,9 +141,9 @@ function RunPanel({ run, onChanged }: { run: RunSummary; onChanged: () => Promis
             >
               {live.results_published ? "Unpublish results" : "Publish results"}
             </Button>
-            <Link href={`${base}/runs/${seg(live.id)}/results`} className={cn(linkBtn, "border border-line-control bg-surface text-fg hover:bg-surface-hover")}>
+            <LinkButton variant="ghost" href={`${base}/runs/${seg(live.id)}/results`}>
               Results
-            </Link>
+            </LinkButton>
           </div>
           {live.status === "scheduled" ? (
             <p className="mt-3 text-sm text-fg-muted">
@@ -160,10 +155,12 @@ function RunPanel({ run, onChanged }: { run: RunSummary; onChanged: () => Promis
           <p className="mt-2 text-xs text-fg-muted">{live.results_published ? "Results are published to participants." : "Results are not published yet."}</p>
         </Card>
 
-        <div className="grid grid-cols-3 gap-3" aria-live="polite">
-          <StatTile label="Joined" value={state ? state.joined : null} />
-          <StatTile label="Voted" value={state ? state.voted : null} />
-          <StatTile label="Total votes" value={state ? state.total_votes : null} />
+        <div aria-live="polite">
+          <StatGrid columns={3}>
+            <StatTile label="Joined" value={state ? state.joined : null} />
+            <StatTile label="Voted" value={state ? state.voted : null} />
+            <StatTile label="Total votes" value={state ? state.total_votes : null} />
+          </StatGrid>
         </div>
 
         <Card
@@ -185,7 +182,7 @@ function RunPanel({ run, onChanged }: { run: RunSummary; onChanged: () => Promis
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <Button
               size="sm"
-              variant={revealed ? "secondary" : "primary"}
+              variant={revealed || live.status === "scheduled" ? "secondary" : "primary"}
               onClick={() => void control(live.id, revealed ? "hide" : "reveal")}
               loading={busy === "reveal" || busy === "hide"}
             >
@@ -258,43 +255,32 @@ export function ControlRoom({ activityId }: { activityId: string }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <Link href={base} className="text-sm text-fg-link hover:text-fg-link-hover">
-            ← Engage
-          </Link>
-          <h1 className="mt-1 break-words font-display text-2xl font-bold text-fg">{a.title}</h1>
-          <p className="mt-1 text-sm text-fg-muted">
-            {TYPE_LABEL[a.activity_type]} · {plural(a.question_count, "question")} · {settingsSummary(a)}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {run ? <StatusBadge status={run.status} /> : null}
-          <Link href={`${base}/${seg(a.id)}/edit`} className={cn(linkBtn, "border border-line-control bg-surface text-fg hover:bg-surface-hover")}>
-            Edit
-          </Link>
-          <Button size="sm" onClick={() => void launch()} loading={launching} disabled={a.question_count === 0}>
-            {current ? "Rerun" : "Launch"}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        breadcrumbs={[{ label: "Engage", href: base }, { label: a.title }]}
+        title={a.title}
+        meta={run ? <StatusBadge status={run.status} /> : null}
+        description={`${TYPE_LABEL[a.activity_type]} · ${plural(a.question_count, "question")} · ${settingsSummary(a)}`}
+        actions={
+          <>
+            <LinkButton variant="ghost" href={`${base}/${seg(a.id)}/edit`} aria-label={`Edit ${a.title}`}>
+              Edit
+            </LinkButton>
+            {current ? (
+              <Button variant="secondary" onClick={() => void launch()} loading={launching} disabled={a.question_count === 0}>
+                Rerun
+              </Button>
+            ) : null}
+          </>
+        }
+      />
 
       {runs.length ? (
         <nav aria-label="Runs" className="flex flex-wrap gap-2">
           {runs.map((r, i) => (
-            <button
-              key={r.id}
-              type="button"
-              aria-pressed={r.id === run?.id}
-              onClick={() => setSelected(r.id)}
-              className={cn(
-                "rounded-full border px-3 py-1 text-sm focus-visible:outline-none focus-visible:shadow-focus",
-                r.id === run?.id ? "border-brand bg-brand-subtle text-brand-on-subtle" : "border-line bg-surface text-fg-secondary hover:bg-surface-hover",
-              )}
-            >
+            <Chip key={r.id} active={r.id === run?.id} onClick={() => setSelected(r.id)}>
               Run {r.run_no}
               {i === 0 ? " · current" : ""}
-            </button>
+            </Chip>
           ))}
         </nav>
       ) : null}

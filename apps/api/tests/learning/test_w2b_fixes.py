@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import update
 
 from app.core.db import system_context
@@ -56,6 +57,7 @@ def _asg(batch, **kw):
     }
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_rubric_schema_on_create_and_patch(browser, db, no_checker) -> None:  # noqa: F811
     tr, batch = await _trainer_and_student(browser, db)
     r = await tr.post("/assignments", _asg(batch, rubric=RUBRIC))
@@ -99,6 +101,7 @@ async def test_rubric_schema_on_create_and_patch(browser, db, no_checker) -> Non
     assert r.status_code == 200 and r.json()["rubric"]["criteria"][0]["max_points"] == 5
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_rubric_scores_validated_and_totalled(browser, db, no_checker) -> None:  # noqa: F811
     tr, batch = await _trainer_and_student(browser, db)
     aid = (await tr.post("/assignments", _asg(batch, rubric=RUBRIC))).json()["id"]
@@ -124,6 +127,7 @@ async def test_rubric_scores_validated_and_totalled(browser, db, no_checker) -> 
     assert r.json()["score"] == 8.5 and r.json()["rubric_scores"] == {"correctness": 5, "style": 3.5}
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_pdf_lesson_completes_on_scroll_evidence(browser, db, no_checker) -> None:  # noqa: F811
     author = await make_user(db)
     pc = await make_published_course(db, author.id, extra_lessons=[{"name": "notes", "lesson_type": "pdf"}])

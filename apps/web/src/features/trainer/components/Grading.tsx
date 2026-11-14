@@ -6,12 +6,15 @@ import { useRouter } from "next/navigation";
 import {
   Badge,
   Button,
+  Card,
   Checkbox,
   Dialog,
   EmptyState,
   ErrorState,
   FormField,
   Input,
+  LinkButton,
+  PageHeader,
   Select,
   Table,
   useToast,
@@ -19,7 +22,7 @@ import {
 import { api, type Page } from "@/lib/api/client";
 import { isApiError } from "@/lib/api/errors";
 import type { Body } from "@/lib/api-types";
-import { useMemberNames, useTrainerBatches } from "../lib/batches";
+import { useMemberNames, useTeachingQuery, useTrainerBatches } from "../lib/batches";
 import type { Assignment, AssignmentSummary, Submission } from "../lib/types";
 import { useApi, seg, type SendBody } from "../shared/use-api";
 import { useGradingBase } from "../shared/portal-base";
@@ -34,29 +37,48 @@ import {
   useFailToast,
 } from "../shared/ui";
 
+/** "Due 12 Nov 2026, 10:00" for the queue; "No due date" when unset. */
+function dueText(iso: string | null | undefined): string {
+  return iso ? `Due ${formatDateTime(iso)}` : "No due date";
+}
+
 /**
- * TRN-008 grading queue: pick an assignment (`GET /assignments?scope=mine`),
- * LRN-16 submissions, LRN-17 grade, LRN-18 release grades, LRN-19 override.
+ * TRN-008 grading queue, queue-first: one table of every assignment (`GET /assignments?scope=mine`)
+ * with its waiting count, most work first. Structured assignments open their evaluation screen
+ * (the legacy grade endpoint answers 409 for them since SEC-11); single-submission assignments
+ * open their submissions below the table — LRN-16 submissions, LRN-17 grade, LRN-18 release
+ * grades, LRN-19 override.
  */
 export function GradingQueue() {
   const { base: gradingBase } = useGradingBase();
   const toast = useToast();
   const fail = useFailToast();
   // verified: app/modules/learning/router.py list_assignments (cursor envelope)
+  const teaching = useTeachingQuery();
   const assignments = useApi<Page<AssignmentSummary>>("assignments", {
     scope: "mine",
     limit: 100,
+    ...teaching,
   });
-  const [assignmentId, setAssignmentId] = useState("");
+  const all = assignments.data?.data ?? [];
+  const rows = [...all].sort(
+    (a, b) =>
+      (b.pending_count ?? 0) - (a.pending_count ?? 0) ||
+      a.title.localeCompare(b.title),
+  );
+  const legacy = rows.filter((a) => !isStructured(a));
+  const [picked, setPicked] = useState("");
+  // Only one assignment and it's graded here: open its submissions straight away.
+  const assignmentId =
+    picked || (rows.length === 1 && legacy.length === 1 ? legacyId(legacy[0]!) : "");
   // verified: app/modules/learning/router.py grading_queue → {data, page}; only `status` filter
   const submissions = useApi<Page<Submission>>(
     assignmentId ? `assignments/${seg(assignmentId)}/submissions` : null,
   );
   const [grading, setGrading] = useState<Submission | null>(null);
   const [busy, setBusy] = useState(false);
-  const current = assignments.data?.data.find(
-    (a) => a.assignment_id === assignmentId,
-  );
+  const [confirmRelease, setConfirmRelease] = useState(false);
+  const current = all.find((a) => legacyId(a) === assignmentId);
   const nameOf = useMemberNames([current?.batch_id]);
 
   const releaseGrades = async () => {
@@ -66,6 +88,7 @@ export function GradingQueue() {
         `assignments/${seg(assignmentId)}/release-grades`,
         {},
       );
+      setConfirmRelease(false);
       toast.show({ tone: "success", title: "Grades released to students" });
       await assignments.reload();
     } catch (err) {
@@ -75,114 +98,196 @@ export function GradingQueue() {
     }
   };
 
-  if (assignments.error)
-    return (
-      <ErrorState
-        error={assignments.error}
-        onRetry={() => void assignments.reload()}
-      />
-    );
-  if (assignments.loading && !assignments.data) return <LoadingBlock />;
-
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="min-w-64">
-          <FormField label="Assignment">
-            {(p) => (
-              <Select
-                {...p}
-                value={assignmentId}
-                onChange={(e) => setAssignmentId(e.target.value)}
-                placeholder="Choose an assignment"
-                // Structured assignments are graded on their evaluation screen (the legacy grade
-                // endpoint answers 409 for them since SEC-11), so they are listed separately.
-                options={(assignments.data?.data ?? []).filter((a) => !isStructured(a)).map((a) => ({
-                  value: a.assignment_id,
-                  label: `${a.title}${a.batch_name ? ` · ${a.batch_name}` : ""}${a.pending_count ? ` (${a.pending_count} to grade)` : ""}`,
-                }))}
-              />
-            )}
-          </FormField>
-        </div>
-        {assignmentId ? (
-          <Button
-            variant="secondary"
-            onClick={() => void releaseGrades()}
-            loading={busy}
-            disabled={current?.grades_released}
-          >
-            {current?.grades_released ? "Grades released" : "Release grades"}
-          </Button>
-        ) : null}
-      </div>
-      {assignmentId ? (
-        <Table
-          caption="Submissions"
-          columns={[
-            {
-              key: "s",
-              header: "Student",
-              cell: (s: Submission) => (
-                <Link
-                  className="text-fg-link underline"
-                  href={`${gradingBase}/grading/${seg(s.id)}?assignment=${seg(assignmentId)}`}
-                >
-                  {nameOf(s.user_id)}
-                </Link>
+    <div className="space-y-6">
+      <Table
+        caption="Assignments to grade"
+        columns={[
+          {
+            key: "t",
+            header: "Assignment",
+            cell: (a: AssignmentSummary) => (
+              <span className="min-w-0">
+                <span className="block font-medium text-fg">{a.title}</span>
+                <span className="block text-xs text-fg-muted">
+                  {isStructured(a) ? "Sections & questions" : "Single submission"}
+                </span>
+              </span>
+            ),
+          },
+          {
+            key: "b",
+            header: "Batch",
+            priority: "secondary",
+            cell: (a) => a.batch_name ?? "—",
+          },
+          {
+            key: "d",
+            header: "Due",
+            priority: "secondary",
+            cell: (a) => dueText(a.due_at),
+          },
+          {
+            key: "p",
+            header: "Waiting",
+            align: "right",
+            cell: (a) =>
+              a.pending_count ? (
+                <Badge tone="warning">{a.pending_count} to grade</Badge>
+              ) : (
+                <span className="text-fg-muted">None</span>
               ),
-            },
-            {
-              key: "t",
-              header: "Submitted",
-              cell: (s) => formatDateTime(s.submitted_at),
-            },
-            {
-              key: "st",
-              header: "Status",
-              cell: (s) => <StatusBadge status={s.status} />,
-            },
-            {
-              key: "p",
-              header: "Points",
-              align: "right",
-              cell: (s) => <ScoreText s={s} max={current?.max_points} />,
-            },
-            {
-              key: "a",
-              header: <span className="sr-only">Actions</span>,
-              align: "right",
-              cell: (s) => (
+          },
+          {
+            key: "r",
+            header: "Results",
+            cell: (a) =>
+              a.grades_released ? (
+                <StatusBadge status="published" />
+              ) : (
+                <span className="text-sm text-fg-muted">Not released</span>
+              ),
+          },
+          {
+            key: "a",
+            header: <span className="sr-only">Actions</span>,
+            align: "right",
+            cell: (a) =>
+              isStructured(a) ? (
+                <LinkButton
+                  size="sm"
+                  variant="secondary"
+                  href={`${gradingBase}/grading/assignments/${seg(legacyId(a))}`}
+                  aria-label={`Evaluate ${a.title}`}
+                >
+                  Evaluate
+                </LinkButton>
+              ) : (
                 <Button
                   size="sm"
                   variant="secondary"
-                  onClick={() => setGrading(s)}
-                  aria-label={`Grade ${nameOf(s.user_id)}`}
+                  aria-pressed={legacyId(a) === assignmentId}
+                  aria-label={`Show submissions for ${a.title}`}
+                  onClick={() => setPicked(legacyId(a))}
                 >
-                  {s.status === "graded" ? "Regrade" : "Grade"}
+                  Submissions
                 </Button>
               ),
-            },
-          ]}
-          rows={submissions.data?.data}
-          rowKey={(s) => s.id}
-          loading={submissions.loading}
-          error={submissions.error}
-          onRetry={() => void submissions.reload()}
-          empty={{
-            title: "Nothing to grade",
-            description: "No submissions for this assignment yet.",
-          }}
-        />
-      ) : (
-        <p className="text-sm text-fg-muted">
-          Choose an assignment to see its submissions.
-        </p>
-      )}
+          },
+        ]}
+        rows={assignments.data ? rows : undefined}
+        rowKey={(a) => legacyId(a)}
+        loading={assignments.loading && !assignments.data}
+        error={assignments.error}
+        onRetry={() => void assignments.reload()}
+        empty={{
+          title: "No assignments to grade",
+          description: "Assignments for your batches appear here with how many submissions are waiting.",
+        }}
+      />
+      {current ? (
+        <Card
+          title={`Submissions · ${current.title}`}
+          description={current.batch_name ? `${current.batch_name} · ${dueText(current.due_at)}` : dueText(current.due_at)}
+          actions={
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setConfirmRelease(true)}
+              disabled={current.grades_released}
+            >
+              {current.grades_released ? "Grades released" : "Release grades"}
+            </Button>
+          }
+        >
+          <Table
+            caption={`Submissions for ${current.title}`}
+            columns={[
+              {
+                key: "s",
+                header: "Student",
+                cell: (s: Submission) => (
+                  <Link
+                    className="text-fg-link underline"
+                    href={`${gradingBase}/grading/${seg(s.id)}?assignment=${seg(assignmentId)}`}
+                  >
+                    {s.learner_name ?? nameOf(s.user_id)}
+                  </Link>
+                ),
+              },
+              {
+                key: "t",
+                header: "Submitted",
+                cell: (s) => formatDateTime(s.submitted_at),
+              },
+              {
+                key: "st",
+                header: "Status",
+                cell: (s) => <StatusBadge status={s.status} />,
+              },
+              {
+                key: "p",
+                header: "Points",
+                align: "right",
+                cell: (s) => <ScoreText s={s} max={current.max_points} />,
+              },
+              {
+                key: "a",
+                header: <span className="sr-only">Actions</span>,
+                align: "right",
+                cell: (s) => (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setGrading(s)}
+                    aria-label={`Grade ${s.learner_name ?? nameOf(s.user_id)}`}
+                  >
+                    {s.status === "graded" ? "Regrade" : "Grade"}
+                  </Button>
+                ),
+              },
+            ]}
+            rows={submissions.data?.data}
+            rowKey={(s) => s.id}
+            loading={submissions.loading}
+            error={submissions.error}
+            onRetry={() => void submissions.reload()}
+            empty={{
+              title: "Nothing to grade",
+              description: "No submissions for this assignment yet.",
+            }}
+          />
+        </Card>
+      ) : null}
+      <Dialog
+        open={confirmRelease}
+        onClose={() => setConfirmRelease(false)}
+        dismissible={!busy}
+        title="Release grades?"
+        description={`Students${current?.batch_name ? ` in ${current.batch_name}` : ""} will see their grades and feedback for ${current?.title ?? "this assignment"}.`}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirmRelease(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button onClick={() => void releaseGrades()} loading={busy}>
+              Release grades
+            </Button>
+          </>
+        }
+      >
+        {current?.pending_count ? (
+          <p role="alert" className="rounded-md border border-warning-border bg-warning-subtle p-3 text-sm text-warning-fg">
+            {current.pending_count} submission{current.pending_count === 1 ? " is" : "s are"} still waiting to be graded.
+          </p>
+        ) : (
+          <p className="text-sm text-fg-secondary">All submissions are graded.</p>
+        )}
+      </Dialog>
       {grading ? (
         <GradeDialog
           submission={grading}
-          studentName={nameOf(grading.user_id)}
+          studentName={grading.learner_name ?? nameOf(grading.user_id)}
           maxPoints={current?.max_points}
           rubric={current?.rubric ?? null}
           released={current?.grades_released ?? false}
@@ -196,6 +301,11 @@ export function GradingQueue() {
       ) : null}
     </div>
   );
+}
+
+/** Row id of `GET /assignments?scope=mine` (`assignment_id`, older rows `id`). */
+function legacyId(a: AssignmentSummary): string {
+  return a.assignment_id ?? a.id;
 }
 
 export interface RubricCriterion {
@@ -666,9 +776,11 @@ export function TrainerAssignments() {
   const toast = useToast();
   const fail = useFailToast();
   const { batches } = useTrainerBatches();
+  const teaching = useTeachingQuery();
   const list = useApi<Page<AssignmentSummary>>("assignments", {
     scope: "mine",
     limit: 100,
+    ...teaching,
   });
   const [open, setOpen] = useState(false);
   const blank = {
@@ -913,31 +1025,75 @@ export function GradeSubmission({
   );
   const current = assignments.data?.data.find((a) => a.assignment_id === aid);
   const nameOf = useMemberNames([current?.batch_id]);
-  const { gradingHome: backHref } = useGradingBase();
+  const { gradingHome: backHref, base: gradingBase } = useGradingBase();
   const back = () => router.push(backHref);
+  const student = submission.data ? (submission.data.learner_name ?? nameOf(submission.data.user_id)) : null;
+  // Breadcrumbs "Grading / {assignment} / {student}"; the student is the h1 once known.
+  const header = (
+    <PageHeader
+      breadcrumbs={[
+        { label: "Grading", href: backHref },
+        ...(current ? [{ label: current.title }] : []),
+        { label: student ?? "Grade submission" },
+      ]}
+      eyebrow={student ? "Grade submission" : undefined}
+      title={student ?? "Grade submission"}
+      meta={submission.data ? <StatusBadge status={submission.data.status} /> : undefined}
+    />
+  );
 
   if (submission.error && isApiError(submission.error) && submission.error.status === 404)
     return (
-      <EmptyState
-        title="Submission not found"
-        description="It may have been removed, or it belongs to a batch you don't teach."
-        action={<Button onClick={back}>Go to grading queue</Button>}
-      />
+      <>
+        {header}
+        <EmptyState
+          title="Submission not found"
+          description="It may have been removed, or it belongs to a batch you don't teach."
+          action={<Button onClick={back}>Go to grading queue</Button>}
+        />
+      </>
     );
   const err = submission.error ?? assignments.error;
   if (err)
-    return <ErrorState error={err} onRetry={() => void submission.reload()} />;
-  if (!submission.data || !assignments.data) return <LoadingBlock />;
+    return (
+      <>
+        {header}
+        <ErrorState error={err} onRetry={() => void submission.reload()} />
+      </>
+    );
+  if (!submission.data || !assignments.data)
+    return (
+      <>
+        {header}
+        <LoadingBlock />
+      </>
+    );
   const sub = submission.data;
+  if (current && isStructured(current))
+    // Structured work is marked per question on the evaluation screen; the single
+    // "points" dialog would hide the learner's answers.
+    return (
+      <>
+        {header}
+        <EmptyState
+          title="Grade this on the evaluation screen"
+          description="This assignment is marked question by question, with the learner's answers beside each one."
+          action={<LinkButton href={`${gradingBase}/grading/assignments/${seg(aid ?? sub.assignment_id)}`}>Open evaluation</LinkButton>}
+        />
+      </>
+    );
   return (
+    <>
+    {header}
     <GradeDialog
       submission={sub}
-      studentName={nameOf(sub.user_id)}
+      studentName={student ?? nameOf(sub.user_id)}
       maxPoints={current?.max_points}
       rubric={current?.rubric ?? null}
       released={current?.grades_released ?? false}
       onClose={back}
       onDone={back}
     />
+    </>
   );
 }

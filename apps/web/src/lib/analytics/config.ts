@@ -36,11 +36,21 @@ export function parseAnalyticsConfig(body: unknown): TimeModelParams {
   };
 }
 
-let cached: Promise<TimeModelParams> | null = null;
+let cached: Promise<TimeModelParams | null> | null = null;
 
-export function loadAnalyticsConfig(fetchImpl: typeof fetch = (...a) => globalThis.fetch(...a)): Promise<TimeModelParams> {
+/**
+ * Resolves to `null` when the api refuses analytics for this session (403: e.g. learning access
+ * paused, `account_restricted`): the caller then starts no tracker, so a restricted learner's
+ * pages don't keep posting events that are all refused. Other failures fall back to tm-1.0.
+ */
+export function loadAnalyticsConfig(fetchImpl: typeof fetch = (...a) => globalThis.fetch(...a)): Promise<TimeModelParams | null> {
   cached ??= fetchImpl(CONFIG_URL, { credentials: "same-origin", headers: { accept: "application/json" } })
-    .then(async (res) => (res.ok ? parseAnalyticsConfig(await res.json()) : TM_1_0_DEFAULTS))
+    .then(async (res) => (res.ok ? parseAnalyticsConfig(await res.json()) : res.status === 403 ? null : TM_1_0_DEFAULTS))
     .catch(() => TM_1_0_DEFAULTS);
   return cached;
+}
+
+/** Tests only: forget the cached config. */
+export function resetAnalyticsConfigCache(): void {
+  cached = null;
 }

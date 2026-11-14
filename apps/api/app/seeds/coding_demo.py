@@ -27,6 +27,7 @@ from app.modules.coding.models import CodingProblem
 from app.modules.coding.schemas import ProblemCreateIn, TestCaseIn
 from app.modules.identity.models import User
 from app.seeds import seeds_allowed
+from app.seeds.sync import sync_touched
 
 # Seeds run standalone: register every module's tables so cross-module FKs resolve.
 import_all_models()
@@ -131,7 +132,9 @@ async def seed(session: AsyncSession, author: uuid.UUID | None = None) -> list[s
 async def _run(author: uuid.UUID | None) -> list[str]:
     guard()
     async with get_sessionmaker()() as s, s.begin():
-        return await seed(s, author)
+        made = await seed(s, author)
+        await sync_touched(s, "coding", "identity")
+        return made
 
 
 def main() -> None:

@@ -130,12 +130,121 @@ async def verify_chain(session: AsyncSession, from_seq: int = 1) -> ChainVerific
 
 
 async def seal_once(engine: AsyncEngine, batch: int | None = None) -> int:
+    """One sealing round. Default (every ``TD_STORE_*`` on Postgres): exactly the Postgres
+    sealer. During the Firestore transition (MIGRATION-PLAN §3.5) the sealer drains **both**
+    outboxes into the one chain selected by ``TD_STORE_AUDIT``:
+
+    * chain on Postgres + some module on Firestore: the Firestore ``audit_outbox`` is appended
+      to the Postgres chain first, then the Postgres outbox as before;
+    * chain on Firestore (``TD_STORE_AUDIT=firestore``): the Firestore outbox, then the Postgres
+      outbox (``app.core.audit.audit()`` still writes there) are appended to the Firestore chain.
+    """
+    from app.core.firestore.backend import firestore_modules, uses_firestore
+
+    if uses_firestore("audit"):
+        return await _seal_into_firestore(engine, batch)
+    n = 0
+    if firestore_modules():
+        n += await _seal_firestore_outbox_into_pg(engine, batch)
     async with engine.connect() as conn, conn.begin():
         session = AsyncSession(bind=conn)
         try:
-            return await seal_pending(session, batch)
+            return n + await seal_pending(session, batch)
         finally:
             await session.close()
+
+
+async def _pg_lock(session: AsyncSession) -> bool:
+    got = (
+        await session.execute(text("SELECT pg_try_advisory_xact_lock(:k)"), {"k": SEALER_LOCK_KEY})
+    ).scalar()
+    return bool(got)
+
+
+async def _seal_firestore_outbox_into_pg(engine: AsyncEngine, batch: int | None) -> int:
+    """Firestore outbox -> Postgres chain. Postgres commits first, then the Firestore documents
+    are deleted; a batch whose delete failed is recognised by id among the newest chain rows on
+    the next round and only deleted (never sealed twice)."""
+    from app.modules.audit.repo_firestore import MAX_SEAL_BATCH, sealer_repo
+
+    repo = sealer_repo()
+    size = min(batch or get_settings().TD_AUDIT_SEALER_BATCH, MAX_SEAL_BATCH)
+    pending = await repo.pending_outbox(size)
+    if not pending:
+        return 0
+    async with engine.connect() as conn, conn.begin():
+        session = AsyncSession(bind=conn)
+        try:
+            if not await _pg_lock(session):
+                return 0
+            recent = {
+                str(i)
+                for i in (
+                    await session.execute(select(AuditLog.id).order_by(AuditLog.seq.desc()).limit(2 * size))
+                ).scalars()
+            }
+            seq, prev = await chain_head(session)
+            rows: list[dict[str, Any]] = []
+            for audit_id, occurred_at, record in pending:
+                if audit_id in recent:
+                    continue
+                seq += 1
+                row = _row(seq, prev, uuid.UUID(audit_id), occurred_at, record)
+                rows.append(row)
+                prev = row["row_hash"]
+            if rows:
+                await session.execute(insert(AuditLog), rows)
+        finally:
+            await session.close()
+    await repo.delete_outbox([p[0] for p in pending])
+    return len(rows)
+
+
+async def _seal_into_firestore(engine: AsyncEngine, batch: int | None) -> int:
+    """``TD_STORE_AUDIT=firestore``: Firestore outbox, then one Postgres outbox batch, into the
+    Firestore chain. The Postgres rows are deleted after the Firestore commit; the head keeps the
+    batch's ids so a failed delete is retried without sealing the rows again."""
+    from app.modules.audit.repo_firestore import MAX_SEAL_BATCH, sealer_repo
+
+    repo = sealer_repo()
+    size = min(batch or get_settings().TD_AUDIT_SEALER_BATCH, MAX_SEAL_BATCH)
+    n = await repo.seal_pending(size)
+    async with engine.connect() as conn, conn.begin():
+        session = AsyncSession(bind=conn)
+        try:
+            if not await _pg_lock(session):
+                return n
+            pending = (
+                await session.execute(
+                    select(AuditOutbox.id, AuditOutbox.occurred_at, AuditOutbox.record)
+                    .order_by(AuditOutbox.occurred_at, AuditOutbox.id)
+                    .limit(min(size, 2 * MAX_SEAL_BATCH))
+                )
+            ).all()
+            if not pending:
+                return n
+            n += await repo.append(
+                [(p.id, p.occurred_at, dict(p.record or {})) for p in pending],
+                pg_batch_ids=[str(p.id) for p in pending],
+            )
+            await session.execute(delete(AuditOutbox).where(AuditOutbox.id.in_([p.id for p in pending])))
+        finally:
+            await session.close()
+    return n
+
+
+def _row(
+    seq: int, prev: bytes, audit_id: uuid.UUID, occurred_at: Any, record: dict[str, Any]
+) -> dict[str, Any]:
+    row: dict[str, Any] = {f: record.get(f) for f in _RECORD_FIELDS}
+    row["actor_roles"] = list(row["actor_roles"] or [])
+    for f in _UUID_FIELDS:
+        if row[f] is not None:
+            row[f] = uuid.UUID(str(row[f]))
+    row.update(seq=seq, occurred_at=occurred_at, id=audit_id)
+    row_hash = compute_row_hash(prev, row)
+    row.update(prev_hash=prev, row_hash=row_hash)
+    return row
 
 
 async def run_forever(interval: float | None = None) -> None:  # pragma: no cover - service loop

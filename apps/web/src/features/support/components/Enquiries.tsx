@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Badge, Button, Card, ErrorState, FormField, PageHeader, Pagination, Select, Skeleton, StatTile, Table, useToast, type Column } from "@/components/ui";
+import { StatusBadge, Button, Card, ErrorState, FormField, LoadingBlock, PageHeader, Pagination, Select, StatTile, Table, useToast, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import type { Schema } from "@/lib/api-types";
 import { useResource } from "@/features/account/lib/use-resource";
-import { FilterBar, InlineProblem, KeyValueList, TextArea, textLink } from "@/features/admin/components/console-ui";
-import { cleanQuery, formatDateTime, humanize, useCursorList } from "@/features/admin/lib/console";
+import { ConfirmDialog, FilterBar, InlineProblem, KeyValueList, TextArea, textLink } from "@/features/admin/components/console-ui";
+import { cleanQuery, formatDateTime, humanize, shortRef, useCursorList } from "@/features/admin/lib/console";
 
 /**
  * Corporate enquiry queue (owner decision D8, WS5): enquiries from the public `/enquiries` form,
@@ -42,14 +42,16 @@ export interface EnquiryDetailOut extends Omit<EnquirySummary, "message_preview"
   notice_version: string;
 }
 
-const STATUS_TONE = { new: "info", in_progress: "warning", closed: "success", spam: "neutral" } as const;
 const STATUS_LABEL: Record<EnquiryStatus, string> = { new: "New", in_progress: "In progress", closed: "Closed", spam: "Spam" };
 
 export function EnquiryStatusBadge({ status }: { status: EnquiryStatus }) {
-  return <Badge tone={STATUS_TONE[status] ?? "neutral"}>{STATUS_LABEL[status] ?? humanize(status)}</Badge>;
+  return <StatusBadge status={status} label={STATUS_LABEL[status] ?? humanize(status)} />;
 }
 
 const enquiryHref = (id: string) => `/desk/enquiries/${id}`;
+
+/** The api returns only the assignee's id: a short readable reference (audit 1.11). */
+const assigneeLabel = (id: string | null) => (id ? <span title={id}>Agent {shortRef(id)}</span> : <span className="text-fg-muted">Unassigned</span>);
 
 /** SUP-006 corporate enquiry queue. */
 export function EnquiryQueue() {
@@ -70,15 +72,16 @@ export function EnquiryQueue() {
     { key: "name", header: "Contact", cell: (e) => e.name },
     { key: "preview", header: "Message", cell: (e) => <span className="line-clamp-2 text-fg-secondary">{e.message_preview}</span> },
     { key: "status", header: "Status", cell: (e) => <EnquiryStatusBadge status={e.status} /> },
-    { key: "who", header: "Assignee", cell: (e) => (e.assigned_to ? <span className="font-mono text-xs">{e.assigned_to.slice(0, 8)}</span> : <span className="text-fg-muted">Unassigned</span>) },
+    { key: "who", header: "Assignee", cell: (e) => assigneeLabel(e.assigned_to) },
     { key: "at", header: "Received", cell: (e) => formatDateTime(e.created_at) },
   ];
   return (
     <div>
-      <PageHeader eyebrow="SUP-006" title="Corporate enquiries" description="Enquiries sent through the public enquiry form. Opening an enquiry is recorded in the audit log." />
+      <PageHeader title="Corporate enquiries" description="Enquiries sent through the public enquiry form. Opening an enquiry is recorded in the audit log." />
       {counts ? (
-        <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatTile label="New enquiries" value={String(counts.new ?? 0)} />
+        // One number: a single compact tile, not a lone tile in a 4-column grid.
+        <div className="mb-4 max-w-xs">
+          <StatTile size="compact" label="New enquiries" value={String(counts.new ?? 0)} tone={counts.new ? "warning" : "neutral"} hint={counts.new ? "Waiting for a first reply" : undefined} />
         </div>
       ) : null}
       <FilterBar label="Enquiry filters">
@@ -101,7 +104,11 @@ export function EnquiryQueue() {
         loading={list.loading}
         error={list.error}
         onRetry={() => void list.reload()}
-        empty={{ title: status ? `No ${STATUS_LABEL[status].toLowerCase()} enquiries` : "No enquiries yet" }}
+        empty={
+          status
+            ? { title: `No ${STATUS_LABEL[status].toLowerCase()} enquiries`, description: "Choose another status to see more enquiries.", icon: "search" }
+            : { title: "No enquiries yet", description: "Enquiries sent through the public enquiry form appear here.", icon: "chat" }
+        }
         footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />}
       />
     </div>
@@ -116,6 +123,7 @@ export function EnquiryDetail({ enquiryId }: { enquiryId: string }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [confirm, setConfirm] = useState<"closed" | "spam" | null>(null);
 
   useEffect(() => {
     if (res.data) {
@@ -124,21 +132,26 @@ export function EnquiryDetail({ enquiryId }: { enquiryId: string }) {
     }
   }, [res.data]);
 
-  if (res.error && !current) return <ErrorState error={res.error} onRetry={() => void res.reload()} />;
-  if (!current) return <Skeleton className="h-60 w-full" />;
+  if (res.error && !current) return <ErrorState error={res.error} onRetry={() => void res.reload()} secondaryAction={{ href: "/desk/enquiries", label: "Back to enquiries" }} />;
+  if (!current) return <LoadingBlock label="Loading the enquiry…" rows={6} />;
   const e = current;
+
+  /** PATCH the enquiry and apply the result; throws on failure. */
+  const send = async (body: Schema<"EnquiryPatch">, done: string) => {
+    const out = await api.patch<EnquiryDetailOut>(`support/enquiries/${enquiryId}`, body);
+    if (out.kind === "approval_pending") toast.show({ title: "Sent for approval.", tone: "success" });
+    else {
+      setCurrent(out.data);
+      setNote(out.data.staff_note ?? "");
+      toast.show({ title: done, tone: "success" });
+    }
+  };
 
   const patch = async (key: string, body: Schema<"EnquiryPatch">, done: string) => {
     setBusy(key);
     setError(null);
     try {
-      const out = await api.patch<EnquiryDetailOut>(`support/enquiries/${enquiryId}`, body);
-      if (out.kind === "approval_pending") toast.show({ title: "Sent for approval.", tone: "success" });
-      else {
-        setCurrent(out.data);
-        setNote(out.data.staff_note ?? "");
-        toast.show({ title: done, tone: "success" });
-      }
+      await send(body, done);
     } catch (err) {
       setError(err);
     } finally {
@@ -151,9 +164,10 @@ export function EnquiryDetail({ enquiryId }: { enquiryId: string }) {
   return (
     <div>
       <PageHeader
-        eyebrow="SUP-007"
-        title={`${e.company} · ${e.reference}`}
-        description={`Received ${formatDateTime(e.created_at)}`}
+        breadcrumbs={[{ label: "Corporate enquiries", href: "/desk/enquiries" }, { label: e.reference }]}
+        title={e.company}
+        meta={<EnquiryStatusBadge status={e.status} />}
+        description={`${e.reference} · from ${e.name} · received ${formatDateTime(e.created_at)}`}
         actions={
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" loading={busy === "assign"} onClick={() => void patch("assign", { assign_to_me: true, ...(e.status === "new" ? { status: "in_progress" } : {}) }, "Assigned to you.")}>
@@ -161,10 +175,8 @@ export function EnquiryDetail({ enquiryId }: { enquiryId: string }) {
             </Button>
             {open ? (
               <>
-                <Button loading={busy === "closed"} onClick={() => void patch("closed", { status: "closed" }, "Enquiry closed.")}>
-                  Close
-                </Button>
-                <Button variant="secondary" loading={busy === "spam"} onClick={() => void patch("spam", { status: "spam" }, "Marked as spam.")}>
+                <Button onClick={() => setConfirm("closed")}>Close</Button>
+                <Button variant="secondary" onClick={() => setConfirm("spam")}>
                   Mark as spam
                 </Button>
               </>
@@ -176,11 +188,6 @@ export function EnquiryDetail({ enquiryId }: { enquiryId: string }) {
           </div>
         }
       />
-      <div className="mb-4">
-        <Link className={textLink} href="/desk/enquiries">
-          ← All enquiries
-        </Link>
-      </div>
       <InlineProblem error={error} />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
@@ -195,7 +202,7 @@ export function EnquiryDetail({ enquiryId }: { enquiryId: string }) {
                 void patch("note", { staff_note: note.trim() || null }, "Note saved.");
               }}
             >
-              <FormField label="Internal note" hint="Only Admin can see this. Up to 4000 characters.">
+              <FormField label="Internal note" hint="Only staff can see this note; it is never sent to the enquirer. Up to 4000 characters.">
                 {(f) => <TextArea {...f} value={note} maxLength={4000} onChange={(ev) => setNote(ev.target.value)} />}
               </FormField>
               <Button type="submit" variant="secondary" loading={busy === "note"} disabled={(e.staff_note ?? "") === note.trim()}>
@@ -220,13 +227,27 @@ export function EnquiryDetail({ enquiryId }: { enquiryId: string }) {
                 ),
               },
               { label: "Phone", value: e.phone ?? <span className="text-fg-muted">Not given</span> },
-              { label: "Assignee", value: e.assigned_to ? <span className="font-mono text-xs">{e.assigned_to.slice(0, 8)}</span> : <span className="text-fg-muted">Unassigned</span> },
-              { label: "Consent", value: `${formatDateTime(e.consent_at)} (notice ${e.notice_version})` },
+              { label: "Assignee", value: assigneeLabel(e.assigned_to) },
+              { label: "Consent to be contacted", value: `${formatDateTime(e.consent_at)} (privacy notice version ${e.notice_version})` },
               { label: "Closed", value: e.closed_at ? formatDateTime(e.closed_at) : "—" },
             ]}
           />
         </Card>
       </div>
+      <ConfirmDialog
+        open={confirm !== null}
+        onClose={() => setConfirm(null)}
+        title={confirm === "spam" ? "Mark this enquiry as spam?" : "Close this enquiry?"}
+        description={
+          confirm === "spam"
+            ? `${e.company}'s enquiry leaves the open queue and is filed as spam. Only do this for junk or abusive messages — a real lead marked as spam is easy to lose.`
+            : `${e.company}'s enquiry leaves the open queue. Close it only once the lead has been answered or handed over.`
+        }
+        confirmLabel={confirm === "spam" ? "Mark as spam" : "Close enquiry"}
+        cancelLabel="Keep open"
+        danger={confirm === "spam"}
+        onConfirm={() => send({ status: confirm ?? "closed" }, confirm === "spam" ? "Marked as spam." : "Enquiry closed.")}
+      />
     </div>
   );
 }

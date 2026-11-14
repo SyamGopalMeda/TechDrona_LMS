@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Badge, Button, Dialog, ErrorState, Select, Skeleton, Tabs } from "@/components/ui";
+import { Badge, Breadcrumbs, Button, Dialog, ErrorState, Select, Skeleton, Tabs } from "@/components/ui";
+import { LMS_COURSES_HREF } from "@/lib/site/website";
 import { useActivityTracker, type ActivityTrackerHandle } from "@/lib/analytics/use-activity-tracker";
+import { SafeMarkdown } from "@/features/catalog/components/SafeMarkdown";
 import { isApiError } from "@/lib/api/errors";
 import { uuid7 } from "@/lib/ids/uuid7";
 import { codingApi, difficultyLabel, monacoLanguage, pollSubmission, RetryAfterError } from "../lib/api";
 import type { Language, ProblemDetail, Submission } from "../lib/types";
 import { CodeEditor } from "./CodeEditor";
 import { VerdictPanel } from "./VerdictPanel";
+import { JudgeNotIntegratedNotice } from "@/features/studio/components/NotIntegrated";
 
 const LANG_PREF = "td.coding.lang";
 export const CODING_ROUTE = "/app/coding/[slug]";
@@ -252,8 +255,8 @@ export function CodingWorkspace({ slug, attemptId, embedded = false, onSubmitted
         <div className="rounded-xl border border-line bg-surface p-6">
           <p className="font-semibold">This problem is part of a paid plan</p>
           <p className="mt-1 text-sm text-fg-muted">{loadError.detail}</p>
-          <Link className="mt-3 inline-block text-sm text-fg-link underline" href="/pricing">
-            See plans
+          <Link className="mt-3 inline-block text-sm text-fg-link underline" href={LMS_COURSES_HREF}>
+            Explore courses and plans
           </Link>
         </div>
       );
@@ -273,24 +276,25 @@ export function CodingWorkspace({ slug, attemptId, embedded = false, onSubmitted
 
   const statement = (
     <div className="space-y-4 text-sm leading-relaxed text-fg">
-      {/* Problem text is Markdown (statement_md etc.); shown as plain text. */}
-      <p className="whitespace-pre-wrap">{problem.statement_md}</p>
+      {/* Problem text is Markdown (statement_md etc.): SafeMarkdown builds React elements only, so
+          any markup in the source is shown as text. */}
+      <SafeMarkdown source={problem.statement_md} className="space-y-3 break-words" />
       {problem.input_format_md ? (
         <section>
           <h3 className="font-semibold">Input format</h3>
-          <p className="whitespace-pre-wrap">{problem.input_format_md}</p>
+          <SafeMarkdown source={problem.input_format_md} className="mt-1 space-y-2 break-words" />
         </section>
       ) : null}
       {problem.output_format_md ? (
         <section>
           <h3 className="font-semibold">Output format</h3>
-          <p className="whitespace-pre-wrap">{problem.output_format_md}</p>
+          <SafeMarkdown source={problem.output_format_md} className="mt-1 space-y-2 break-words" />
         </section>
       ) : null}
       {problem.constraints_md ? (
         <section>
           <h3 className="font-semibold">Constraints</h3>
-          <p className="whitespace-pre-wrap">{problem.constraints_md}</p>
+          <SafeMarkdown source={problem.constraints_md} className="mt-1 space-y-2 break-words" />
         </section>
       ) : null}
       {problem.samples.map((s) => (
@@ -318,16 +322,18 @@ export function CodingWorkspace({ slug, attemptId, embedded = false, onSubmitted
   );
 
   return (
-    <div className={embedded ? "" : "-mx-4 lg:-mx-8"}>
+    // Bleed to the shell's padding at every breakpoint (main is px-4 sm:px-6 lg:px-8).
+    <div className={embedded ? "" : "-mx-4 sm:-mx-6 lg:-mx-8"}>
       {!embedded ? (
-        <header className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2">
-          <Link href="/app/coding" className="text-sm text-fg-link underline">
-            ← Problems
-          </Link>
-          <h1 className="font-display text-base font-semibold">{problem.title}</h1>
-          <Badge>{difficultyLabel(problem.difficulty)}</Badge>
+        <header className="space-y-1 border-b border-line bg-surface px-4 py-2 sm:px-6 lg:px-8">
+          <Breadcrumbs items={[{ label: "Coding", href: "/app/coding" }, { label: problem.title }]} />
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="font-display text-lg font-extrabold tracking-tight text-fg-heading">{problem.title}</h1>
+            <Badge>{difficultyLabel(problem.difficulty)}</Badge>
+          </div>
         </header>
       ) : null}
+      <JudgeNotIntegratedNotice className={embedded ? "mb-2" : "mx-4 my-2 sm:mx-6 lg:mx-8"} />
 
       {/* < 768 px: readable statement + notice (design-system §5.12) */}
       <div className="p-4 md:hidden">
@@ -337,7 +343,7 @@ export function CodingWorkspace({ slug, attemptId, embedded = false, onSubmitted
         {statement}
       </div>
 
-      <div className="hidden md:flex md:h-[calc(100dvh-10rem)] md:min-h-[32rem]">
+      <div className="hidden md:flex md:h-[calc(100dvh-11.5rem)] md:min-h-[32rem]">
         <section aria-label="Problem statement" className="overflow-y-auto border-r border-line bg-surface p-4" style={{ width: `${split}%` }}>
           {statement}
         </section>

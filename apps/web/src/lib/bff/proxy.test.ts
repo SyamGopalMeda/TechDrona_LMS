@@ -4,7 +4,7 @@ import type { BffConfig } from "./config";
 import { cookieName, loadBffConfig } from "./config";
 import { mintCsrfToken, verifyCsrfToken } from "./csrf";
 import { resolveClientIp } from "./headers";
-import { extractApiPath, handleBffRequest } from "./proxy";
+import { extractApiPath, handleBffRequest, maxBodyFor } from "./proxy";
 
 const KEY = "k".repeat(64);
 const devEnv = { NODE_ENV: "development" } as NodeJS.ProcessEnv;
@@ -377,5 +377,16 @@ describe("ended sessions (SEC-07)", () => {
     );
     expect(res.status).toBe(401);
     expect(res.headers.getSetCookie().some((c) => c.startsWith("td_session="))).toBe(false);
+  });
+});
+
+describe("maxBodyFor", () => {
+  it("allows payment-proof uploads (one base64 file) and keeps the default elsewhere", () => {
+    expect(maxBodyFor("me/admissions/registrations")).toBe(4 * 1024 * 1024);
+    expect(maxBodyFor("me/admissions/claims")).toBe(4 * 1024 * 1024);
+    expect(maxBodyFor("public/admissions/registrations")).toBe(4 * 1024 * 1024);
+    expect(maxBodyFor("public/admissions/claims")).toBe(4 * 1024 * 1024);
+    expect(maxBodyFor("me/admissions")).toBe(256 * 1024);
+    expect(maxBodyFor("analytics/events")).toBe(64 * 1024);
   });
 });

@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import AuditActor, audit
-from app.core.db import get_sessionmaker, system_context
+from app.core.config import get_settings
 from app.core.errors import ProblemError
 from app.core.ids import uuid7
 from app.core.principal import Principal, RoleGrant
@@ -23,8 +23,9 @@ from app.core.routing import RouteContext, scope_allows
 from app.core.security import hash_token
 from app.core.time import to_rfc3339
 from app.modules.identity import clock
+from app.modules.identity.fs_codec import obj_doc
 from app.modules.identity.links import web_link, web_path
-from app.modules.identity.models import User
+from app.modules.identity.public import User
 from app.modules.identity.service import active_factors, is_confirmed_strong
 from app.modules.sessions import service as ss
 from app.modules.sessions.hooks import (
@@ -47,6 +48,20 @@ LAST_SEEN_WRITE_INTERVAL = timedelta(seconds=60)
 _MFA_EXEMPT = frozenset({"mfa_enrolment", "login_continuation", "public"})
 _CONSENT_EXEMPT = frozenset({"consent", "account_status", "login_continuation", "mfa_enrolment", "public"})
 _MINOR_PENDING_ALLOWED = frozenset({"consent", "account_status", "login_continuation", "mfa_enrolment"})
+# ``users.must_change_password`` (set by an Admin, or by a protect-lock): only these work until the
+# person chooses a new password. Tags: logout + login steps, public routes, consents, MFA
+# enrolment (strict mode: staff may have to enrol before the password change is allowed); plus
+# the routes below (paths as declared on the route, without the ``/api/v1`` prefix).
+_PW_CHANGE_EXEMPT_TAGS = frozenset({"login_continuation", "public", "consent", "mfa_enrolment"})
+_PW_CHANGE_EXEMPT_ROUTES = frozenset(
+    {("POST", "/auth/password/change"), ("GET", "/me"), ("GET", "/me/grants")}
+)
+_API_PREFIX = "/api/v1"
+
+
+def password_change_exempt(ctx: RouteContext) -> bool:
+    path = ctx.path[len(_API_PREFIX) :] if ctx.path.startswith(_API_PREFIX + "/") else ctx.path
+    return ctx.route_tag in _PW_CHANGE_EXEMPT_TAGS or (ctx.method.upper(), path) in _PW_CHANGE_EXEMPT_ROUTES
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,19 +72,9 @@ class _Deny:
 async def org_ids_for(
     session: AsyncSession, user_id: uuid.UUID, grant_orgs: set[uuid.UUID]
 ) -> tuple[uuid.UUID, ...]:
-    from app.modules.orgs.models import OrgMembership
+    from app.modules.orgs import public as orgs_public
 
-    rows = (
-        (
-            await session.execute(
-                select(OrgMembership.organization_id).where(
-                    OrgMembership.user_id == user_id, OrgMembership.status == "active"
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    rows = await orgs_public.active_org_ids(session, user_id)
     return tuple(sorted(set(rows) | grant_orgs, key=str))
 
 
@@ -99,7 +104,8 @@ async def build_principal(
         amr=tuple(s.amr),
         mfa_level=mfa_level,  # type: ignore[arg-type]
         auth_time=s.auth_time,
-        last_step_up_at=s.last_step_up_at,
+        # TD_SIMPLE_AUTH: step-up ("confirm it's you") is always treated as fresh.
+        last_step_up_at=clock.now() if get_settings().simple_auth else s.last_step_up_at,
         restriction_level=restriction.level,
         restrictions=restriction.restrictions,
         is_minor=user.is_minor,
@@ -110,8 +116,7 @@ async def build_principal(
 class SessionsResolver:
     async def resolve(self, request: Request, session_token: str, ctx: RouteContext) -> Principal:
         result: Principal | _Deny
-        async with get_sessionmaker()() as session, session.begin():
-            await system_context(session, "sessions.resolve")
+        async with ss.system_session("sessions.resolve") as session:
             result = await self._resolve(session, request, session_token, ctx)
         if isinstance(result, _Deny):
             raise result.exc
@@ -121,11 +126,14 @@ class SessionsResolver:
         self, session: AsyncSession, request: Request, token: str, ctx: RouteContext
     ) -> Principal | _Deny:
         now = clock.now()
-        s = (
-            await session.execute(
-                select(AuthSession).where(AuthSession.token_hash == hash_token(token)).with_for_update()
-            )
-        ).scalar_one_or_none()
+        if ss._fs():
+            s = await ss._repo().session_by_token(hash_token(token))
+        else:
+            s = (
+                await session.execute(
+                    select(AuthSession).where(AuthSession.token_hash == hash_token(token)).with_for_update()
+                )
+            ).scalar_one_or_none()
         if s is None:
             sink = security_events()
             if sink is not None and await sink.unknown_token(session, ss.client_info(request).ip):
@@ -134,7 +142,8 @@ class SessionsResolver:
         if s.status == "expired":
             return _Deny(ProblemError("session_expired", reason=s.end_reason))
         if s.status in ("revoked", "blocked"):
-            return _Deny(ProblemError("session_revoked", reason=_user_safe_reason(s.end_reason)))
+            safe = _user_safe_reason(s.end_reason)
+            return _Deny(ProblemError("session_revoked", detail=_REVOKED_DETAIL.get(safe or ""), reason=safe))
 
         # 3. expiry (idle not enforced while an attempt holds the session)
         if now >= s.absolute_expires_at:
@@ -146,8 +155,12 @@ class SessionsResolver:
 
         info = ss.client_info(request)
         # 4. stolen-cookie replay: device cookie or UA family/OS drift -> revoke THIS session only
-        drift = (s.ua_family and info.ua.family != s.ua_family) or (
-            s.os_family and info.ua.os_family != s.os_family
+        # Simple auth (owner decision 2026-11-12): a browser/OS label change (e.g. Chrome's
+        # "Desktop site" toggle on a phone) no longer signs the user out; the device cookie still
+        # has to match.
+        drift = not get_settings().simple_auth and (
+            (s.ua_family and info.ua.family != s.ua_family)
+            or (s.os_family and info.ua.os_family != s.os_family)
         )
         if not await ss.device_hash_matches(session, s.device_id, info.device_token) or drift:
             await ss.end_session(session, s, status="blocked", reason="device_mismatch")
@@ -179,7 +192,12 @@ class SessionsResolver:
             return _Deny(ProblemError("session_revoked", reason="device_mismatch"))
 
         # 5. revoke-all cut-off and account state
-        user = await session.get(User, s.user_id)
+        if ss.uses_firestore("identity"):
+            from app.modules.identity.repo_firestore import system_repo as identity_repo
+
+            user = await identity_repo().get_user(s.user_id)
+        else:
+            user = await session.get(User, s.user_id)
         if user is None or user.status in ("deactivated", "deleted") or user.deleted_at is not None:
             await ss.end_session(session, s, status="revoked", reason="account_deleted")
             return _Deny(ProblemError("session_revoked", reason="account_deleted"))
@@ -217,12 +235,18 @@ class SessionsResolver:
             )
 
         if s.status == "active":
+            # 7b. an Admin-assigned (or protect-lock) password must be replaced first
+            if user.must_change_password and not password_change_exempt(ctx):
+                return _Deny(ProblemError("password_change_required", change_url="/change-password"))
             # 8. mandatory MFA for staff/privileged tiers, and for students when the platform
             #    policy ``auth.require_mfa_students`` is on (single-company replacement of the
             #    per-org FR-ORG-002 setting). Students who already have a factor are asked for it
             #    at login (``advance``); without one they must enrol.
-            if ctx.route_tag not in _MFA_EXEMPT and (
-                s.session_tier != "student" or await students_require_mfa(session, user.id)
+            if (
+                ctx.route_tag not in _MFA_EXEMPT
+                and not get_settings().simple_auth  # TD_SIMPLE_AUTH: MFA is optional
+                and not get_settings().mfa_exempt(user.email)
+                and (s.session_tier != "student" or await students_require_mfa(session, user.id))
             ):
                 if not any(is_confirmed_strong(f) for f in await active_factors(session, user.id)):
                     return _Deny(
@@ -232,7 +256,13 @@ class SessionsResolver:
             if user.status == "pending_guardian_consent" and ctx.route_tag not in _MINOR_PENDING_ALLOWED:
                 return _Deny(ProblemError("minor_consent_pending", guardian_flow_url="/app/guardian-consent"))
             # 9. required consents
-            if ctx.route_tag not in _CONSENT_EXEMPT:
+            # Changing your own password never waits for the terms step (a new admin-created user
+            # must be able to replace the default password first; live check 2026-11-12).
+            pw_change = (ctx.method.upper(), ctx.path.removeprefix(_API_PREFIX)) == (
+                "POST",
+                "/auth/password/change",
+            )
+            if ctx.route_tag not in _CONSENT_EXEMPT and not pw_change:
                 missing = await missing_consents(session, user.id)
                 if missing:
                     return _Deny(
@@ -250,6 +280,7 @@ class SessionsResolver:
         self, session: AsyncSession, s: AuthSession, ctx: RouteContext, request: Request, ip: str | None
     ) -> None:
         n = clock.now()
+        before = obj_doc(s) if ss._fs() else None
         engaged = ctx.idle_effect == "extends" and (
             ctx.method != "GET" or getattr(request.state, "activity", None) == "navigation"
         )
@@ -263,29 +294,47 @@ class SessionsResolver:
                 s.ip_last = ip
             if cluster and cluster != s.net_cluster_last:
                 s.net_cluster_last = cluster
-                session.add(
-                    SessionNetworkObservation(
-                        id=uuid7(),
-                        first_seen_at=n,
-                        last_seen_at=n,
-                        auth_session_id=s.id,
-                        user_id=s.user_id,
-                        net_cluster=cluster,
-                    )
+                obs = SessionNetworkObservation(
+                    id=uuid7(),
+                    first_seen_at=n,
+                    last_seen_at=n,
+                    auth_session_id=s.id,
+                    user_id=s.user_id,
+                    net_cluster=cluster,
                 )
+                if ss._fs():
+                    await ss._repo().add_observation(obs)
+                else:
+                    session.add(obs)
+        if ss._fs():
+            if obj_doc(s) != before:  # Postgres flushes only dirty rows; write only on change
+                await ss.save_session(session, s)
+            return
         await session.flush()
 
 
 async def touch_engaged(session_id: uuid.UUID) -> None:
     """``engaged_only`` routes call this when the server credits engagement (RE §1.4)."""
-    async with get_sessionmaker()() as session, session.begin():
-        await system_context(session, "sessions.touch_engaged")
-        s = await session.get(AuthSession, session_id)
+    async with ss.system_session("sessions.touch_engaged") as session:
+        s = (
+            await ss._repo().get_session(session_id)
+            if ss._fs()
+            else await session.get(AuthSession, session_id)
+        )
         if s is not None and s.status == "active":
             idle, _ = ss.session_timeouts(s.session_tier)
             n = clock.now()
-            s.idle_expires_at = min(n + idle, s.absolute_expires_at)
+            new_idle = min(n + idle, s.absolute_expires_at)
+            if new_idle == s.idle_expires_at and n - s.last_seen_at < LAST_SEEN_WRITE_INTERVAL:
+                # Cost (Firestore: one write per credited heartbeat/event batch): the idle expiry
+                # cannot move (it is already capped at the absolute expiry) and ``last_seen_at``
+                # is fresher than the granularity every other request keeps it at (``_touch``:
+                # LAST_SEEN_WRITE_INTERVAL), so writing would change nothing a reader relies on.
+                return
+            s.idle_expires_at = new_idle
             s.last_seen_at = n
+            if ss._fs():
+                await ss.save_session(session, s)
 
 
 _USER_SAFE = {
@@ -301,6 +350,21 @@ _USER_SAFE = {
     "replaced_same_device",
     "unblock_reset",
     "account_deleted",
+}
+
+
+# ``detail`` of the 401 ``session_revoked`` per (user-safe) reason, so a client that shows the
+# problem detail can say WHY (live audit 2026-11-14 #14 / student F-12: a new sign-in past the
+# concurrent-session cap silently signed the oldest session out). Other reasons keep the
+# catalogue title "You have been signed out".
+_REVOKED_DETAIL = {
+    "session_cap_evicted": (
+        "You were signed out because your account signed in on another device "
+        "and only a limited number of devices can stay signed in at once."
+    ),
+    "replaced_same_device": "You were signed out because your account signed in again on this device.",
+    "user_revoked_other": "You were signed out from another device on your account.",
+    "password_changed": "You were signed out because your password was changed.",
 }
 
 

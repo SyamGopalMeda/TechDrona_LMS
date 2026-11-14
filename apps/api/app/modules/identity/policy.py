@@ -22,6 +22,8 @@ DEFAULTS: dict[str, Any] = {
     "sessions.staff.max_concurrent": 3,
     "sessions.remember_device.max_days": 30,
     "devices.student.max_trusted": 3,
+    "devices.staff.max_trusted": 3,
+    "devices.admin.cap_enabled": False,
     "devices.student.max_replacements_per_30d": 2,
     "devices.trusted_inactivity_expiry_days": 90,
     "login.backoff_base_seconds": 1,
@@ -80,21 +82,18 @@ async def get_policy(
     if _resolver is not None:
         return await _resolver(session, key, None, user_id)
     default = DEFAULTS.get(key)
-    if not await _has_table(session):
+    from app.core.firestore.backend import uses_firestore
+
+    if not uses_firestore("admin") and not await _has_table(session):
         return default
-    rows = (
-        await session.execute(
-            text(
-                "SELECT scope_type, scope_id, value FROM policy_settings "
-                "WHERE setting_key = :k AND is_active AND effective_from <= now() "
-                "AND (expires_at IS NULL OR expires_at > now()) "
-                "AND (scope_type = 'platform' OR (scope_type = 'user' AND scope_id = :uid))"
-            ),
-            {"k": key, "uid": user_id},
-        )
-    ).all()
-    rank = {"user": 0, "platform": 1}
-    if not rows:
-        return default
-    best = sorted(rows, key=lambda r: rank.get(r.scope_type, 9))[0]
-    return best.value
+    # user exception > platform; active and in its validity window (admin.public, either store)
+    from app.core.time import utcnow
+    from app.modules.admin import public as admin_public
+
+    now = utcnow()
+    scopes: list[tuple[str, uuid.UUID | None]] = [("user", user_id)] if user_id is not None else []
+    for scope_type, scope_id in [*scopes, ("platform", None)]:
+        row = await admin_public.active_policy_setting(session, key, scope_type=scope_type, scope_id=scope_id)
+        if row is not None and row.effective_from <= now and (row.expires_at is None or row.expires_at > now):
+            return row.value
+    return default

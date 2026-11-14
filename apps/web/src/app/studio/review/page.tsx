@@ -8,7 +8,10 @@ export const metadata: Metadata = { title: "Review queue" };
 export default function Page() {
   return (
     <div>
-      <PageHeader title="Review queue" eyebrow="CMS-007" description="You can't review content you wrote." />
+      <PageHeader
+        title="Review queue"
+        description="Questions and courses other authors sent for review. Any content manager except the author can review an item, so your own drafts are not listed here."
+      />
       <ReviewQueue />
     </div>
   );

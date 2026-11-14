@@ -481,7 +481,7 @@ function ReportDialog({ open, questionVersionId, onClose }: { open: boolean; que
       }
     >
       {!questionVersionId ? (
-        <EmptyState title="No question selected" description="Open a question first, then report it." />
+        <EmptyState icon="search" title="No question selected" description="Open a question first, then report it." />
       ) : (
         <div className="space-y-3">
           <FormField label="What's wrong?">

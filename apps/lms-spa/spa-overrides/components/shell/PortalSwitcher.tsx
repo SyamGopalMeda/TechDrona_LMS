@@ -1,0 +1,56 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api/client";
+import { PORTALS, type PortalKey } from "@/lib/nav/portals";
+import { switcherPortals, type MyGrantsPortals } from "@/features/staff-portal/access";
+
+/**
+ * Portal switcher (FR-RBAC-002): lists the portals the signed-in user can work in (RBAC
+ * `GET /me/grants` → `portals` and live role grants; `switcherPortals`). An Admin also gets the
+ * Content studio, and the Teacher portal only with a trainer grant, so an Admin who followed a
+ * dashboard link into Studio or Teacher always has "Admin" one click away (live audit admin.md F3).
+ * Shown only when there is more than one. A UX convenience: the api authorises every request.
+ */
+export function PortalSwitcher({ current }: { current: PortalKey }) {
+  const [portals, setPortals] = useState<{ href: string; title: string }[]>([]);
+
+  useEffect(() => {
+    let live = true;
+    api
+      .get<MyGrantsPortals>("me/grants", { handle: { stepUp: false, restriction: false, auth: false, sessionChoice: false } })
+      .then((r) => {
+        if (live) setPortals(switcherPortals(r.portals, r.data?.map((g) => g.role_key)));
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  if (portals.length < 2) return null;
+  // Admin sections (finance, desk, security, mentoring) are part of the Admin portal.
+  const def = PORTALS[current];
+  const here = def.parent ? PORTALS[def.parent].prefix : def.prefix;
+  return (
+    <details className="relative">
+      <summary className="flex min-h-touch cursor-pointer list-none items-center gap-1.5 rounded-xl px-2.5 font-display text-sm font-semibold text-brand transition-colors duration-fast hover:bg-[#f4f7fd] focus-visible:shadow-focus focus-visible:outline-none md:min-h-10 md:border md:border-[#e6eaf2] md:bg-surface md:px-3.5 md:hover:border-[#c9d4ea] [&::-webkit-details-marker]:hidden">
+        Switch portal
+      </summary>
+      <ul aria-label="Your portals" className="absolute right-0 z-dropdown mt-1 min-w-[13rem] rounded-2xl border border-line bg-surface p-1.5 shadow-[0_30px_60px_-24px_rgba(5,11,36,0.35)]">
+        {portals.map((p) => (
+          <li key={p.href}>
+            <Link
+              href={p.href}
+              aria-current={p.href === here ? "page" : undefined}
+              className="block rounded-lg px-3 py-2 text-sm text-fg no-underline hover:bg-surface-hover hover:text-brand focus-visible:shadow-focus focus-visible:outline-none aria-[current=page]:bg-surface-selected aria-[current=page]:font-semibold aria-[current=page]:text-brand-on-subtle"
+            >
+              {p.title}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}

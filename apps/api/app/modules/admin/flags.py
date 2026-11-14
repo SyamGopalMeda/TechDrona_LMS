@@ -5,6 +5,8 @@
   Single company (admin_0004): there is no organization allowlist; ``org_id`` arguments are
   accepted for old callers and ignored.
 * ``flag_enabled(session, key, ...)`` — in-transaction read (``admin.router.flag_enabled``).
+* ``TD_STORE_ADMIN=firestore``: ``load`` reads ``feature_flags/{key}`` through the
+  ``admin.flags`` system job (``repo_firestore``); the evaluation rule is the same.
 * ``cached_flag_enabled(key, ...)`` — for callers without a DB session (core middleware such as
   ``platform.maintenance_mode``): reads ``feature_flags`` (RLS NONE) in its own short
   transaction and keeps the row for ``CACHE_TTL_S`` seconds per process. A PATCH clears this
@@ -20,6 +22,7 @@ from typing import Any
 
 from sqlalchemy import select
 
+from app.core.firestore.backend import uses_firestore
 from app.modules.admin.models import FeatureFlag
 
 CACHE_TTL_S = 30.0
@@ -32,7 +35,7 @@ class FlagSnapshot:
     user_allowlist: frozenset[uuid.UUID]
 
     @classmethod
-    def of(cls, f: FeatureFlag) -> FlagSnapshot:
+    def of(cls, f: Any) -> FlagSnapshot:
         return cls(
             bool(f.is_enabled),
             int(f.rollout_percent),
@@ -58,6 +61,11 @@ def evaluate(
 
 
 async def load(session: Any, key: str) -> FlagSnapshot | None:
+    if uses_firestore("admin") or not session:
+        from app.modules.admin.repo_firestore import system_repo
+
+        row = await system_repo("admin.flags").get_flag(key)
+        return FlagSnapshot.of(row) if row is not None else None
     f = (await session.execute(select(FeatureFlag).where(FeatureFlag.flag_key == key))).scalar_one_or_none()
     return FlagSnapshot.of(f) if f is not None else None
 
@@ -69,6 +77,12 @@ async def flag_enabled(
 
 
 _cache: dict[str, tuple[float, FlagSnapshot | None]] = {}
+
+
+def _postgres_enabled() -> bool:
+    from app.core.runtime import postgres_enabled
+
+    return postgres_enabled()
 
 
 def invalidate(key: str | None = None) -> None:
@@ -83,10 +97,14 @@ async def cached_flag_enabled(
 ) -> bool:
     hit = _cache.get(key)
     if hit is None or time.monotonic() - hit[0] >= CACHE_TTL_S:
-        from app.core.db import get_sessionmaker
+        if uses_firestore("admin") or not _postgres_enabled():
+            # Firebase stack (no Postgres engine): the flag lives in Firestore only.
+            snap = await load(None, key)
+        else:
+            from app.core.db import get_sessionmaker
 
-        async with get_sessionmaker()() as session, session.begin():
-            snap = await load(session, key)
+            async with get_sessionmaker()() as session, session.begin():
+                snap = await load(session, key)
         hit = (time.monotonic(), snap)
         _cache[key] = hit
     return evaluate(hit[1], user_id=user_id, org_id=org_id)

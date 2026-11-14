@@ -66,7 +66,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             className={cn("pointer-events-auto w-full max-w-sm rounded-xl border border-l-4 border-line bg-surface-raised p-4 shadow-lg", tones[t.tone ?? "info"].edge)}
           >
             <div className="flex items-start gap-3">
-              <span aria-hidden="true" className={cn("mt-px grid h-5 w-5 shrink-0 place-items-center rounded-full text-[0.6875rem] font-bold", tones[t.tone ?? "info"].icon)}>
+              <span aria-hidden="true" className={cn("mt-px grid h-5 w-5 shrink-0 place-items-center rounded-full text-xs font-bold", tones[t.tone ?? "info"].icon)}>
                 {tones[t.tone ?? "info"].glyph}
               </span>
               <div className="min-w-0 flex-1">

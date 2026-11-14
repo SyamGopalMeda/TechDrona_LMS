@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Badge, Button, EmptyState, ErrorState } from "@/components/ui";
+import { Button, EmptyState, ErrorState, LinkButton, PageHeader } from "@/components/ui";
 import { isApiError } from "@/lib/api/errors";
 import { Boundary, LoadingBlock, useFailToast } from "@/features/trainer/shared/ui";
 import { useApi } from "@/features/trainer/shared/use-api";
@@ -11,10 +11,40 @@ import { embeddableUrl, safeHttpsUrl } from "../lib/embed";
 import { formatHours, formatPlanDate } from "../lib/pace";
 import type { MyPath, PlayerPath, PlayerStep } from "../lib/types";
 import { ArticleView, useReaderArticle } from "./ArticleReader";
-import { FlowBadge, OrderBadge, ProgressBar, ProgressRing, StepStateBadge, StepTypeIcon } from "./bits";
+import { FlowBadge, OrderBadge, ProgressBar, ProgressRing, STEP_TYPE_LABEL, StepStateBadge } from "./bits";
+import type { StepType } from "../lib/types";
 import { useEnabledApps } from "@/features/ai";
 
 const PLAYER_BASE = "/app/path/my";
+
+/* 16px stroke icons for the learner's step list (the shared emoji glyphs render differently per OS). */
+const STEP_ICON_PATHS: Record<StepType, string> = {
+  reading: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zm0 0v5h5M9 13h6M9 17h4",
+  video: "M5 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L6.5 3.64A1 1 0 0 0 5 4.5z",
+  article: "M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5zM13 4h5.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H13z",
+  assignment: "M4 20h4L19 9l-4-4L4 16zm9-13 4 4",
+  assessment: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zm-4-9 3 3 5-6",
+  super_step: "M4 6h16M4 12h16M4 18h16",
+};
+
+/** Step type icon with an accessible name (inline SVG, inherits the text colour). */
+export function StepIcon({ type, className }: { type: StepType; className?: string }) {
+  return (
+    <svg role="img" aria-label={STEP_TYPE_LABEL[type]} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className ?? "h-4 w-4 shrink-0 text-fg-secondary"}>
+      <title>{STEP_TYPE_LABEL[type]}</title>
+      <path d={STEP_ICON_PATHS[type]} />
+    </svg>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg role="img" aria-label="Locked" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="ml-auto h-4 w-4 shrink-0 text-fg-muted">
+      <title>Locked</title>
+      <path d="M7 11V8a5 5 0 0 1 10 0v3M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z" />
+    </svg>
+  );
+}
 
 /* ------------------------------------------------------------------ My paths */
 
@@ -22,13 +52,22 @@ export function MyPaths() {
   const state = useApi<{ data: MyPath[] }>("me/paths");
   const enabled = useEnabledApps();
   if (!enabled.isEnabled("paths")) {
-    return <EmptyState title="Paths are not available" description="Learning paths are turned off." />;
+    return <EmptyState icon="lock" title="Paths are not available" description="Learning paths are turned off." />;
   }
   return (
     <Boundary state={state}>
       {(d) =>
         d.data.length === 0 ? (
-          <EmptyState title="No paths yet" description="Learning paths assigned to you or your batch will appear here." />
+          <EmptyState
+            icon="book"
+            title="No paths yet"
+            description="Learning paths assigned to you or your batch will appear here."
+            action={
+              <LinkButton href="/app/learning" variant="secondary" size="sm">
+                Go to My learning
+              </LinkButton>
+            }
+          />
         ) : (
           <ul className="grid gap-4 sm:grid-cols-2">
             {d.data.map((p) => (
@@ -37,7 +76,7 @@ export function MyPaths() {
                   <FlowBadge flow={p.flow} />
                   {p.sequential ? <OrderBadge sequential /> : null}
                 </div>
-                <h2 className="mt-2 font-display text-base font-semibold text-fg">{p.title}</h2>
+                <h2 className="mt-2 font-display text-base font-bold text-fg-heading">{p.title}</h2>
                 <p className="text-sm text-fg-muted">
                   {p.step_count} steps · {p.total_credits} credits · {formatHours(p.total_hours)}
                 </p>
@@ -50,13 +89,10 @@ export function MyPaths() {
                 </div>
                 <ProgressBar pct={p.pct} label={`${p.title} progress`} />
                 <div className="mt-4">
-                  <Link
-                    href={`${PLAYER_BASE}/${encodeURIComponent(p.allocation_id)}`}
-                    className="inline-flex h-10 items-center rounded-md bg-brand px-4 text-sm font-medium text-brand-on hover:bg-brand-hover focus-visible:shadow-focus focus-visible:outline-none"
-                  >
+                  <LinkButton href={`${PLAYER_BASE}/${encodeURIComponent(p.allocation_id)}`} variant={p.started ? "primary" : "secondary"}>
                     {p.started ? "Continue →" : "Start →"}
                     <span className="sr-only"> {p.title}</span>
-                  </Link>
+                  </LinkButton>
                 </div>
               </li>
             ))}
@@ -101,14 +137,12 @@ export function StepRail({ steps, selected, onSelect }: { steps: PlayerStep[]; s
                   {s.state === "completed" ? "✓" : s.number}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5">
-                    <StepTypeIcon type={s.step_type} />
-                    <span className={`truncate ${isGroup ? "font-semibold" : ""}`}>{s.title}</span>
-                    {s.state === "locked" ? (
-                      <span role="img" aria-label="Locked" className="ml-auto">
-                        🔒
-                      </span>
-                    ) : null}
+                  <span className="flex items-start gap-1.5 [&>svg]:mt-0.5">
+                    <StepIcon type={s.step_type} />
+                    <span className={`line-clamp-2 ${isGroup ? "font-semibold" : ""}`} title={s.title}>
+                      {s.title}
+                    </span>
+                    {s.state === "locked" ? <LockIcon /> : null}
                   </span>
                   {!isGroup ? (
                     <span className="mt-0.5 block text-xs text-fg-muted">
@@ -133,7 +167,18 @@ export function PathPlayer({ allocationId }: { allocationId: string }) {
   const state = useApi<PlayerPath>(`me/paths/${seg(allocationId)}`);
   if (state.error) {
     if (isApiError(state.error) && state.error.status === 404) {
-      return <EmptyState title="Path not found" description="This path is no longer assigned to you." action={<Link href={PLAYER_BASE} className="text-fg-link underline">← My paths</Link>} />;
+      return (
+        <EmptyState
+          icon="search"
+          title="Path not found"
+          description="This path is no longer assigned to you."
+          action={
+            <LinkButton href={PLAYER_BASE} variant="secondary" size="sm">
+              Back to My paths
+            </LinkButton>
+          }
+        />
+      );
     }
     return <ErrorState error={state.error} onRetry={() => void state.reload()} />;
   }
@@ -164,32 +209,27 @@ function PlayerBody({ initial, reload }: { initial: PlayerPath; reload: () => Pr
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <Link href={PLAYER_BASE} className="text-sm text-fg-link underline">
-          ← My paths
-        </Link>
-        <Button variant="secondary" size="sm" onClick={() => void reload()}>
-          ↻ Refresh
-        </Button>
-      </div>
-      <header className="flex flex-col gap-4 rounded-xl border border-line bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="font-display text-xl font-bold text-fg">{path.title}</h1>
-          {path.description_md ? <p className="mt-1 max-w-prose text-sm text-fg-muted">{path.description_md}</p> : null}
-          <div className="mt-2 flex flex-wrap gap-2">
+      <PageHeader
+        breadcrumbs={[{ label: "My paths", href: PLAYER_BASE }, { label: path.title }]}
+        title={path.title}
+        description={path.description_md || undefined}
+        meta={
+          <>
             <FlowBadge flow={path.flow} />
             <OrderBadge sequential={path.sequential} />
-            {path.finish_date ? <Badge>Planned finish {formatPlanDate(path.finish_date)}</Badge> : null}
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
+          </>
+        }
+      />
+      <div className="flex flex-wrap items-center gap-4 rounded-xl border border-line bg-surface p-4 shadow-xs">
+        <ProgressRing pct={path.pct} />
+        <div className="min-w-0">
           <p className="text-sm">
-            <span className="font-display text-2xl font-bold tabular-nums">{path.credits_earned}</span>
-            <span className="text-fg-muted"> / {path.total_credits} credits</span>
+            <span className="font-display text-2xl font-extrabold tabular-nums text-fg-heading">{path.credits_earned}</span>
+            <span className="text-fg-muted"> of {path.total_credits} credits earned</span>
           </p>
-          <ProgressRing pct={path.pct} />
+          {path.finish_date ? <p className="text-sm text-fg-muted">Planned finish {formatPlanDate(path.finish_date)}</p> : null}
         </div>
-      </header>
+      </div>
       <div className="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
         <div className="max-h-[70vh] overflow-y-auto rounded-xl border border-line bg-surface p-2">
           <StepRail steps={path.steps} selected={selected} onSelect={(s) => void select(s)} />
@@ -201,13 +241,15 @@ function PlayerBody({ initial, reload }: { initial: PlayerPath; reload: () => Pr
               allocationId={path.allocation_id}
               step={step}
               onCompleted={(r) => {
+                // The server's step states (unlocks) change after a completion, so refetch here
+                // instead of offering a manual "Refresh" button.
                 replaceStep(r.step);
                 setPath((p) => ({ ...p, credits_earned: r.credits_earned, pct: r.pct }));
                 void reload();
               }}
             />
           ) : (
-            <EmptyState title="Pick a step" />
+            <EmptyState icon="book" title="Pick a step" description="Choose a step from the list to open it." />
           )}
         </div>
       </div>
@@ -251,7 +293,8 @@ function InlineArticle({ id }: { id: string }) {
   const state = useReaderArticle(id);
   if (state.error) return <ErrorState error={state.error} onRetry={() => void state.reload()} />;
   if (!state.data) return <LoadingBlock rows={5} label="Loading article" />;
-  return <ArticleView article={state.data} withToc={false} />;
+  // Inside a step the step's h2 already names it: the article renders as a section (h3 title).
+  return <ArticleView article={state.data} withToc={false} inline />;
 }
 
 /**
@@ -332,9 +375,9 @@ export function StepPane({ allocationId, step, onCompleted }: { allocationId: st
           {step.step_type === "assessment" ? " and you pass" : ""}.
         </p>
         {href && step.state !== "completed" ? (
-          <Link href={href} className="mt-3 inline-flex h-10 items-center rounded-md bg-brand px-4 font-medium text-brand-on hover:bg-brand-hover">
-            {step.step_type === "assignment" ? "Start assignment" : "Open test"} <span aria-hidden="true">↗</span>
-          </Link>
+          <LinkButton href={href} className="mt-3">
+            {step.step_type === "assignment" ? "Start assignment" : "Open test"}
+          </LinkButton>
         ) : null}
       </div>
     );
@@ -343,14 +386,16 @@ export function StepPane({ allocationId, step, onCompleted }: { allocationId: st
   return (
     <section aria-labelledby="step-title" className="space-y-4 rounded-xl border border-line bg-surface p-4">
       <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 id="step-title" className="flex items-center gap-2 font-display text-lg font-semibold">
-            <StepTypeIcon type={step.step_type} /> {step.title}
+        <div className="min-w-0">
+          <h2 id="step-title" className="flex items-center gap-2 font-display text-lg font-bold text-fg-heading">
+            <StepIcon type={step.step_type} className="h-5 w-5 shrink-0 text-brand" /> {step.title}
           </h2>
           {step.description_md ? <p className="mt-1 text-sm text-fg-muted">{step.description_md}</p> : null}
           {step.due_date ? <p className="mt-1 text-xs text-fg-muted">Due {formatPlanDate(step.due_date)}</p> : null}
         </div>
-        <StepStateBadge state={step.state} />
+        <div className="self-start">
+          <StepStateBadge state={step.state} />
+        </div>
       </header>
       {body}
       {step.step_type !== "super_step" ? (

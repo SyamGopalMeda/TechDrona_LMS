@@ -24,6 +24,18 @@ describe("StudentMentoring (STU-013)", () => {
     renderWithProviders(<StudentMentoring />);
     expect(await screen.findByText("Mock interviews come with a placement package")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "See plans" })).toHaveAttribute("href", "/app/billing");
+    // No package (from the bookings quota): the package-only slots endpoint is never called (no 403).
+    expect(api.calls.some((c) => c.path === "mentoring/slots")).toBe(false);
+  });
+
+  it("still handles a 403 from slots when the bookings quota doesn't say", async () => {
+    const api = mockApi({
+      "GET mentoring/slots": problem(403, "entitlement_required", "Access requires a plan"),
+      "GET me/mentoring/bookings": { body: { data: [], page } },
+    });
+    restore = api.restore;
+    renderWithProviders(<StudentMentoring />);
+    expect(await screen.findByText("Mock interviews come with a placement package")).toBeInTheDocument();
   });
 
   it("books a slot with an idempotency key", async () => {

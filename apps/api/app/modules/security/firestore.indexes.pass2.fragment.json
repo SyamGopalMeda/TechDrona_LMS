@@ -1,0 +1,25 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "lms_security_signals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "rule_key", "order": "ASCENDING"},
+        {"fieldPath": "occurred_at", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "lms_security_counters",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "counter_key", "order": "ASCENDING"},
+        {"fieldPath": "bucket_start", "order": "ASCENDING"}
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {"collectionGroup": "lms_security_signals", "fieldPath": "expire_at", "ttl": true, "indexes": []},
+    {"collectionGroup": "lms_risk_evaluations", "fieldPath": "expire_at", "ttl": true, "indexes": []},
+    {"collectionGroup": "lms_security_counters", "fieldPath": "expire_at", "ttl": true, "indexes": []}
+  ]
+}

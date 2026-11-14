@@ -650,6 +650,21 @@ def set_gateway(name: str, gateway: PaymentGateway | None) -> None:
         _overrides[name] = gateway
 
 
+def gateway_status() -> dict[str, Any]:
+    """What the finance screens show about the online payment gateway. ``integrated`` is False
+    while the DEV/DEMO fake provider is in use or no real Razorpay key is configured, so the UI
+    can say "not integrated yet" instead of presenting simulated runs as real (owner rule)."""
+    s = commerce_settings()
+    if "razorpay" in _overrides:  # tests / local demos install their own gateway
+        return {"provider": "razorpay", "integrated": True}
+    fake = s.PAYMENTS_PRIMARY_PROVIDER.lower() == "fake"
+    key = (s.RAZORPAY_KEY_ID or "").strip()
+    return {
+        "provider": "fake" if fake else "razorpay",
+        "integrated": not fake and bool(key) and "REPLACE" not in key.upper(),
+    }
+
+
 def get_gateway(name: str = "razorpay") -> PaymentGateway:
     global _fake_singleton
     if name in _overrides:

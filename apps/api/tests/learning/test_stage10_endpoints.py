@@ -51,6 +51,7 @@ async def _assignment(db: Any, w: World, org: uuid.UUID, batch: uuid.UUID, title
     return aid
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_staff_assignment_list_scoped_to_grading_permission(client, db, world: World) -> None:
     w = world
     a1 = await _assignment(db, w, w.org_a, w.batch_a, "Arrays worksheet")
@@ -98,6 +99,7 @@ async def test_staff_assignment_list_scoped_to_grading_permission(client, db, wo
     assert [x["assignment_id"] for x in rb.json()["data"]] == [str(other_org)]
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_staff_assignment_list_denies_students(client, world: World) -> None:
     r = await client.get("/api/v1/assignments", headers=world.personas["student"].headers)
     assert r.status_code == 403 and r.json()["code"] == "permission_denied"
@@ -122,6 +124,7 @@ async def _submission(db: Any, w: World, aid: uuid.UUID, user: uuid.UUID, org: u
     return sid
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_get_submission_by_id_owner_staff_and_others(client, db, world: World) -> None:
     """GET /assignment-submissions/{id}: owner (grade hidden until release), trainer with
     assignment.grade on the batch (full view), everyone else 404 (incl. cross-tenant)."""

@@ -1,0 +1,79 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "lms_engage_activities",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "deleted",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_engage_activities",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "deleted",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "activity_type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_engage_questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "activity_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "position",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_engage_runs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "activity_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "run_no",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_engage_participants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "joined_at",
+          "order": "DESCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

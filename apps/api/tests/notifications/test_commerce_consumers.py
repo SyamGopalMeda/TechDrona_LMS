@@ -9,7 +9,6 @@ from datetime import date, timedelta
 from typing import Any
 
 import pytest
-from sqlalchemy import select
 
 from app.core.db import system_context
 from app.core.ids import uuid7
@@ -18,7 +17,7 @@ from app.core.time import utcnow
 from app.modules.commerce.models import Invoice, Order, Subscription
 from app.modules.notifications import consumers
 from app.modules.notifications.adapters import MemoryEmailAdapter, get_email_adapter, set_email_adapter
-from app.modules.notifications.models import Notification
+from app.modules.notifications.service import notifications_for_user
 from tests.commerce.factory import make_buyer, make_product
 from tests.identity.factory import grant, make_user
 
@@ -45,8 +44,8 @@ def _msg(event_type: str, payload: dict[str, Any]) -> OutboxMessage:
     )
 
 
-async def _rows(db: Any, user_id: uuid.UUID) -> list[Notification]:
-    return list((await db.execute(select(Notification).where(Notification.user_id == user_id))).scalars())
+async def _rows(db: Any, user_id: uuid.UUID) -> list[Any]:
+    return await notifications_for_user(db, user_id)
 
 
 async def _order(db: Any, user_id: uuid.UUID, **kw: Any) -> Order:
@@ -79,6 +78,7 @@ def test_consumers_registered_for_commerce_events() -> None:
         assert consumers.on_finance_alert in handlers_for(ev)
 
 
+@pytest.mark.usefixtures("notifications_backend")
 async def test_invoice_issued_emails_buyer_once(db, mail) -> None:
     buyer = await make_buyer(db)
     await system_context(db, "test")
@@ -111,6 +111,7 @@ async def test_invoice_issued_emails_buyer_once(db, mail) -> None:
     assert f"/app/orders/{order.id}" in email.text
 
 
+@pytest.mark.usefixtures("notifications_backend")
 async def test_cancel_requested_sends_email_only_confirmation(db, mail) -> None:
     buyer = await make_buyer(db)
     cat = await make_product(db, kind="subscription_plan", recurring=True)
@@ -139,6 +140,7 @@ async def test_cancel_requested_sends_email_only_confirmation(db, mail) -> None:
     assert "cancelled" in email.subject and f"{end:%d %b %Y}" in email.text
 
 
+@pytest.mark.usefixtures("notifications_backend")
 async def test_renewal_reminder_only_for_annual_plans_once_per_period(db, mail) -> None:
     buyer = await make_buyer(db)
     annual = await make_product(db, kind="subscription_plan", recurring=True)
@@ -168,6 +170,7 @@ async def test_renewal_reminder_only_for_annual_plans_once_per_period(db, mail) 
     assert len(mail.sent) == 1 and "renews in 7 days" in mail.sent[0].subject
 
 
+@pytest.mark.usefixtures("notifications_backend")
 async def test_finance_alerts_routed_to_active_admins(db) -> None:
     """Single company (D2): finance duties are folded into Admin (``super_admin``)."""
     fin = await make_user(db)

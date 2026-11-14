@@ -164,6 +164,7 @@ def _queue_redis() -> Any:
     return client
 
 
+@pytest.mark.needs_pg  # VM stack only: needs a live Redis (Celery beat); Firebase uses Cloud Scheduler
 def test_com14_beat_leader_lock_single_leader_and_standby() -> None:
     from app.core.celery_ops import BeatLeaderLock
 

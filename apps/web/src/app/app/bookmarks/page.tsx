@@ -12,7 +12,7 @@ export default function Page() {
   return (
     <div className="max-w-4xl">
       <PageHeader title="Bookmarks" />
-      <EmptyState
+      <EmptyState icon="book"
         title="Bookmarks aren't available yet"
         description={
           <>

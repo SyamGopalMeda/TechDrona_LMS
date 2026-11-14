@@ -14,12 +14,13 @@ from app.core.access import AccessDecision
 from app.core.db import system_context
 from app.core.ids import uuid7
 from app.core.time import utcnow
+from app.modules.catalog import api as catalog_api
 from app.modules.catalog.models import LessonAsset
 from app.modules.learning.models import LessonProgress
 from app.modules.media import providers
 from app.modules.media import service as media
 from app.modules.media.models import PlaybackSession
-from tests.catalog.factory import make_published_course, student
+from tests.catalog.factory import make_published_course, student, sync_catalog
 from tests.identity.factory import make_user
 
 
@@ -43,6 +44,7 @@ class Switch:
         )
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_be19_heartbeat_after_entitlement_revoked_ends_session_without_credit(browser, db) -> None:
     chk = Switch()
     access.register_access_checker(chk)
@@ -108,7 +110,8 @@ class FakeGuardDuty:
         return self.results.get(s3_key)
 
 
-async def test_scan_sweep_consumes_guardduty_results(browser, db, monkeypatch) -> None:
+@pytest.mark.usefixtures("catalog_backend")
+async def test_scan_sweep_consumes_guardduty_results(browser, db, monkeypatch, catalog_backend) -> None:
     author = await make_user(db)
     pc = await make_published_course(db, author.id, is_free=True)
     await system_context(db, "t")
@@ -131,14 +134,17 @@ async def test_scan_sweep_consumes_guardduty_results(browser, db, monkeypatch) -
         )
         ids[name] = aid
     await db.flush()
+    await sync_catalog(db)
     fake = FakeGuardDuty({keys["clean"]: "clean", keys["bad"]: "infected", keys["wait"]: None})
     monkeypatch.setattr(providers, "get_scanner", lambda: fake)
     done = await media.sweep_pending_scans(db)
     assert done >= 2
-    got = {n: await db.get(LessonAsset, i) for n, i in ids.items()}
+    found = await catalog_api.get_assets(db, list(ids.values()))
+    got = {n: found.get(i) for n, i in ids.items()}
     for a in got.values():
         assert a is not None
-        await db.refresh(a)
+        if catalog_backend == "postgres":
+            await db.refresh(a)
     assert (got["clean"].status, got["clean"].scan_status) == ("available", "clean")  # type: ignore[union-attr]
     assert (got["bad"].status, got["bad"].scan_status) == ("failed", "infected")  # type: ignore[union-attr]
     assert got["wait"].scan_status == "pending"  # type: ignore[union-attr]
@@ -151,6 +157,7 @@ def test_scan_sweep_is_a_periodic_job() -> None:
     assert beat_schedule()["media.scan_sweep"]["task"] == "media.scan_sweep"
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_analytics_coverage_clipped_to_lesson_duration(browser, db) -> None:
     """BE-01 (learning side, requested by ``assess``): a forged analytics coverage larger than the
     video cannot exceed the lesson duration in ``watched_seconds``."""
@@ -186,6 +193,7 @@ async def test_analytics_coverage_clipped_to_lesson_duration(browser, db) -> Non
         ls.register_video_coverage_lookup(prev)
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_inv12_scan_consumer_updates_unblock_attachments(client, db, sms, monkeypatch) -> None:
     """INV-12 (secadmin request): the media scan consumer also resolves the scan status of
     unblock-request attachments (uploads bucket), both by sweep and by pushed result."""

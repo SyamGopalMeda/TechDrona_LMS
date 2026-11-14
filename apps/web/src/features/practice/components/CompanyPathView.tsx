@@ -32,7 +32,7 @@ export function CompanyPathView({ slug }: { slug: string }) {
 
   return (
     <div>
-      <PageHeader eyebrow="Company path" title={company.name} description={company.industry ?? undefined} />
+      <PageHeader breadcrumbs={[{ label: "Company paths", href: "/app/companies" }, { label: company.name }]} title={company.name} description={company.industry ?? undefined} />
       {error ? <div className="mb-4">{isEntitlementError(error) ? <PaywallCard error={error} /> : <ErrorState error={error} />}</div> : null}
       <div className="space-y-8">
         {paths.map((p) => (

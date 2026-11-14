@@ -377,7 +377,9 @@ async def test_coding_question_in_test_is_judged_and_scored(
     )
 
     done = await client.post(
-        f"{API}/attempts/{attempt_id}/submit", json={}, headers={**student.headers, **idem()}
+        f"{API}/attempts/{attempt_id}/submit",
+        json={"confirm_unanswered": 999},
+        headers={**student.headers, **idem()},
     )
     assert done.status_code in (200, 201), done.text
     await system_context(db, "test")

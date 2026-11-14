@@ -371,6 +371,34 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # College Data Portal (docs/college-data-portal.md): reachable only through web at /college-portal/.
+  # Its SQLite DB lives in the college-portal-data volume. Load the migrated data once:
+  #   docker compose --profile app stop college-portal
+  #   docker compose --profile app run --rm --no-deps -v "./apps/college-data/portal/data/techdrona.db:/import.db:ro" --entrypoint sh college-portal -c "rm -f /data/techdrona.db-wal /data/techdrona.db-shm && cp /import.db /data/techdrona.db"
+  #   docker compose --profile app up -d college-portal
+  # (or run it on the host instead: ./scripts/run-college-portal.ps1 + ./scripts/run-web.ps1)
+  college-portal:
+    profiles: ["app"]
+    build:
+      context: ./apps/college-data/portal
+    image: techdrona/td-college-portal:local
+    init: true
+    environment:
+      HOST: 0.0.0.0
+      PORT: "4173"
+      DB_PATH: /data/techdrona.db
+      TRUST_PROXY: "1"
+      PORTAL_PROXY_SECRET: ${TD_COLLEGE_PORTAL_SECRET:-local-compose-only-portal-secret-not-a-secret-01}
+    volumes:
+      - college-portal-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4173/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
   web:
     profiles: ["app"]
     build:
@@ -392,11 +420,15 @@ services:
       # (browsers allow Secure cookies on http://localhost) and rejects *REPLACE* placeholder
       # CSRF keys. Local-container-only value; override with TD_WEB_CONTAINER_CSRF_KEY.
       TD_CSRF_KEY: ${TD_WEB_CONTAINER_CSRF_KEY:-local-compose-only-csrf-key-not-a-secret-0001}
+      TD_COLLEGE_PORTAL_URL: http://college-portal:4173
+      TD_COLLEGE_PORTAL_SECRET: ${TD_COLLEGE_PORTAL_SECRET:-local-compose-only-portal-secret-not-a-secret-01}
     ports:
       - "${TD_WEB_HOST_PORT:-13000}:3000"
     depends_on:
       api:
         condition: service_healthy
+      college-portal:
+        condition: service_started  # a portal problem must never keep the LMS down (proxy answers 502)
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
       interval: 15s
@@ -443,6 +475,7 @@ services:
 
 volumes:
   pgdata:
+  college-portal-data:
   redis-cache-data:
   redis-queue-data:
   mailpit-data:

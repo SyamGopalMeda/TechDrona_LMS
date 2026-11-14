@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button, Card, Checkbox, Dialog, EmptyState, ErrorState, Skeleton, useToast, type BadgeTone } from "@/components/ui";
+import { StatusBadge, Button, Card, Checkbox, Dialog, EmptyState, ErrorState, LoadingBlock, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { toFormError } from "@/features/auth/lib/errors";
 import { formatDate } from "@/features/auth/lib/format";
@@ -17,15 +17,16 @@ const TYPE_LABEL: Record<string, string> = {
   consent_withdrawal_help: "Help withdrawing consent",
 };
 
-const STATUS: Record<string, { label: string; tone: BadgeTone }> = {
-  received: { label: "Received", tone: "info" },
-  identity_verification: { label: "Checking it's you", tone: "info" },
-  in_progress: { label: "In progress", tone: "info" },
-  awaiting_requester: { label: "Waiting for you", tone: "warning" },
-  cooling_off: { label: "Cooling-off period", tone: "warning" },
-  completed: { label: "Completed", tone: "success" },
-  rejected: { label: "Rejected", tone: "danger" },
-  withdrawn: { label: "Withdrawn", tone: "neutral" },
+/* Wording for the requester; tones come from the kit status vocabulary. */
+const STATUS_LABEL: Record<string, string> = {
+  received: "Received",
+  identity_verification: "Checking it's you",
+  in_progress: "In progress",
+  awaiting_requester: "Waiting for you",
+  cooling_off: "Cooling-off period",
+  completed: "Completed",
+  rejected: "Rejected",
+  withdrawn: "Withdrawn",
 };
 
 /** Saves the export JSON as a file (the api returns the export payload itself). */
@@ -121,31 +122,28 @@ export function PrivacyRequests() {
           <Button variant="secondary" loading={busy === "access_export"} disabled={!!pendingExport || list.loading} onClick={() => void create("access_export")}>
             {pendingExport ? "Data copy requested" : "Request a copy of my data"}
           </Button>
-          <Button variant="danger" disabled={!!pendingErase || list.loading} onClick={() => setConfirmErase(true)}>
+          {/* danger-secondary opens the confirm dialog; the filled danger button lives only inside it (DS §3). */}
+          <Button variant="danger-secondary" disabled={!!pendingErase || list.loading} onClick={() => setConfirmErase(true)}>
             {pendingErase ? "Deletion requested" : "Delete my account"}
           </Button>
         </div>
 
-        <h3 className="pt-2 font-display text-base font-semibold text-fg">Your requests</h3>
+        <h3 className="pt-2 font-display text-base font-bold text-fg-heading">Your requests</h3>
         {list.error ? (
           <ErrorState error={list.error} title="We couldn't load your requests" onRetry={list.reload} />
         ) : list.loading && !list.data ? (
-          <div aria-busy="true">
-            <span className="sr-only">Loading requests…</span>
-            <Skeleton className="h-12 w-full" />
-          </div>
+          <LoadingBlock label="Loading requests…" rows={1} size="row" />
         ) : rows.length === 0 ? (
-          <EmptyState title="No requests yet" />
+          <EmptyState variant="inline" icon="shield" title="No requests yet" description="Requests you make for a copy of your data or to delete your account appear here." />
         ) : (
           <ul className="divide-y divide-line-subtle" aria-label="Privacy requests">
             {rows.map((r) => {
-              const st = STATUS[r.status] ?? { label: r.status.replace(/_/g, " "), tone: "neutral" as BadgeTone };
               const open = OPEN_STATES.includes(r.status);
               return (
                 <li key={r.request_id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="font-medium text-fg">
-                      {TYPE_LABEL[r.request_type] ?? r.request_type} <Badge tone={st.tone}>{st.label}</Badge>
+                      {TYPE_LABEL[r.request_type] ?? r.request_type} <StatusBadge status={r.status} label={STATUS_LABEL[r.status] ?? r.status.replace(/_/g, " ")} />
                     </p>
                     <p className="mt-0.5 text-xs text-fg-muted">
                       {r.request_ref} · received {formatDate(r.received_at)}

@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import system_context
 from app.core.time import ist_date, to_rfc3339
+from app.modules.analytics import hooks
 from app.modules.analytics.jobs import _pct, week_start
 from app.modules.analytics.mastery import get_topic_mastery
 from app.modules.analytics.params import (
@@ -57,7 +58,17 @@ def _dist(values: list[int], k: int = K_MIN_COHORT) -> dict[str, Any]:
 # --------------------------------------------------------------------------- student (self)
 
 
+def _fs() -> bool:
+    from app.core.firestore.backend import uses_firestore
+
+    return uses_firestore("analytics")
+
+
 async def _daily_totals(session: AsyncSession, user_id: uuid.UUID, lo: date, hi: date) -> dict[date, Any]:
+    if _fs():
+        from app.modules.analytics import fs_reports
+
+        return {r[0]: r for r in await fs_reports.daily_totals(user_id, lo, hi, MEASUREMENT_VERSION)}
     rows = (
         await session.execute(
             text(
@@ -122,7 +133,12 @@ async def _topic_accuracy(session: AsyncSession, user_id: uuid.UUID) -> list[dic
         "sum(m5_learning_s) FROM daily_learning_aggregates WHERE user_id = :u AND entity_kind = 'topic'"
     )
     params: dict[str, Any] = {"u": user_id}
-    rows = (await session.execute(text(sql + " GROUP BY entity_id ORDER BY entity_id"), params)).all()
+    if _fs():
+        from app.modules.analytics import fs_reports
+
+        rows: Any = await fs_reports.topic_accuracy(user_id)
+    else:
+        rows = (await session.execute(text(sql + " GROUP BY entity_id ORDER BY entity_id"), params)).all()
     return [
         {
             "topic_id": str(r[0]),
@@ -145,32 +161,48 @@ async def student_metrics(
     """§7.1 metrics: everything the learner owns."""
     params: dict[str, Any] = {"u": user_id, "k": "_total", "mv": MEASUREMENT_VERSION}
     monday = week_start(today)
-    rows = (
-        await session.execute(
-            text(
-                "SELECT activity_date, m5_learning_s, m2_active_s, m3_video_playback_s, m4_assessment_s, "
-                "questions_attempted, questions_correct, code_runs, code_submissions, code_accepted, "
-                "lessons_completed "
-                "FROM daily_learning_aggregates WHERE user_id = :u AND entity_kind = :k AND "
-                "measurement_version = :mv"
-            ),
-            params,
-        )
-    ).all()
+    rows: Any
+    tests: Any
+    if _fs():
+        from app.modules.analytics import fs_reports
+
+        rows = await fs_reports.student_rows(user_id, MEASUREMENT_VERSION)
+    else:
+        rows = None
+    if rows is None:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT activity_date, m5_learning_s, m2_active_s, m3_video_playback_s, m4_assessment_s, "
+                    "questions_attempted, questions_correct, code_runs, code_submissions, code_accepted, "
+                    "lessons_completed "
+                    "FROM daily_learning_aggregates WHERE user_id = :u AND entity_kind = :k AND "
+                    "measurement_version = :mv"
+                ),
+                params,
+            )
+        ).all()
     today_s = sum(r[1] for r in rows if r[0] == today)
     week_s = sum(r[1] for r in rows if monday <= r[0] <= today)
     active_days_30 = len({r[0] for r in rows if r[1] >= 600 and r[0] > today - timedelta(days=30)})
     mastery_rows = await get_topic_mastery(session, user_id)
-    tests = (
-        await session.execute(
-            text(
-                "SELECT entity_id, sum(m4_assessment_s), sum(assessment_active_s), min(activity_date) "
-                "FROM daily_learning_aggregates WHERE user_id = :u AND entity_kind = 'test_attempt'"
-                + " GROUP BY entity_id ORDER BY min(activity_date) DESC LIMIT 50"
-            ),
-            params,
-        )
-    ).all()
+    if _fs():
+        from app.modules.analytics import fs_reports
+
+        tests = await fs_reports.student_tests(user_id)
+    else:
+        tests = None
+    if tests is None:
+        tests = (
+            await session.execute(
+                text(
+                    "SELECT entity_id, sum(m4_assessment_s), sum(assessment_active_s), min(activity_date) "
+                    "FROM daily_learning_aggregates WHERE user_id = :u AND entity_kind = 'test_attempt'"
+                    + " GROUP BY entity_id ORDER BY min(activity_date) DESC LIMIT 50"
+                ),
+                params,
+            )
+        ).all()
     out: dict[str, Any] = {
         "learning_time": {"today_s": today_s, "this_week_s": week_s, "metric": "M5"},
         "mastery": [
@@ -209,24 +241,15 @@ async def student_metrics(
 
 
 async def batch_org(session: AsyncSession, batch_id: uuid.UUID) -> uuid.UUID | None:
-    row = (
-        await session.execute(text("SELECT organization_id FROM batches WHERE id = :b"), {"b": batch_id})
-    ).first()
-    return row[0] if row else None
+    from app.modules.analytics import fs_reports
+
+    return await fs_reports.batch_org(session, batch_id)  # orgs.public (both stores)
 
 
 async def _batch_students(session: AsyncSession, batch_id: uuid.UUID) -> list[uuid.UUID]:
-    rows = (
-        await session.execute(
-            text(
-                "SELECT DISTINCT b.user_id FROM batch_members b JOIN users u ON u.id = b.user_id "
-                "WHERE b.batch_id = :b AND b.status = 'active' AND b.member_role = 'student' AND NOT "
-                "u.is_synthetic"
-            ),
-            {"b": batch_id},
-        )
-    ).all()
-    return [r[0] for r in rows]
+    from app.modules.analytics import fs_reports
+
+    return await fs_reports.batch_students(session, batch_id)  # orgs + identity public
 
 
 async def _users_m5(
@@ -234,6 +257,13 @@ async def _users_m5(
 ) -> dict[uuid.UUID, tuple[int, bool]]:
     if not users:
         return {}
+    if _fs():
+        from app.modules.analytics import fs_reports
+
+        return {
+            r[0]: (int(r[1]), bool(r[2]))
+            for r in await fs_reports.users_m5(users, lo, hi, MEASUREMENT_VERSION)
+        }
     rows = (
         await session.execute(
             text(
@@ -250,6 +280,10 @@ async def _users_m5(
 async def _weak_counts(session: AsyncSession, users: list[uuid.UUID]) -> dict[uuid.UUID, int]:
     if not users:
         return {}
+    if _fs():
+        from app.modules.analytics import fs_reports
+
+        return {r[0]: int(r[1]) for r in await fs_reports.weak_counts(users)}
     rows = (
         await session.execute(
             text(
@@ -280,17 +314,9 @@ async def _enrolments(session: AsyncSession, users: list[uuid.UUID]) -> list[_En
     ``users``; withdrawn ones excluded."""
     if not users:
         return []
-    rows = (
-        await session.execute(
-            text(
-                "SELECT id, user_id, course_id, progress_pct, "
-                "(status = 'completed' OR completed_at IS NOT NULL) FROM enrolments "
-                "WHERE user_id = ANY(:us) AND status <> 'withdrawn'"
-            ),
-            {"us": users},
-        )
-    ).all()
-    return [(r[0], r[1], r[2], float(r[3] or 0), bool(r[4])) for r in rows]
+    from app.modules.learning import public as learning
+
+    return list(await learning.enrolments_of_users(session, users))
 
 
 def _bucket_of(pct: float, done: bool) -> str:
@@ -333,34 +359,19 @@ async def _lesson_funnel(session: AsyncSession, enrolments: list[_Enr]) -> list[
     for e, _u, c, _p, _d in enrolments:
         by_course[c].append(e)
     courses = sorted(by_course, key=lambda c: (-len(by_course[c]), str(c)))[:FUNNEL_MAX_COURSES]
+    from app.modules.catalog import api as catalog_api
+
     out: list[dict[str, Any]] = []
+    titles = {cid: c.title for cid, c in (await catalog_api.get_courses(session, courses)).items()}
     for course in courses:
         enrolled = by_course[course]
         n = len(enrolled)
-        title = (
-            await session.execute(text("SELECT title FROM courses WHERE id = :c"), {"c": course})
-        ).scalar_one_or_none()
-        lessons = (
-            await session.execute(
-                text(
-                    "SELECT l.lesson_key, l.title, l.is_required FROM courses c "
-                    "JOIN lessons l ON l.course_version_id = c.current_version_id "
-                    "JOIN course_modules m ON m.id = l.course_module_id "
-                    "WHERE c.id = :c ORDER BY m.position, l.position"
-                ),
-                {"c": course},
-            )
-        ).all()
-        progress = (
-            await session.execute(
-                text(
-                    "SELECT lesson_key, count(*) FILTER (WHERE first_opened_at IS NOT NULL "
-                    "OR status <> 'not_started'), count(*) FILTER (WHERE status = 'completed') "
-                    "FROM lesson_progress WHERE enrolment_id = ANY(:es) GROUP BY lesson_key"
-                ),
-                {"es": enrolled},
-            )
-        ).all()
+        title = titles.get(course)
+        lessons = await catalog_api.current_outline_lessons(session, course)
+        from app.modules.learning import public as learning
+
+        counts = await learning.lesson_progress_counts(session, enrolled)
+        progress: Any = [(k, v[0], v[1]) for k, v in counts.items()]
         stats = {r[0]: (int(r[1]), int(r[2])) for r in progress}
         out.append(
             {
@@ -434,18 +445,27 @@ async def count_batch_students(session: AsyncSession, batch_id: uuid.UUID) -> in
 
 async def course_report(session: AsyncSession, course_id: uuid.UUID, *, today: date) -> dict[str, Any]:
     lo = today - timedelta(days=29)
-    rows = (
-        await session.execute(
-            text(
-                "SELECT d.user_id, sum(d.m5_learning_s), sum(d.lessons_completed) FROM "
-                "daily_learning_aggregates d "
-                "JOIN users u ON u.id = d.user_id AND NOT u.is_synthetic "
-                "WHERE d.entity_kind = 'course' AND d.entity_id = :c AND d.activity_date BETWEEN :lo AND :hi "
-                "AND NOT d.implausible_day GROUP BY d.user_id"
-            ),
-            {"c": course_id, "lo": lo, "hi": today},
-        )
-    ).all()
+    rows: Any
+    if _fs():
+        from app.modules.analytics import fs_reports
+
+        rows = await fs_reports.course_rows(session, course_id, lo, today)
+    else:
+        rows = None
+    if rows is None:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT d.user_id, sum(d.m5_learning_s), sum(d.lessons_completed) FROM "
+                    "daily_learning_aggregates d "
+                    "WHERE NOT (d.user_id = ANY(:syn)) AND "
+                    "d.entity_kind = 'course' AND d.entity_id = :c "
+                    "AND d.activity_date BETWEEN :lo AND :hi "
+                    "AND NOT d.implausible_day GROUP BY d.user_id"
+                ),
+                {"c": course_id, "lo": lo, "hi": today, "syn": await hooks.synthetic_user_ids(session)},
+            )
+        ).all()
     learners = len(rows)
     return {
         "course_id": str(course_id),
@@ -460,43 +480,66 @@ async def course_report(session: AsyncSession, course_id: uuid.UUID, *, today: d
 
 async def platform_report(session: AsyncSession, *, today: date) -> dict[str, Any]:
     async def active_users(days: int) -> int:
+        if _fs():
+            from app.modules.analytics import fs_reports
+
+            return await fs_reports.active_users(session, today - timedelta(days=days), today)
         return int(
             (
                 await session.execute(
                     text(
                         "SELECT count(DISTINCT d.user_id) FROM daily_learning_aggregates d "
-                        "JOIN users u ON u.id = d.user_id AND NOT u.is_synthetic "
-                        "WHERE d.entity_kind = '_total' AND d.m5_learning_s > 0 AND d.activity_date > :lo "
+                        "WHERE NOT (d.user_id = ANY(:syn)) AND "
+                        "d.entity_kind = '_total' AND d.m5_learning_s > 0 AND d.activity_date > :lo "
                         "AND d.activity_date <= :hi"
                     ),
-                    {"lo": today - timedelta(days=days), "hi": today},
+                    {
+                        "lo": today - timedelta(days=days),
+                        "hi": today,
+                        "syn": await hooks.synthetic_user_ids(session),
+                    },
                 )
             ).scalar()
             or 0
         )
 
-    per_user = (
-        await session.execute(
-            text(
-                "SELECT sum(d.m5_learning_s) FROM daily_learning_aggregates d "
-                "JOIN users u ON u.id = d.user_id AND NOT u.is_synthetic "
-                "WHERE d.entity_kind = '_total' AND d.activity_date > :lo AND d.activity_date <= :hi "
-                "AND NOT d.implausible_day AND d.m5_learning_s > 0 GROUP BY d.user_id"
-            ),
-            {"lo": today - timedelta(days=30), "hi": today},
-        )
-    ).all()
-    m5 = [int(r[0]) for r in per_user]
-    benchmarks = (
-        await session.execute(
-            text(
-                "SELECT period_start, learners_active, m5_p50_s, m5_p90_s, suppressed FROM "
-                "cohort_learning_aggregates "
-                "WHERE organization_id IS NULL AND batch_id IS NULL AND period_kind = 'week' "
-                "ORDER BY period_start DESC LIMIT 8"
+    per_user: Any
+    benchmarks: Any
+    if _fs():
+        from app.modules.analytics import fs_reports
+
+        per_user = await fs_reports.platform_m5(session, today - timedelta(days=30), today)
+        benchmarks = await fs_reports.benchmarks()
+    else:
+        per_user = None
+    if per_user is None:
+        per_user = (
+            await session.execute(
+                text(
+                    "SELECT sum(d.m5_learning_s) FROM daily_learning_aggregates d "
+                    "WHERE NOT (d.user_id = ANY(:syn)) AND "
+                    "d.entity_kind = '_total' AND d.activity_date > :lo AND d.activity_date <= :hi "
+                    "AND NOT d.implausible_day AND d.m5_learning_s > 0 GROUP BY d.user_id"
+                ),
+                {
+                    "lo": today - timedelta(days=30),
+                    "hi": today,
+                    "syn": await hooks.synthetic_user_ids(session),
+                },
             )
-        )
-    ).all()
+        ).all()
+    m5 = [int(r[0]) for r in per_user]
+    if not _fs():
+        benchmarks = (
+            await session.execute(
+                text(
+                    "SELECT period_start, learners_active, m5_p50_s, m5_p90_s, suppressed FROM "
+                    "cohort_learning_aggregates "
+                    "WHERE organization_id IS NULL AND batch_id IS NULL AND period_kind = 'week' "
+                    "ORDER BY period_start DESC LIMIT 8"
+                )
+            )
+        ).all()
     return {
         "dau": await active_users(1),
         "wau": await active_users(7),
@@ -518,6 +561,20 @@ async def platform_report(session: AsyncSession, *, today: date) -> dict[str, An
 
 async def ingest_health(session: AsyncSession, *, now: datetime) -> dict[str, Any]:
     since = now - timedelta(hours=24)
+    rej: Any
+    ev: Any
+    gaps: Any
+    jobs: Any
+    if _fs():
+        from app.modules.analytics import fs_reports
+
+        rej, ev, gaps, jobs = await fs_reports.ingest_health_rows(since, now - timedelta(hours=1))
+    else:
+        rej, ev, gaps, jobs = await _ingest_health_pg(session, since, now)
+    return _ingest_health_out(rej, ev, gaps, jobs, now)
+
+
+async def _ingest_health_pg(session: AsyncSession, since: datetime, now: datetime) -> Any:
     rej = (
         await session.execute(
             text(
@@ -558,6 +615,10 @@ async def ingest_health(session: AsyncSession, *, now: datetime) -> dict[str, An
             text("SELECT job, watermark, last_run_at, last_result FROM analytics_job_state")
         )
     ).all()
+    return rej, ev, gaps, jobs
+
+
+def _ingest_health_out(rej: Any, ev: Any, gaps: Any, jobs: Any, now: datetime) -> dict[str, Any]:
     total = int(ev[0])
     rejected = sum(int(r[1]) for r in rej)
     builder = next((j for j in jobs if j[0] == "interval_builder"), None)

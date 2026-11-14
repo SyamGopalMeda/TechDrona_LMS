@@ -94,7 +94,7 @@ test("ID1 device cap, session cap, revoked-session reuse, logout everywhere", as
   await d4.page.goto("/login?next=%2Fapp");
   await d4.page.getByLabel("Email or mobile").fill(who.email);
   await d4.page.getByLabel(/^Password/).fill(who.password);
-  await d4.page.getByRole("button", { name: "Sign in" }).click();
+  await d4.page.getByRole("button", { name: "Log in", exact: true }).click();
   await d4.page.waitForURL(/\/login\/verify-device/, { timeout: 20_000 });
   const sentAt = Date.now();
   await d4.page.getByRole("button", { name: /Send code by email/ }).click();
@@ -176,7 +176,7 @@ test("ID2 password reset signs out everywhere; old password and reused link fail
   await d3.page.goto("/login");
   await d3.page.getByLabel("Email or mobile").fill(who.email);
   await d3.page.getByLabel(/^Password/).fill(who.password);
-  await d3.page.getByRole("button", { name: "Sign in" }).click();
+  await d3.page.getByRole("button", { name: "Log in", exact: true }).click();
   await d3.page.waitForTimeout(2000);
   log(L, { t: "ID2", step: "old password", url: d3.page.url(), alert: (await d3.page.locator("main [role=alert]").allInnerTexts()).join(" | ").slice(0, 200) });
   expect.soft(d3.page.url()).toMatch(/\/login(\?|$)/);

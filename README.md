@@ -111,6 +111,8 @@ Root files: [`.env.example`](.env.example) is the environment template (placehol
 ```
 apps/
   web/            Next.js 15 App Router (TypeScript, Tailwind): UI and same-origin BFF
+  college-data/   College Data Portal (Node 24 + SQLite) + college research data; served at
+                  /college-portal/ and opened from Admin > College Data Portal (docs/college-data-portal.md)
   api/            FastAPI modular monolith + Celery workers (one image)
     app/core/     kernel: config, db + RLS context, outbox, audit, jobs, authz, crypto
     app/modules/  identity, sessions, security, orgs, rbac, catalog, learning, placement,

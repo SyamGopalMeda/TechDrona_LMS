@@ -1,22 +1,40 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
-import { Badge, Button, Card, ErrorState, FormField, Input, PageHeader, Select, Skeleton, Tabs, useToast } from "@/components/ui";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Badge, Button, Card, ErrorState, FormField, Input, LinkButton, LoadingBlock, PageHeader, Select, Tabs, useToast, type Crumb } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ActionDialog, KeyValueList, ReasonGate, StateBadge, TextArea, textLink, type ReasonChoice } from "@/features/admin/components/console-ui";
 import { formatCountdown, formatDateTime, humanize, ifMatchFor, toOutcome, useVersioned } from "@/features/admin/lib/console";
+import { sourceLabel } from "../lib/catalogue";
+import { staffRef } from "../lib/ids";
 import type { CaseDetail as CaseDetailDto } from "../lib/types";
 import { DecidedPanel, DecisionPanel, PendingApprovalPanel } from "./DecisionPanel";
 import { ConcurrencyTab, DeviceGraphTab, ExplanationTab, HistoryTab, NotesTab, SubmissionTab, TimelineTab, type EvidenceContext } from "./EvidenceTabs";
-import { RiskBadge } from "./RiskLevel";
+import { RiskBadge, STAFF_LEVEL_LABEL, toLevel } from "./RiskLevel";
 
-/** SEC-003 case detail. Asks for a reason code first (SEC-04 requires it; audited). */
+const CASES_CRUMBS: Crumb[] = [
+  { label: "Security", href: "/security" },
+  { label: "Cases", href: "/security/cases" },
+];
+
+/** Hands the gate's choice up to CaseDetail so the gate's page header is replaced by the case's. */
+function ChoiceCommit({ choice, onChoice }: { choice: ReasonChoice; onChoice: (c: ReasonChoice) => void }) {
+  useEffect(() => onChoice(choice), [choice, onChoice]);
+  return <LoadingBlock label="Opening case…" rows={2} size="card" />;
+}
+
+/** Case detail. Asks for a reason code first (SEC-04 requires it; audited). */
 export function CaseDetail({ caseId }: { caseId: string }) {
+  const [choice, setChoice] = useState<ReasonChoice | null>(null);
+  if (choice) return <CaseView caseId={caseId} reason={choice} />;
   return (
-    <ReasonGate title="Open case" description="Case views show personal security data and are recorded in the audit log. Choose why you are opening this case.">
-      {(choice) => <CaseView caseId={caseId} reason={choice} />}
-    </ReasonGate>
+    <div>
+      <PageHeader breadcrumbs={[...CASES_CRUMBS, { label: "Open case" }]} title="Open case" description="Case views show personal security data and are recorded in the audit log." />
+      <ReasonGate title="Why are you opening this case?" description="Choose a reason. It is saved with your view in the audit log.">
+        {(c) => <ChoiceCommit choice={c} onChoice={setChoice} />}
+      </ReasonGate>
+    </div>
   );
 }
 
@@ -35,15 +53,7 @@ export function CaseView({ caseId, reason }: { caseId: string; reason: ReasonCho
   const markTimeline = useCallback(() => setViewed((v) => ({ ...v, timeline: true })), []);
 
   if (res.error && !res.data) return <ErrorState error={res.error} onRetry={() => void res.reload()} />;
-  if (!res.data) {
-    return (
-      <div aria-busy="true" className="space-y-3">
-        <span className="sr-only">Loading case…</span>
-        <Skeleton className="h-8 w-1/2" />
-        <Skeleton className="h-32 w-full" />
-      </div>
-    );
-  }
+  if (!res.data) return <LoadingBlock label="Loading case…" rows={3} size="card" />;
 
   const c = res.data;
   const ifMatch = ifMatchFor(res.etag, c.version);
@@ -72,11 +82,11 @@ export function CaseView({ caseId, reason }: { caseId: string; reason: ReasonCho
     { id: "explanation", label: `Explanation${viewed.explanation ? " ✓" : ""}`, content: <ExplanationTab caseId={caseId} ctx={ctx} onViewed={markExplanation} /> },
     {
       id: "timeline",
-      label: `Timeline (H12)${viewed.timeline ? " ✓" : ""}`,
+      label: `Timeline${viewed.timeline ? " ✓" : ""}`,
       content: userId ? <TimelineTab userId={userId} ctx={ctx} onViewed={markTimeline} /> : <p className="text-sm text-fg-muted">The subject is not available for this case.</p>,
     },
-    { id: "concurrency", label: "Concurrency (H3)", content: userId ? <ConcurrencyTab userId={userId} ctx={ctx} isMinor={c.subject?.is_minor} /> : null },
-    { id: "graph", label: "Devices graph (H2)", content: userId ? <DeviceGraphTab userId={userId} ctx={ctx} isMinor={c.subject?.is_minor} /> : null },
+    { id: "concurrency", label: "Overlapping use", content: userId ? <ConcurrencyTab userId={userId} ctx={ctx} isMinor={c.subject?.is_minor} /> : null },
+    { id: "graph", label: "Shared devices", content: userId ? <DeviceGraphTab userId={userId} ctx={ctx} isMinor={c.subject?.is_minor} /> : null },
     { id: "submission", label: "Submission", content: <SubmissionTab reference={c.unblock_request?.reference} ctx={ctx} onChanged={reload} /> },
     { id: "history", label: "History", content: <HistoryTab detail={c} userId={userId} ctx={ctx} /> },
     { id: "notes", label: "Notes", content: <NotesTab caseId={caseId} notes={c.notes} onAdded={reload} /> },
@@ -85,9 +95,10 @@ export function CaseView({ caseId, reason }: { caseId: string; reason: ReasonCho
   return (
     <div>
       <PageHeader
-        eyebrow="SEC-003"
-        title={c.case_ref}
-        description={c.subject?.name ? `Subject: ${c.subject.name}` : undefined}
+        breadcrumbs={[...CASES_CRUMBS, { label: c.case_ref }]}
+        title={c.subject?.name ? c.subject.name : `Case ${c.case_ref}`}
+        meta={<StateBadge state={c.status} />}
+        description={c.subject?.name ? `Case ${c.case_ref} · ${humanize(c.family)} review` : `${humanize(c.family)} review. The student's name is not available for this case.`}
         actions={
           <>
             {!c.assignee_id ? <Button onClick={() => void claim()}>Claim</Button> : null}
@@ -95,9 +106,9 @@ export function CaseView({ caseId, reason }: { caseId: string; reason: ReasonCho
               Assign
             </Button>
             {userId ? (
-              <Link className="inline-flex h-10 items-center rounded-md border border-line-control bg-surface px-4 text-sm font-medium text-fg hover:bg-surface-hover focus-visible:shadow-focus focus-visible:outline-none" href={`/security/users/${userId}/timeline`}>
+              <LinkButton variant="secondary" href={`/security/users/${userId}/timeline`}>
                 Full timeline
-              </Link>
+              </LinkButton>
             ) : null}
           </>
         }
@@ -107,19 +118,18 @@ export function CaseView({ caseId, reason }: { caseId: string; reason: ReasonCho
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <RiskBadge level={c.restriction?.level ?? c.level} />
           {c.family ? <Badge>{humanize(c.family)}</Badge> : null}
-          <StateBadge state={c.status} />
-          {c.is_high_risk ? <Badge tone="warning">⚑ High-risk</Badge> : <Badge>High-risk: no</Badge>}
+          {c.is_high_risk ? <Badge tone="warning">⚑ High-risk</Badge> : null}
           {c.repeat_count ? <Badge>↺ Repeat ×{c.repeat_count}</Badge> : null}
           {c.subject?.is_minor ? <Badge tone="info">Minor</Badge> : null}
         </div>
         <KeyValueList
           items={[
-            { label: "Assignee", value: c.assignee_id ? <span className="font-mono">{c.assignee_id}</span> : "Unassigned" },
-            { label: "Recommended level", value: typeof c.recommended_level === "number" ? `L${c.recommended_level}` : "—" },
+            { label: "Assignee", value: c.assignee_id ? staffRef(c.assignee_id, "Reviewer") : "Unassigned" },
+            { label: "Recommended level", value: (() => { const lv = toLevel(c.recommended_level); return lv === null ? "—" : STAFF_LEVEL_LABEL[lv]; })() },
             { label: "Restriction since", value: formatDateTime(c.restriction?.starts_at) },
             { label: "Ends", value: c.restriction?.ends_at ? formatDateTime(c.restriction.ends_at) : c.restriction ? "No end date" : "—" },
             ...(c.restriction?.deferred_until ? [{ label: "Deferred until", value: formatDateTime(c.restriction.deferred_until) }] : []),
-            { label: "Source", value: humanize(c.restriction?.source) },
+            { label: "Applied by", value: sourceLabel(c.restriction?.source) },
             { label: "First response due", value: c.sla_first_response_due ? `${formatDateTime(c.sla_first_response_due)} (${formatCountdown(c.sla_first_response_due)})` : "—" },
             { label: "Decision due", value: c.sla_decision_due ? `${formatDateTime(c.sla_decision_due)} (${formatCountdown(c.sla_decision_due)})` : "—" },
             {
@@ -143,11 +153,12 @@ export function CaseView({ caseId, reason }: { caseId: string; reason: ReasonCho
         ) : null}
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      {/* Two columns from lg (1024 px), where the decision panel becomes available, so it never drops below the evidence. */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0">
           <Tabs label="Case evidence" items={tabs} />
         </div>
-        <aside className="space-y-4 xl:sticky xl:top-20 xl:self-start" aria-label="Decision and controls">
+        <aside className="space-y-4 lg:sticky lg:top-20 lg:max-h-[calc(100dvh-6rem)] lg:self-start lg:overflow-y-auto lg:pb-1" aria-label="Decision and controls">
           {c.pending_approval && c.pending_approval.status !== "cancelled" && c.pending_approval.status !== "rejected" ? (
             <PendingApprovalPanel detail={c} approval={c.pending_approval} ifMatch={ifMatch} onChanged={reload} />
           ) : c.status === "escalated" && !c.pending_approval && !decided ? (
@@ -179,7 +190,7 @@ export function CaseView({ caseId, reason }: { caseId: string; reason: ReasonCho
                 </Button>
               </div>
               <p className="mt-2 text-xs text-fg-muted">
-                See <Link className={textLink} href="/security/restrictions">Restrictions</Link> to lift L1/L2. L3/L4 change only through a decision.
+                Lift a notice (L1) or verification (L2) under <Link className={textLink} href="/security/restrictions">Restrictions</Link>. Temporary restrictions and suspensions (L3/L4) change only through a decision.
               </p>
             </Card>
           ) : null}
@@ -189,17 +200,18 @@ export function CaseView({ caseId, reason }: { caseId: string; reason: ReasonCho
       <ActionDialog
         open={dialog === "assign"}
         onClose={() => setDialog(null)}
+        onOpen={() => setAssignee("")}
         title="Assign reviewer"
         description="A conflict-of-interest check runs on the new assignee."
         submitLabel="Assign"
-        validate={() => (assignee.trim() ? null : "Enter the reviewer's user id.")}
+        validate={() => (assignee.trim() ? null : "Enter the reviewer's user id (from Users in the Admin portal).")}
         onSubmit={async () => toOutcome(await api.post(`security/cases/${caseId}/assign`, { assignee_id: assignee.trim() }, { ifMatch }))}
         onDone={() => {
           setAssignee("");
           reload();
         }}
       >
-        <FormField label="Reviewer user id" required>
+        <FormField label="Reviewer user id" required hint="Copy it from the reviewer's page under Admin › Users.">
           {(f) => <Input {...f} value={assignee} onChange={(e) => setAssignee(e.target.value)} />}
         </FormField>
       </ActionDialog>
@@ -207,6 +219,7 @@ export function CaseView({ caseId, reason }: { caseId: string; reason: ReasonCho
       <ActionDialog
         open={dialog === "revoke"}
         onClose={() => setDialog(null)}
+        onOpen={() => setNote("")}
         title="Revoke all sessions?"
         description="The user is signed out everywhere. Any in-progress test keeps its autosaved answers."
         submitLabel="Revoke sessions"
@@ -226,8 +239,12 @@ export function CaseView({ caseId, reason }: { caseId: string; reason: ReasonCho
       <ActionDialog
         open={dialog === "restrict"}
         onClose={() => setDialog(null)}
+        onOpen={() => {
+          setNote("");
+          setLevel("1");
+        }}
         title="Apply restriction"
-        description="L3/L4 are linked to this case. L4 needs a rationale and revokes all sessions; on a staff account it needs a second reviewer."
+        description="Temporary restrictions (L3) and suspensions (L4) are linked to this case. A suspension needs a rationale and signs the user out everywhere; on a staff account it needs a second reviewer."
         submitLabel="Apply"
         danger
         validate={() => (level === "4" && note.trim().length < 20 ? "L4 needs a documented rationale (20+ characters)." : note.trim().length < 3 ? "Add a rationale." : null)}

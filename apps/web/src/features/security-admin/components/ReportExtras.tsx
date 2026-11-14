@@ -9,6 +9,15 @@ import type { ReportResult } from "../lib/types";
 
 type Plain = Record<string, unknown>;
 
+/** A cell hidden because its group is smaller than the privacy minimum (k). Visible text, not a tooltip. */
+export function Suppressed() {
+  return (
+    <span className="text-fg-muted">
+      Hidden (small group)<span className="sr-only">: too few people to show without identifying them</span>
+    </span>
+  );
+}
+
 const isObj = (v: unknown): v is Plain => typeof v === "object" && v !== null && !Array.isArray(v);
 const isScalar = (v: unknown) => v === null || v === undefined || typeof v !== "object";
 
@@ -18,7 +27,7 @@ function ObjectTable({ title, rows }: { title: string; rows: Plain[] }) {
   const cols: Column<Plain>[] = keys.map((k) => ({
     key: k,
     header: humanize(k),
-    cell: (r) => (r.suppressed === true && (r[k] === null || r[k] === undefined) ? <span title="Fewer than the k-minimum subjects">&lt;k suppressed</span> : cellText(r[k])),
+    cell: (r) => (r.suppressed === true && (r[k] === null || r[k] === undefined) ? <Suppressed /> : cellText(r[k])),
   }));
   return <Table caption={title} columns={cols} rows={rows} rowKey={(r) => JSON.stringify(r)} empty={{ title: "None" }} />;
 }
@@ -64,10 +73,10 @@ const EXTRA_LABELS: Record<string, string> = {
   student_session_cap: "Student session cap",
   student_sessions_per_user: "Active student sessions per user",
   alerts: "Alerts",
-  k_min: "Minimum group size (k)",
+  k_min: "Smallest group shown",
 };
 const label = (k: string) => EXTRA_LABELS[k] ?? humanize(k);
-const SUPPRESSED = <span title="Fewer than the k-minimum subjects">&lt;k suppressed</span>;
+const SUPPRESSED = <Suppressed />;
 
 /** H11 `scope`: "platform" (single company). */
 function scopeText(v: unknown): ReactNode {

@@ -1,0 +1,407 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "lms_coding_problems",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "organization_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_problems",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_test_cases",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "coding_problem_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "problem_version",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "ordinal",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_problem_validations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "coding_problem_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_reference_solutions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "coding_problem_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "language_key",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "coding_problem_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_submission_results",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "code_submission_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "ordinal",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_drafts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "coding_problem_id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_problems",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "slug",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "coding_problem_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "mode",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "mode",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "coding_problem_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "queue_name",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "started_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "coding_problem_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "mode",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "normalized_sha256",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_problem_validations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "requested_by",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_test_cases",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "is_hidden",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_drafts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_testcase_content_tokens",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_problems",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "lms_coding_test_case_blobs",
+      "fieldPath": "ciphertext",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_coding_test_cases",
+      "fieldPath": "wrapped_data_key",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "fieldPath": "source_code",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "fieldPath": "compile_output",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_coding_drafts",
+      "fieldPath": "source_code",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_coding_reference_solutions",
+      "fieldPath": "source_code",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_coding_problems",
+      "fieldPath": "statement_md",
+      "indexes": []
+    }
+  ]
+}

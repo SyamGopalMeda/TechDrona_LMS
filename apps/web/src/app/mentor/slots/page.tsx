@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Availability" };
 export default function Page() {
   return (
     <div>
-      <PageHeader title="Availability" eyebrow="MEN-002" description="Publish 30, 45 or 60 minute slots. Cancelling a booked session gives the student their credit back." />
+      <PageHeader title="Availability" description="Publish 30, 45 or 60 minute slots. Cancelling a booked session gives the student their credit back." />
       <MentorSlots />
     </div>
   );

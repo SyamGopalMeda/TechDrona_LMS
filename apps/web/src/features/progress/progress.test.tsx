@@ -97,6 +97,8 @@ describe("ProgressDashboard", () => {
     expect(within(table).getAllByRole("row")).toHaveLength(8);
 
     expect(await screen.findByText("Mastered")).toBeInTheDocument();
+    // Internal metric codes and method names are never shown to students.
+    expect(document.body.textContent).not.toMatch(/tm-1\.0|EWMA|\(M5\)|Elo/);
     expect(screen.getByRole("table", { name: "Accuracy and learning time by topic" })).toBeInTheDocument();
     const call = api.calls.find((c) => c.path === "me/analytics/learning-time")!;
     expect(call.url).toMatch(/grain=day/);

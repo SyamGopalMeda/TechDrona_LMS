@@ -42,12 +42,94 @@ def _count(res: object) -> int:
 ERASED_NAME = "Deleted user"
 
 
+_PROFILE_CLEAR: dict[str, Any] = {
+    "display_name": None,
+    "date_of_birth": None,
+    "college_name_text": None,
+    "degree": None,
+    "branch": None,
+    "graduation_year": None,
+    "city": None,
+    "state_code": None,
+    "target_role": None,
+    "target_company_ids": [],
+    "target_date": None,
+    "avatar_s3_key": None,
+}
+
+
+async def _erase_firestore(user_id: uuid.UUID, avatars: int) -> dict[str, Any]:
+    """``TD_STORE_IDENTITY=firestore``: same effect and counts as the SQL below. The user
+    tombstone frees its email/phone/username reservations (``save_user``)."""
+    from app.modules.identity.repo_firestore import system_repo
+    from app.modules.identity.store_specs import MFA, RESETS, VTOKENS
+
+    repo = system_repo("identity.erasure")
+    now = clock.now()
+    users = 0
+    user = await repo.get_user(user_id)
+    if user is not None and (
+        user.email is not None or user.phone_e164 is not None or user.status != "deleted"
+    ):
+        user.email = None
+        user.email_verified_at = None
+        user.phone_e164 = None
+        user.phone_verified_at = None
+        user.status = "deleted"
+        user.deleted_at = now
+        user.last_login_at = None
+        await repo.save_user(user)
+        users = 1
+    profiles = 0
+    prof = await repo.get_profile(user_id)
+    if prof is not None and (
+        prof.full_name != ERASED_NAME
+        or prof.date_of_birth is not None
+        or prof.display_name is not None
+        or prof.avatar_s3_key is not None
+        or prof.city is not None
+        or prof.college_name_text is not None
+    ):
+        prof.full_name = ERASED_NAME
+        for k, v in _PROFILE_CLEAR.items():
+            setattr(prof, k, v)
+        await repo.save_profile(prof)
+        profiles = 1
+    deleted: dict[str, int] = {}
+    deleted["user_credentials"] = int(await repo.delete_credential(user_id))
+    for name, coll in (
+        ("mfa_factors", MFA),
+        ("verification_tokens", VTOKENS),
+        ("password_reset_tokens", RESETS),
+    ):
+        docs = await repo._all(coll, filters=(("user_id", "==", str(user_id)),))
+        for d in docs:
+            await repo.store.delete(coll, d.id)
+        deleted[name] = len(docs)
+
+    return {
+        "users_tombstoned": users,
+        "profiles_scrubbed": profiles,
+        "deleted": deleted,
+        "avatar_objects_deleted": avatars,
+        "kept_legal_hold": ["consents", "guardian_consents"],
+    }
+
+
 async def erase_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]:
     now = clock.now()
     # The avatar object goes first (core request 7): if storage fails the erasure rolls back
     # with the key still recorded and can be re-run. A missing object is not an error.
+    from app.core.firestore.backend import uses_firestore
     from app.modules.media import storage
 
+    if uses_firestore("identity"):
+        from app.modules.identity.repo_firestore import system_repo
+
+        prof = await system_repo("identity.erasure").get_profile(user_id)
+        avatar = prof.avatar_s3_key if prof is not None else None
+        avatars = await storage.delete_objects(storage.storage_settings().S3_BUCKET_UPLOADS, [avatar or ""])
+        return await _erase_firestore(user_id, avatars)
     avatar = (
         await session.execute(select(UserProfile.avatar_s3_key).where(UserProfile.user_id == user_id))
     ).scalar_one_or_none()

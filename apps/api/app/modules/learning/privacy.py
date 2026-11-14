@@ -30,6 +30,10 @@ def _n(result: Any) -> int:
 
 
 async def erase_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]:
+    from app.modules.learning import fs_store as fss
+
+    if fss.fs():
+        return await _erase_fs(session, user_id)
     progress = await session.execute(delete(LessonProgress).where(LessonProgress.user_id == user_id))
     subs = await session.execute(
         update(AssignmentSubmission)
@@ -69,7 +73,47 @@ async def erase_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, Any
     }
 
 
+async def _erase_fs(session: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]:
+    """Firestore: the same four steps (same predicates, same counts)."""
+    from app.modules.learning import fs_store as fss
+
+    progress = await fss.find(session, LessonProgress, filters=(("user_id", "==", user_id),))
+    for lp in progress:
+        await fss.delete(session, lp)
+    subs = 0
+    for s in await fss.find(session, AssignmentSubmission, filters=(("user_id", "==", user_id),)):
+        if (
+            s.body_text is not None
+            or s.link_url is not None
+            or list(s.file_s3_keys or [])
+            or s.feedback_md is not None
+        ):
+            s.body_text, s.link_url, s.file_s3_keys, s.feedback_md = None, None, [], None
+            subs += 1
+    certs = 0
+    now = utcnow()
+    for c in await fss.find(session, Certificate, filters=(("user_id", "==", user_id),)):
+        if c.name_on_certificate != ERASED_NAME:
+            c.name_on_certificate = ERASED_NAME
+            c.revoked_at = c.revoked_at or now
+            c.revoke_reason = c.revoke_reason or "erasure"
+            c.pdf_s3_key = None
+            certs += 1
+    enrols = 0
+    for e in await fss.find(session, Enrolment, filters=(("user_id", "==", user_id),)):
+        if e.status != "withdrawn":
+            e.status = "withdrawn"
+            enrols += 1
+    await fss.flush(session)
+    return {
+        "lesson_progress_deleted": len(progress),
+        "submissions_scrubbed": subs,
+        "certificates_revoked": certs,
+        "enrolments_withdrawn": enrols,
+    }
+
+
 def register() -> None:
-    from app.modules.admin.privacy import register_erasure_provider
+    from app.modules.admin.public import register_erasure_provider
 
     register_erasure_provider("learning", erase_user)

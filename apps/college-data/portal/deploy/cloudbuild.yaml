@@ -1,0 +1,10 @@
+# Cloud Build: build deploy/cloudrun.Dockerfile and push it (run from apps/college-data/portal):
+#   gcloud builds submit --config deploy/cloudbuild.yaml --project billing-f4fe3 \
+#     --substitutions _IMAGE=asia-south1-docker.pkg.dev/billing-f4fe3/college-portal/college-portal:<tag> .
+# .gcloudignore keeps data/ (the SQLite DB and seed JSON with contact details) out of the upload.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "deploy/cloudrun.Dockerfile", "-t", "${_IMAGE}", "."]
+images: ["${_IMAGE}"]
+options:
+  logging: CLOUD_LOGGING_ONLY

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Badge, Button, Card, Dialog, EmptyState, ErrorState, FormField, Input, Skeleton, Table, useToast, type Column } from "@/components/ui";
+import { Badge, Button, Card, Dialog, EmptyState, ErrorState, FormField, Input, LoadingBlock, SectionHeader, StatusBadge, Table, useToast, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { toFormError } from "@/features/auth/lib/errors";
@@ -29,11 +29,17 @@ const END_REASONS: Record<string, string> = {
   unblock_reset: "Signed out after re-verification",
 };
 
+/** Device trust state on the shared status vocabulary (tone from the kit; only the word is ours). */
 function trustBadge(status: string) {
-  if (status === "trusted") return <Badge tone="success">Trusted</Badge>;
-  if (status === "pending_otp" || status === "pending" || status === "pending_verification") return <Badge tone="warning">Pending verification</Badge>;
-  if (status === "revoked" || status === "removed") return <Badge tone="neutral">Removed</Badge>;
-  return <Badge>{status.replace(/_/g, " ")}</Badge>;
+  if (status === "trusted") return <StatusBadge status="verified" label="Trusted" />;
+  if (status === "pending_otp" || status === "pending" || status === "pending_verification") return <StatusBadge status="pending" label="Pending verification" />;
+  if (status === "revoked" || status === "removed") return <StatusBadge status="removed" label="Removed" />;
+  return <StatusBadge status={status} />;
+}
+
+/** "first seen … · last used … · region" without dangling separators when a part is missing. */
+function joinMeta(parts: (string | null | undefined | false)[]): string {
+  return parts.filter(Boolean).join(" · ");
 }
 
 type Confirm =
@@ -124,42 +130,26 @@ export function DevicesAndSessions() {
 
   return (
     <div className="space-y-6">
-      <Card title="Our published limits">
-        {limits ? (
-          <>
-            <p className="text-sm text-fg-secondary">
-              {limits.max_trusted} devices · {limits.replacements_max_30d} device changes per 30 days. Verifying a device with a code does not exempt simultaneous use from two different networks (for example home and office).{" "}
+      <Card
+        title={limits ? (limits.max_trusted == null ? `Your devices (${limits.trusted_counted}, no limit for admins)` : `Your devices (${limits.trusted_counted} of ${limits.max_trusted})`) : "Your devices"}
+        description={
+          limits ? (
+            <>
+              Device changes: {limits.replacements_used_30d} of {limits.replacements_max_30d} used in the last 30 days
+              {limits.next_replacement_at ? ` · next frees up on ${formatDate(limits.next_replacement_at)}` : ""}.{" "}
               <Link href="/legal/device-policy" className="text-fg-link underline">
-                Read the device policy
+                Device policy
               </Link>
-            </p>
-            <p className="mt-2 text-sm font-medium text-fg">
-              Device changes: {limits.replacements_used_30d} of {limits.replacements_max_30d} used
-              {limits.next_replacement_at ? ` · next frees up on ${formatDate(limits.next_replacement_at)}` : ""}
-            </p>
-          </>
-        ) : devices.loading ? (
-          <Skeleton className="h-10 w-full" />
-        ) : (
-          <p className="text-sm text-fg-muted">
-            <Link href="/legal/device-policy" className="text-fg-link underline">
-              Read the device policy
-            </Link>
-          </p>
-        )}
-      </Card>
-
-      <Card title={limits ? `Your devices (${limits.trusted_counted} of ${limits.max_trusted})` : "Your devices"}>
+            </>
+          ) : undefined
+        }
+      >
         {devices.error ? (
           <ErrorState error={devices.error} onRetry={devices.reload} />
         ) : devices.loading && !devices.data ? (
-          <div aria-busy="true" className="space-y-3">
-            <span className="sr-only">Loading devices…</span>
-            <Skeleton className="h-14 w-full" />
-            <Skeleton className="h-14 w-full" />
-          </div>
+          <LoadingBlock label="Loading devices…" rows={2} size="row" />
         ) : (devices.data?.data.length ?? 0) === 0 ? (
-          <EmptyState title="No devices yet" description="Devices appear here after you sign in on them." />
+          <EmptyState variant="inline" icon="shield" title="No devices yet" description="Devices appear here after you sign in on them." />
         ) : (
           <ul className="divide-y divide-line-subtle" aria-label="Devices">
             {devices.data!.data.map((d) => (
@@ -172,10 +162,14 @@ export function DevicesAndSessions() {
                   <p className="mt-0.5 flex flex-wrap items-center gap-2 text-fg-muted">
                     {trustBadge(d.trust_status)}
                     {d.counts_toward_cap === false ? <Badge tone="info">Doesn&apos;t count toward your limit</Badge> : null}
-                    <span>first seen {formatDate(d.first_seen_at)}</span>
-                    <span>· last used {formatRelative(d.last_used_at)}</span>
-                    {d.approx_region ? <span>· {d.approx_region} (approx.)</span> : null}
-                    {d.group_hint?.startsWith("probably_this_computer") ? <span>· probably the same computer as another entry</span> : null}
+                    <span>
+                      {joinMeta([
+                        `first seen ${formatDate(d.first_seen_at)}`,
+                        `last used ${formatRelative(d.last_used_at)}`,
+                        d.approx_region && `${d.approx_region} (approx.)`,
+                        d.group_hint?.startsWith("probably_this_computer") && "probably the same computer as another entry",
+                      ])}
+                    </span>
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -209,13 +203,9 @@ export function DevicesAndSessions() {
         {sessions.error ? (
           <ErrorState error={sessions.error} onRetry={sessions.reload} />
         ) : sessions.loading && !sessions.data ? (
-          <div aria-busy="true" className="space-y-3">
-            <span className="sr-only">Loading sessions…</span>
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-12 w-full" />
-          </div>
+          <LoadingBlock label="Loading sessions…" rows={2} size="row" />
         ) : active.length === 0 ? (
-          <EmptyState title="No active sessions" />
+          <EmptyState variant="inline" icon="shield" title="No active sessions" />
         ) : (
           <ul className="divide-y divide-line-subtle" aria-label="Signed-in sessions">
             {active.map((s) => (
@@ -243,9 +233,7 @@ export function DevicesAndSessions() {
       </Card>
 
       <section aria-labelledby="history-h" className="space-y-3">
-        <h2 id="history-h" className="font-display text-base font-semibold text-fg">
-          Recent sessions
-        </h2>
+        <SectionHeader id="history-h" title="Recent sessions" description="Sessions that ended in the last 90 days." />
         <Table
           caption="Recent sessions that have ended"
           columns={historyColumns}

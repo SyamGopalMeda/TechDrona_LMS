@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LMS_COURSES_HREF } from "@/lib/site/website";
 import { mockApi, problem, renderWithProviders } from "@/features/auth/test/mock-api";
 import { useActivityTracker } from "@/lib/analytics/use-activity-tracker";
 import { StudentDashboard } from "@/features/dashboard/components/StudentDashboard";
@@ -111,7 +112,7 @@ describe("MyCourses (STU-004)", () => {
     restore = api.restore;
     renderWithProviders(<MyCourses />);
     expect(await screen.findByText(/haven.t enrolled in a course yet/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Browse free courses" })).toHaveAttribute("href", "/courses?price_type=free");
+    expect(screen.getByRole("link", { name: "Browse free courses" })).toHaveAttribute("href", "/app/courses");
   });
 });
 
@@ -134,6 +135,42 @@ describe("CourseOverview (STU-005)", () => {
     expect(await screen.findByText("Learning access paused")).toBeInTheDocument();
     expect(screen.getByText(/paused until 4 Nov 2026, 10:15 IST/)).toBeInTheDocument();
     expect(screen.getByText(/SEC-2611-7KQ4MZ/)).toBeInTheDocument();
+  });
+});
+
+describe("CourseOverview before enrolment (STU-005, F7)", () => {
+  const syllabus = [{ title: "Module 1", position: 0, lessons: [{ id: "l1", lesson_key: "k1", title: "Ratios preview", lesson_type: "video", is_free_preview: true }, { id: "l2", lesson_key: "k2", title: "Percentages", lesson_type: "article" }] }];
+
+  it("shows a free course with an Enrol button instead of 'We couldn't find this', then loads the overview", async () => {
+    let enrolled = false;
+    const api = mockApi({
+      "GET catalog/courses/dsa": { body: { ...catalogCourse, summary: "Arrays and complexity.", syllabus } },
+      "GET me/courses/c1": () => (enrolled ? { body: overview } : problem(404, "not_found", "Not found")),
+      "POST me/enrolments": () => {
+        enrolled = true;
+        return { status: 201, body: enrolment };
+      },
+    });
+    restore = api.restore;
+    renderWithProviders(<CourseOverview slug="dsa" />);
+    expect(await screen.findByRole("heading", { name: "DSA Foundations" })).toBeInTheDocument();
+    expect(screen.queryByText("We couldn't find this")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Ratios preview/ })).toHaveAttribute("href", "/app/learn/dsa/l1");
+    await userEvent.click(screen.getByRole("button", { name: "Enrol for free" }));
+    expect(await screen.findByRole("link", { name: "Resume" })).toHaveAttribute("href", "/app/learn/dsa/l2");
+    expect(api.calls.find((c) => c.path === "me/enrolments")?.body).toEqual({ course_id: "c1" });
+  });
+
+  it("shows a paid course's access options from the products that unlock it", async () => {
+    const products = { data: [{ sku: "C1", name: "DSA path", product_kind: "course", unlocks: [{ item_type: "course", ref_id: "c1" }], plans: [{ billing_type: "one_time", interval_unit: null, access_duration_days: 180, prices: [{ price_id: "p1", amount_paise: 149900, currency: "INR", tax_inclusive: true, is_active: true }] }] }] };
+    restore = mockApi({
+      "GET catalog/courses/dsa": { body: { ...catalogCourse, price_type: "paid", syllabus } },
+      "GET me/courses/c1": problem(404, "not_found", "Not found"),
+      "GET commerce/products": { body: products },
+    }).restore;
+    renderWithProviders(<CourseOverview slug="dsa" />);
+    expect(await screen.findByRole("link", { name: /Buy DSA path/ })).toHaveAttribute("href", "/app/checkout/new?price_id=p1&return_to=%2Fapp%2Fcourses%2Fdsa");
+    expect(screen.getByText("Percentages")).toBeInTheDocument();
   });
 });
 
@@ -193,7 +230,7 @@ describe("LessonView (PLY-002)", () => {
     restore = api.restore;
     renderWithProviders(<LessonView slug="dsa" lessonId="l2" />);
     expect(await screen.findByText("This content needs access")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "See all plans" })).toHaveAttribute("href", "/pricing");
+    expect(screen.getByRole("link", { name: "Explore all courses and plans" })).toHaveAttribute("href", LMS_COURSES_HREF);
   });
 });
 

@@ -22,6 +22,8 @@ export interface Me {
     is_minor?: boolean;
     privacy_tier?: string;
     locale?: string;
+    /** Admin ticked "Must change password on first login" and it hasn't been changed yet. */
+    must_change_password?: boolean;
   };
   profile?: {
     full_name?: string | null;
@@ -92,7 +94,9 @@ export interface OwnDevice {
 
 /** verified: app/modules/sessions/service.py device_limits */
 export interface DeviceLimits {
-  max_trusted: number;
+  /** null = no trusted-device limit for this account (admins, unless devices.admin.cap_enabled) */
+  max_trusted: number | null;
+  cap_tier?: "admin" | "staff" | "student";
   trusted_counted: number;
   replacements_used_30d: number;
   replacements_max_30d: number;

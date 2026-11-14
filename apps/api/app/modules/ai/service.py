@@ -42,11 +42,11 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import ratelimit
-from app.core.db import as_system
 from app.core.errors import ProblemError
 from app.core.principal import Principal
 from app.core.ratelimit import DAY, HOUR, MIN, Rule
 from app.core.time import to_rfc3339
+from app.modules.admin.fs_rows import pg_system
 from app.modules.ai import prompts as P
 from app.modules.ai import store
 from app.modules.ai.adapters import (
@@ -162,8 +162,10 @@ def _uid(principal_or_user: Principal | uuid.UUID) -> uuid.UUID:
 
 
 async def _settings_for_rate(session: AsyncSession | None) -> store.PlatformAI:
-    if session is not None:
-        return await store.system_settings(session)
+    if session is not None or store.uses_firestore("ai"):
+        # ai on Firestore (Firebase stack): read from Firestore; ``ledger_tx`` would open a
+        # Postgres session that does not exist there
+        return await store.system_settings(session)  # type: ignore[arg-type]
     async with store.ledger_tx("ai.settings") as s:
         return await store.read_settings(s)
 
@@ -469,7 +471,7 @@ async def tutor_reply(
     ctx = await _gate(session, "ai_tutor")
     caps = [c for c in (per_learner_limit, ctx.settings.per_activity_default_cap) if c is not None]
     limit = min(caps)
-    async with as_system(session, "ai.tutor_history"):
+    async with pg_system(session, "ai.tutor_history"):
         past = await store.history(
             session, user_id, context_type, context_id, item_id, store.TUTOR_HISTORY_TURNS
         )

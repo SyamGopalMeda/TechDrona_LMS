@@ -152,7 +152,7 @@ export async function signIn(page: Page, request: APIRequestContext, who: Accoun
   await page.goto(`/login?next=${encodeURIComponent(next)}`);
   await page.getByLabel("Email or mobile").fill(who.identifier);
   await page.getByLabel(/^Password/).fill(who.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: "Log in", exact: true }).click();
   await page.waitForURL((u) => !/^\/login\/?$/.test(u.pathname), { timeout: 20_000 });
   if (/\/login\/mfa/.test(page.url())) {
     expect(who.totpSecret, `TOTP secret for ${who.identifier}`).toBeTruthy();

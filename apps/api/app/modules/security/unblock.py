@@ -8,18 +8,20 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import AuditActor, audit
 from app.core.errors import ProblemError
+from app.core.firestore.backend import uses_firestore
 from app.core.ids import uuid7
 from app.core.outbox import emit_event
 from app.core.principal import Principal
 from app.core.time import to_rfc3339
 from app.modules.admin.policy import get_value
 from app.modules.identity import clock
-from app.modules.identity.models import User
+from app.modules.identity import public as identity_public
+from app.modules.identity.public import User
 from app.modules.security import engine
 from app.modules.security import restrictions as rx
 from app.modules.security.cases import (
@@ -42,8 +44,9 @@ from app.modules.security.models import (
 )
 from app.modules.security.refs import make_ref
 from app.modules.security.signals import bump, count_since
+from app.modules.sessions import public as sessions_public
 from app.modules.sessions import service as ss
-from app.modules.sessions.models import Device, UserDevice
+from app.modules.sessions.public import UserDevice
 
 WHAT_HAPPENED = (
     "all_devices_mine",
@@ -108,13 +111,8 @@ def validate_explanation(raw: str | None) -> str:
 
 
 async def _user_devices(session: AsyncSession, user_id: uuid.UUID) -> list[UserDevice]:
-    return list(
-        (
-            await session.execute(
-                select(UserDevice).where(UserDevice.user_id == user_id, UserDevice.trust_status != "removed")
-            )
-        ).scalars()
-    )
+    # ``trust_status <> 'removed'`` is sessions.public's ``live_only``
+    return list(await sessions_public.list_user_devices(session, user_id=user_id, live_only=True))
 
 
 async def form(session: AsyncSession, principal: Principal, case_ref: str | None) -> dict[str, Any]:
@@ -124,14 +122,14 @@ async def form(session: AsyncSession, principal: Principal, case_ref: str | None
     if await count_since(session, key, now - timedelta(minutes=1)) >= 5:
         raise ProblemError("unblock_rate_limited", headers={"Retry-After": "60"})
     await bump(session, key, now)
-    user = await session.get(User, principal.user_id)
+    user = await identity_public.get_user(session, principal.user_id)
     devices = []
     # E2E-13: only devices that finished verification; never-verified ones are not offered
     # (they are still revoked on submit unless recognised -- they cannot be).
     for ud in await _user_devices(session, principal.user_id):
         if ud.trust_status != "trusted":
             continue
-        dev = await session.get(Device, ud.device_id)
+        dev = await sessions_public.get_device(session, ud.device_id)
         devices.append(
             {
                 "user_device_id": str(ud.id),
@@ -165,9 +163,17 @@ def _verified_channels(user: User | None) -> list[str]:
 
 
 async def own_case_by_ref(session: AsyncSession, user_id: uuid.UUID, case_ref: str) -> SecurityCase:
-    c = (
-        await session.execute(select(SecurityCase).where(SecurityCase.case_ref == case_ref))
-    ).scalar_one_or_none()
+    c: Any
+    if uses_firestore("security"):
+        from app.modules.security.repo_firestore import find_repo
+        from app.modules.security.store_specs import CaseRow
+
+        hits = await find_repo().find("security_cases", CaseRow, filters=(("case_ref", "==", case_ref),))
+        c = hits[0] if hits else None
+    else:
+        c = (
+            await session.execute(select(SecurityCase).where(SecurityCase.case_ref == case_ref))
+        ).scalar_one_or_none()
     if c is None or c.user_id != user_id:
         raise ProblemError("not_found")  # no existence disclosure
     return c
@@ -415,7 +421,7 @@ async def submit(
     if ur.state != "draft":
         raise ProblemError("invalid_state_transition", current_state=ur.state, allowed=["draft"])
     case = case or await get_case(session, ur.case_id)
-    user = await session.get(User, principal.user_id)
+    user = await identity_public.get_user(session, principal.user_id)
     now = clock.now()
     limit = int(await get_value(session, "unblock.max_requests_per_30d", user_id=principal.user_id))
     used = (
@@ -455,7 +461,7 @@ async def submit(
     for ud in devices:
         if ud.id in recognised:
             continue
-        dev = await session.get(Device, ud.device_id)
+        dev = await sessions_public.get_device(session, ud.device_id)
         unrec.append(ud.id)
         await ss.remove_user_device(session, ud, "security_action", removed_by=principal.user_id)
         revoked.append(
@@ -561,6 +567,10 @@ async def appeal(
     case.sla_first_response_due = clock.now() + timedelta(hours=first_h)
     case.sla_decision_due = clock.now() + timedelta(hours=dec_h)
     case.assignee_id = None
+    # An appeal re-opens a decided case: its evidence must not expire meanwhile (pass-2 request).
+    from app.modules.security.repo_fs_cases import evidence_held
+
+    await evidence_held(session, [case.user_id])
     case.version += 1
     await audit(
         session, principal, "unblock.appealed", "unblock_request", ur.id, subject_user_id=principal.user_id
@@ -732,10 +742,10 @@ async def reverify_start(
 ) -> dict[str, Any]:
     from app.modules.identity import service as ids
     from app.modules.identity.contacts import mask_email, mask_phone
-    from app.modules.notifications.service import send_email, send_sms
+    from app.modules.notifications.public import send_email, send_sms
 
     r = await reverifiable(session, principal.user_id)
-    user = await session.get(User, principal.user_id)
+    user = await identity_public.get_user(session, principal.user_id)
     assert user is not None
     if channel == "sms":
         dest, verified_at = user.phone_e164, user.phone_verified_at
@@ -778,7 +788,7 @@ async def reverify_complete(
     from app.modules.identity import service as ids
 
     r = await reverifiable(session, principal.user_id)
-    user = await session.get(User, principal.user_id)
+    user = await identity_public.get_user(session, principal.user_id)
     assert user is not None
     chk = await ids.check_otp(
         session,
@@ -893,6 +903,9 @@ async def _restore_access(
         case.version += 1
         if decision is not None and decision.outcome == "lift_false_positive":
             credit_days = await false_positive_credit(session, user_id, case, decision)
+        from app.modules.security.repo_fs_cases import evidence_released
+
+        await evidence_released(session, [user_id])
     await engine.notify_user(
         session,
         user_id,
@@ -925,7 +938,7 @@ async def manual_verification(
         raise ProblemError(
             "invalid_state_transition", current_state="active", allowed=["lift_pending", "expired"]
         )
-    user = await session.get(User, r.user_id)
+    user = await identity_public.get_user(session, r.user_id)
     if has_eligible_contact(user, r.starts_at):
         raise ProblemError(
             "invalid_state_transition",
@@ -943,7 +956,7 @@ async def manual_verification(
     elif r.user_id == principal.user_id:
         raise ProblemError("conflict_of_interest", reasons=["own_account"])
     if decision is not None and (decision.conditions or {}).get("password_reset"):
-        await session.execute(update(User).where(User.id == r.user_id).values(must_change_password=True))
+        await identity_public.update_user(session, r.user_id, must_change_password=True)
     revoked, credit_days, reason = await _restore_access(
         session, r.user_id, r, decision, principal, ended_by=principal.user_id
     )

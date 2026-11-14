@@ -63,6 +63,7 @@ from app.modules.security.refs import make_ref
 from app.modules.security.rules import score_sharing
 from app.modules.sessions.models import AuthSession, Device, SessionNetworkObservation, UserDevice
 from app.seeds import seeds_allowed
+from app.seeds.sync import sync_touched
 
 # Seeds run standalone: register every module's tables so cross-module FKs resolve.
 import_all_models()
@@ -410,6 +411,7 @@ async def main() -> int:
     try:
         async with async_sessionmaker(engine, expire_on_commit=False)() as session, session.begin():
             made = await seed(session)
+            await sync_touched(session, "security", "identity", "sessions")
     finally:
         await engine.dispose()
     if not made:

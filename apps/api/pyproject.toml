@@ -26,6 +26,13 @@ dependencies = [
   "cryptography>=43",
   "boto3>=1.34",
   "fpdf2>=2.7",  # commerce: GST invoice / credit note PDFs (COM-16), pure Python
+  "segno>=1.6",  # learning: QR code on certificate PDFs (pure Python; optional at runtime)
+  "pyjwt[crypto]>=2.8",  # identity: Firebase Auth ID-token verification (Google sign-in)
+  "pyuca>=1.2,<2",  # Postgres en_US.utf8 text ordering for Firestore in-memory sorts (app.core.firestore.collation)
+  # Firestore migration (docs/firebase/MIGRATION-PLAN.md, P0): Admin SDK + async Firestore client.
+  # Only app/core/firestore/ may use the Firestore client (tests/firestore/test_store_boundary.py).
+  "firebase-admin>=6.5,<8",
+  "google-cloud-firestore>=2.16,<3",
 ]
 
 [project.optional-dependencies]

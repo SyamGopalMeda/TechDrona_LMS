@@ -1,0 +1,154 @@
+/*
+ * Website course-card motion (tech drona/src/styles/global.css: .cc / .cf-live / .pc-live / Reveal).
+ * Reveal: every [data-reveal] element fades up once on load with no JS; RevealGroup re-arms the ones
+ * below the fold so they fade up when scrolled into view. Delay comes from --sc-delay (stagger).
+ */
+
+.reveal {
+  animation: scFadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) var(--sc-delay, 0ms) both;
+}
+.reveal[data-reveal="wait"] {
+  animation: none;
+  opacity: 0;
+  transform: translateY(22px);
+}
+.reveal[data-reveal="in"] {
+  animation: scFadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) var(--sc-delay, 0ms) both;
+}
+@keyframes scFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Card hover lift + accent edge (website .card:hover / .cc:hover). */
+.card {
+  transition:
+    transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.25s ease;
+}
+.card:hover,
+.card:focus-within {
+  transform: translateY(-4px);
+  box-shadow: 0 18px 40px -18px color-mix(in srgb, var(--sc-acc, #1d3a8a) 45%, transparent);
+  border-color: color-mix(in srgb, var(--sc-acc, #1d3a8a) 45%, transparent);
+}
+
+/* Banner: tinted accent band with a soft drifting glow and the theme labels (website .cc-banner). */
+.banner {
+  background:
+    radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--sc-acc) 22%, transparent) 0%, transparent 55%),
+    linear-gradient(135deg, var(--sc-soft) 0%, color-mix(in srgb, var(--sc-soft) 70%, #fff) 100%);
+}
+.bannerArt {
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.card:hover .bannerArt {
+  transform: translateY(-3px) scale(1.04);
+}
+.glow {
+  animation: scDrift 9s ease-in-out infinite alternate;
+}
+@keyframes scDrift {
+  from {
+    transform: translate(0, 0) scale(1);
+  }
+  to {
+    transform: translate(-18px, 12px) scale(1.12);
+  }
+}
+
+/* Live status pill (website .cf-live / .pc-live): green with a pulsing LED; amber when closed. */
+.live {
+  background: #0d7a4f;
+  color: #fff;
+}
+.live i {
+  background: #a7f3d0;
+  box-shadow: 0 0 0 0 rgba(167, 243, 208, 0.7);
+  animation:
+    scLed 1.2s ease-in-out infinite alternate,
+    scPulse 1.8s ease-out infinite;
+}
+.liveRunning {
+  background: #e0ecff;
+  color: #1d3a8a;
+}
+.liveRunning i {
+  background: #2563eb;
+  animation: scLed 1.2s ease-in-out infinite alternate;
+}
+.liveSoon {
+  background: #fff4e0;
+  color: #8a4b00;
+  border: 1px solid #f6d9a8;
+}
+.liveSoon i {
+  background: #f59e0b;
+}
+.liveDone {
+  background: #eef0f3;
+  color: #4b5563;
+}
+.liveDone i {
+  background: #9ca3af;
+}
+@keyframes scLed {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes scPulse {
+  to {
+    box-shadow: 0 0 0 8px rgba(167, 243, 208, 0);
+  }
+}
+
+/* Tech chips (website .tags span / .cf-tech span), accent-tinted. */
+.chip {
+  background: color-mix(in srgb, var(--sc-acc) 9%, transparent);
+  color: var(--sc-acc);
+}
+.kicker {
+  color: var(--sc-acc);
+}
+.accentText {
+  color: var(--sc-acc);
+}
+.iconTile {
+  background: color-mix(in srgb, var(--sc-acc) 12%, #fff);
+  color: var(--sc-acc);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal[data-reveal="in"],
+  .reveal[data-reveal="wait"] {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .card,
+  .bannerArt {
+    transition: none;
+  }
+  .card:hover,
+  .card:focus-within,
+  .card:hover .bannerArt {
+    transform: none;
+  }
+  .glow,
+  .live i,
+  .liveRunning i {
+    animation: none;
+  }
+}

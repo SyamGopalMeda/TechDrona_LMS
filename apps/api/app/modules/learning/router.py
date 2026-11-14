@@ -37,11 +37,13 @@ from app.core.pagination import DEFAULT_LIMIT, MAX_LIMIT, decode_cursor, page_me
 from app.core.principal import Principal
 from app.core.routing import authenticated_router, public_router
 from app.core.time import to_rfc3339, utcnow
-from app.modules.ai.service import require_app_enabled
-from app.modules.catalog import service as catalog
-from app.modules.catalog.models import Course, CourseVersion, Lesson, LessonAsset, Resource
+from app.modules.ai.public import require_app_enabled
+from app.modules.catalog import public as catalog
+from app.modules.catalog import public as catalog_api
+from app.modules.catalog.public import Course, CourseVersion, Lesson
+from app.modules.learning import fs_enrol, structured
+from app.modules.learning import fs_store as fss
 from app.modules.learning import service as svc
-from app.modules.learning import structured
 from app.modules.learning.models import (
     Assignment,
     AssignmentSubmission,
@@ -99,16 +101,26 @@ def enrolment_out(
 
 
 async def _my_enrolments(session: Any, user_id: uuid.UUID) -> list[tuple[Enrolment, Course, CourseVersion]]:
-    rows = (
-        await session.execute(
-            select(Enrolment, Course, CourseVersion)
-            .join(Course, Course.id == Enrolment.course_id)
-            .join(CourseVersion, CourseVersion.id == Enrolment.course_version_id)
-            .where(Enrolment.user_id == user_id)
-            .order_by(Enrolment.last_activity_at.desc().nulls_last(), Enrolment.id.desc())
+    if fss.fs():
+        enrols = await fs_enrol.my_enrolments(session, user_id)
+    else:
+        enrols = list(
+            (
+                await session.execute(
+                    select(Enrolment)
+                    .where(Enrolment.user_id == user_id)
+                    .order_by(Enrolment.last_activity_at.desc().nulls_last(), Enrolment.id.desc())
+                )
+            ).scalars()
         )
-    ).all()
-    return [(r[0], r[1], r[2]) for r in rows]
+    courses = await catalog_api.get_courses(session, {e.course_id for e in enrols})
+    versions = await catalog_api.get_versions(session, {e.course_version_id for e in enrols})
+    # inner-join semantics: enrolments whose course or version is not visible are dropped
+    return [
+        (e, courses[e.course_id], versions[e.course_version_id])
+        for e in enrols
+        if e.course_id in courses and e.course_version_id in versions
+    ]
 
 
 # =========================================================================== learner
@@ -126,13 +138,16 @@ async def dashboard(
         a for a in assignments if a["my_status"] in ("not_submitted", "returned") and a["window"] != "closed"
     ]
     due.sort(key=lambda a: a["due_at"] or "9999")
-    certs = (
-        await session.execute(
-            select(Certificate)
-            .where(Certificate.user_id == principal.user_id)
-            .order_by(Certificate.issued_at.desc())
-        )
-    ).scalars()
+    if fss.fs():
+        certs: Any = await fs_enrol.my_certificates(session, principal.user_id)
+    else:
+        certs = (
+            await session.execute(
+                select(Certificate)
+                .where(Certificate.user_id == principal.user_id)
+                .order_by(Certificate.issued_at.desc())
+            )
+        ).scalars()
     expiring = [
         enrolment_out(e, c, v)
         for e, c, v in enrols
@@ -185,15 +200,11 @@ async def enrol(
     principal: Principal = Depends(require_active_principal),
 ) -> Any:
     async def op() -> IdemResult:
-        course = (
-            await session.execute(
-                select(Course).where(Course.id == body.course_id, Course.deleted_at.is_(None))
-            )
-        ).scalar_one_or_none()
-        if course is None:
+        course = (await catalog_api.get_courses(session, [body.course_id])).get(body.course_id)
+        if course is None or course.deleted_at is not None:
             raise ProblemError("not_found")
         enr, created = await svc.self_enrol(session, principal, course)
-        version = await session.get(CourseVersion, enr.course_version_id)
+        version = await catalog.get_version(session, enr.course_version_id)
         return IdemResult(enrolment_out(enr, course, version), 201 if created else 200, enr.id)
 
     return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
@@ -203,7 +214,7 @@ async def _own_enrolment(
     session: Any, principal: Principal, course_id: uuid.UUID
 ) -> tuple[Enrolment, Course]:
     enr = await svc.get_enrolment(session, principal.user_id, course_id)
-    course = await session.get(Course, course_id)
+    course = (await catalog_api.get_courses(session, [course_id])).get(course_id)
     if enr is None or course is None:
         raise ProblemError("not_found")
     return enr, course
@@ -216,7 +227,7 @@ async def course_overview(
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
     enr, course = await _own_enrolment(session, principal, course_id)
-    version = await session.get(CourseVersion, enr.course_version_id)
+    version = await catalog.get_version(session, enr.course_version_id)
     assert version is not None
     modules, by_module, _assets = await catalog.version_tree(session, version.id)
     pm = await svc.progress_map(session, enr.id)
@@ -240,9 +251,12 @@ async def course_overview(
         out_modules.append(
             {"id": str(m.id), "module_key": str(m.module_key), "title": m.title, "lessons": lessons}
         )
-    cert = (
-        await session.execute(select(Certificate).where(Certificate.enrolment_id == enr.id))
-    ).scalar_one_or_none()
+    if fss.fs():
+        cert = await fs_enrol.certificate_of_enrolment(session, enr.id)
+    else:
+        cert = (
+            await session.execute(select(Certificate).where(Certificate.enrolment_id == enr.id))
+        ).scalar_one_or_none()
     if cert is not None:
         cert_status: dict[str, Any] = {
             **svc.certificate_out(cert),
@@ -256,7 +270,7 @@ async def course_overview(
         }
     migration = None
     if course.current_version_id and course.current_version_id != enr.course_version_id:
-        cur = await session.get(CourseVersion, course.current_version_id)
+        cur = await catalog.get_version(session, course.current_version_id)
         if cur is not None:
             migration = {
                 "available_version_id": str(cur.id),
@@ -298,18 +312,8 @@ async def lesson_payload(
         }
     elif version.status != "published":
         raise ProblemError("not_found")
-    assets = list(
-        (
-            await session.execute(
-                select(LessonAsset)
-                .where(LessonAsset.lesson_id == lesson.id, LessonAsset.status != "retired")
-                .order_by(LessonAsset.position)
-            )
-        ).scalars()
-    )
-    resources = (
-        await session.execute(select(Resource).where(Resource.lesson_id == lesson.id).order_by(Resource.id))
-    ).scalars()
+    assets = await catalog_api.lesson_assets(session, lesson.id)
+    resources = await catalog_api.lesson_resources(session, lesson.id)
     out = catalog.lesson_out(lesson, assets)
     out["playback"] = (
         {"token_url": "/api/v1/media/playback-tokens"} if lesson.lesson_type == "video" else None
@@ -327,6 +331,36 @@ class CompletionIn(Strict):
     evidence: dict[str, Any] = Field(default_factory=dict)
 
 
+async def _enrolment_lesson_course(
+    session: Any, user_id: uuid.UUID, lesson_key: uuid.UUID
+) -> tuple[Enrolment, Lesson, Course] | None:
+    """An active or completed enrolment of the user whose pinned version contains the lesson,
+    with that lesson and the course (was one ``Enrolment JOIN Lesson JOIN Course``)."""
+    lessons = await catalog_api.find_lessons(session, lesson_key=lesson_key)
+    by_version = {le.course_version_id: le for le in lessons}
+    if not by_version:
+        return None
+    if fss.fs():
+        enrols = await fs_enrol.enrolments_on_versions(session, user_id, by_version)
+    else:
+        enrols = list(
+            (
+                await session.execute(
+                    select(Enrolment).where(
+                        Enrolment.user_id == user_id,
+                        Enrolment.status.in_(("active", "completed")),
+                        Enrolment.course_version_id.in_(list(by_version)),
+                    )
+                )
+            ).scalars()
+        )
+    courses = await catalog_api.get_courses(session, {e.course_id for e in enrols})
+    for e in enrols:
+        if e.course_id in courses:
+            return e, by_version[e.course_version_id], courses[e.course_id]
+    return None
+
+
 @me.post("/lessons/{lesson_key}/completion", operation_id="lrn_06_completion")
 async def lesson_completion(
     request: Request,
@@ -336,18 +370,7 @@ async def lesson_completion(
     principal: Principal = Depends(require_active_principal),
 ) -> Any:
     async def op() -> IdemResult:
-        row = (
-            await session.execute(
-                select(Enrolment, Lesson, Course)
-                .join(Lesson, Lesson.course_version_id == Enrolment.course_version_id)
-                .join(Course, Course.id == Enrolment.course_id)
-                .where(
-                    Enrolment.user_id == principal.user_id,
-                    Enrolment.status.in_(("active", "completed")),
-                    Lesson.lesson_key == lesson_key,
-                )
-            )
-        ).first()
+        row = await _enrolment_lesson_course(session, principal.user_id, lesson_key)
         if row is None:
             raise ProblemError("not_found")
         enr, lesson, course = row
@@ -464,7 +487,22 @@ def _submission_out(s: AssignmentSubmission, *, show_grade: bool) -> dict[str, A
     return out
 
 
+async def _fs_eligible_assignments(session: Any, principal: Principal) -> list[Assignment]:
+    """Firestore: ``_eligible_assignment_filter`` evaluated in memory (any status)."""
+    batches = await _my_batch_ids(session, principal.user_id)
+    courses = {e.course_id for e in await fs_enrol.live_enrolments(session, principal.user_id)}
+    return await fs_enrol.eligible_assignments(session, principal.user_id, batches, courses, utcnow())
+
+
 async def _my_assignments(session: Any, principal: Principal) -> list[dict[str, Any]]:
+    if fss.fs():
+        return await _my_assignments_rows(
+            session,
+            principal,
+            fs_enrol.order_due_nulls_last(
+                [a for a in await _fs_eligible_assignments(session, principal) if a.status == "active"]
+            ),
+        )
     flt = await _eligible_assignment_filter(session, principal)
     if flt is None:
         return []
@@ -477,8 +515,17 @@ async def _my_assignments(session: Any, principal: Principal) -> list[dict[str, 
             )
         ).scalars()
     )
+    return await _my_assignments_rows(session, principal, rows)
+
+
+async def _my_assignments_rows(
+    session: Any, principal: Principal, rows: list[Assignment]
+) -> list[dict[str, Any]]:
     subs: dict[uuid.UUID, AssignmentSubmission] = {}
-    if rows:
+    if rows and fss.fs():
+        for s in await fs_enrol.my_submissions(session, principal.user_id, [a.id for a in rows]):
+            subs[s.assignment_id] = s
+    elif rows:
         for s in (
             await session.execute(
                 select(AssignmentSubmission)
@@ -511,6 +558,13 @@ async def my_assignments(
 
 
 async def _eligible_assignment(session: Any, principal: Principal, assignment_id: uuid.UUID) -> Assignment:
+    if fss.fs():
+        hit = next(
+            (x for x in await _fs_eligible_assignments(session, principal) if x.id == assignment_id), None
+        )
+        if hit is None:
+            raise ProblemError("not_found")
+        return hit
     flt = await _eligible_assignment_filter(session, principal)
     a = None
     if flt is not None:
@@ -529,15 +583,22 @@ async def my_assignment(
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
     a = await _eligible_assignment(session, principal, assignment_id)
-    subs = (
-        await session.execute(
-            select(AssignmentSubmission)
-            .where(
-                AssignmentSubmission.assignment_id == a.id, AssignmentSubmission.user_id == principal.user_id
-            )
-            .order_by(AssignmentSubmission.attempt_no)
+    if fss.fs():
+        subs: Any = sorted(
+            await fs_enrol.submissions_of(session, a.id, user_id=principal.user_id),
+            key=lambda s: s.attempt_no,
         )
-    ).scalars()
+    else:
+        subs = (
+            await session.execute(
+                select(AssignmentSubmission)
+                .where(
+                    AssignmentSubmission.assignment_id == a.id,
+                    AssignmentSubmission.user_id == principal.user_id,
+                )
+                .order_by(AssignmentSubmission.attempt_no)
+            )
+        ).scalars()
     out = _assignment_out(a, utcnow())
     out["submissions"] = [_submission_out(s, show_grade=a.grades_released_at is not None) for s in subs]
     return out
@@ -566,7 +627,7 @@ async def submit_assignment(
                 "invalid_state_transition", detail="This assignment is not open for submissions."
             )
         if a.course_id is not None:
-            course = await session.get(Course, a.course_id)
+            course = (await catalog_api.get_courses(session, [a.course_id])).get(a.course_id)
             if course is not None:
                 await svc.require_access(session, principal, "course", course.id, is_free=course.is_free)
         window = svc.window_state(now, a.due_at, a.late_until)
@@ -575,18 +636,74 @@ async def submit_assignment(
         _validate_payload(a, body, principal.user_id)
         if body.code_submission_id is not None:
             await _require_own_code_submission(session, principal, a, body.code_submission_id)
-        prev = list(
-            (
-                await session.execute(
-                    select(AssignmentSubmission)
-                    .where(
-                        AssignmentSubmission.assignment_id == a.id,
-                        AssignmentSubmission.user_id == principal.user_id,
+        if fss.fs():
+            sub = await _submit_fs(session, principal, a, body, window, now)
+        else:
+            prev = list(
+                (
+                    await session.execute(
+                        select(AssignmentSubmission)
+                        .where(
+                            AssignmentSubmission.assignment_id == a.id,
+                            AssignmentSubmission.user_id == principal.user_id,
+                        )
+                        .order_by(AssignmentSubmission.attempt_no)
+                        .with_for_update()
                     )
-                    .order_by(AssignmentSubmission.attempt_no)
-                    .with_for_update()
-                )
-            ).scalars()
+                ).scalars()
+            )
+            if prev and prev[-1].status != "returned" and len(prev) >= a.max_attempts:
+                raise ProblemError("attempt_limit_reached")
+            sub = AssignmentSubmission(
+                id=uuid7(),
+                assignment_id=a.id,
+                user_id=principal.user_id,
+                organization_id=a.organization_id,
+                attempt_no=(prev[-1].attempt_no + 1) if prev else 1,
+                body_text=body.body_text,
+                link_url=body.link_url,
+                file_s3_keys=body.file_s3_keys,
+                code_submission_id=body.code_submission_id,
+                status="late" if window == "late" else "submitted",
+                submitted_at=now,
+            )
+            fss.add(session, sub)
+            await fss.flush(session)
+        await emit_event(
+            session,
+            "learning.assignment_submitted",
+            {
+                "submission_id": str(sub.id),
+                "assignment_id": str(a.id),
+                "user_id": str(principal.user_id),
+                "late": window == "late",
+            },
+            aggregate_type="assignment",
+            aggregate_id=a.id,
+            organization_id=a.organization_id,
+        )
+        # Assignment lessons complete on submission (evidence: the submission id).
+        keys = {le.lesson_key for le in await catalog_api.find_lessons(session, assignment_id=a.id)}
+        for k in keys:
+            await svc.record_completion(
+                session, principal.user_id, k, {"kind": "assignment_submitted", "submission_id": str(sub.id)}
+            )
+        return IdemResult(_submission_out(sub, show_grade=False), 201, sub.id)
+
+    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=True)
+
+
+async def _submit_fs(
+    session: Any, principal: Principal, a: Assignment, body: Any, window: str, now: datetime
+) -> AssignmentSubmission:
+    """Firestore: next attempt number + insert, retried when a concurrent submit takes the same
+    number (``submission_keys/{assignment:user:attempt}``) — the Postgres ``FOR UPDATE`` on the
+    learner's submissions serialises the two, so the loser re-reads and either takes the next
+    attempt or hits ``attempt_limit_reached``."""
+    for _ in range(5):
+        prev = sorted(
+            await fs_enrol.submissions_of(session, a.id, user_id=principal.user_id),
+            key=lambda s: s.attempt_no,
         )
         if prev and prev[-1].status != "returned" and len(prev) >= a.max_attempts:
             raise ProblemError("attempt_limit_reached")
@@ -603,32 +720,15 @@ async def submit_assignment(
             status="late" if window == "late" else "submitted",
             submitted_at=now,
         )
-        session.add(sub)
-        await session.flush()
-        await emit_event(
-            session,
-            "learning.assignment_submitted",
-            {
-                "submission_id": str(sub.id),
-                "assignment_id": str(a.id),
-                "user_id": str(principal.user_id),
-                "late": window == "late",
-            },
-            aggregate_type="assignment",
-            aggregate_id=a.id,
-            organization_id=a.organization_id,
-        )
-        # Assignment lessons complete on submission (evidence: the submission id).
-        keys = set(
-            (await session.execute(select(Lesson.lesson_key).where(Lesson.assignment_id == a.id))).scalars()
-        )
-        for k in keys:
-            await svc.record_completion(
-                session, principal.user_id, k, {"kind": "assignment_submitted", "submission_id": str(sub.id)}
-            )
-        return IdemResult(_submission_out(sub, show_grade=False), 201, sub.id)
-
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=True)
+        fss.add(session, sub)
+        try:
+            await fss.flush(session, raise_unique=True)
+            return sub
+        except fss.UniqueConflict:
+            for p in prev:
+                fss.evict(session, p)
+            continue
+    raise ProblemError("conflict")
 
 
 async def _require_own_code_submission(
@@ -637,13 +737,12 @@ async def _require_own_code_submission(
     """BE-07: the cited code submission must exist, be the learner's own graded ``submit`` and,
     when the assignment's lesson names a coding problem, be for that problem (coding's public
     ``verify_submission_owner``)."""
-    from app.modules.coding.service import verify_submission_owner
+    from app.modules.coding.public import verify_submission_owner
 
     problem_id = None
     if a.lesson_id is not None:
-        problem_id = (
-            await session.execute(select(Lesson.coding_problem_id).where(Lesson.id == a.lesson_id))
-        ).scalar_one_or_none()
+        le = (await catalog_api.get_lessons(session, [a.lesson_id])).get(a.lesson_id)
+        problem_id = le.coding_problem_id if le is not None else None
     if not await verify_submission_owner(session, code_submission_id, principal.user_id, problem_id):
         raise svc.vf("code_submission_id", "not_found", "Submit your code first, then attach that submission")
 
@@ -686,15 +785,21 @@ async def my_certificates(
     cursor: str | None = None,
     limit: int = MAX_LIMIT,
 ) -> dict[str, Any]:
-    all_rows = (
-        await session.execute(
-            select(Certificate, CourseVersion.title)
-            .join(CourseVersion, CourseVersion.id == Certificate.course_version_id)
-            .where(Certificate.user_id == principal.user_id)
-            .order_by(Certificate.issued_at.desc(), Certificate.id.desc())
+    if fss.fs():
+        certs = await fs_enrol.my_certificates(session, principal.user_id)
+    else:
+        certs = list(
+            (
+                await session.execute(
+                    select(Certificate)
+                    .where(Certificate.user_id == principal.user_id)
+                    .order_by(Certificate.issued_at.desc(), Certificate.id.desc())
+                )
+            ).scalars()
         )
-    ).all()
-    rows, page = _offset_page(list(all_rows), cursor, limit)
+    versions = await catalog_api.get_versions(session, {c.course_version_id for c in certs})
+    all_rows = [(c, versions[c.course_version_id].title) for c in certs if c.course_version_id in versions]
+    rows, page = _offset_page(all_rows, cursor, limit)
     return {"data": [svc.certificate_out(c, t) for c, t in rows], "page": page}
 
 
@@ -704,9 +809,9 @@ async def certificate_pdf(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
-    from app.modules.media.storage import presign_get, storage_settings
+    from app.modules.media.public import presign_get, storage_settings
 
-    c = await session.get(Certificate, certificate_id)
+    c = await fss.get(session, Certificate, certificate_id)
     if c is None or c.user_id != principal.user_id:
         raise ProblemError("not_found")
     if c.pdf_s3_key is None:
@@ -719,27 +824,53 @@ async def certificate_pdf(
 
 @pub.get("/certificates/verify/{public_code}", operation_id="lrn_13_verify_certificate")
 async def verify_certificate(public_code: str, session: DbSession) -> dict[str, Any]:
-    """Public verification: minimal fields only; no reason for revocation; uniform 404."""
+    """Public verification: minimal fields only; no reason for revocation; uniform 404.
+    Issued-document references (``TD-AL-2026-7K3QX9``, also ``TD/AL/2026/7K3QX9``) resolve to the
+    document (``learning.documents.verify_public``); certificate codes work as before."""
+    from app.modules.learning import docdefs as _dd
+
+    if _dd.is_doc_ref(public_code):
+        from app.modules.learning import documents as _docs
+
+        await system_context(session, "learning.document_verify")
+        return await _docs.verify_public(session, public_code)
     if not PUBLIC_CODE_RE.match(public_code):
         raise ProblemError("not_found")
     await system_context(session, "learning.certificate_verify")
-    row = (
-        await session.execute(
-            select(
-                Certificate.public_code,
-                Certificate.name_on_certificate,
-                Certificate.identity_verified,
-                Certificate.issued_at,
-                Certificate.revoked_at,
-                CourseVersion.title,
+    if fss.fs():
+        c = await fs_enrol.certificate_by_code(None, public_code)
+        cert: Any = (
+            None
+            if c is None
+            else (
+                c.public_code,
+                c.name_on_certificate,
+                c.identity_verified,
+                c.issued_at,
+                c.revoked_at,
+                c.course_version_id,
             )
-            .join(CourseVersion, CourseVersion.id == Certificate.course_version_id)
-            .where(Certificate.public_code == public_code)
         )
-    ).first()
-    if row is None:
+    else:
+        cert = (
+            await session.execute(
+                select(
+                    Certificate.public_code,
+                    Certificate.name_on_certificate,
+                    Certificate.identity_verified,
+                    Certificate.issued_at,
+                    Certificate.revoked_at,
+                    Certificate.course_version_id,
+                ).where(Certificate.public_code == public_code)
+            )
+        ).first()
+    if cert is None:
         raise ProblemError("not_found")
-    code, name, verified, issued_at, revoked_at, title = row
+    version = (await catalog_api.get_versions(session, [cert[5]])).get(cert[5])
+    if version is None:
+        raise ProblemError("not_found")
+    code, name, verified, issued_at, revoked_at, _version_id = cert
+    title = version.title
     if revoked_at is not None:
         return {"public_code": code, "status": "revoked", "revoked_on": svc.ist_day(revoked_at)}
     return {
@@ -757,7 +888,13 @@ async def verify_certificate(public_code: str, session: DbSession) -> dict[str, 
 
 
 async def _assignment_scope(session: Any, principal: Principal, a_id: uuid.UUID) -> tuple[ScopeRef, Any]:
-    row = await catalog.system_lookup(
+    if fss.fs():
+        fa = await fss.get(None, Assignment, a_id)
+        if fa is None:
+            raise ProblemError("not_found")
+        frow = (fa.batch_id, fa.course_id, fa.organization_id)
+        return structured.scope_of(frow[0], frow[1], frow[2]), frow
+    row = await fss.system_row(
         session,
         principal,
         select(Assignment.batch_id, Assignment.course_id, Assignment.organization_id).where(
@@ -772,21 +909,21 @@ async def _assignment_scope(session: Any, principal: Principal, a_id: uuid.UUID)
 async def _org_of_target(
     session: Any, principal: Principal, batch_id: uuid.UUID | None, course_id: uuid.UUID | None
 ) -> uuid.UUID | None:
-    from app.modules.orgs.models import Batch
-
     if batch_id is not None:
-        row = await catalog.system_lookup(
-            session, principal, select(Batch.organization_id).where(Batch.id == batch_id)
-        )
-        if row is None:
+        from app.modules.orgs import public as orgs_public
+
+        # orgs' public API (either store), in a system context as the Postgres lookup was
+        if session:
+            async with system_context(session, "learning.batch_lookup"):
+                b = await orgs_public.get_batch(session, batch_id)
+        else:
+            b = await orgs_public.get_batch(session, batch_id)
+        if b is None:
             raise ProblemError("not_found")
-        return row[0]
-    row = await catalog.system_lookup(
-        session, principal, select(Course.organization_id).where(Course.id == course_id)
-    )
-    if row is None:
+        return b.organization_id
+    if course_id is None:
         raise ProblemError("not_found")
-    return row[0]
+    return await catalog_api.course_org_system(session, principal, course_id)
 
 
 class RubricLevel(Strict):
@@ -938,8 +1075,8 @@ async def create_assignment(
             max_attempts=body.max_attempts,
             created_by=principal.user_id,
         )
-        session.add(a)
-        await session.flush()
+        fss.add(session, a)
+        await fss.flush(session)
         return IdemResult(_assignment_out(a, utcnow()), 201, a.id)
 
     return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
@@ -955,7 +1092,7 @@ async def patch_assignment(
 ) -> dict[str, Any]:
     scope, _ = await _assignment_scope(session, principal, assignment_id)
     await catalog.ensure_permission(request, session, principal, "assignment.manage", scope)
-    a = await session.get(Assignment, assignment_id)
+    a = await fss.get(session, Assignment, assignment_id)
     if a is None:
         raise ProblemError("not_found")
     data = body.model_dump(exclude_unset=True)
@@ -976,7 +1113,7 @@ async def patch_assignment(
         ):
             continue
         setattr(a, k, v)
-    await session.flush()
+    await fss.flush(session)
     return _assignment_out(a, utcnow())
 
 
@@ -994,30 +1131,70 @@ async def grading_queue(
 ) -> dict[str, Any]:
     scope, _ = await _assignment_scope(session, principal, assignment_id)
     await catalog.ensure_permission(request, session, principal, "assignment.grade", scope)
-    q = select(AssignmentSubmission).where(AssignmentSubmission.assignment_id == assignment_id)
-    if status:
-        q = q.where(AssignmentSubmission.status == status)
-    rows = (await session.execute(q.order_by(AssignmentSubmission.submitted_at))).scalars()
-    return {"data": [_submission_out(s, show_grade=True) for s in rows], "page": page_meta(None, MAX_LIMIT)}
+    if fss.fs():
+        rows = await fs_enrol.submissions_of(session, assignment_id, status=status or None)
+        rows.sort(key=lambda s: str(s.id))
+        rows.sort(key=lambda s: (s.submitted_at is None, s.submitted_at or utcnow()))
+    else:
+        q = select(AssignmentSubmission).where(AssignmentSubmission.assignment_id == assignment_id)
+        if status:
+            q = q.where(AssignmentSubmission.status == status)
+        rows = list((await session.execute(q.order_by(AssignmentSubmission.submitted_at))).scalars())
+    a_row = await fss.get(session, Assignment, assignment_id)
+    if a_row is not None and a_row.submission_type == "structured":
+        from app.modules.learning import structured_api
+
+        gradable = await structured_api.gradable_allocations(request, session, principal, assignment_id)
+        rows = [s for s in rows if structured_api._in_gradable(gradable, s.allocation_id)]
+    names = await _learner_names(session, {s.user_id for s in rows})
+    return {
+        "data": [{**_submission_out(s, show_grade=True), "learner_name": names.get(s.user_id)} for s in rows],
+        "page": page_meta(None, MAX_LIMIT),
+    }
+
+
+async def _learner_names(session: Any, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str | None]:
+    """Display names of the learners on a grading screen. Graders need them, and evaluators hold
+    ``assignment.grade`` without ``org.member.read`` (the batch roster), so the queue carries them."""
+    async with system_context(session, "learning.grading_names"):
+        return await structured.learner_names(session, user_ids)
 
 
 async def _submission_for_staff(
     request: Request, session: Any, principal: Principal, submission_id: uuid.UUID, perm: str
 ) -> tuple[AssignmentSubmission, Assignment]:
-    row = await catalog.system_lookup(
-        session,
-        principal,
-        select(AssignmentSubmission.assignment_id).where(AssignmentSubmission.id == submission_id),
-    )
+    row = await _submission_row(session, principal, submission_id)
     if row is None:
         raise ProblemError("not_found")
     scope, _ = await _assignment_scope(session, principal, row[0])
     await catalog.ensure_permission(request, session, principal, perm, scope)
-    sub = await session.get(AssignmentSubmission, submission_id)
-    a = await session.get(Assignment, row[0])
+    sub = await fss.get(session, AssignmentSubmission, submission_id)
+    a = await fss.get(session, Assignment, row[0])
     if sub is None or a is None:
         raise ProblemError("not_found")
+    if a.submission_type == "structured":
+        # A structured assignment can be allocated to other batches: the grant must also cover
+        # the allocation this submission belongs to (RBAC audit 2026-11-13).
+        from app.modules.learning import structured_api
+
+        gradable = await structured_api.gradable_allocations(request, session, principal, a.id)
+        if not structured_api._in_gradable(gradable, sub.allocation_id):
+            raise ProblemError("permission_denied", permission="assignment.grade")
     return sub, a
+
+
+async def _submission_row(session: Any, principal: Principal, submission_id: uuid.UUID) -> Any:
+    """(assignment_id, user_id) of a submission in a system lookup, or None."""
+    if fss.fs():
+        s = await fss.get(None, AssignmentSubmission, submission_id)
+        return (s.assignment_id, s.user_id) if s is not None else None
+    return await fss.system_row(
+        session,
+        principal,
+        select(AssignmentSubmission.assignment_id, AssignmentSubmission.user_id).where(
+            AssignmentSubmission.id == submission_id
+        ),
+    )
 
 
 @staff.get(
@@ -1036,19 +1213,13 @@ async def get_submission(
     * Owner (``S``): own submission; grade fields only once grades are released (as LRN-09).
     * Staff: ``assignment.grade`` @B/@C on the assignment's scope (as LRN-16); full view.
     * Anyone else: ``404 not_found`` (existence is not disclosed; cross-tenant is 404 too)."""
-    row = await catalog.system_lookup(
-        session,
-        principal,
-        select(AssignmentSubmission.assignment_id, AssignmentSubmission.user_id).where(
-            AssignmentSubmission.id == submission_id
-        ),
-    )
+    row = await _submission_row(session, principal, submission_id)
     if row is None:
         raise ProblemError("not_found")
     if row[1] == principal.user_id:
         # Owner read runs on the principal's own RLS context (family U: own rows).
-        own = await session.get(AssignmentSubmission, submission_id)
-        a = await session.get(Assignment, row[0])
+        own = await fss.get(session, AssignmentSubmission, submission_id)
+        a = await fss.get(session, Assignment, row[0])
         if own is None or a is None:  # pragma: no cover - hidden by RLS / deleted meanwhile
             raise ProblemError("not_found")
         return _submission_out(own, show_grade=a.grades_released_at is not None)
@@ -1058,7 +1229,8 @@ async def get_submission(
         if e.code == "permission_denied":
             raise ProblemError("not_found") from e
         raise
-    return _submission_out(sub, show_grade=True)
+    names = await _learner_names(session, {sub.user_id})
+    return {**_submission_out(sub, show_grade=True), "learner_name": names.get(sub.user_id)}
 
 
 @staff.get(
@@ -1076,19 +1248,13 @@ async def submission_file(
     """ADM-47: short-lived (<= 5 min) download URL for one attached file of a submission.
     Same access rule as LRN-16a: the owner, or staff with ``assignment.grade`` on the
     assignment's scope; anyone else 404."""
-    from app.modules.media.storage import presign_get, storage_settings
+    from app.modules.media.public import presign_get, storage_settings
 
-    row = await catalog.system_lookup(
-        session,
-        principal,
-        select(AssignmentSubmission.assignment_id, AssignmentSubmission.user_id).where(
-            AssignmentSubmission.id == submission_id
-        ),
-    )
+    row = await _submission_row(session, principal, submission_id)
     if row is None:
         raise ProblemError("not_found")
     if row[1] == principal.user_id:
-        sub = await session.get(AssignmentSubmission, submission_id)
+        sub = await fss.get(session, AssignmentSubmission, submission_id)
         if sub is None:  # pragma: no cover - hidden by RLS
             raise ProblemError("not_found")
     else:
@@ -1174,7 +1340,7 @@ async def grade(
         sub.feedback_md = body.feedback_md
         sub.graded_by = principal.user_id
         sub.graded_at = now
-        await session.flush()
+        await fss.flush(session)
         await audit(  # ADM-57
             session,
             principal,
@@ -1218,12 +1384,12 @@ async def release_grades(
 ) -> dict[str, Any]:
     scope, _ = await _assignment_scope(session, principal, assignment_id)
     await catalog.ensure_permission(request, session, principal, "assignment.grade", scope)
-    a = await session.get(Assignment, assignment_id)
+    a = await fss.get(session, Assignment, assignment_id)
     if a is None:
         raise ProblemError("not_found")
     if a.grades_released_at is None:
         a.grades_released_at = utcnow()
-        await session.flush()
+        await fss.flush(session)
         await audit(  # ADM-57
             session,
             principal,
@@ -1281,7 +1447,7 @@ async def grade_override(
             sub.feedback_md = body.feedback_md
         sub.graded_by = principal.user_id
         sub.graded_at = utcnow()
-        await session.flush()
+        await fss.flush(session)
         await audit(
             session,
             principal,
@@ -1323,7 +1489,7 @@ async def issue_certificate_manual(
     principal: Principal = Depends(require_active_principal),
 ) -> Any:
     async def op() -> IdemResult:
-        enr = await session.get(Enrolment, body.enrolment_id)
+        enr = await fss.get(session, Enrolment, body.enrolment_id)
         if enr is None:
             raise ProblemError("not_found")
         cert = await svc.issue_certificate(session, enr, source="manual")
@@ -1362,7 +1528,7 @@ async def revoke_certificate(
     await _step_up(principal, 300 if principal.tier == "privileged" else 600)
 
     async def op() -> IdemResult:
-        cert = await session.get(Certificate, certificate_id)
+        cert = await fss.get(session, Certificate, certificate_id)
         if cert is None:
             raise ProblemError("not_found")
         await svc.revoke_certificate(session, principal, cert, body.reason)
@@ -1416,6 +1582,16 @@ async def _enrolment_page(
     with_user: bool,
 ) -> dict[str, Any]:
     limit = _limit(limit)
+    if fss.fs():
+        qp = request.query_params
+        rows = await fs_enrol.enrolment_page(
+            session,
+            batch_id=uuid.UUID(qp["batch_id"]) if qp.get("batch_id") else None,
+            course_id=course_id,
+            after=uuid.UUID(str(decode_cursor(cursor).get("id"))) if cursor else None,
+            limit=limit,
+        )
+        return _enrolment_page_out(rows, limit)
     conds = [_scope_filter(request)]
     if course_id:
         conds.append(Enrolment.course_id == course_id)
@@ -1426,6 +1602,10 @@ async def _enrolment_page(
             await session.execute(select(Enrolment).where(*conds).order_by(Enrolment.id).limit(limit + 1))
         ).scalars()
     )
+    return _enrolment_page_out(rows, limit)
+
+
+def _enrolment_page_out(rows: list[Enrolment], limit: int) -> dict[str, Any]:
     more = len(rows) > limit
     rows = rows[:limit]
     data = []
@@ -1448,40 +1628,40 @@ async def batch_enrol(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> Any:
-    from app.modules.orgs.models import Batch, BatchMember
+    from app.modules.orgs import public as orgs_public
 
     await catalog.ensure_permission(
         request, session, principal, "enrolment.manage", ScopeRef("batch", body.batch_id)
     )
 
     async def op() -> IdemResult:
-        batch = await session.get(Batch, body.batch_id)
-        course = await session.get(Course, body.course_id)
+        batch: Any = await orgs_public.get_batch(session, body.batch_id)
+        course = (await catalog_api.get_courses(session, [body.course_id])).get(body.course_id)
         if batch is None or course is None or course.deleted_at is not None:
             raise ProblemError("not_found")
         if course.status != "published" or course.current_version_id is None:
             raise ProblemError("invalid_state_transition", detail="Only published courses can be assigned.")
         if course.organization_id is not None and course.organization_id != batch.organization_id:
             raise ProblemError("not_found")
-        members = list(
-            (
-                await session.execute(
-                    select(BatchMember.user_id).where(
-                        BatchMember.batch_id == batch.id,
-                        BatchMember.member_role == "student",
-                        BatchMember.status == "active",
+        members = [
+            m.user_id
+            for m in await orgs_public.batch_members(
+                session, batch_ids=[batch.id], member_role="student", active_only=False
+            )
+            if m.status == "active"
+        ]
+        existing = (
+            await fs_enrol.enrolled_user_ids(session, course.id, members)
+            if fss.fs()
+            else set(
+                (
+                    await session.execute(
+                        select(Enrolment.user_id).where(
+                            Enrolment.course_id == course.id, Enrolment.user_id.in_(members or [uuid7()])
+                        )
                     )
-                )
-            ).scalars()
-        )
-        existing = set(
-            (
-                await session.execute(
-                    select(Enrolment.user_id).where(
-                        Enrolment.course_id == course.id, Enrolment.user_id.in_(members or [uuid7()])
-                    )
-                )
-            ).scalars()
+                ).scalars()
+            )
         )
         created = 0
         for uid in members:
@@ -1534,7 +1714,11 @@ async def progress(
 ) -> dict[str, Any]:
     page = await _enrolment_page(session, request, course_id, cursor, limit, with_user=True)
     ids = [uuid.UUID(d["id"]) for d in page["data"]]
-    if ids:
+    if ids and fss.fs():
+        fs_done = await fs_enrol.completed_lesson_counts(session, ids)
+        for d in page["data"]:
+            d["lessons_completed"] = fs_done.get(d["id"], 0)
+    elif ids:
         done: dict[str, int] = {}
         for lp in (
             await session.execute(
@@ -1585,19 +1769,22 @@ async def list_assignments(
     status: Literal["active", "archived"] | None = None,
     cursor: str | None = None,
     limit: int = DEFAULT_LIMIT,
+    teaching: bool = False,
 ) -> dict[str, Any]:
     """Staff assignment list (trainer grading console; used by the web app, not in the spec
     table). ``scope=mine``: assignments whose batch/course scope grants the caller
-    ``assignment.grade`` or ``assignment.manage``. Newest first, cursor-paginated."""
+    ``assignment.grade`` or ``assignment.manage``. Newest first, cursor-paginated.
+    ``teaching=true`` (Teacher portal): platform grants are ignored for the pre-filter, so an
+    Admin who teaches a batch sees that batch's work there, not every assignment."""
     from sqlalchemy import func
-
-    from app.modules.orgs.models import Batch
 
     limit = _limit(limit)
     staff_grants = [g for g in principal.grants if g.role != "student"]
     if not staff_grants:
         raise ProblemError("permission_denied", permission="assignment.grade")
-    q = select(Assignment, Batch.name).outerjoin(Batch, Batch.id == Assignment.batch_id)
+    if teaching:
+        staff_grants = [g for g in staff_grants if g.scope_type != "platform"]
+    q = select(Assignment)  # batch names: orgs' public API per page (no join into its table)
     if not any(g.scope_type == "platform" for g in staff_grants):
         batches = {g.scope_id for g in staff_grants if g.scope_type == "batch" and g.scope_id}
         courses = {g.scope_id for g in staff_grants if g.scope_type == "course" and g.scope_id}
@@ -1628,10 +1815,31 @@ async def list_assignments(
     allowed: dict[tuple[str, uuid.UUID | None], bool] = {}
     picked: list[tuple[Assignment, str | None]] = []
     chunk = (limit + 1) * 2
+    fs_rows: list[tuple[Assignment, str | None]] = []
+    if fss.fs():
+        cands = await fs_enrol.staff_assignment_candidates(
+            session,
+            user_id=principal.user_id,
+            platform=any(g.scope_type == "platform" for g in staff_grants),
+            batches={g.scope_id for g in staff_grants if g.scope_type == "batch" and g.scope_id},
+            courses={g.scope_id for g in staff_grants if g.scope_type == "course" and g.scope_id},
+            batch_id=batch_id,
+            course_id=course_id,
+            status=status,
+        )
+        bnames = await _batch_names(session, {a.batch_id for a in cands if a.batch_id})
+        fs_rows = [(a, bnames.get(a.batch_id) if a.batch_id else None) for a in cands]
     for _ in range(20):
-        page_q = q if after is None else q.where(Assignment.id < after)
-        async with system_context(session, "learning.assignment_list"):
-            rows = (await session.execute(page_q.order_by(Assignment.id.desc()).limit(chunk))).all()
+        if fss.fs():
+            rows: Any = [r for r in fs_rows if after is None or str(r[0].id) < str(after)][:chunk]
+        else:
+            page_q = q if after is None else q.where(Assignment.id < after)
+            async with system_context(session, "learning.assignment_list"):
+                arows = list(
+                    (await session.execute(page_q.order_by(Assignment.id.desc()).limit(chunk))).scalars()
+                )
+            names = await _batch_names(session, {a.batch_id for a in arows if a.batch_id})
+            rows = [(a, names.get(a.batch_id) if a.batch_id else None) for a in arows]
         for a, batch_name in rows:
             sref = structured.scope_of(a.batch_id, a.course_id, a.organization_id)
             key = (sref.scope_type, sref.scope_id)
@@ -1664,7 +1872,9 @@ async def list_assignments(
     more = len(picked) > limit
     picked = picked[:limit]
     pending: dict[uuid.UUID, int] = {}
-    if picked:
+    if picked and fss.fs():
+        pending = await fs_enrol.pending_counts(session, [a.id for a, _ in picked])
+    elif picked:
         async with system_context(session, "learning.assignment_list"):
             pending = {
                 r[0]: int(r[1])
@@ -1701,6 +1911,18 @@ async def list_assignments(
     return {"data": data, "page": page_meta({"id": str(picked[-1][0].id)} if more else None, limit)}
 
 
+async def _batch_names(session: Any, batch_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """Batch names through orgs' public API (either store; system scope as the old join had)."""
+    if not batch_ids:
+        return {}
+    from app.modules.orgs import public as orgs_public
+
+    if not session:
+        return await orgs_public.batch_names(session, batch_ids)
+    async with system_context(session, "learning.assignment_list"):
+        return await orgs_public.batch_names(session, batch_ids)
+
+
 # Learning reacts to catalog publishes (minor versions auto-migrate enrolments).
 catalog.register_publish_hook(svc.on_course_published)
 
@@ -1712,6 +1934,17 @@ for _r in (me, me_ro, staff, pub):
 from app.modules.learning import structured_api as _structured_api  # noqa: E402
 
 router.include_router(_structured_api.router)
+
+# Admin certificates (register, due list, email approval queue, settings): learning.cert_admin.
+from app.modules.learning import cert_admin as _cert_admin  # noqa: E402
+
+router.include_router(_cert_admin.router)
+
+# Issued documents (letters, extra certificate types, templates, settings, public PDF check).
+from app.modules.learning import doc_admin as _doc_admin  # noqa: E402
+
+router.include_router(_doc_admin.router)
+router.include_router(_doc_admin.pub)
 
 
 # DB-01: register this module's erasure provider with admin privacy (import-time registration).

@@ -39,6 +39,7 @@ from app.modules.security.policies import (
     require_fresh_step_up,
     require_reason_code,
 )
+from app.modules.security.repo_fs_cases import sec_route
 from app.modules.security.timeline import device_graph, timeline
 
 r = authenticated_router(tags=["security"], route_tag="default", idle="extends")
@@ -78,11 +79,18 @@ class DecisionIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     unblock_request_id: uuid.UUID | None = None
     outcome: Literal[
-        "lift_false_positive", "lift_with_warning", "lift_conditions", "uphold", "convert_L4", "reduce_level"
+        "lift_false_positive",
+        "lift_with_warning",
+        "lift_conditions",
+        "uphold",
+        "convert_L4",
+        "reduce_level",
+        "close_no_action",
     ]
     resulting_level: int | None = Field(default=None, ge=0, le=4)
     rationale: str = Field(min_length=1, max_length=4000)
-    student_summary: str = Field(max_length=2000)
+    # Required (>= 50 characters) for every outcome except close_no_action, where it is optional.
+    student_summary: str = Field(default="", max_length=2000)
     conditions: Conditions = Field(default_factory=Conditions)
     extension_days: int = Field(default=0, ge=0, le=365)
     false_positive_rule_keys: list[str] = Field(default_factory=list, max_length=30)
@@ -145,6 +153,7 @@ class EscalateIn(BaseModel):
 
 
 @r.get("/security/cases", openapi_extra=NEUTRAL)
+@sec_route
 async def list_cases(
     session: PrincipalDbSession,
     status: str | None = None,
@@ -201,6 +210,7 @@ async def list_cases(
 
 
 @r.get("/security/cases/{case_id}", openapi_extra=NEUTRAL)
+@sec_route
 async def get_case(
     case_id: uuid.UUID,
     session: PrincipalDbSession,
@@ -212,9 +222,9 @@ async def get_case(
     rr = await cs.case_restriction(session, c)
     ur = await cs.open_request_for(session, c.id)
     user = await cs.subject_user(session, c.user_id)
-    from app.modules.identity.models import UserProfile
+    from app.modules.identity import public as identity_public
 
-    prof = await session.get(UserProfile, c.user_id)
+    prof = await identity_public.get_profile(session, c.user_id)
     notes = (
         await session.execute(select(CaseNote).where(CaseNote.case_id == c.id).order_by(CaseNote.created_at))
     ).scalars()
@@ -259,6 +269,7 @@ async def get_case(
 
 
 @r.post("/security/cases/{case_id}/claim")
+@sec_route
 async def claim_case(
     case_id: uuid.UUID,
     request: Request,
@@ -279,6 +290,7 @@ async def claim_case(
 
 
 @r.post("/security/cases/{case_id}/assign")
+@sec_route
 async def assign_case(
     case_id: uuid.UUID,
     body: AssignIn,
@@ -304,6 +316,7 @@ async def assign_case(
 
 
 @r.get("/security/cases/{case_id}/explanation", openapi_extra=NEUTRAL)
+@sec_route
 async def explanation(
     case_id: uuid.UUID,
     session: PrincipalDbSession,
@@ -380,6 +393,7 @@ def evaluation_out(e: RiskEvaluation) -> dict[str, Any]:
 
 
 @r.post("/security/cases/{case_id}/notes", status_code=201)
+@sec_route
 async def add_note(
     case_id: uuid.UUID,
     body: NoteIn,
@@ -401,6 +415,7 @@ async def add_note(
 
 
 @r.post("/security/cases/{case_id}/decisions")
+@sec_route
 async def decide(
     case_id: uuid.UUID,
     body: DecisionIn,
@@ -420,6 +435,7 @@ async def decide(
 
 
 @r.post("/security/cases/{case_id}/approval-requests/{approval_request_id}/approve")
+@sec_route
 async def approve_decision(
     case_id: uuid.UUID,
     approval_request_id: uuid.UUID,
@@ -441,6 +457,7 @@ async def approve_decision(
 
 
 @r.post("/security/cases/{case_id}/approval-requests/{approval_request_id}/send-back")
+@sec_route
 async def send_back_decision(
     case_id: uuid.UUID,
     approval_request_id: uuid.UUID,
@@ -456,6 +473,7 @@ async def send_back_decision(
 
 
 @r.post("/security/cases/{case_id}/approval-requests/{approval_request_id}/withdraw")
+@sec_route
 async def withdraw_decision(
     case_id: uuid.UUID,
     approval_request_id: uuid.UUID,
@@ -469,6 +487,7 @@ async def withdraw_decision(
 
 
 @r.post("/security/cases", status_code=201)
+@sec_route
 async def open_case(
     body: ManualCaseIn, session: PrincipalDbSession, principal: Principal = perm("security.case.note")
 ) -> dict[str, Any]:
@@ -491,6 +510,7 @@ async def open_case(
 
 
 @r.get("/security/users/{user_id}/timeline", openapi_extra=NEUTRAL)
+@sec_route
 async def user_timeline(
     user_id: uuid.UUID,
     session: PrincipalDbSession,
@@ -535,6 +555,7 @@ async def user_timeline(
 
 
 @r.get("/security/users/{user_id}/concurrency", openapi_extra=NEUTRAL)
+@sec_route
 async def concurrency(
     user_id: uuid.UUID,
     session: PrincipalDbSession,
@@ -575,6 +596,7 @@ async def concurrency(
 
 
 @r.get("/security/users/{user_id}/device-graph", openapi_extra=NEUTRAL)
+@sec_route
 async def graph(
     user_id: uuid.UUID,
     session: PrincipalDbSession,
@@ -598,6 +620,7 @@ async def graph(
 
 
 @r.post("/security/pii-reveals")
+@sec_route
 async def pii_reveal(
     body: RevealIn, session: PrincipalDbSession, principal: Principal = perm("security.evidence.read")
 ) -> dict[str, Any]:
@@ -613,15 +636,15 @@ async def pii_reveal(
         rid = uuid.UUID(raw)
     except ValueError as e:
         raise ProblemError("not_found") from e
-    from app.modules.sessions.models import AuthSession, LoginAttempt
+    from app.modules.sessions import public as sessions_public
 
     ip: str | None = None
     subject: uuid.UUID | None = None
     if prefix == "la":
-        la = (await session.execute(select(LoginAttempt).where(LoginAttempt.id == rid))).scalar_one_or_none()
+        la = await sessions_public.get_login_attempt(session, rid)
         ip, subject = (str(la.ip) if la and la.ip else None), (la.user_id if la else None)
     elif prefix == "as":
-        s = await session.get(AuthSession, rid)
+        s = await sessions_public.get_session(session, rid)
         ip, subject = (str(s.ip_first) if s and s.ip_first else None), (s.user_id if s else None)
     if ip is None or subject != c.user_id:
         raise ProblemError("not_found")
@@ -639,6 +662,7 @@ async def pii_reveal(
 
 
 @r.get("/security/evaluations", openapi_extra=NEUTRAL)
+@sec_route
 async def evaluations(
     session: PrincipalDbSession,
     user_id: uuid.UUID,
@@ -666,6 +690,7 @@ async def evaluations(
 
 
 @r.get("/security/evaluations/{evaluation_id}", openapi_extra=NEUTRAL)
+@sec_route
 async def evaluation(
     evaluation_id: uuid.UUID,
     session: PrincipalDbSession,
@@ -694,6 +719,7 @@ async def evaluation(
 
 
 @r.get("/security/restrictions", openapi_extra=NEUTRAL)
+@sec_route
 async def list_restrictions(
     session: PrincipalDbSession,
     active: bool = True,
@@ -712,6 +738,7 @@ async def list_restrictions(
 
 
 @r.post("/security/restrictions", status_code=201)
+@sec_route
 async def apply_restriction(
     body: RestrictionIn,
     request: Request,
@@ -781,6 +808,7 @@ async def apply_restriction(
 
 
 @r.post("/security/restrictions/{restriction_id}/lift")
+@sec_route
 async def lift_restriction(
     restriction_id: uuid.UUID,
     body: LiftIn,
@@ -810,6 +838,7 @@ class ManualVerificationIn(BaseModel):
 
 
 @r.post("/security/restrictions/{restriction_id}/manual-verification")
+@sec_route
 async def manual_verification(
     restriction_id: uuid.UUID,
     body: ManualVerificationIn,
@@ -847,6 +876,7 @@ async def _req(session: Any, request_id: uuid.UUID) -> UnblockRequest:
 
 
 @r.get("/security/review/unblock-requests", openapi_extra=NEUTRAL)
+@sec_route
 async def review_queue(
     session: PrincipalDbSession,
     state: str | None = None,
@@ -876,6 +906,7 @@ async def review_queue(
 
 
 @r.get("/security/review/unblock-requests/{request_id}", openapi_extra=NEUTRAL)
+@sec_route
 async def review_get(
     request_id: uuid.UUID,
     session: PrincipalDbSession,
@@ -912,6 +943,7 @@ async def review_get(
 
 
 @r.post("/security/review/unblock-requests/{request_id}/claim")
+@sec_route
 async def review_claim(
     request_id: uuid.UUID,
     request: Request,
@@ -925,6 +957,7 @@ async def review_claim(
 
 
 @r.post("/security/review/unblock-requests/{request_id}/request-info")
+@sec_route
 async def review_info(
     request_id: uuid.UUID,
     body: InfoIn,
@@ -939,6 +972,7 @@ async def review_info(
 
 
 @r.post("/security/review/unblock-requests/{request_id}/escalate")
+@sec_route
 async def review_escalate(
     request_id: uuid.UUID,
     body: EscalateIn,
@@ -953,6 +987,7 @@ async def review_escalate(
 
 
 @r.post("/security/review/unblock-requests/{request_id}/send-back")
+@sec_route
 async def review_send_back(
     request_id: uuid.UUID,
     body: SendBackIn,
@@ -968,6 +1003,7 @@ async def review_send_back(
 
 
 @r.get("/security/review/unblock-requests/{request_id}/attachments/{attachment_id}", openapi_extra=NEUTRAL)
+@sec_route
 async def review_attachment(
     request_id: uuid.UUID,
     attachment_id: str,
@@ -1001,6 +1037,7 @@ async def review_attachment(
 
 
 @r.get("/support/unblock-requests", openapi_extra=NEUTRAL)
+@sec_route
 async def support_list(
     session: PrincipalDbSession, principal: Principal = perm("security.unblock.triage")
 ) -> dict[str, Any]:
@@ -1051,6 +1088,7 @@ async def support_list(
 
 
 @r.post("/support/unblock-requests/{request_id}/forward")
+@sec_route
 async def support_forward(
     request_id: uuid.UUID,
     body: EscalateIn,

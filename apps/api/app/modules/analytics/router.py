@@ -32,8 +32,8 @@ from app.core.auth import (
     require_permission,
     scope_from_path,
 )
-from app.core.db import PrincipalDbSession
 from app.core.errors import ProblemError
+from app.core.firestore.sqlstore import StorePrincipalDbSession as PrincipalDbSession
 from app.core.idempotency import IdemResult, idempotent
 from app.core.principal import Principal
 from app.core.routing import authenticated_router
@@ -133,16 +133,17 @@ async def my_learning_time(
 async def _batch_reader(
     request: Request, principal: Principal = Depends(require_active_principal)
 ) -> Principal:
-    """``analytics.read`` (trainer, Admin) or ``progress.read`` (evaluator) at the batch's scope
-    (a platform grant covers every batch)."""
+    """``progress.read`` at the batch's scope (trainer, evaluator, Admin; a platform grant covers
+    every batch). The report has one row per learner, so ``analytics.read`` alone is not enough:
+    content managers hold it platform-wide for course reports and must not see batch learners
+    (QA D3)."""
     try:
         ref = ScopeRef("batch", uuid.UUID(str(request.path_params.get("batch_id"))))
     except (TypeError, ValueError) as e:
         raise ProblemError("not_found") from e
-    for perm in ("analytics.read", "progress.read"):
-        if await check_permission(principal, perm, ref, request, cross_tenant_raises=True):
-            return principal
-    raise ProblemError("permission_denied", permission="analytics.read")
+    if await check_permission(principal, "progress.read", ref, request, cross_tenant_raises=True):
+        return principal
+    raise ProblemError("permission_denied", permission="progress.read")
 
 
 BatchReader = Annotated[Principal, Depends(_batch_reader)]
@@ -253,7 +254,7 @@ async def download_export(
     (``Accept: application/json`` without ``redirect=true``), e.g. the web app."""
     principal: Principal = request.state.principal
     out = await exports.download(
-        session, principal, export_job_id, getattr(request.state, "request_id", None)
+        session, principal, export_job_id, getattr(request.state, "request_id", None), request
     )
     wants_json = "application/json" in request.headers.get("accept", "")
     if redirect or (redirect is None and not wants_json):

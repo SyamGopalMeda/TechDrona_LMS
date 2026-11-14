@@ -2,31 +2,23 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Badge, Card, PageHeader, type BadgeTone } from "@/components/ui";
+import { StatusBadge, Card, PageHeader } from "@/components/ui";
+import { PLANS_HREF } from "@/lib/site/website";
 import { formatDate, formatDateTime, formatMoney, humanize } from "@/features/catalog/lib/format";
 import { ContentErrorState, LoadingBlock } from "@/features/learning/components/States";
 import { useResource } from "@/features/learning/lib/use-resource";
+import { trackEvent } from "@/lib/firebase/analytics";
 import { isTestMode, type PayableOrder } from "../lib/payment-provider";
 import type { OrderDto } from "../lib/types";
 import { PaymentStep, TestModeBadge } from "./PaymentStep";
+import { ServiceNotIntegrated } from "@/components/shell/Integrations";
 
 const POLL_MS = 4000;
 const POLL_LIMIT_MS = 15 * 60 * 1000;
 
-const TONE: Record<string, BadgeTone> = {
-  paid: "success",
-  pending_payment: "info",
-  created: "info",
-  failed: "danger",
-  expired: "warning",
-  cancelled: "neutral",
-  refunded: "neutral",
-  partially_refunded: "neutral",
-};
-
 export function OrderStatusBadge({ status }: { status: string }) {
   const label = status === "pending_payment" ? "Awaiting payment" : humanize(status);
-  return <Badge tone={TONE[status] ?? "neutral"}>{label}</Badge>;
+  return <StatusBadge status={status} label={label} />;
 }
 
 /** Polls COM-05 while the payment is being confirmed (up to 15 min). */
@@ -53,6 +45,12 @@ function usePolledOrder(orderId: string, poll: boolean) {
  */
 export function OrderStatus({ orderId, mode = "status" }: { orderId: string; mode?: "status" | "resume" }) {
   const { data: order, error, loading, reload, gaveUp } = usePolledOrder(orderId, mode === "status");
+  const paidOrder = order?.status === "paid" ? order : null;
+  useEffect(() => {
+    // GA4 purchase (only if analytics consent is on; GA de-duplicates by transaction_id).
+    if (!paidOrder?.paid_at || Date.now() - Date.parse(paidOrder.paid_at) > 30 * 60 * 1000) return;
+    trackEvent("purchase", { transaction_id: paidOrder.order_id, value: paidOrder.total_paise / 100, currency: paidOrder.currency || "INR", items_count: paidOrder.items?.length });
+  }, [paidOrder]);
 
   if (error) return <ContentErrorState error={error} onRetry={reload} />;
   if (loading && !order) return <LoadingBlock label="Loading order" rows={2} />;
@@ -64,8 +62,9 @@ export function OrderStatus({ orderId, mode = "status" }: { orderId: string; mod
   return (
     <div className="space-y-6">
       <PageHeader
+        breadcrumbs={mode === "status" ? [{ label: "Billing", href: "/app/billing" }, { label: `Order ${order.order_number}` }] : undefined}
         title={mode === "resume" ? "Complete your payment" : `Order ${order.order_number}`}
-        actions={<OrderStatusBadge status={order.status} />}
+        meta={<OrderStatusBadge status={order.status} />}
       />
       {isTestMode(order) ? <TestModeBadge /> : null}
 
@@ -102,9 +101,9 @@ export function OrderStatus({ orderId, mode = "status" }: { orderId: string; mod
             <p role="status" className="text-sm text-fg-secondary">
               This order can’t be paid from here any more. If you haven’t paid, it expires on its own
               {order.expires_at ? ` at ${formatDateTime(order.expires_at)}` : ""} — you can start a new checkout from{" "}
-              <Link href="/pricing" className="font-medium text-fg-link">
+              <a href={PLANS_HREF} className="font-medium text-fg-link">
                 plans
-              </Link>
+              </a>
               . If you already paid, see the{" "}
               <Link href={`/app/orders/${encodeURIComponent(order.order_id)}`} className="font-medium text-fg-link">
                 order status
@@ -115,6 +114,7 @@ export function OrderStatus({ orderId, mode = "status" }: { orderId: string; mod
         </Card>
       ) : awaiting ? (
         <Card>
+          <ServiceNotIntegrated service="payments" className="mb-3" />
           <div role="status" aria-live="polite">
             {gaveUp ? (
               <p className="text-sm text-fg-secondary">We’re still confirming this payment with the bank. We will email you when it’s confirmed — you don’t need to pay again.</p>
@@ -163,7 +163,7 @@ export function OrderStatus({ orderId, mode = "status" }: { orderId: string; mod
               Go to my learning
             </Link>
             <Link href="/app/access" className="font-medium text-fg-link">
-              What I have access to
+              My access
             </Link>
           </div>
         </Card>
@@ -179,9 +179,9 @@ export function OrderStatus({ orderId, mode = "status" }: { orderId: string; mod
                   : `This order is ${humanize(order.status).toLowerCase()}.`}
           </p>
           <p className="mt-3 text-sm">
-            <Link href="/pricing" className="font-medium text-fg-link">
+            <a href={PLANS_HREF} className="font-medium text-fg-link">
               See plans
-            </Link>
+            </a>
           </p>
         </Card>
       )}

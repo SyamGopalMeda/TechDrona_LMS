@@ -22,14 +22,16 @@ export const STUDENT_TABS: TabItem[] = [
 
 /**
  * Focus-shell routes (design-system §4 "Focus": course player, practice session, timed test,
- * coding workspace) have no global navigation. Their own action bars are pinned to the bottom
- * on phones, so the tab bar must not render there (it sat on top of "Check answer" / "Save →").
+ * coding workspace, checkout) have no global navigation: no tab bar on phones (their own action
+ * bars are pinned to the bottom; it sat on top of "Check answer" / "Save →") and no sidebar on
+ * desktop, so the player/editor/runner gets the full width (PortalFrame).
  */
 const FOCUS_ROUTES = [
   /^\/app\/attempts\/[^/]+(?:\/resume)?\/?$/,
   /^\/app\/practice\/sessions\/[^/]+\/?$/,
   /^\/app\/learn\/[^/]+\/[^/]+\/?$/,
   /^\/app\/coding\/[^/]+\/?$/,
+  /^\/app\/checkout\/[^/]+\/?$/,
 ];
 
 export function isFocusRoute(pathname: string): boolean {
@@ -57,7 +59,7 @@ function TabIcon({ name, active }: { name: string; active: boolean }) {
       strokeWidth={active ? 2.2 : 1.8}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="h-[1.375rem] w-[1.375rem]"
+      className="h-6 w-6"
     >
       <path d={d} />
     </svg>
@@ -65,19 +67,27 @@ function TabIcon({ name, active }: { name: string; active: boolean }) {
 }
 
 /**
- * Mobile bottom tab bar. "More" opens the full portal navigation as a sheet above the bar; it
- * closes on navigation and on Escape. The sheet follows the bar in DOM order, takes focus (first
- * link) when opened, and Escape returns focus to "More" (audit S3, WCAG 2.4.3). Hidden at `lg` and up, where the sidebar is shown, and on
- * focus-shell routes (`isFocusRoute`).
+ * Mobile bottom tab bar. "More" opens the rest of the portal navigation (the tab destinations are
+ * left out) as a titled sheet above the bar, over a scrim. It closes on navigation, on Escape, on
+ * the × button and on a tap on the scrim. The sheet follows the bar in DOM order, takes focus
+ * (first link) when opened, and closing returns focus to "More" (audit S3, WCAG 2.4.3). Hidden at
+ * `lg` and up, where the sidebar is shown, and on focus-shell routes (`isFocusRoute`).
  */
 export function MobileTabBar({ tabs, nav, label, root }: { tabs: TabItem[]; nav: NavItem[]; label: string; root: string }) {
   const pathname = usePathname() ?? "";
   const [open, setOpen] = useState(false);
   const sheetId = useId();
+  const titleId = useId();
   const moreRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const isActive = (href: string) => (href === root ? pathname === root : pathname === href || pathname.startsWith(`${href}/`));
   const inTabs = tabs.some((t) => isActive(t.href));
+
+  const sheetItems = nav.filter((item) => !tabs.some((t) => t.href === item.href));
+  const close = (returnFocus = true) => {
+    setOpen(false);
+    if (returnFocus) moreRef.current?.focus();
+  };
 
   useEffect(() => setOpen(false), [pathname]);
   useEffect(() => {
@@ -95,7 +105,7 @@ export function MobileTabBar({ tabs, nav, label, root }: { tabs: TabItem[]; nav:
 
   const tabClass = (active: boolean) =>
     cn(
-      "relative flex min-h-touch flex-1 flex-col items-center justify-center gap-0.5 px-1 font-display text-[0.6875rem] font-semibold no-underline focus-visible:shadow-focus focus-visible:outline-none",
+      "relative flex min-h-touch flex-1 flex-col items-center justify-center gap-0.5 px-1 font-display text-xs font-semibold no-underline focus-visible:shadow-focus focus-visible:outline-none",
       active ? "text-brand" : "text-fg-muted hover:text-fg",
     );
 
@@ -106,7 +116,7 @@ export function MobileTabBar({ tabs, nav, label, root }: { tabs: TabItem[]; nav:
       <nav
         aria-label="Primary"
         data-td-tabbar=""
-        className="fixed inset-x-0 bottom-0 z-topbar flex h-[calc(4rem+env(safe-area-inset-bottom))] border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_-8px_rgb(11_21_51/0.12)] backdrop-blur"
+        className="fixed inset-x-0 bottom-0 z-topbar flex h-[calc(4rem+env(safe-area-inset-bottom))] border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
       >
         {tabs.map((t) => {
           const active = isActive(t.href);
@@ -125,13 +135,36 @@ export function MobileTabBar({ tabs, nav, label, root }: { tabs: TabItem[]; nav:
         </button>
       </nav>
       {open ? (
-        <div
-          ref={sheetRef}
-          id={sheetId}
-          className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-dropdown max-h-[70dvh] overflow-y-auto rounded-t-2xl border-t border-line bg-surface p-3 shadow-xl"
-        >
-          <PortalNav items={nav} label={label} root={root} />
-        </div>
+        <>
+          {/* Scrim: dims the page and closes the sheet on tap (decorative for assistive tech; Escape / × close it too). */}
+          <div aria-hidden="true" onClick={() => close(false)} className="fixed inset-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-overlay bg-scrim" />
+          <div
+            ref={sheetRef}
+            id={sheetId}
+            role="dialog"
+            aria-labelledby={titleId}
+            className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-drawer flex max-h-[75dvh] flex-col rounded-t-2xl border-t border-line bg-surface shadow-xl"
+          >
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line-subtle py-1 pl-5 pr-2">
+              <h2 id={titleId} className="font-display text-base font-extrabold text-fg-heading">
+                More
+              </h2>
+              <button
+                type="button"
+                aria-label="Close menu"
+                onClick={() => close()}
+                className="grid h-11 w-11 place-items-center rounded-md text-fg-muted hover:bg-surface-hover hover:text-fg focus-visible:shadow-focus focus-visible:outline-none"
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-5 w-5">
+                  <path d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              <PortalNav items={sheetItems} label={label} root={root} />
+            </div>
+          </div>
+        </>
       ) : null}
     </div>
   );

@@ -17,6 +17,12 @@ def _count(res: object) -> int:
 
 
 async def erase_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]:
+    from app.core.firestore.backend import uses_firestore
+
+    if uses_firestore("notifications"):
+        from app.modules.notifications.repo_firestore import system_repo
+
+        return {"notifications_deleted": await system_repo("notifications.erasure").erase_user(user_id)}
     n = _count(await session.execute(delete(Notification).where(Notification.user_id == user_id)))
     await session.flush()
     return {"notifications_deleted": n or 0}

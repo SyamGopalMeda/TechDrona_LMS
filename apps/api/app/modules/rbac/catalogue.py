@@ -216,6 +216,8 @@ _ROWS: dict[str, tuple[str, str, str]] = {
     "batch.update": ("Update batches", "Std", "- - - - P"),
     "batch.archive": ("Archive batches", "Std", "- - - - P"),
     "batch.member.manage": ("Add/move/remove batch members", "Std", "- - B - P"),
+    # orgs_0005 (classes & attendance moved from the website back office)
+    "batch.class.manage": ("Schedule classes and mark attendance in a batch", "Std", "- - B - P"),
     "rbac.grant.read": ("Read grants in scope", "Std", "- - - - P"),
     "rbac.grant.manage": ("Grant/revoke any role at any scope", "Up Sens", "- - - - P"),
     # 2.4 catalog, media, learning
@@ -238,8 +240,10 @@ _ROWS: dict[str, tuple[str, str, str]] = {
     "taxonomy.manage": ("Subject/topic tree", "Sens", "- - - P -"),
     "question.create": ("Author questions", "Std", "- - C P -"),
     "question.edit": ("Edit questions", "Std", "- - C P -"),
-    "question.review": ("Review questions", "Sens", "- - - P -"),
-    "question.publish": ("Publish questions", "Sens", "- - - P -"),
+    # Admin reviews too (QA 2026-11): with a single content manager, separation of duties
+    # (reviewer != author) left that author's questions unreviewable.
+    "question.review": ("Review questions", "Sens", "- - - P P"),
+    "question.publish": ("Publish questions", "Sens", "- - - P P"),
     "question.retire": ("Retire questions", "Sens", "- - - P -"),
     "question.answer_key.read": ("Read answer keys outside review rules", "Sens", "- B B P -"),
     "question.import": ("Bulk import questions", "Sens", "- - - P -"),
@@ -267,6 +271,17 @@ _ROWS: dict[str, tuple[str, str, str]] = {
     "coupon.manage": ("Coupons", "Up Sens", "- - - - P"),
     "order.read": ("Read orders", "Sens", "S - - - P"),
     "payment.read": ("Read payments", "Sens", "S - - - P"),
+    # admissions (manual UPI verification; rows seeded by migration admissions_0001)
+    "payment.verify": (
+        "Verify, correct or reject manual payment claims and manage admissions registrations",
+        "Sens",
+        "- - - - P",
+    ),
+    "payment.reverse": (
+        "Reverse a verified manual payment or change a registration's fee",
+        "Up Sens",
+        "- - - - P",
+    ),
     "refund.decide": ("Decide refunds within rule", "Up Sens", "S - - - P"),
     "refund.goodwill": ("Refund outside rule", "Up Dual", "- - - - P"),
     "subscription.admin_cancel": ("Cancel a subscription on a user's behalf", "Up Sens", "S - - - P"),

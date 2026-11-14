@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Map component demo</title>
+  <link rel="stylesheet" href="../../vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="../../css/tokens.css">
+  <link rel="stylesheet" href="../../css/map.css">
+  <style>
+    html, body { margin: 0; height: 100%; background: var(--td-bg); color: var(--td-text); font-family: var(--td-font); }
+    .demo { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+    .demo header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--td-border); background: var(--td-surface); font-size: 13px; }
+    .demo header strong { margin-right: 8px; }
+    .demo button { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--td-border); background: var(--td-surface-2); color: inherit; cursor: pointer; }
+    .demo .note { margin-left: auto; color: var(--td-bad); font-weight: 600; }
+    .demo .note.live { color: var(--td-good); }
+    #map { height: 100%; }
+  </style>
+</head>
+<body>
+<div class="demo">
+  <header>
+    <strong>Map component demo</strong>
+    <button data-act="state">State</button>
+    <button data-act="district">District: Guntur</button>
+    <button data-act="city">City: Vijayawada</button>
+    <button data-act="college">College: first row</button>
+    <button data-act="theme">Toggle theme</button>
+    <button data-act="closed">Toggle possibly closed</button>
+    <span id="log"></span>
+    <span id="note" class="note"></span>
+  </header>
+  <div id="map"></div>
+</div>
+<script type="module">
+  import { createMap } from './map.js';
+
+  // SAMPLE DATA FOR THE COMPONENT DEMO ONLY. These are not real colleges and are never used by the portal.
+  // The demo uses them only when /api/colleges is unavailable.
+  const SAMPLE_ROWS = [
+    { id: 'sample1', name: 'Sample College 1 (demo)', district_id: 'ntr', city_id: 'ntr--vijayawada', lat: 16.5062, lng: 80.648, geo_precision: 'exact', targeted: 1, target: 40, enrolled: 35, on_track: true, exam_state: 'clear' },
+    { id: 'sample2', name: 'Sample College 2 (demo)', district_id: 'ntr', city_id: 'ntr--vijayawada', lat: 16.53, lng: 80.62, geo_precision: 'exact', targeted: 1, target: 30, enrolled: 4, on_track: false, exam_state: 'in_exams' },
+    { id: 'sample3', name: 'Sample College 3 (demo)', district_id: 'guntur', city_id: 'guntur--guntur', lat: 16.3067, lng: 80.4365, geo_precision: 'exact', targeted: 1, target: null, enrolled: 0, on_track: null, exam_state: 'unknown' },
+    { id: 'sample4', name: 'Sample College 4 (demo)', district_id: 'guntur', city_id: 'guntur--tenali', lat: 16.243, lng: 80.64, geo_precision: 'town', targeted: 1, target: 20, enrolled: 12, on_track: true, exam_state: 'in_exams' },
+    { id: 'sample5', name: 'Sample College 5 (demo)', district_id: 'kakinada', city_id: 'kakinada--kakinada', lat: 16.9891, lng: 82.2475, geo_precision: 'district', targeted: 0, target: null, enrolled: 0, on_track: null, exam_state: 'clear' },
+    { id: 'sample6', name: 'Sample College 6 (demo)', district_id: 'east-godavari', city_id: 'east-godavari--rajahmundry', lat: 17.0005, lng: 81.804, geo_precision: 'exact', targeted: 1, target: 25, enrolled: 2, on_track: false, exam_state: 'clear' },
+    { id: 'sample8', name: 'Sample College 8 (demo, possibly closed)', district_id: 'guntur', city_id: 'guntur--guntur', lat: 16.3067, lng: 80.4365, geo_precision: 'town', op_status: 'possibly_closed', targeted: 0, target: null, enrolled: 0, on_track: null, exam_state: 'unknown' },
+    { id: 'sample7', name: 'Sample College 7 (demo)', district_id: 'guntur', city_id: 'guntur--guntur', lat: null, lng: null, geo_precision: 'pending', targeted: 1, target: null, enrolled: 0, on_track: null, exam_state: 'unknown' },
+  ];
+
+  const log = (t) => { document.getElementById('log').textContent = t; };
+  const map = createMap(document.getElementById('map'), {
+    onSelectDistrict: (id) => { log('onSelectDistrict ' + id); map.focusDistrict(id); },
+    onSelectCity: (d, c) => { log(`onSelectCity ${d} ${c}`); map.focusCity(d, c); },
+    onSelectCollege: (id) => { log('onSelectCollege ' + id); map.focusCollege(id); },
+  });
+  window.demoMap = map;
+
+  let rows = SAMPLE_ROWS, live = false;
+  try {
+    // dev-only page at <app root>/js/map/demo.html: API paths are relative to the app root (works at / and under /college-portal/)
+    const res = await fetch('../../api/colleges');
+    if (res.ok) { const j = await res.json(); if (Array.isArray(j) && j.length) { rows = j; live = true; } }
+    try {
+      const m = await fetch('../../api/meta');
+      if (m.ok) { const meta = await m.json(); map.setPlaces({ districts: meta.districts || [], cities: meta.cities || [] }); }
+    } catch {}
+  } catch {}
+  map.setColleges(rows);
+  const note = document.getElementById('note');
+  note.textContent = live ? `Live data: ${rows.length} colleges, ${map.getUnplacedCount()} not yet placed`
+    : `SAMPLE DATA (demo only): ${rows.length} rows, ${map.getUnplacedCount()} not placed`;
+  note.classList.toggle('live', live);
+
+  const p = new URLSearchParams(location.search);
+  if (p.get('theme')) document.documentElement.setAttribute('data-theme', p.get('theme'));
+  const go = {
+    state: () => map.focusState(),
+    district: () => map.focusDistrict(p.get('d') || 'guntur'),
+    city: () => { const r = rows.find((x) => x.city_id && x.lat != null && x.city_id.includes('vijayawada')) || rows.find((x) => x.lat != null); map.focusCity(r.district_id, r.city_id); },
+    college: () => { const r = rows.find((x) => x.lat != null && x.exam_state === 'in_exams') || rows.find((x) => x.lat != null); map.focusCollege(r.id); },
+    closed: () => map.setShowClosed(!(localStorage.getItem('td.map.showClosed') === '1')),
+    theme: () => { const d = document.documentElement; d.setAttribute('data-theme', d.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); },
+  };
+  document.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => go[b.dataset.act]()));
+  if (p.get('view') && go[p.get('view')]) go[p.get('view')]();
+  if (p.get('hl')) map.highlight(p.get('hl'));
+</script>
+</body>
+</html>

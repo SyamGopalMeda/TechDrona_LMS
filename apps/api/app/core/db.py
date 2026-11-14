@@ -14,7 +14,10 @@
 
 from __future__ import annotations
 
+import contextvars
 from collections.abc import AsyncIterator, Iterable
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Annotated, Any
 
 from fastapi import Depends
@@ -75,9 +78,20 @@ def make_engine(url: str | None = None, **kwargs: Any) -> AsyncEngine:
     return create_async_engine(url, **opts)
 
 
+class PostgresDisabledError(RuntimeError):
+    """Raised when Postgres is used on a stack that has none (``runtime.postgres_enabled()``)."""
+
+
 def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
+        from app.core.runtime import postgres_enabled
+
+        if not postgres_enabled():
+            raise PostgresDisabledError(
+                "Postgres is not configured on this stack (TD_RUNTIME=firebase with every module on "
+                "Firestore, or no DATABASE_URL): use the module's Firestore repository"
+            )
         _engine = make_engine()
     return _engine
 
@@ -104,6 +118,38 @@ async def dispose_engine() -> None:
 
 
 # --------------------------------------------------------------------------- RLS context
+#
+# Without Postgres (``NO_POSTGRES`` / ``None`` session: the Firebase stack) there are no GUCs. The
+# RLS helpers below are then no-ops, ``system_context`` records the platform scope in a ContextVar
+# and ``rls_scope`` answers from it or from the caller's principal (``request_context``).
+
+_platform_job: contextvars.ContextVar[str | None] = contextvars.ContextVar("td_platform_job", default=None)
+
+
+def current_platform_job() -> str | None:
+    """The named system job of the enclosing no-Postgres ``system_context`` block, else None."""
+    return _platform_job.get()
+
+
+def no_sql_session(session: Any) -> bool:
+    """``None`` or the ``NO_POSTGRES`` placeholder: nothing at all to run SQL or GUCs on. The
+    RLS helpers below no-op on these (but still pass the engine's ``MemoryTx``, which emulates
+    ``set_config`` / ``current_setting`` and captures outbox inserts in its unit of work)."""
+    return session is None or isinstance(session, _NoPostgresSession)
+
+
+def is_memory_tx(session: Any) -> bool:
+    """The SQL engine's in-memory no-Postgres transaction (``sqlstore.MemoryTx``), duck-typed
+    so core does not import the engine."""
+    return type(session).__name__ == "MemoryTx" and hasattr(session, "guc")
+
+
+def no_session(session: Any) -> bool:
+    """True for "no Postgres connection behind this session": ``None``, ``NO_POSTGRES`` or a
+    ``MemoryTx``. Read helpers that would query Postgres tables (``outbox.read_events``) use this
+    so they never try Postgres from a ``MemoryTx`` context."""
+    return no_sql_session(session) or is_memory_tx(session)
+
 
 _GUC_SQL = text(
     "SELECT set_config('app.user_id', :uid, true), set_config('app.org_ids', :orgs, true), "
@@ -113,6 +159,8 @@ _GUC_SQL = text(
 
 
 async def apply_db_role(session: AsyncSession) -> None:
+    if no_sql_session(session):
+        return
     role = get_settings().TD_DB_SET_ROLE
     if role:
         # validated as a plain identifier in Settings
@@ -129,6 +177,8 @@ async def set_rls_context(
     roles: Iterable[str] = (),
     privacy_tier: str = "",
 ) -> None:
+    if no_sql_session(session):
+        return
     await session.execute(
         _GUC_SQL,
         {
@@ -165,6 +215,42 @@ _READ_GUC_SQL = text(
 )
 
 
+_SCOPE_GUC_SQL = text("SELECT current_setting('app.user_id', true), current_setting('app.is_platform', true)")
+
+
+@dataclass(frozen=True, slots=True)
+class RlsScope:
+    """``app.user_id`` / ``app.is_platform`` of the current transaction (see ``rls_scope``)."""
+
+    user_id: str
+    is_platform: bool
+
+    def allows(self, owner_id: Any) -> bool:
+        """The RLS ``O`` predicate: ``user_id = app.user_id() OR app.is_platform()``."""
+        return self.is_platform or (bool(self.user_id) and str(owner_id) == self.user_id)
+
+
+async def rls_scope(session: AsyncSession) -> RlsScope:
+    """The caller's row-level scope, for stores without RLS (Firestore repositories apply the same
+    predicate as the Postgres policy to the same transaction context).
+
+    Without a Postgres session: platform inside ``system_context`` (and in jobs, outside any
+    request); otherwise the request principal's scope; an anonymous request gets no rows."""
+    if no_sql_session(session):
+        if _platform_job.get() is not None:
+            return RlsScope("", True)
+        from app.core.request_context import _request_state, current_principal
+
+        p = current_principal()
+        if p is not None:
+            return RlsScope(str(p.user_id), bool(p.is_platform))
+        if _request_state.get() is None:  # job / script: no request at all
+            return RlsScope("", True)
+        return RlsScope("", False)
+    uid, plat = (await session.execute(_SCOPE_GUC_SQL)).one()
+    return RlsScope(str(uid or ""), (plat or "") == "on")
+
+
 class SystemContext:
     """Platform RLS scope for a named system job (webhook processor, schedulers, sealer reads).
 
@@ -178,7 +264,7 @@ class SystemContext:
       block raises (DB-06). Use this inside authenticated request handlers.
     """
 
-    __slots__ = ("_job", "_prev", "_session")
+    __slots__ = ("_job", "_prev", "_session", "_token")
 
     def __init__(self, session: AsyncSession, job: str) -> None:
         if not job or not job.replace("_", "").replace(".", "").replace("-", "").isalnum():
@@ -186,20 +272,31 @@ class SystemContext:
         self._session = session
         self._job = job
         self._prev: tuple[str, ...] | None = None
+        self._token: contextvars.Token[str | None] | None = None
 
     async def _enter(self) -> None:
+        if no_sql_session(self._session):
+            self._token = _platform_job.set(self._job)
+            return
         await set_rls_context(self._session, is_platform=True, actor=f"system:{self._job}")
 
     def __await__(self) -> Any:
         return self._enter().__await__()
 
     async def __aenter__(self) -> AsyncSession:
+        if no_sql_session(self._session):
+            await self._enter()
+            return self._session
         row = (await self._session.execute(_READ_GUC_SQL)).one()
         self._prev = tuple("" if v is None else str(v) for v in row)
         await self._enter()
         return self._session
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        if no_sql_session(self._session):
+            if self._token is not None:
+                _platform_job.reset(self._token)
+            return
         assert self._prev is not None
         uid, orgs, plat, actor, roles, ptier = self._prev
         params = {
@@ -229,11 +326,40 @@ def as_system(session: AsyncSession, job: str) -> SystemContext:
     return SystemContext(session, job)
 
 
+class _NoPostgresSession:
+    """Request "session" on a stack without Postgres: falsy, and any use raises a clear
+    ``PostgresDisabledError`` (a route of a module still on Postgres code paths)."""
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __getattr__(self, name: str) -> Any:
+        raise PostgresDisabledError(
+            f"Postgres session used ({name}) on a stack without Postgres: this route's module "
+            "must use its Firestore repository"
+        )
+
+
+NO_POSTGRES: Any = _NoPostgresSession()
+
+
+def _pg_enabled() -> bool:
+    from app.core.runtime import postgres_enabled
+
+    return postgres_enabled()
+
+
 async def get_db() -> AsyncIterator[AsyncSession]:
     """One transaction per request with an empty RLS context (public routes).
 
-    Use through ``DbSession`` so the commit happens before the response is sent.
+    Use through ``DbSession`` so the commit happens before the response is sent. On a stack
+    without Postgres (``runtime.postgres_enabled()`` is False) the dependency yields ``NO_POSTGRES`` (falsy;
+    any use raises ``PostgresDisabledError``):
+    routes of modules on Firestore never touch it.
     """
+    if _sessionmaker is None and not _pg_enabled():
+        yield NO_POSTGRES
+        return
     async with get_sessionmaker()() as session, session.begin():
         await apply_db_role(session)
         await set_rls_context(session)
@@ -243,10 +369,42 @@ async def get_db() -> AsyncIterator[AsyncSession]:
 async def get_principal_db(
     principal: Principal = Depends(require_active_principal),
 ) -> AsyncIterator[AsyncSession]:
-    """One transaction per request with the principal's RLS context."""
+    """One transaction per request with the principal's RLS context (``NO_POSTGRES`` without Postgres)."""
+    if _sessionmaker is None and not _pg_enabled():
+        yield NO_POSTGRES
+        return
     async with get_sessionmaker()() as session, session.begin():
         await apply_db_role(session)
         await tenant_context(session, principal)
+        yield session
+
+
+def savepoint(session: Any) -> Any:
+    """``async with savepoint(session):`` = ``session.begin_nested()`` on a SQL session (VM,
+    unchanged; also a ``MemoryTx``) and no savepoint on the no-Postgres placeholder
+    (``NO_POSTGRES`` / ``None``), where ``begin_nested`` raises. The Firestore writes made inside
+    are their own transactions there (the rule of ``core_store.idempotent_firestore`` and
+    ``learning.certificates.savepoint``)."""
+    import contextlib
+
+    return contextlib.nullcontext() if no_sql_session(session) else session.begin_nested()
+
+
+@asynccontextmanager
+async def job_session(job: str) -> AsyncIterator[Any]:
+    """A background job's transaction in the named system context.
+
+    With Postgres (VM): ``get_sessionmaker()`` + ``begin()`` and ``await system_context(...)``
+    for the whole transaction, exactly what the jobs did inline. Without Postgres (Firebase
+    stack, same test as ``get_db``): the ``NO_POSTGRES`` placeholder the routes get, inside
+    ``system_context`` (platform ``rls_scope``); the modules then use their Firestore
+    repositories, which commit their own writes."""
+    if _sessionmaker is None and not _pg_enabled():
+        async with system_context(NO_POSTGRES, job):
+            yield NO_POSTGRES
+        return
+    async with get_sessionmaker()() as session, session.begin():
+        await system_context(session, job)
         yield session
 
 

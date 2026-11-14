@@ -1,0 +1,11 @@
+# Cloud Build upload (deploy/cloudbuild.yaml). NEVER upload data/: the SQLite DB and the seed JSON hold contact details.
+data/
+node_modules/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+.git
+public/api_static
+public/api_static_index.json
+qa*.db

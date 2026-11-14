@@ -13,6 +13,16 @@ they never fall back to the application role.
   partitions and deletes expired rows per ``retention_policies``.
 
 Each SQL entry point writes its own ``audit_outbox`` summary (privacy §7: every run is audited).
+
+Firebase (``lmsScheduler`` hands both entries to ``lmsTasksMaintenance``; agent retention-fs):
+
+* ``maint_retention`` also runs ``app.core.retention_fs.run_retention`` -- the same 12 predicates,
+  intervals and audit summary over the collections of modules on Firestore. With no Postgres at
+  all (``postgres_enabled()`` False) the SQL call is skipped with an info log, not a warning.
+* ``maint_partitions`` is a logged no-op without Postgres: Firestore has no partitions (a
+  collection grows without premade children), so there is nothing to premake or harden.
+
+On the VM no module is on Firestore and Postgres is enabled: both jobs run exactly as before.
 """
 
 from __future__ import annotations
@@ -55,7 +65,17 @@ async def call_maintenance(sql: str, params: dict[str, Any]) -> list[dict[str, A
     return await _call(sql, params)
 
 
+def _no_postgres() -> bool:
+    from app.core.runtime import postgres_enabled
+
+    return not postgres_enabled()
+
+
 async def run_partition_maintenance(months_ahead: int = MONTHS_AHEAD) -> list[dict[str, Any]] | None:
+    if _no_postgres():
+        # Firestore has no partitions: nothing to premake, harden or move. Not a failure.
+        log.info("partitions_noop", reason="no Postgres: Firestore collections have no partitions")
+        return []
     rows = await _call("SELECT * FROM maint.run_partition_maintenance(:m)", {"m": months_ahead})
     if rows is not None:
         changed = [r for r in rows if r["action"] != "exists"]
@@ -64,6 +84,20 @@ async def run_partition_maintenance(months_ahead: int = MONTHS_AHEAD) -> list[di
 
 
 async def run_retention(batch: int = 5000, max_batches: int = 200) -> list[dict[str, Any]] | None:
+    from app.core import retention_fs
+
+    if not retention_fs.firestore_targets():  # the VM: unchanged
+        return await _run_retention_sql(batch, max_batches)
+    rows: list[dict[str, Any]] | None = None
+    if _no_postgres():
+        log.info("retention_sql_skipped", reason="no Postgres: retention runs on Firestore")
+    else:  # hybrid stack: the Postgres tables keep their SQL purge
+        rows = await _run_retention_sql(batch, max_batches)
+    fs_rows = await retention_fs.run_retention(batch, max_batches)
+    return [*(rows or []), *fs_rows]
+
+
+async def _run_retention_sql(batch: int, max_batches: int) -> list[dict[str, Any]] | None:
     rows = await _call("SELECT * FROM maint.run_retention(:b, :mb)", {"b": batch, "mb": max_batches})
     if rows is not None:
         log.info(

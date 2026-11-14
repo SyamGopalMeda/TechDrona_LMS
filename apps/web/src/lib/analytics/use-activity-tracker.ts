@@ -109,7 +109,7 @@ export function useActivityTracker({ route, surface, entity, enabled = true, med
 
     const create = (nav: "navigate" | "reload" | "back_forward" | "spa") => {
       return loadAnalyticsConfig().then((params) => {
-        if (disposed) return;
+        if (disposed || !params) return; // analytics refused for this session (403): no tracker
         tracker = new ActivityTracker({
           route,
           surface,

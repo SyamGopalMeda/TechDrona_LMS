@@ -21,13 +21,16 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import AuditActor, audit
-from app.core.db import get_sessionmaker, system_context
+from app.core.db import system_context
+from app.core.firestore.sqlstore import store_session
 from app.core.jobs import register_periodic, run_async
 from app.core.outbox import emit_event
 from app.modules.identity import clock
-from app.modules.identity.models import User
-from app.modules.rbac.models import ApprovalRequest
+from app.modules.identity import public as identity_public
+from app.modules.rbac import public as rbac_public
 from app.modules.security import engine, retention, signals
+from app.modules.security import repo_fs_controls as secx
+from app.modules.security import repo_fs_engine as fx
 from app.modules.security.cases import set_ur_state
 from app.modules.security.models import (
     AccountRestriction,
@@ -36,8 +39,7 @@ from app.modules.security.models import (
     SecuritySignal,
     UnblockRequest,
 )
-from app.modules.sessions import service as ss
-from app.modules.sessions.models import AuthSession
+from app.modules.sessions import public as sessions_public
 
 log = structlog.get_logger("app.security.tasks")
 SYSTEM = AuditActor.system("security.jobs")
@@ -52,42 +54,41 @@ async def decay_recompute(session: AsyncSession, now: datetime | None = None) ->
     decay (de-escalation of L1/L2 when scores fall)."""
     now = now or clock.now()
     since = now - timedelta(days=30)
-    active = set(
-        (
-            await session.execute(
-                select(AuthSession.user_id).where(AuthSession.created_at > since).distinct()
-            )
-        ).scalars()
-    )
+    active = {s.user_id for s in await sessions_public.list_sessions(session, created_after=since)}
     with_signals = set(
         u
         for u in (
-            await session.execute(
+            await secx.execute(
+                session,
                 select(SecuritySignal.user_id)
                 .where(SecuritySignal.occurred_at > since, SecuritySignal.family == "sharing")
-                .distinct()
+                .distinct(),
             )
         ).scalars()
         if u
     )
     low = set(
         (
-            await session.execute(
+            await secx.execute(
+                session,
                 select(AccountRestriction.user_id).where(
                     AccountRestriction.ended_at.is_(None), AccountRestriction.level < 3
-                )
+                ),
             )
         ).scalars()
     )
     derived = evaluated = 0
-    for uid in sorted(active, key=str):
-        derived += len(await signals.derive_daily_signals(session, uid, now))
-    for uid in sorted(with_signals | low | active, key=str):
-        user = await session.get(User, uid)
-        if user is None or user.is_minor:
-            continue
-        if await engine.evaluate_sharing(session, uid, trigger="nightly", now=now) is not None:
-            evaluated += 1
+    # One detector scope for the whole run: on Firestore a failure undoes every signal,
+    # evaluation and counter the run wrote (Postgres: the job's transaction rolls back).
+    async with fx.detector_scope():
+        for uid in sorted(active, key=str):
+            derived += len(await signals.derive_daily_signals(session, uid, now))
+        for uid in sorted(with_signals | low | active, key=str):
+            user = await identity_public.get_user(session, uid)
+            if user is None or user.is_minor:
+                continue
+            if await engine.evaluate_sharing(session, uid, trigger="nightly", now=now) is not None:
+                evaluated += 1
     return {"derived_signals": derived, "evaluations": evaluated}
 
 
@@ -99,12 +100,13 @@ async def restriction_expiry(session: AsyncSession, now: datetime | None = None)
     notified = deferred = 0
     rows = (
         (
-            await session.execute(
+            await secx.execute(
+                session,
                 select(AccountRestriction).where(
                     AccountRestriction.ended_at.is_(None),
                     AccountRestriction.level == 3,
                     AccountRestriction.family == "sharing",
-                )
+                ),
             )
         )
         .scalars()
@@ -123,12 +125,12 @@ async def restriction_expiry(session: AsyncSession, now: datetime | None = None)
             )
             notified += 1
         if r.deferred_until is not None and r.deferred_until <= now:
-            await ss.end_sessions_where(
-                session, AuthSession.user_id == r.user_id, status="revoked", reason="risk_L3"
-            )
+            from app.modules.sessions import public as sessions_public
+
+            await sessions_public.end_sessions(session, r.user_id, status="revoked", reason="risk_L3")
             r.deferred_until = None
             deferred += 1
-    await session.flush()
+    await secx.flush(session)
     return {"expiry_notices": notified, "deferrals_ended": deferred}
 
 
@@ -148,10 +150,11 @@ async def sla_breach_alerts(session: AsyncSession, now: datetime | None = None) 
     }
     cases = (
         (
-            await session.execute(
+            await secx.execute(
+                session,
                 select(SecurityCase).where(
                     SecurityCase.status != "closed", SecurityCase.sla_decision_due.is_not(None)
-                )
+                ),
             )
         )
         .scalars()
@@ -165,11 +168,12 @@ async def sla_breach_alerts(session: AsyncSession, now: datetime | None = None) 
             continue
         if frac >= 1.0:
             ur = (
-                await session.execute(
+                await secx.execute(
+                    session,
                     select(UnblockRequest).where(
                         UnblockRequest.case_id == c.id,
                         UnblockRequest.state.in_(("submitted", "under_review")),
-                    )
+                    ),
                 )
             ).scalar_one_or_none()
             if ur is not None:
@@ -207,20 +211,11 @@ async def sla_breach_alerts(session: AsyncSession, now: datetime | None = None) 
                 aggregate_type="security_case",
                 aggregate_id=c.id,
             )
-    for req in (
-        (
-            await session.execute(
-                select(ApprovalRequest).where(
-                    ApprovalRequest.status == "pending",
-                    ApprovalRequest.expires_at <= now,
-                    ApprovalRequest.action_type == "security.case.decision",
-                )
-            )
-        )
-        .scalars()
-        .all()
+    for req in await rbac_public.find_approvals(
+        session, status="pending", expires_until=now, action_type="security.case.decision"
     ):
         req.status = "expired"
+        await rbac_public.save_approval(session, req)
         out["approvals_expired"] += 1
         await emit_event(
             session,
@@ -231,10 +226,11 @@ async def sla_breach_alerts(session: AsyncSession, now: datetime | None = None) 
         )
     for ur in (
         (
-            await session.execute(
+            await secx.execute(
+                session,
                 select(UnblockRequest).where(
                     UnblockRequest.state == "info_requested", UnblockRequest.info_requested_due <= now
-                )
+                ),
             )
         )
         .scalars()
@@ -244,10 +240,11 @@ async def sla_breach_alerts(session: AsyncSession, now: datetime | None = None) 
         out["no_response"] += 1
     for ur in (
         (
-            await session.execute(
+            await secx.execute(
+                session,
                 select(UnblockRequest).where(
                     UnblockRequest.state == "rejected", UnblockRequest.decided_at <= now - timedelta(days=14)
-                )
+                ),
             )
         )
         .scalars()
@@ -255,24 +252,18 @@ async def sla_breach_alerts(session: AsyncSession, now: datetime | None = None) 
     ):
         await set_ur_state(session, ur, "closed", closure="rejected_final")
         out["rejected_final"] += 1
-    res = await session.execute(
+    res = await secx.execute(
+        session,
         delete(UnblockRequest).where(
             UnblockRequest.state == "draft", UnblockRequest.updated_at <= now - timedelta(days=7)
-        )
+        ),
     )
     out["drafts_deleted"] = int(getattr(res, "rowcount", 0) or 0)
-    for req in (
-        (
-            await session.execute(
-                select(ApprovalRequest).where(
-                    ApprovalRequest.status == "pending",
-                    ApprovalRequest.action_type == "risk.kill_switch.ratify",
-                    ApprovalRequest.created_at <= now - timedelta(hours=24),
-                )
-            )
-        )
-        .scalars()
-        .all()
+    for req in await rbac_public.find_approvals(
+        session,
+        status="pending",
+        action_type="risk.kill_switch.ratify",
+        created_until=now - timedelta(hours=24),
     ):
         await emit_event(
             session,
@@ -286,32 +277,28 @@ async def sla_breach_alerts(session: AsyncSession, now: datetime | None = None) 
             aggregate_id=req.id,
         )
         out["ratification_pages"] += 1
-    await session.flush()
+    await secx.flush(session)
     return out
 
 
 async def purge_counters(session: AsyncSession, now: datetime | None = None) -> dict[str, int]:
     now = now or clock.now()
-    res = await session.execute(
-        delete(SecurityCounter).where(SecurityCounter.bucket_start < now - timedelta(days=2))
+    res = await secx.execute(
+        session, delete(SecurityCounter).where(SecurityCounter.bucket_start < now - timedelta(days=2))
     )
     return {"deleted": int(getattr(res, "rowcount", 0) or 0)}
 
 
 async def heartbeat_batch(session: AsyncSession, now: datetime | None = None) -> dict[str, int]:
     now = now or clock.now()
-    users = (
-        (
-            await session.execute(
-                select(AuthSession.user_id)
-                .where(AuthSession.last_seen_at > now - timedelta(minutes=15))
-                .distinct()
-            )
+    users = list(
+        dict.fromkeys(
+            s.user_id
+            for s in await sessions_public.list_sessions(session, last_seen_after=now - timedelta(minutes=15))
         )
-        .scalars()
-        .all()
     )
-    n = await signals.run_heartbeat_batch(session, list(users), now - timedelta(days=1), now)
+    async with fx.detector_scope():
+        n = await signals.run_heartbeat_batch(session, list(users), now - timedelta(days=1), now)
     return {"signals": n}
 
 
@@ -334,7 +321,7 @@ SCHEDULE = {
 
 async def run_job(name: str) -> dict[str, int]:
     fn = JOBS[name]
-    async with get_sessionmaker()() as session, session.begin():
+    async with store_session() as session:
         await system_context(session, name.replace(".", "_"))
         result = await fn(session)
     log.info("security_job_done", job=name, **result)

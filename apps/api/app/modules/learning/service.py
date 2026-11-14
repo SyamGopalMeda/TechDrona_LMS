@@ -49,7 +49,10 @@ from app.core.ids import uuid7
 from app.core.outbox import emit_event
 from app.core.principal import Principal
 from app.core.time import ist_date, to_rfc3339, utcnow
-from app.modules.catalog.models import Course, CourseVersion, Lesson
+from app.modules.catalog import public as catalog_api
+from app.modules.catalog.public import Course, CourseVersion, Lesson
+from app.modules.learning import fs_store as fss
+from app.modules.learning import store_specs as lss
 from app.modules.learning.models import Certificate, Enrolment, LessonProgress
 
 VIDEO_COMPLETE_RATIO = 0.9
@@ -85,21 +88,10 @@ def vf(field: str, code: str, msg: str, status: int = 422) -> ProblemError:
 
 async def student_lesson(session: AsyncSession, lesson_id: uuid.UUID) -> tuple[Lesson, CourseVersion, Course]:
     """A lesson of a published (or superseded, for pinned learners) version; drafts are 404."""
-    row = (
-        await session.execute(
-            select(Lesson, CourseVersion, Course)
-            .join(CourseVersion, CourseVersion.id == Lesson.course_version_id)
-            .join(Course, Course.id == CourseVersion.course_id)
-            .where(
-                Lesson.id == lesson_id,
-                CourseVersion.status.in_(STUDENT_VISIBLE),
-                Course.deleted_at.is_(None),
-            )
-        )
-    ).first()
+    row = await catalog_api.lesson_with_parents(session, lesson_id, version_statuses=STUDENT_VISIBLE)
     if row is None:
         raise ProblemError("not_found")
-    return row[0], row[1], row[2]
+    return row
 
 
 async def check_lesson_access(
@@ -133,12 +125,17 @@ async def lock_enrolment(session: AsyncSession, user_id: uuid.UUID, course_id: u
     """DB-03: serialise check-then-create of one (user, course) enrolment for this transaction,
     so concurrent requests (double click, two tabs) see the winner's row instead of 500ing on
     the unique constraint."""
+    if fss.fs():  # Firestore: the enrolment_keys/{user:course} key document enforces it
+        return
     await session.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"enrol:{user_id}:{course_id}"}
     )
 
 
 async def get_enrolment(session: AsyncSession, user_id: uuid.UUID, course_id: uuid.UUID) -> Enrolment | None:
+    if fss.fs():
+        eid = await fss.key_target(lss.ENROLMENT_KEYS, lss.enrolment_key(user_id, course_id))
+        return await fss.get(session, Enrolment, eid) if eid else None
     return (
         await session.execute(
             select(Enrolment).where(Enrolment.user_id == user_id, Enrolment.course_id == course_id)
@@ -170,14 +167,23 @@ async def create_enrolment(
         status="active",
         expires_at=expires_at,
     )
-    try:
-        async with session.begin_nested():
-            session.add(enr)
-            await session.flush()
-    except IntegrityError as exc:  # DB-03: a concurrent enrolment won the unique (user, course)
-        raise ProblemError(
-            "invalid_state_transition", detail="You are already enrolled in this course."
-        ) from exc
+    if fss.fs():
+        try:
+            fss.add(session, enr)
+            await fss.flush(session, raise_unique=True)
+        except fss.UniqueConflict as exc:  # a concurrent enrolment holds the (user, course) key
+            raise ProblemError(
+                "invalid_state_transition", detail="You are already enrolled in this course."
+            ) from exc
+    else:
+        try:
+            async with session.begin_nested():
+                session.add(enr)
+                await session.flush()
+        except IntegrityError as exc:  # DB-03: a concurrent enrolment won the unique (user, course)
+            raise ProblemError(
+                "invalid_state_transition", detail="You are already enrolled in this course."
+            ) from exc
     await emit_event(
         session,
         "learning.enrolled",
@@ -218,17 +224,33 @@ async def self_enrol(session: AsyncSession, principal: Principal, course: Course
         existing.source = source
         existing.entitlement_id = ent
         existing.expires_at = decision.expires_at
-        await session.flush()
+        await fss.flush(session)
         return existing, True
-    enr = await create_enrolment(
-        session,
-        user_id=principal.user_id,
-        course=course,
-        source=source,
-        entitlement_id=ent,
-        expires_at=decision.expires_at,
-    )
+    try:
+        enr = await create_enrolment(
+            session,
+            user_id=principal.user_id,
+            course=course,
+            source=source,
+            entitlement_id=ent,
+            expires_at=decision.expires_at,
+        )
+    except ProblemError:
+        winner = await _race_winner(session, principal.user_id, course.id)
+        if winner is None:
+            raise
+        return winner, False
     return enr, True
+
+
+async def _race_winner(session: AsyncSession, user_id: uuid.UUID, course_id: uuid.UUID) -> Enrolment | None:
+    """Firestore: a concurrent request created the (user, course) enrolment first. Postgres
+    serialises the two with ``lock_enrolment`` and the second one returns the winner's row;
+    here the loser's insert fails on ``enrolment_keys`` and returns the winner the same way."""
+    if not fss.fs():
+        return None
+    winner = await get_enrolment(session, user_id, course_id)
+    return winner if winner is not None and winner.status in ("active", "completed") else None
 
 
 async def enrolment_for_lesson(
@@ -249,14 +271,20 @@ async def enrolment_for_lesson(
         if raced is not None:
             return raced if raced.status in ("active", "completed") else None
         source, ent = _source_for(course, decision)
-        return await create_enrolment(
-            session,
-            user_id=principal.user_id,
-            course=course,
-            source=source,
-            entitlement_id=ent,
-            expires_at=decision.expires_at,
-        )
+        try:
+            return await create_enrolment(
+                session,
+                user_id=principal.user_id,
+                course=course,
+                source=source,
+                entitlement_id=ent,
+                expires_at=decision.expires_at,
+            )
+        except ProblemError:
+            winner = await _race_winner(session, principal.user_id, course.id)
+            if winner is None:
+                raise
+            return winner
     return None
 
 
@@ -264,14 +292,10 @@ async def pinned_lesson(session: AsyncSession, enrolment: Enrolment, lesson: Les
     """Map a lesson onto the enrolment's pinned version by ``lesson_key``."""
     if lesson.course_version_id == enrolment.course_version_id:
         return lesson
-    other = (
-        await session.execute(
-            select(Lesson).where(
-                Lesson.course_version_id == enrolment.course_version_id,
-                Lesson.lesson_key == lesson.lesson_key,
-            )
-        )
-    ).scalar_one_or_none()
+    found = await catalog_api.find_lessons(
+        session, version_id=enrolment.course_version_id, lesson_key=lesson.lesson_key
+    )
+    other = found[0] if found else None
     if other is None:
         raise ProblemError("not_found", detail="This lesson is not part of your course version.")
     return other
@@ -283,7 +307,10 @@ async def pinned_lesson(session: AsyncSession, enrolment: Enrolment, lesson: Les
 async def get_progress(
     session: AsyncSession, enrolment: Enrolment, lesson_key: uuid.UUID, *, create: bool = True
 ) -> LessonProgress | None:
-    lp = await session.get(LessonProgress, (enrolment.id, lesson_key))
+    if fss.fs():
+        lp = await fss.get(session, LessonProgress, lss.progress_id(enrolment.id, lesson_key))
+    else:
+        lp = await session.get(LessonProgress, (enrolment.id, lesson_key))
     if lp is None and create:
         lp = LessonProgress(
             enrolment_id=enrolment.id,
@@ -295,8 +322,8 @@ async def get_progress(
             watched_seconds=0,
             watched_intervals=[],
         )
-        session.add(lp)
-        await session.flush()
+        fss.add(session, lp)
+        await fss.flush(session)
     return lp
 
 
@@ -309,7 +336,7 @@ async def mark_opened(session: AsyncSession, enrolment: Enrolment, lesson: Lesso
     if lp.status == "not_started":
         lp.status = "in_progress"
     enrolment.last_activity_at = now
-    await session.flush()
+    await fss.flush(session)
     return lp
 
 
@@ -382,7 +409,7 @@ async def record_video_heartbeat(
             Decimal("0.01")
         )
     enr.last_activity_at = now
-    await session.flush()
+    await fss.flush(session)
     if (
         lp.status != "completed"
         and duration
@@ -449,17 +476,28 @@ async def record_completion(
     Returns False when the user has no active enrolment containing the lesson."""
     if not evidence.get("kind"):
         raise ValueError("evidence.kind is required")
-    rows = (
-        await session.execute(
-            select(Enrolment, Lesson)
-            .join(Lesson, Lesson.course_version_id == Enrolment.course_version_id)
-            .where(
-                Enrolment.user_id == user_id,
-                Enrolment.status.in_(("active", "completed")),
-                Lesson.lesson_key == lesson_key,
-            )
+    lessons = await catalog_api.find_lessons(session, lesson_key=lesson_key)
+    by_version: dict[uuid.UUID, list[Lesson]] = {}
+    for le in lessons:
+        by_version.setdefault(le.course_version_id, []).append(le)
+    enrols = (
+        await _enrolments_on_versions(session, user_id, list(by_version))
+        if fss.fs() and by_version
+        else list(
+            (
+                await session.execute(
+                    select(Enrolment).where(
+                        Enrolment.user_id == user_id,
+                        Enrolment.status.in_(("active", "completed")),
+                        Enrolment.course_version_id.in_(list(by_version)),
+                    )
+                )
+            ).scalars()
         )
-    ).all()
+        if by_version
+        else []
+    )
+    rows = [(enr, le) for enr in enrols for le in by_version[enr.course_version_id]]
     done = False
     for enr, lesson in rows:
         lp = await get_progress(session, enr, lesson.lesson_key)
@@ -479,7 +517,7 @@ async def complete_lesson(
     lp.progress_pct = Decimal(100)
     lp.evidence = evidence
     enrolment.last_activity_at = now
-    await session.flush()
+    await fss.flush(session)
     await emit_event(
         session,
         "learning.lesson_completed",
@@ -500,18 +538,16 @@ async def complete_lesson(
 
 
 async def required_keys(session: AsyncSession, version_id: uuid.UUID) -> list[uuid.UUID]:
-    return list(
-        (
-            await session.execute(
-                select(Lesson.lesson_key).where(
-                    Lesson.course_version_id == version_id, Lesson.is_required.is_(True)
-                )
-            )
-        ).scalars()
-    )
+    return [
+        le.lesson_key
+        for le in await catalog_api.find_lessons(session, version_id=version_id, required_only=True)
+    ]
 
 
 async def progress_map(session: AsyncSession, enrolment_id: uuid.UUID) -> dict[uuid.UUID, LessonProgress]:
+    if fss.fs():
+        rows = await fss.find(session, LessonProgress, filters=(("enrolment_id", "==", enrolment_id),))
+        return {lp.lesson_key: lp for lp in rows}
     return {
         lp.lesson_key: lp
         for lp in (
@@ -525,12 +561,32 @@ async def recompute(session: AsyncSession, enrolment: Enrolment) -> None:
     pm = await progress_map(session, enrolment.id)
     done = sum(1 for k in keys if (lp := pm.get(k)) is not None and lp.status == "completed")
     pct = Decimal(100) if not keys else Decimal(round(100 * done / len(keys), 2)).quantize(Decimal("0.01"))
-    enrolment.progress_pct = pct
-    await session.flush()
-    if keys and done == len(keys) and enrolment.status == "active":
-        enrolment.status = "completed"
-        enrolment.completed_at = utcnow()
-        await session.flush()
+    if fss.fs():
+        # the enrolment's progress and completion are written in one transaction on the fresh row
+        now = utcnow()
+
+        def step(rows: dict[uuid.UUID, Enrolment]) -> bool:
+            e = rows.get(enrolment.id)
+            if e is None:
+                return False
+            e.progress_pct = pct
+            if keys and done == len(keys) and e.status == "active":
+                e.status, e.completed_at = "completed", now
+                return True
+            return False
+
+        completed, rows = await fss.locked(session, Enrolment, [enrolment.id], step)
+        if enrolment.id in rows:
+            fss.copy_into(enrolment, rows[enrolment.id])
+    else:
+        enrolment.progress_pct = pct
+        await fss.flush(session)
+        completed = bool(keys and done == len(keys) and enrolment.status == "active")
+        if completed:
+            enrolment.status = "completed"
+            enrolment.completed_at = utcnow()
+            await fss.flush(session)
+    if completed:
         await emit_event(
             session,
             "learning.course_completed",
@@ -555,7 +611,9 @@ def new_public_code(n: int = 12) -> str:
 
 
 async def certificate_eligibility(session: AsyncSession, enrolment: Enrolment) -> dict[str, Any]:
-    version = await session.get(CourseVersion, enrolment.course_version_id)
+    version = (await catalog_api.get_versions(session, [enrolment.course_version_id])).get(
+        enrolment.course_version_id
+    )
     rule = version.certificate_rule if version else None
     if not rule:
         return {"eligible": False, "reason": "no_certificate"}
@@ -575,11 +633,10 @@ async def certificate_eligibility(session: AsyncSession, enrolment: Enrolment) -
 
 
 async def _name_for(session: AsyncSession, user_id: uuid.UUID) -> str:
-    from app.modules.identity.models import UserProfile
+    from app.modules.identity import public as identity_public
 
-    name = (
-        await session.execute(select(UserProfile.full_name).where(UserProfile.user_id == user_id))
-    ).scalar_one_or_none()
+    profile = await identity_public.get_profile(session, user_id)
+    name = profile.full_name if profile is not None else None
     return (name or "Learner").strip()[:200]
 
 
@@ -590,20 +647,30 @@ async def issue_certificate(
     source: str,
     final_attempt_id: uuid.UUID | None = None,
 ) -> Certificate:
-    existing = (
-        await session.execute(select(Certificate).where(Certificate.enrolment_id == enrolment.id))
-    ).scalar_one_or_none()
+    if fss.fs():
+        existing: Any = await fss.key_target(lss.CERT_BY_ENROLMENT, str(enrolment.id))
+    else:
+        existing = (
+            await session.execute(select(Certificate).where(Certificate.enrolment_id == enrolment.id))
+        ).scalar_one_or_none()
     if existing is not None:
         raise ProblemError(
             "invalid_state_transition", detail="A certificate already exists for this enrolment."
         )
-    version = await session.get(CourseVersion, enrolment.course_version_id)
+    version = (await catalog_api.get_versions(session, [enrolment.course_version_id])).get(
+        enrolment.course_version_id
+    )
     assert version is not None
     name = await _name_for(session, enrolment.user_id)
     now = utcnow()
     for _ in range(5):
         code = new_public_code()
-        clash = (await session.execute(select(Certificate.id).where(Certificate.public_code == code))).first()
+        if fss.fs():
+            clash: Any = await fss.key_target(lss.CERT_CODES, code)
+        else:
+            clash = (
+                await session.execute(select(Certificate.id).where(Certificate.public_code == code))
+            ).first()
         if clash is None:
             break
     else:  # pragma: no cover - 30^12 space
@@ -634,8 +701,8 @@ async def issue_certificate(
         content_hash=hashlib.sha256(json.dumps(content, sort_keys=True).encode()).digest(),
         issued_at=now,
     )
-    session.add(cert)
-    await session.flush()
+    fss.add(session, cert)
+    await fss.flush(session)
     await emit_event(
         session,
         "learning.certificate_issued",
@@ -656,9 +723,12 @@ async def issue_certificate(
 async def maybe_issue_certificate(session: AsyncSession, enrolment: Enrolment) -> Certificate | None:
     if enrolment.status not in ("active", "completed"):
         return None
-    existing = (
-        await session.execute(select(Certificate.id).where(Certificate.enrolment_id == enrolment.id))
-    ).first()
+    if fss.fs():
+        existing: Any = await fss.key_target(lss.CERT_BY_ENROLMENT, str(enrolment.id))
+    else:
+        existing = (
+            await session.execute(select(Certificate.id).where(Certificate.enrolment_id == enrolment.id))
+        ).first()
     if existing is not None:
         return None
     el = await certificate_eligibility(session, enrolment)
@@ -687,11 +757,14 @@ def certificate_out(c: Certificate, course_title: str | None = None) -> dict[str
 async def revoke_certificate(
     session: AsyncSession, principal: Principal | AuditActor, cert: Certificate, reason: str
 ) -> Certificate:
-    if cert.revoked_at is not None:
-        raise ProblemError("invalid_state_transition", detail="Certificate already revoked.")
-    cert.revoked_at = utcnow()
-    cert.revoke_reason = reason
-    await session.flush()
+    if fss.fs():
+        cert = await _revoke_fs(session, cert, reason)
+    else:
+        if cert.revoked_at is not None:
+            raise ProblemError("invalid_state_transition", detail="Certificate already revoked.")
+        cert.revoked_at = utcnow()
+        cert.revoke_reason = reason
+        await fss.flush(session)
     await audit(
         session,
         principal,
@@ -714,6 +787,45 @@ async def revoke_certificate(
     return cert
 
 
+async def _revoke_fs(session: AsyncSession, cert: Certificate, reason: str) -> Certificate:
+    """Firestore: check-and-revoke in one transaction (the Postgres row lock), so two revokers
+    cannot both pass the "not revoked yet" check."""
+    now = utcnow()
+
+    def step(rows: dict[uuid.UUID, Certificate]) -> None:
+        c = rows.get(cert.id)
+        if c is None:
+            raise ProblemError("not_found")
+        if c.revoked_at is not None:
+            raise ProblemError("invalid_state_transition", detail="Certificate already revoked.")
+        c.revoked_at = now
+        c.revoke_reason = reason
+
+    _, rows = await fss.locked(session, Certificate, [cert.id], step)
+    fresh = rows[cert.id]
+    if fresh is not cert:
+        for col in Certificate.__table__.columns:
+            setattr(cert, col.key, getattr(fresh, col.key))
+    return cert
+
+
+async def _revoke_all_fs(
+    session: AsyncSession, actor: Principal | AuditActor, certs: list[Certificate], reason: str
+) -> list[uuid.UUID]:
+    """Bulk revoke on Firestore: a certificate revoked concurrently is skipped, as the Postgres
+    ``... WHERE revoked_at IS NULL FOR UPDATE`` re-check after the lock wait skips it."""
+    out: list[uuid.UUID] = []
+    for cert in sorted(certs, key=lambda c: c.id):
+        try:
+            await revoke_certificate(session, actor, cert, reason)
+        except ProblemError as e:
+            if e.code == "invalid_state_transition":
+                continue
+            raise
+        out.append(cert.id)
+    return out
+
+
 async def revoke_certificates_for_entitlement(
     session: AsyncSession,
     actor: Principal | AuditActor,
@@ -725,6 +837,10 @@ async def revoke_certificates_for_entitlement(
     granted by ``entitlement_id``. Callable from commerce/entitlements consumers (e.g. an
     ``entitlement.revoked`` with reason ``refund``); idempotent - already revoked certificates
     are skipped. Returns the ids revoked."""
+    if fss.fs():
+        return await _revoke_all_fs(
+            session, actor, await _certificates_for_entitlement(session, entitlement_id), reason
+        )
     certs = (
         await session.execute(
             select(Certificate)
@@ -754,6 +870,14 @@ async def revoke_certificates_for_courses(
     ids = list(course_ids)
     if not ids:
         return []
+    if fss.fs():
+        fs_certs = await fss.find(
+            session,
+            Certificate,
+            filters=(("user_id", "==", user_id),),
+            where=lambda c: c.course_id in ids and c.revoked_at is None,
+        )
+        return await _revoke_all_fs(session, actor, fs_certs, reason)
     certs = (
         await session.execute(
             select(Certificate)
@@ -779,9 +903,11 @@ async def revoke_certificates_for_courses(
 async def migrate_version(session: AsyncSession, enrolment: Enrolment, course: Course) -> bool:
     if course.current_version_id is None or enrolment.course_version_id == course.current_version_id:
         return False
+    if fss.fs():
+        return await _migrate_version_fs(session, enrolment, course)
     old = enrolment.course_version_id
     enrolment.course_version_id = course.current_version_id
-    await session.flush()
+    await fss.flush(session)
     await emit_event(
         session,
         "learning.version_migrated",
@@ -807,6 +933,48 @@ async def migrate_version(session: AsyncSession, enrolment: Enrolment, course: C
     return True
 
 
+async def _migrate_version_fs(session: AsyncSession, enrolment: Enrolment, course: Course) -> bool:
+    """Firestore: the version switch and the completed -> active re-open are one transaction on
+    the fresh enrolment (the Postgres ``FOR UPDATE`` on the publish path)."""
+    new_v = course.current_version_id
+    assert new_v is not None
+    keys = await required_keys(session, new_v)
+    pm = await progress_map(session, enrolment.id)
+    reopen = any((lp := pm.get(k)) is None or lp.status != "completed" for k in keys)
+
+    def step(rows: dict[uuid.UUID, Enrolment]) -> uuid.UUID | None:
+        e = rows.get(enrolment.id)
+        if e is None or e.course_version_id == new_v:
+            return None  # gone, or migrated by a concurrent publisher / learner
+        old = e.course_version_id
+        e.course_version_id = new_v
+        if e.status == "completed" and reopen:
+            e.status, e.completed_at = "active", None
+        return old
+
+    old, rows = await fss.locked(session, Enrolment, [enrolment.id], step)
+    if enrolment.id in rows:
+        fss.copy_into(enrolment, rows[enrolment.id])
+    if old is None:
+        return False
+    await emit_event(
+        session,
+        "learning.version_migrated",
+        {
+            "enrolment_id": str(enrolment.id),
+            "user_id": str(enrolment.user_id),
+            "course_id": str(course.id),
+            "from_version_id": str(old),
+            "to_version_id": str(new_v),
+        },
+        aggregate_type="enrolment",
+        aggregate_id=enrolment.id,
+        organization_id=enrolment.organization_id,
+    )
+    await recompute(session, enrolment)
+    return True
+
+
 async def on_course_published(session: AsyncSession, course: Course, version: CourseVersion) -> None:
     """catalog publish hook: ``minor`` versions auto-migrate active enrolments (FR-CAT-002).
     Runs in the publisher's transaction; platform publishers have ``app.is_platform``, org
@@ -815,6 +983,16 @@ async def on_course_published(session: AsyncSession, course: Course, version: Co
         return
     # BE-06: migrate each enrolment like LRN-07 does, so progress is recomputed and a course
     # completed on the old version re-opens when the minor version adds required lessons.
+    if fss.fs():
+        fs_rows = await fss.find(
+            session,
+            Enrolment,
+            filters=(("course_id", "==", course.id),),
+            where=lambda e: e.status in ("active", "completed") and e.course_version_id != version.id,
+        )
+        for enr in sorted(fs_rows, key=lambda e: e.id):
+            await migrate_version(session, enr, course)
+        return
     enrolments = (
         await session.execute(
             select(Enrolment)
@@ -846,3 +1024,36 @@ def window_state(now: datetime, due_at: datetime | None, late_until: datetime | 
 def ist_day(dt: datetime) -> str:
     """Asia/Kolkata calendar date shown on the public verification page."""
     return ist_date(dt).isoformat()
+
+
+# --------------------------------------------------------------------------- Firestore helpers
+
+
+async def _enrolments_on_versions(
+    session: AsyncSession, user_id: uuid.UUID, version_ids: list[uuid.UUID]
+) -> list[Enrolment]:
+    """Firestore: the user's active/completed enrolments pinned to one of ``version_ids``."""
+    wanted = set(version_ids)
+    return await fss.find(
+        session,
+        Enrolment,
+        filters=(("user_id", "==", user_id),),
+        where=lambda e: e.status in ("active", "completed") and e.course_version_id in wanted,
+    )
+
+
+async def _certificates_for_entitlement(
+    session: AsyncSession, entitlement_id: uuid.UUID
+) -> list[Certificate]:
+    """Firestore: live certificates of enrolments granted by ``entitlement_id``, by id."""
+    enrolments = await fss.find(session, Enrolment, filters=(("entitlement_id", "==", entitlement_id),))
+    ids = [e.id for e in enrolments]
+    out: list[Certificate] = []
+    for i in range(0, len(ids), 30):
+        out += await fss.find(
+            session,
+            Certificate,
+            filters=(("enrolment_id", "in", ids[i : i + 30]),),
+            where=lambda c: c.revoked_at is None,
+        )
+    return sorted(out, key=lambda c: c.id)

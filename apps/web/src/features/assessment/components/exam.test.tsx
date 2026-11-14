@@ -203,6 +203,23 @@ describe("Exam evaluation", () => {
     expect(await screen.findByRole("alert")).toHaveAttribute("data-ai-code", "ai_disabled");
   });
 
+  it("explains a refusal instead of an error with a useless Try again (WS-UI 0.4)", async () => {
+    const api = mockApi({ "GET tests/t1/evaluation": problem(403, "permission_denied", "You don't have permission to do this") });
+    restore = api.restore;
+    renderWithProviders(<ExamEvaluation testId="t1" />);
+    expect(await screen.findByText("You can't evaluate this test")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps Publish results secondary with a reason while answers are not finalized", async () => {
+    const api = mockApi({ "GET tests/t1/evaluation": { body: list } });
+    restore = api.restore;
+    renderWithProviders(<ExamEvaluation testId="t1" />);
+    const publish = await screen.findByRole("button", { name: "Publish results" });
+    expect(publish.className.split(" ")).not.toContain("bg-brand"); // not the primary fill
+    expect(publish).toHaveAccessibleDescription("1 answer is not finalized yet. Finalize them before publishing.");
+  });
+
   it("formats the grading line", () => {
     expect(gradingLine({ items: 20, finalized: 0, ai_pending: 2, manual_pending: 0, manual_items: 2 })).toBe("0 / 20 finalized · 2 AI pending");
   });

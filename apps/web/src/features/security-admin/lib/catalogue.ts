@@ -38,13 +38,27 @@ export const CASE_STATUS_OPTIONS = [
 
 export const LEVEL_OPTIONS = [
   { value: "", label: "Any level" },
-  { value: "2,3,4", label: "L2–L4" },
-  { value: "3,4", label: "L3–L4" },
-  { value: "1", label: "L1" },
-  { value: "2", label: "L2" },
-  { value: "3", label: "L3" },
-  { value: "4", label: "L4" },
+  { value: "2,3,4", label: "Verify and above (L2–L4)" },
+  { value: "3,4", label: "Restricted or suspended (L3–L4)" },
+  { value: "1", label: "L1 · Notice" },
+  { value: "2", label: "L2 · Verify" },
+  { value: "3", label: "L3 · Temporary restriction" },
+  { value: "4", label: "L4 · Suspended" },
 ];
+
+/** Restriction sources in words ("hc_rule" is a high-confidence rule that restricts on its own). */
+export const SOURCE_OPTIONS = [
+  { value: "", label: "Any source" },
+  { value: "engine", label: "Risk engine" },
+  { value: "hc_rule", label: "High-confidence rule" },
+  { value: "reviewer", label: "Reviewer" },
+  { value: "support", label: "Support" },
+];
+
+export function sourceLabel(source: string | null | undefined): string {
+  if (!source) return "—";
+  return SOURCE_OPTIONS.find((o) => o.value === source)?.label ?? source.charAt(0).toUpperCase() + source.slice(1).replace(/_/g, " ");
+}
 
 export const FAMILY_OPTIONS = [
   { value: "", label: "Any family" },
@@ -69,10 +83,17 @@ export const DECISION_OUTCOMES = [
   { value: "lift_with_warning", label: "Lift (with warning)", lift: true, defaultLevel: 0 },
   { value: "lift_false_positive", label: "Lift — false positive", lift: true, defaultLevel: 0 },
   { value: "lift_conditions", label: "Lift with conditions", lift: true, defaultLevel: 0 },
-  { value: "reduce_level", label: "Reduce to L2", lift: false, defaultLevel: 2 },
+  { value: "reduce_level", label: "Reduce to L2 (verify)", lift: false, defaultLevel: 2 },
   { value: "uphold", label: "Uphold", lift: false, defaultLevel: -1 },
-  { value: "convert_L4", label: "Convert to L4", lift: false, defaultLevel: 4 },
+  { value: "convert_L4", label: "Convert to L4 (suspend)", lift: false, defaultLevel: 4 },
+  // Only for a case with no active restriction (manual / support escalation): nothing on the account changes.
+  { value: "close_no_action", label: "Close — no action needed", lift: false, defaultLevel: -1 },
 ] as const;
+
+/** Outcomes the API accepts for this case: lift / uphold / reduce need an active restriction, close_no_action needs none. */
+export function outcomesFor(restricted: boolean) {
+  return DECISION_OUTCOMES.filter((o) => (restricted ? o.value !== "close_no_action" : o.value === "close_no_action" || o.value === "convert_L4"));
+}
 
 export const UNBLOCK_STATE_OPTIONS = [
   { value: "submitted,under_review,info_requested,escalated", label: "All pending" },
@@ -109,7 +130,7 @@ export interface ReportFilterDef {
 export const REPORT_FILTER_DEFS: Record<string, ReportFilterDef> = {
   from: { name: "from", label: "From", kind: "date", hint: "IST date" },
   to: { name: "to", label: "To", kind: "date", hint: "IST date, inclusive" },
-  user_id: { name: "user_id", label: "User id", kind: "uuid" },
+  user_id: { name: "user_id", label: "User id", kind: "uuid", hint: "Copy it from the user's page or case" },
   assignee: { name: "assignee", label: "Assignee (user id)", kind: "uuid" },
   reviewer: { name: "reviewer", label: "Reviewer (user id)", kind: "uuid" },
   rule: { name: "rule", label: "Rule key", kind: "text" },
@@ -117,21 +138,15 @@ export const REPORT_FILTER_DEFS: Record<string, ReportFilterDef> = {
     name: "level",
     label: "Level",
     kind: "select",
-    options: [{ value: "", label: "Any level" }, ...["1", "2", "3", "4"].map((l) => ({ value: l, label: `L${l}` }))],
+    options: LEVEL_OPTIONS.filter((o) => !o.value.includes(",")),
   },
   family: { name: "family", label: "Family", kind: "select", options: FAMILY_OPTIONS },
-  sla_state: { name: "sla_state", label: "SLA state", kind: "select", options: SLA_OPTIONS },
+  sla_state: { name: "sla_state", label: "Response time (SLA)", kind: "select", options: SLA_OPTIONS },
   source: {
     name: "source",
     label: "Source",
     kind: "select",
-    options: [
-      { value: "", label: "Any source" },
-      { value: "engine", label: "Engine" },
-      { value: "hc_rule", label: "HC rule" },
-      { value: "reviewer", label: "Reviewer" },
-      { value: "support", label: "Support" },
-    ],
+    options: SOURCE_OPTIONS,
   },
   state: {
     name: "state",

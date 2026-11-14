@@ -1,5 +1,6 @@
 """Shared factories for catalog / learning / media tests (direct DB writes in a system
-context on the rolled-back test connection, plus browser logins through the real stack)."""
+context on the rolled-back test connection, plus browser logins through the real stack).
+With ``TD_STORE_CATALOG=firestore`` the catalog rows are copied to the emulator (``sync_catalog``)."""
 
 from __future__ import annotations
 
@@ -141,7 +142,17 @@ async def make_published_course(
 
     await db.execute(update(Course).where(Course.id == cid).values(current_version_id=vid))
     await db.flush()
+    await sync_catalog(db)
     return pc
+
+
+async def sync_catalog(db: AsyncSession) -> None:
+    """Copy direct-DB catalog rows to Firestore when ``TD_STORE_CATALOG=firestore`` (store
+    matrix). Re-copies the whole catalogue: rows the test changed through the API on Firestore
+    only (not in Postgres) are overwritten only if they also exist in Postgres."""
+    from app.core.firestore.backfill import sync_if_enabled
+
+    await sync_if_enabled(db, "catalog")
 
 
 async def staff(

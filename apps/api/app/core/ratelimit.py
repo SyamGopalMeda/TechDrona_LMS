@@ -86,14 +86,43 @@ class MemoryBackend:
         return [self._get(k) for k in keys]
 
 
-_backend: Backend = RedisBackend()
+def default_backend() -> Backend:
+    """Redis by default; Firestore ``lms_kv`` when ``TD_CACHE_BACKEND=firestore`` (Firebase)."""
+    from app.core.runtime import cache_backend
+
+    if cache_backend() == "firestore":
+        from app.core.firestore.kv import FirestoreRateLimitBackend
+
+        return FirestoreRateLimitBackend()
+    return RedisBackend()
+
+
+class _ConfiguredBackend:
+    """Delegates to ``default_backend()``, resolved per call (settings are read after import;
+    the Redis/Firestore clients themselves are cached by their own modules)."""
+
+    async def incr(self, keys: list[tuple[str, int]]) -> list[int]:
+        return await default_backend().incr(keys)
+
+    async def incr_colocated(self, group: str, span_s: int, keys: list[tuple[str, int]]) -> list[int]:
+        backend = default_backend()
+        colocated = getattr(backend, "incr_colocated", None)
+        if colocated is None:  # Redis: one INCR + EXPIRE per key, as before
+            return await backend.incr(keys)
+        return list(await colocated(group, span_s, keys))
+
+    async def peek(self, keys: list[str]) -> list[int]:
+        return await default_backend().peek(keys)
+
+
+_backend: Backend = _ConfiguredBackend()
 
 
 def set_backend(backend: Backend | None) -> Backend:
-    """Install a backend (``None`` restores Redis); returns the previous one."""
+    """Install a backend (``None`` restores the configured default); returns the previous one."""
     global _backend
     prev = _backend
-    _backend = backend if backend is not None else RedisBackend()
+    _backend = backend if backend is not None else _ConfiguredBackend()
     return prev
 
 
@@ -134,6 +163,32 @@ async def check(key: str, rules: tuple[Rule, ...], *, scope: str = "default") ->
         if n > r.limit:
             return _problem(r, ttl, scope)
     return None
+
+
+async def check_colocated(
+    checks: list[tuple[str, Rule]], *, group: str, span_s: int, scope: str = "default"
+) -> list[ProblemError | None]:
+    """``[await check(key, (rule,), scope=scope) for key, rule in checks]`` with the same counts
+    and answers, but a backend that can (Firestore ``lms_kv``) keeps all these counters in ONE
+    document per ``span_s`` window of ``group`` -> one billed write per call instead of one per
+    key. Every window must divide ``span_s`` (epoch-aligned windows then nest in the span), and a
+    key must always be counted with the same ``group`` (e.g. a session's counters under its
+    user). Backend outage: fails open, like ``check``."""
+    if any(span_s % rule.window_s for _key, rule in checks):
+        raise ValueError("every rule window must divide span_s")
+    colocated = getattr(_backend, "incr_colocated", None)
+    if colocated is None:
+        return [await check(key, (rule,), scope=scope) for key, rule in checks]
+    windows = [(*_windows(key, (rule,))[0],) for key, rule in checks]
+    try:
+        counts = await colocated(group, span_s, [(k, ttl) for k, _r, ttl in windows])
+    except Exception as e:  # backend outage: fail open
+        log.warning("rate_limit_unavailable", key=group.split(":", 1)[0], error=type(e).__name__)
+        return [None] * len(checks)
+    return [
+        _problem(r, ttl, scope) if n > r.limit else None
+        for (_k, r, ttl), n in zip(windows, counts, strict=True)
+    ]
 
 
 async def hit(key: str, rules: tuple[Rule, ...], *, scope: str = "default") -> None:

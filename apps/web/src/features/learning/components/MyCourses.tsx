@@ -19,10 +19,10 @@ export function MyCourses() {
   const rows = data?.data ?? [];
   if (rows.length === 0) {
     return (
-      <EmptyState
+      <EmptyState icon="book"
         title="You haven't enrolled in a course yet"
         description="Free courses need only your account. Pick one to get started."
-        action={<LinkButton href="/courses?price_type=free">Browse free courses</LinkButton>}
+        action={<LinkButton href="/app/courses">Browse free courses</LinkButton>}
       />
     );
   }

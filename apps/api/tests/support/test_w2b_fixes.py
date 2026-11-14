@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from sqlalchemy import text
 
 from app.core.db import system_context
-from app.modules.support.models import SupportTicket
 from tests.identity.factory import company_org
+from tests.support import helpers as h
 from tests.support.test_audit_fixes import _student, body
 
 
@@ -35,6 +36,7 @@ async def _attempt(db, user_id) -> uuid.UUID:
     return attempt_id
 
 
+@pytest.mark.usefixtures("support_backend")
 async def test_ticket_links_own_attempt_only(client, db) -> None:
     org = company_org()
     u, sb = await _student(client, db, org)
@@ -46,7 +48,7 @@ async def test_ticket_links_own_attempt_only(client, db) -> None:
     assert r.status_code == 201, r.text
     assert r.json()["related_attempt_id"] == str(mine)
     await system_context(db, "t")
-    t = await db.get(SupportTicket, uuid.UUID(r.json()["ticket_id"]))
+    t = await h.ticket(db, r.json()["ticket_id"])
     assert t is not None and t.context["attempt_id"] == str(mine)
     got = await sb.get(f"/support/tickets/{r.json()['ticket_id']}")
     assert got.json()["related_attempt_id"] == str(mine)

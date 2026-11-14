@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockApi, problem, renderWithProviders } from "@/features/auth/test/mock-api";
 import type { Bank } from "../lib/types";
+import { BankDetail } from "./BankDetail";
 import { BankList, VIEW_KEY } from "./BankList";
 import { BulkImportDialog } from "./BulkImportDialog";
 import { GenerateDialog } from "./GenerateDialog";
@@ -55,9 +56,9 @@ describe("BankList", () => {
     restore = api.restore;
     renderWithProviders(<BankList />);
     expect(await screen.findByText("Python lists")).toBeInTheDocument();
-    expect(screen.getByText("Banks").parentElement).toHaveTextContent("2");
-    expect(screen.getByText("Questions").parentElement).toHaveTextContent("15");
-    expect(screen.getByText("Subjects").parentElement).toHaveTextContent("1");
+    expect(screen.getByText("Banks").closest("div")?.parentElement).toHaveTextContent("2");
+    expect(screen.getByText("Questions").closest("div")?.parentElement).toHaveTextContent("15");
+    expect(screen.getByText("Subjects").closest("div")?.parentElement).toHaveTextContent("1");
     expect(screen.getByText("2 banks")).toBeInTheDocument();
     // Grid by default: cards with type-count chips and an "Open bank" link.
     expect(screen.getByText("5 MCQ")).toBeInTheDocument();
@@ -76,6 +77,22 @@ describe("BankList", () => {
     restore = api.restore;
     renderWithProviders(<BankList />);
     expect(await screen.findByText("10 Qs")).toBeInTheDocument();
+  });
+});
+
+describe("BankDetail header", () => {
+  it("uses the kit PageHeader: breadcrumbs, the bank name as h1, one primary action", async () => {
+    const api = mockApi({
+      "GET studio/question-banks/b1/questions": { body: { bank: bank({ question_count: 0, type_counts: {} }), items: [], total: 0, type_counts: {}, tags: [], limit: 100, offset: 0 } },
+    });
+    restore = api.restore;
+    renderWithProviders(<BankDetail bankId="b1" />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Python lists" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("link", { name: "Question banks" })).toHaveAttribute("href", "/studio/question-banks");
+    expect(screen.getByRole("button", { name: "Delete bank" })).toBeInTheDocument();
+    // The empty bank does not add a second "Add question" primary.
+    expect(screen.getAllByRole("button", { name: "Add question" })).toHaveLength(1);
+    expect(screen.getByText("This bank is empty")).toBeInTheDocument();
   });
 });
 

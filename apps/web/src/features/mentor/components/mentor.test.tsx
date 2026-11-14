@@ -75,6 +75,9 @@ describe("MentorSessionDetail (MEN-003)", () => {
     expect(screen.getByText("Private — never shown to the student.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Submit feedback" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "I missed this session" })).toBeInTheDocument();
+    // Phase 2: the session is named in the h1 with breadcrumbs back to Sessions.
+    expect(screen.getByRole("heading", { level: 1, name: /with Ananya Reddy$/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sessions" })).toHaveAttribute("href", "/mentor");
   });
 });
 
@@ -168,6 +171,8 @@ describe("MentorStudent (MEN-004)", () => {
     expect(await screen.findByText("Weakest topics: Dynamic programming")).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();
     expect(screen.getByText("Good energy")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Ananya Reddy" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Students" })).toHaveAttribute("href", "/mentor/students");
     fireEvent.change(screen.getByLabelText("Add a note"), { target: { value: "Follow up on DP" } });
     fireEvent.click(screen.getByRole("button", { name: "Save note" }));
     expect(await screen.findByText("Follow up on DP", { selector: "p" })).toBeInTheDocument();

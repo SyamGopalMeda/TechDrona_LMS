@@ -1,0 +1,51 @@
+{
+  "_comment": "commerce (TD_STORE_COMMERCE): the engine pushes down only equality / one IN filter per query and sorts in memory, so no composite index is needed. Large JSON-string / text fields are exempt from indexing (index entry limit).",
+  "indexes": [],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "lms_payment_webhook_events",
+      "fieldPath": "payload",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_reconciliation_runs",
+      "fieldPath": "summary",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_reconciliation_runs",
+      "fieldPath": "mismatches",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_invoices",
+      "fieldPath": "buyer_address",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_plans",
+      "fieldPath": "gateway_plan_ids",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_products",
+      "fieldPath": "description_md",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_payment_webhook_events",
+      "fieldPath": "payload_sha256",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_payment_webhook_events",
+      "fieldPath": "last_error",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_refunds",
+      "fieldPath": "last_error",
+      "indexes": []
+    }
+  ]
+}

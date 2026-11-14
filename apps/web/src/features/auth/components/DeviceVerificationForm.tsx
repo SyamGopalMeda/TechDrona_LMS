@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ServiceNotIntegrated } from "@/components/shell/Integrations";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button, FormField } from "@/components/ui";
@@ -197,6 +198,7 @@ export function DeviceVerificationForm() {
             </Notice>
           ) : (
             <div className="space-y-2">
+              <ServiceNotIntegrated service="email" text="Sign-in codes are sent by email, which isn't connected yet, so the code won't reach your inbox. Ask the Tech Drona admin for the code, or set up an authenticator app in your security settings." />
               {sentTo ? (
                 <p role="status" className="text-sm text-fg-secondary">
                   We sent a 6-digit code to {sentTo}. Enter it to add this device to your devices. Until then you can browse free content and your account settings.
@@ -206,7 +208,7 @@ export function DeviceVerificationForm() {
               )}
               <div className="flex flex-wrap gap-2">
                 {channels.map((c) => (
-                  <Button key={c.channel} variant={sentTo ? "ghost" : "secondary"} size="sm" loading={sending === c.channel} disabled={resendIn > 0 || sending !== null} onClick={() => send(c.channel)}>
+                  <Button key={c.channel} variant={sentTo ? "ghost" : "secondary"} size="sm" loading={sending === c.channel} disabled={resendIn > 0 || sending !== null} onClick={() => send(c.channel)} className="!h-auto min-h-touch max-w-full !whitespace-normal break-words !py-2 text-left">
                     {sentTo ? "Resend" : "Send code"} by {c.channel === "sms" ? "SMS" : c.channel} to {c.destination_masked}
                   </Button>
                 ))}
@@ -228,7 +230,7 @@ export function DeviceVerificationForm() {
           <Button type="submit" loading={busy}>
             {cap ? "Remove and continue" : "Confirm"}
           </Button>
-          <Button variant="ghost" onClick={() => router.push("/")}>
+          <Button variant="ghost" onClick={() => router.push("/")} className="!h-auto min-h-touch max-w-full !whitespace-normal !py-2 text-left">
             {cap ? "Cancel" : "Skip for now — browse free content only"}
           </Button>
         </div>

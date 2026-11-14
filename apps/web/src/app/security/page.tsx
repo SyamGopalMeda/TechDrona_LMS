@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { SecurityDashboard } from "@/features/security-admin/components/SecurityDashboard";
 
-export const metadata: Metadata = { title: "Account security" };
+export const metadata: Metadata = { title: "Security overview" };
 
-/** SEC-001 */
+/** Security overview (dashboard). */
 export default function Page() {
   return <SecurityDashboard />;
 }

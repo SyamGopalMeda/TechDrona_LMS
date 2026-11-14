@@ -104,28 +104,17 @@ def _client_ip(request: Request) -> str | None:
 
 
 async def _admin_recipients(session: Any) -> list[tuple[uuid.UUID, str | None]]:
-    from app.modules.identity.models import User
+    from app.modules.identity import public as identity
+    from app.modules.rbac import public as rbac
     from app.modules.rbac.catalogue import admin_roles
-    from app.modules.rbac.models import Role, RoleGrant
 
-    now = clock.now()
-    rows = await session.execute(
-        select(RoleGrant.user_id, User.email)
-        .join(Role, Role.id == RoleGrant.role_id)
-        .join(User, User.id == RoleGrant.user_id)
-        .where(
-            Role.role_key.in_(sorted(admin_roles())),
-            RoleGrant.scope_type == "platform",
-            RoleGrant.revoked_at.is_(None),
-            (RoleGrant.expires_at.is_(None)) | (RoleGrant.expires_at > now),
-            User.status == "active",
-        )
-        .distinct()
-    )
-    return [(r[0], r[1]) for r in rows.all()]
+    # unrevoked, unexpired platform grants of an admin role, joined to active users (DISTINCT)
+    ids = await rbac.user_ids_with_role(session, sorted(admin_roles()), scope_type="platform")
+    users = await identity.get_users(session, ids)
+    return [(uid, u.email) for uid, u in users.items() if u.status == "active"]
 
 
-async def _notify_admins(session: Any, e: CorporateEnquiry) -> int:
+async def _notify_admins(session: Any, e: Any) -> int:
     from app.modules.notifications.service import notify
 
     sent = 0
@@ -177,10 +166,8 @@ async def create_enquiry(body: EnquiryIn, request: Request, session: DbSession) 
 
     await system_context(session, "support.corporate_enquiry")
     now = clock.now()
-    n = (await session.execute(text("SELECT nextval('corporate_enquiry_number_seq')"))).scalar_one()
-    e = CorporateEnquiry(
+    fields: dict[str, Any] = dict(
         id=uuid7(),
-        reference=f"TD-E-{now.year}-{int(n):06d}",
         name=body.name,
         company=body.company,
         email=email,
@@ -192,8 +179,19 @@ async def create_enquiry(body: EnquiryIn, request: Request, session: DbSession) 
         created_at=now,
         updated_at=now,
     )
-    session.add(e)
-    await session.flush()
+    e: Any
+    if sv.on_firestore():
+        from app.modules.support.repo_firestore import EnquiryRow
+
+        repo = await sv.fs_repo(session, "support.corporate_enquiry")
+        e = await repo.insert_enquiry(
+            EnquiryRow(reference="", **fields), lambda n: f"TD-E-{now.year}-{int(n):06d}"
+        )
+    else:
+        n = (await session.execute(text("SELECT nextval('corporate_enquiry_number_seq')"))).scalar_one()
+        e = CorporateEnquiry(reference=f"TD-E-{now.year}-{int(n):06d}", **fields)
+        session.add(e)
+        await session.flush()
     # Audit without PII: the record identifies the enquiry, not the sender.
     await audit(
         session,
@@ -210,7 +208,7 @@ async def create_enquiry(body: EnquiryIn, request: Request, session: DbSession) 
 # --------------------------------------------------------------------------- Admin queue
 
 
-def _out(e: CorporateEnquiry, *, full: bool) -> dict[str, Any]:
+def _out(e: Any, *, full: bool) -> dict[str, Any]:
     out: dict[str, Any] = {
         "enquiry_id": str(e.id),
         "reference": e.reference,
@@ -259,6 +257,14 @@ async def list_enquiries(
     limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
     await _require_admin_lane(session, principal)
+    if sv.on_firestore():
+        repo = await sv.fs_repo(session, "support.enquiries")
+        items, nxt = await repo.enquiries(status, cursor, limit)
+        return {
+            "data": [_out(e, full=False) for e in items],
+            "page": {"next_cursor": nxt, "has_more": nxt is not None, "limit": limit},
+            "counts": {"new": await repo.count_enquiries("new")},
+        }
     q = select(CorporateEnquiry)
     if status:
         q = q.where(CorporateEnquiry.status == status)
@@ -292,7 +298,12 @@ async def list_enquiries(
     }
 
 
-async def _load(session: Any, enquiry_id: uuid.UUID, *, for_update: bool = False) -> CorporateEnquiry:
+async def _load(session: Any, enquiry_id: uuid.UUID, *, for_update: bool = False) -> Any:
+    if sv.on_firestore():
+        row = await (await sv.fs_repo(session, "support.enquiries")).get_enquiry(enquiry_id)
+        if row is None:
+            raise ProblemError("not_found")
+        return row
     q = select(CorporateEnquiry).where(CorporateEnquiry.id == enquiry_id)
     if for_update:
         q = q.with_for_update()
@@ -336,7 +347,10 @@ async def patch_enquiry(
     if "staff_note" in fields:
         e.staff_note = body.staff_note
     e.updated_at = clock.now()
-    await session.flush()
+    if sv.on_firestore():
+        e = await (await sv.fs_repo(session, "support.enquiries")).save_enquiry(e)
+    else:
+        await session.flush()
     await audit(
         session,
         principal,

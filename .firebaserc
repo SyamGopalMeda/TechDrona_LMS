@@ -1,0 +1,13 @@
+{
+  "projects": {
+    "default": "billing-f4fe3"
+  },
+  "targets": {
+    "billing-f4fe3": {
+      "hosting": {
+        "showcase": ["billing-f4fe3"],
+        "lms": ["techdrona-lms-app"]
+      }
+    }
+  }
+}

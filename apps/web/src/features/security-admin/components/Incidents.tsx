@@ -78,9 +78,9 @@ export function Incidents() {
   return (
     <div>
       <PageHeader
-        eyebrow="SEC · Incidents"
-        title="Security incidents"
-        description="Incident register with CERT-In (6 h) and Data Protection Board (72 h) deadlines."
+        breadcrumbs={[{ label: "Security", href: "/security" }, { label: "Incidents" }]}
+        title="Incidents"
+        description="Record security incidents and track the CERT-In (6 h) and Data Protection Board (72 h) reporting deadlines."
         actions={<Button onClick={() => setOpenNew(true)}>Open incident</Button>}
       />
       <Table
@@ -91,12 +91,19 @@ export function Incidents() {
         loading={res.loading}
         error={res.error}
         onRetry={() => void res.reload()}
-        empty={{ title: "No incidents recorded" }}
+        empty={{ title: "No incidents recorded", description: "If you detect a breach or attack, open an incident straight away so the reporting clocks start." }}
       />
 
       <ActionDialog
         open={openNew}
         onClose={() => setOpenNew(false)}
+        onOpen={() => {
+          setTitle("");
+          setSeverity("medium");
+          setDetectedAt(nowIstLocal());
+          setBreach(false);
+          setCertin(false);
+        }}
         title="Open a security incident"
         submitLabel="Open incident"
         validate={() => (title.trim().length < 3 ? "Give the incident a title (3+ characters)." : !istLocalToIso(detectedAt) ? "Enter when it was detected." : null)}

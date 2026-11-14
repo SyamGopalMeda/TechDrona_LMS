@@ -352,6 +352,11 @@ describe("LessonMediaPanel (INV-03, MED-01..03)", () => {
   it("reports a provider rejection", async () => {
     await expect(postToProvider({ url: "https://x.example.com", fields: {} }, new File(["a"], "a"), (async () => new Response("denied", { status: 403 })) as typeof fetch)).rejects.toThrow(/HTTP 403/);
   });
+
+  it("says the demo (fake) video provider is not integrated instead of blaming the network", async () => {
+    const never = (async () => new Response(null, { status: 204 })) as typeof fetch;
+    await expect(postToProvider({ url: "https://fake-upload.invalid/vdocipher", fields: {} }, new File(["a"], "a"), never)).rejects.toThrow(/Not integrated yet/);
+  });
 });
 
 describe("MediaLibrary (CMS-012)", () => {
@@ -364,9 +369,14 @@ describe("MediaLibrary (CMS-012)", () => {
     });
     restore = api.restore;
     renderWithProviders(<MediaLibrary />);
-    await userEvent.selectOptions(await screen.findByLabelText("Course"), "c1");
+    // A list of courses, not a dead-end picker.
+    expect(await screen.findByText("DSA Basics")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Open media for DSA Basics" }));
     expect(await screen.findByText("Processing")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Manage media" })).toHaveLength(3);
+    await userEvent.click(screen.getByRole("button", { name: /All courses/ }));
+    expect(await screen.findByRole("button", { name: "Open media for DSA Basics" })).toBeInTheDocument();
   });
 });
 
@@ -493,8 +503,11 @@ describe("TaxonomyManager (CMS-008)", () => {
   it("creates a topic under a subject (PLC-02)", async () => {
     const api = mockApi({ "GET studio/topics": { body: subjects }, "POST studio/topics": { status: 201, body: {} } });
     restore = api.restore;
-    renderWithProviders(<TaxonomyManager />);
+    renderWithProviders(<TaxonomyManager header={{ title: "Taxonomy" }} />);
     await userEvent.click(await screen.findByRole("button", { name: "Add a topic under Aptitude" }));
+    // Header carries the purpose and the primary action; kinds are words, not raw enums.
+    expect(screen.getByRole("heading", { level: 1, name: "Taxonomy" })).toBeInTheDocument();
+    expect(screen.getAllByText("Subject").length).toBeGreaterThan(0);
     const dialog = await screen.findByRole("dialog");
     await fill(within(dialog).getByLabelText(/^Name/), "Time and Work");
     await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));

@@ -114,7 +114,7 @@ describe("TrainerDashboard (TRN-001)", () => {
     expect(
       await screen.findByRole("link", { name: "CSE 2027 A" }),
     ).toHaveAttribute("href", "/trainer/batches/b1");
-    expect(await screen.findByText("1+")).toBeInTheDocument();
+    expect((await screen.findAllByText(/1\+/)).length).toBeGreaterThan(0);
     expect(api.calls.find((c) => c.path === "integrity/flags")?.url).toContain(
       "status=open",
     );
@@ -367,10 +367,7 @@ describe("GradingQueue (TRN-008)", () => {
     });
     restore = api.restore;
     renderWithProviders(<GradingQueue />);
-    await userEvent.selectOptions(
-      await screen.findByLabelText("Assignment"),
-      "as1",
-    );
+    await userEvent.click(await screen.findByRole("button", { name: "Show submissions for Arrays worksheet" }));
     expect(await screen.findByText("Late")).toBeInTheDocument();
     await userEvent.click(
       await screen.findByRole("button", { name: "Grade Ravi Kumar" }),

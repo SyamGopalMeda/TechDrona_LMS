@@ -69,7 +69,7 @@ export function LoginHistoryCard() {
           <Skeleton className="h-16 w-full" />
         </div>
       ) : attempts.length === 0 ? (
-        <EmptyState title="No sign-ins in the last 90 days" />
+        <EmptyState icon="shield" title="No sign-ins in the last 90 days" />
       ) : (
         <ul className="divide-y divide-line-subtle text-sm" aria-label="Sign-in attempts">
           {attempts.map((a, i) => (

@@ -41,12 +41,43 @@ log = structlog.get_logger("app.notifications")
 
 
 @dataclass(frozen=True)
+class EmailAttachment:
+    filename: str
+    content_type: str  # e.g. "application/pdf"
+    data: bytes
+
+
+@dataclass(frozen=True)
 class OutboundEmail:
     to: str
     subject: str
     text: str
     category: str = "transactional"
     template_key: str = "generic"
+    # Optional files (certificate PDFs). Empty keeps the old plain-text message / SES Simple path.
+    attachments: tuple[EmailAttachment, ...] = ()
+    # Optional HTML alternative of ``text`` (multipart/alternative; the plain text stays first).
+    html: str | None = None
+
+
+def build_mime(msg: OutboundEmail, from_header: str, *, message_id: str | None = None) -> MimeMessage:
+    """The RFC 5322 message (plain text + attachments) shared by SMTP and SES raw sends."""
+    mime = MimeMessage()
+    mime["From"] = from_header
+    mime["To"] = msg.to
+    mime["Subject"] = msg.subject
+    if message_id:
+        mime["Message-ID"] = message_id
+    mime["X-TD-Template"] = msg.template_key
+    mime.set_content(msg.text)
+    if msg.html:
+        mime.add_alternative(msg.html, subtype="html")
+    for a in msg.attachments:
+        maintype, _, subtype = a.content_type.partition("/")
+        mime.add_attachment(
+            a.data, maintype=maintype or "application", subtype=subtype or "octet-stream", filename=a.filename
+        )
+    return mime
 
 
 @dataclass(frozen=True)
@@ -82,14 +113,8 @@ class SmtpEmailAdapter:
         self.from_name = _env("EMAIL_FROM_NAME", "Tech Drona")
 
     def _send_sync(self, msg: OutboundEmail) -> str:
-        mime = MimeMessage()
-        mime["From"] = formataddr((self.from_name, self.from_address))
-        mime["To"] = msg.to
-        mime["Subject"] = msg.subject
         mid = make_msgid(domain="techdrona.local")
-        mime["Message-ID"] = mid
-        mime["X-TD-Template"] = msg.template_key
-        mime.set_content(msg.text)
+        mime = build_mime(msg, formataddr((self.from_name, self.from_address)), message_id=mid)
         with smtplib.SMTP(self.host, self.port, timeout=5) as smtp:
             smtp.send_message(mime)
         return mid
@@ -150,15 +175,24 @@ class SesEmailAdapter:
         return self._client
 
     def request(self, msg: OutboundEmail) -> dict[str, Any]:
-        req: dict[str, Any] = {
-            "FromEmailAddress": formataddr((self.from_name, self.from_address)),
-            "Destination": {"ToAddresses": [msg.to]},
-            "Content": {
+        sender = formataddr((self.from_name, self.from_address))
+        content: dict[str, Any]
+        if msg.attachments:  # SES v2 Simple content has no attachments: send the raw MIME message
+            content = {"Raw": {"Data": build_mime(msg, sender).as_bytes()}}
+        else:
+            body: dict[str, Any] = {"Text": {"Data": msg.text, "Charset": "UTF-8"}}
+            if msg.html:
+                body["Html"] = {"Data": msg.html, "Charset": "UTF-8"}
+            content = {
                 "Simple": {
                     "Subject": {"Data": msg.subject, "Charset": "UTF-8"},
-                    "Body": {"Text": {"Data": msg.text, "Charset": "UTF-8"}},
+                    "Body": body,
                 }
-            },
+            }
+        req: dict[str, Any] = {
+            "FromEmailAddress": sender,
+            "Destination": {"ToAddresses": [msg.to]},
+            "Content": content,
             "EmailTags": [
                 {"Name": "template", "Value": _tag(msg.template_key)},
                 {"Name": "category", "Value": _tag(msg.category)},
@@ -314,3 +348,17 @@ def _smtp_is_local_dev(s: Settings) -> bool:
 
 
 register_fake_adapter("email (SMTP to local Mailpit)", _smtp_is_local_dev)
+
+
+def email_integrated() -> bool:
+    """True when email really reaches people (SES, or SMTP to a real server). False for the local
+    Mailpit sink / memory adapters: features must then say "not integrated yet" (owner rule)."""
+    s = get_settings()
+    if s.EMAIL_PROVIDER.lower() in {"memory", "console", "fake", ""}:
+        return False
+    return not _smtp_is_local_dev(s)
+
+
+def sms_integrated() -> bool:
+    """True when SMS really reaches phones (not the console/fake adapter)."""
+    return get_settings().SMS_PROVIDER.lower() not in {"console", "fake", "memory", ""}

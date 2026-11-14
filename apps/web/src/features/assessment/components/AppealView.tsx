@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Card, EmptyState, ErrorState, PageHeader, Skeleton } from "@/components/ui";
 import { LinkButton } from "@/features/catalog/components/LinkButton";
 import { assessmentApi } from "../lib/api";
@@ -20,11 +19,7 @@ export function appealTicketHref(attemptId: string): string {
  */
 export function AppealView({ attemptId }: { attemptId: string }) {
   const res = useLoader(attemptId, () => assessmentApi.result(attemptId));
-  const back = (
-    <Link className="text-sm text-fg-link underline" href="/app/tests">
-      Back to tests
-    </Link>
-  );
+  const crumbs = [{ label: "Tests", href: "/app/tests" }, { label: "Appeal" }];
 
   if (res.error) return <ErrorState error={res.error} onRetry={() => void res.reload()} />;
   if (!res.data)
@@ -39,8 +34,8 @@ export function AppealView({ attemptId }: { attemptId: string }) {
   if (r.status !== "invalidated") {
     return (
       <div>
-        <PageHeader title="Appeal a test decision" actions={back} />
-        <EmptyState
+        <PageHeader breadcrumbs={crumbs} title="Appeal a test decision" />
+        <EmptyState icon="check"
           title="There is nothing to appeal for this attempt"
           description="Only attempts that were invalidated after review can be appealed."
         />
@@ -50,7 +45,7 @@ export function AppealView({ attemptId }: { attemptId: string }) {
 
   return (
     <div className="max-w-prose">
-      <PageHeader title="Appeal a test decision" description="Your attempt was invalidated after an integrity review." actions={back} />
+      <PageHeader breadcrumbs={crumbs} title="Appeal a test decision" description="Your attempt was invalidated after an integrity review." />
       <Card title="How appeals work">
         <ol className="list-decimal space-y-2 pl-5 text-sm text-fg-secondary">
           <li>Open a support ticket with the topic “Assessment”. This attempt’s reference is attached for you.</li>

@@ -43,6 +43,10 @@ API_DIR = Path(__file__).resolve().parents[1]
 # Parallel agents/CI shards set TD_TEST_DB_NAME (e.g. techdrona_test_catalog) so concurrent
 # runs with TD_TEST_RESET_DB=1 never drop each other's database.
 TEST_DB_NAME = os.environ.get("TD_TEST_DB_NAME", "techdrona_test")
+# TD_TEST_NO_PG=1: run without Postgres (Firestore/emulator suites, platform tests). The session
+# migration is skipped and every Postgres fixture (engines, ``db``) skips its test. Default: off.
+NO_PG = os.environ.get("TD_TEST_NO_PG") == "1"
+_NO_PG_URL = "postgresql+asyncpg://no-pg:no-pg@127.0.0.1:1/no_pg"
 SERVICE_TOKEN = "test-service-token-" + "a" * 48
 
 
@@ -89,11 +93,89 @@ def _resolve_urls() -> DbUrls:
 URLS: DbUrls
 
 
+# --------------------------------------------------------------------------- TD_TEST_NO_PG auto-skip
+#
+# With TD_TEST_NO_PG=1 a test that still reaches Postgres is SKIPPED (not failed):
+#   * explicitly: ``@pytest.mark.needs_pg``;
+#   * by fixture: the Postgres fixtures (``db``, ``app_engine``, ...) skip themselves;
+#   * by detection: every asyncpg / psycopg connection attempt is recorded; a test that fails
+#     (in setup, call or teardown) after attempting one is reported as skipped "needs Postgres".
+#     This covers tests that build their own engines or hit a Postgres-backed route through the
+#     ``client`` fixture (the app then answers 503 and the test's assertion fails).
+# Default (switch unset): nothing here is active.
+
+_PG_TOUCHED: list[bool] = [False]
+
+
+def _install_pg_probe() -> None:
+    import asyncpg
+
+    orig = asyncpg.connect
+
+    async def connect(*a: Any, **kw: Any) -> Any:
+        _PG_TOUCHED[0] = True
+        return await orig(*a, **kw)
+
+    asyncpg.connect = connect  # type: ignore[assignment]
+    try:
+        import psycopg
+
+        orig_sync = psycopg.Connection.connect.__func__  # type: ignore[attr-defined]
+
+        def sync_connect(cls: Any, *a: Any, **kw: Any) -> Any:
+            _PG_TOUCHED[0] = True
+            return orig_sync(cls, *a, **kw)
+
+        psycopg.Connection.connect = classmethod(sync_connect)  # type: ignore[assignment,method-assign]
+    except Exception:  # noqa: S110 - psycopg optional here
+        pass
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if not NO_PG:
+        return
+    skip = pytest.mark.skip(reason="needs Postgres (TD_TEST_NO_PG=1)")
+    for item in items:
+        if item.get_closest_marker("needs_pg") is not None:
+            item.add_marker(skip)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_setup(item: pytest.Item) -> Iterator[None]:
+    _PG_TOUCHED[0] = False
+    yield
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[Any]) -> Iterator[None]:
+    outcome = yield
+    if not NO_PG:
+        return
+    rep = outcome.get_result()  # type: ignore[attr-defined]
+    if rep.failed and _PG_TOUCHED[0]:
+        rep.outcome = "skipped"
+        rep.longrepr = (
+            str(item.path),
+            item.location[1] or 0,
+            "Skipped: needs Postgres (TD_TEST_NO_PG=1; the test opened a Postgres connection)",
+        )
+
+
 def pytest_configure(config: pytest.Config) -> None:
     global URLS
+    config.addinivalue_line(
+        "markers", "needs_pg: the test needs a Postgres database (skipped with TD_TEST_NO_PG=1)"
+    )
+    if NO_PG:
+        _install_pg_probe()
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())  # psycopg/asyncpg-safe
-    URLS = _resolve_urls()
+    try:
+        URLS = _resolve_urls()
+    except pytest.UsageError:
+        if not NO_PG:
+            raise
+        URLS = DbUrls(_NO_PG_URL, _NO_PG_URL, _NO_PG_URL, _NO_PG_URL)
     os.environ["APP_ENV"] = "test"
     os.environ["LOG_FORMAT"] = "json"
     os.environ["DATABASE_URL"] = URLS.app
@@ -103,6 +185,9 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ["TD_SERVICE_TOKEN_PREVIOUS"] = ""
     os.environ["TD_ROUTER_SET"] = "all"
     os.environ["TD_DB_SET_ROLE"] = ""
+    # TD_SIMPLE_AUTH is honoured in every APP_ENV and may be on in the server's .env: the suite
+    # tests the strict pipeline; tests/identity/test_simple_auth.py switches it on per test.
+    os.environ["TD_SIMPLE_AUTH"] = "false"
     os.environ.setdefault("TD_K_DEVICE_KEY_V1", "11" * 32)
     os.environ.setdefault("TD_K_LOGIN_KEY_V1", "22" * 32)
     os.environ["TD_K_DEVICE_ACTIVE_VERSION"] = "1"
@@ -153,11 +238,18 @@ def _alembic_upgrade_heads(url: str) -> None:
     cfg = Config(str(API_DIR / "alembic.ini"))
     cfg.attributes["url"] = url
     cfg.attributes["skip_logging_config"] = True
+    # learning_0005 (certificate_outbox policy) uses app.caller_is_org_staff() from orgs_0004 but
+    # can't declare a cross-branch depends_on; on an empty database "heads" may order it first
+    # (seen after admissions_0003 / identity_0006 were added). Build that prerequisite first.
+    command.upgrade(cfg, "orgs_0004")
     command.upgrade(cfg, "heads")
 
 
 @pytest.fixture(scope="session", autouse=True)
 def migrated_database() -> Iterator[DbUrls]:
+    if NO_PG:
+        yield URLS
+        return
     if os.environ.get("TD_TEST_RESET_DB") == "1":
         asyncio.run(_reset_database(URLS.admin))
     _alembic_upgrade_heads(URLS.migration)
@@ -168,6 +260,8 @@ def migrated_database() -> Iterator[DbUrls]:
 
 
 def _engine(url: str) -> AsyncEngine:
+    if NO_PG:
+        pytest.skip("needs Postgres (TD_TEST_NO_PG=1)")
     return create_async_engine(url, poolclass=pool.NullPool)
 
 

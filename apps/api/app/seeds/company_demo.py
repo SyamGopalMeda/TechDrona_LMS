@@ -66,6 +66,7 @@ from app.modules.placement.models import Question, QuestionBank
 from app.modules.placement.schemas import BankCreate
 from app.modules.support.models import CorporateEnquiry
 from app.seeds import dev_users, e2e_demo, placement_demo, seeds_allowed
+from app.seeds.sync import sync_touched
 
 # Seeds run standalone: register every module's tables so cross-module FKs resolve.
 import_all_models()
@@ -542,6 +543,17 @@ async def main() -> int:
     try:
         async with async_sessionmaker(engine, expire_on_commit=False)() as session, session.begin():
             made = await seed(session)
+            await sync_touched(
+                session,
+                "identity",
+                "orgs",
+                "learning",
+                "assessments",
+                "engage",
+                "paths",
+                "placement",
+                "support",
+            )
     finally:
         await engine.dispose()
     print("DEV/DEMO single-company content ready:", made)

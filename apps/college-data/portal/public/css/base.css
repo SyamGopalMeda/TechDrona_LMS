@@ -1,0 +1,80 @@
+/* Tech Drona — base / reset (UI shell agent) */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; height: 100%; }
+body {
+  margin: 0;
+  min-height: 100%;
+  font-family: var(--td-font);
+  font-size: var(--td-text-md);
+  line-height: 1.5;
+  color: var(--td-text);
+  background: var(--td-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+h1, h2, h3, h4, h5 {
+  font-family: var(--td-font-display);
+  color: var(--td-text);
+  margin: 0;
+  line-height: 1.25;
+  letter-spacing: -.015em;
+  font-weight: 700;
+}
+h1 { font-size: var(--td-text-2xl); }
+h2 { font-size: var(--td-text-xl); }
+h3 { font-size: var(--td-text-lg); }
+h4 { font-size: var(--td-text-md); }
+p { margin: 0 0 var(--sp-3); }
+a { color: var(--td-link); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 2px; }
+img, svg { display: block; max-width: 100%; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+table { border-collapse: collapse; }
+hr { border: 0; border-top: 1px solid var(--td-border); margin: var(--sp-5) 0; }
+code, kbd { font-family: var(--td-font-mono); font-size: .875em; }
+kbd {
+  display: inline-block; min-width: 1.6em; padding: 0 .4em; border-radius: 6px; text-align: center;
+  border: 1px solid var(--td-border-strong); border-bottom-width: 2px; background: var(--td-surface-2); color: var(--td-muted);
+  font-size: var(--td-text-xs); line-height: 1.5;
+}
+::selection { background: var(--td-brand-soft-2); color: var(--td-text); }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--td-focus); outline-offset: 2px; }
+/* touch: no grey/blue tap flash anywhere; :active states give the feedback */
+a, button, [role="button"], [role="tab"], [role="menuitem"], summary, label, .td-card, select, input { -webkit-tap-highlight-color: transparent; }
+/* readable line length for helper text on wide screens (tables, grids and flex rows are unaffected) */
+p, dd, .td-measure, .td-field__help, .td-help { max-width: var(--td-measure); }
+.td-measure--none { max-width: none; }
+[hidden] { display: none !important; }
+
+/* theme-aware logo pairs: navy file on light, white file on dark (values set per theme in tokens.css) */
+.td-logo-navy { display: var(--td-logo-navy, block); }
+.td-logo-white { display: var(--td-logo-white, none); }
+.td-logo { display: inline-flex; flex: none; }
+.td-logo img { width: 100%; height: 100%; object-fit: contain; }
+
+.td-num, .td-tabular { font-variant-numeric: tabular-nums; }
+.td-muted { color: var(--td-muted); }
+.td-sr-only {
+  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.td-skip {
+  position: fixed; left: var(--sp-3); top: -60px; z-index: 999; padding: var(--sp-2) var(--sp-4);
+  background: var(--td-brand-solid); color: var(--td-on-brand); border-radius: var(--td-radius-sm);
+  transition: top var(--td-dur-2) var(--td-ease);
+}
+.td-skip:focus { top: var(--sp-3); color: var(--td-on-brand); outline: 2px solid var(--td-focus); outline-offset: 2px; }
+
+* { scrollbar-width: thin; scrollbar-color: var(--td-border-strong) transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important; scroll-behavior: auto !important;
+  }
+}
+
+/* programmatic focus on page headings after navigation: no ring (keyboard focus on controls still shows one) */
+h1[tabindex="-1"]:focus, h1[tabindex="-1"]:focus-visible, .td-view:focus-visible { outline: none; box-shadow: none; }

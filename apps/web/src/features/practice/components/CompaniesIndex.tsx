@@ -1,21 +1,27 @@
-"use client";
-
-import Link from "next/link";
-import { EmptyState, PageHeader } from "@/components/ui";
+import { EmptyState, LinkButton, PageHeader } from "@/components/ui";
 
 /**
- * Company paths index. Not available yet: the backend has no student-facing list of companies or
- * target-company readiness (only GET me/company-paths/{slug} and the staff-only studio/companies),
- * so we show an honest empty state and point to the public company hubs.
+ * Company paths index. The backend has no student-facing list of companies or target-company
+ * readiness yet (only GET me/company-paths/{slug} and the staff-only studio/companies), so this is
+ * an honest "coming soon" with next steps that work today inside the app (the public company page
+ * is also still empty, so we don't send students there).
  */
 export function CompaniesIndex() {
   return (
     <div>
-      <PageHeader title="Company paths" description="Readiness for the companies you're preparing for." />
+      <PageHeader title="Company paths" description="Preparation paths for the companies you're aiming for." />
       <EmptyState
-        title="Not available yet"
-        description="A list of your target companies isn't available yet. Open a company hub to see its path and your readiness."
-        action={<Link className="text-sm text-fg-link underline" href="/companies">Browse companies</Link>}
+        icon="users"
+        title="Company paths are coming soon"
+        description="Soon you'll be able to pick target companies and see how ready you are for each one. Until then, practise the aptitude and coding topics most campus tests cover."
+        action={
+          <div className="flex flex-wrap justify-center gap-3">
+            <LinkButton href="/app/practice">Go to practice</LinkButton>
+            <LinkButton href="/app/tests" variant="secondary">
+              Take a mock test
+            </LinkButton>
+          </div>
+        }
       />
     </div>
   );

@@ -55,3 +55,13 @@ export function humanize(value: string | null | undefined): string {
   const s = value.replace(/_/g, " ");
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+
+/** BCP-47 code → English language name ("en" → "English", "hi" → "Hindi"); unknown codes pass through. */
+export function languageName(code: string | null | undefined): string | null {
+  if (!code) return null;
+  try {
+    return new Intl.DisplayNames(["en"], { type: "language" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}

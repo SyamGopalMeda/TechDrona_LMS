@@ -2,13 +2,54 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { Button, Pagination, Table, nextCursorStack, previousCursorStack } from "@/components/ui";
+import { useRef, useState, type ReactNode } from "react";
+import { Button, LinkButton, Pagination, Table, nextCursorStack, previousCursorStack } from "@/components/ui";
 import { useApi, seg } from "../shared/use-api";
 import { StatusBadge } from "../shared/ui";
 import type { TestSummary } from "../lib/types";
 import { AssignTestDialog } from "./AssignTest";
-import { NewTestDialog } from "@/features/studio/components/Tests";
+import { NewTestDialog, testKindLabel } from "@/features/studio/components/Tests";
+
+/**
+ * "More ▾" disclosure for the secondary per-test pages, so a row shows at most two actions
+ * (design-system §3 Table). Links are real links; the menu closes when one is chosen or on Escape.
+ */
+function MoreLinks({ title, links }: { title: string; links: { href: string; label: string }[] }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  const close = () => ref.current?.removeAttribute("open");
+  return (
+    <details
+      ref={ref}
+      className="relative"
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && ref.current?.open) {
+          close();
+          ref.current.querySelector("summary")?.focus();
+        }
+      }}
+    >
+      <summary
+        aria-label={`More for ${title}`}
+        className="inline-flex min-h-touch cursor-pointer list-none items-center gap-1 rounded-md px-3 text-sm font-semibold text-fg-secondary hover:bg-surface-hover focus-visible:shadow-focus focus-visible:outline-none md:min-h-8 [&::-webkit-details-marker]:hidden"
+      >
+        More <span aria-hidden="true">▾</span>
+      </summary>
+      <ul className="absolute right-0 z-dropdown mt-1 w-44 rounded-lg border border-line bg-surface p-1 text-left shadow-lg">
+        {links.map((l) => (
+          <li key={l.href}>
+            <Link
+              href={l.href}
+              onClick={close}
+              className="flex min-h-touch items-center rounded-md px-3 text-sm text-fg no-underline hover:bg-surface-hover focus-visible:shadow-focus focus-visible:outline-none md:min-h-9"
+            >
+              {l.label}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
 
 /**
  * Tests in scope (ASM-03) with "Assign" (ASM-10). Trainer (TRN-005) also links to
@@ -19,11 +60,18 @@ export function TestsList({
   batches,
   basePath,
   evaluateOnly = false,
+  header,
 }: {
   batches: { value: string; label: string }[];
   basePath?: "/trainer" | "/evaluator";
   /** Evaluator portal (plan §4.2): grading links only — no create, edit, assign or overrides. */
   evaluateOnly?: boolean;
+  /**
+   * Renders the heading above the list with the "New test" button (null when the user can't
+   * create), so the one primary action sits in the page/section header instead of floating
+   * over the table. Without it the button is shown on its own row.
+   */
+  header?: (createButton: ReactNode | null) => ReactNode;
 }) {
   // verified: assessments/router.py asm_03_list_tests →
   // {items: test_out[], page: {next_cursor, has_more}} (BE-21 cursor paging).
@@ -41,13 +89,14 @@ export function TestsList({
   const [creating, setCreating] = useState(false);
   const router = useRouter();
   const canCreate = !evaluateOnly && !!basePath && batches.length > 0;
+  const createButton = canCreate ? <Button onClick={() => setCreating(true)}>New test</Button> : null;
 
   return (
     <>
-      {canCreate ? (
-        <div className="mb-3 flex justify-end">
-          <Button onClick={() => setCreating(true)}>New test</Button>
-        </div>
+      {header ? (
+        header(createButton)
+      ) : createButton ? (
+        <div className="mb-3 flex justify-end">{createButton}</div>
       ) : null}
       <Table
         caption="Tests"
@@ -70,11 +119,12 @@ export function TestsList({
           {
             key: "k",
             header: "Kind",
-            cell: (t) => t.test_kind.replace(/_/g, " "),
+            cell: (t) => testKindLabel(t.test_kind),
           },
           {
             key: "d",
             header: "Duration",
+            priority: "secondary",
             cell: (t) =>
               t.duration_seconds
                 ? `${Math.round(t.duration_seconds / 60)} min`
@@ -90,7 +140,7 @@ export function TestsList({
             header: <span className="sr-only">Actions</span>,
             align: "right",
             cell: (t) => (
-              <span className="flex flex-wrap justify-end gap-2">
+              <span className="flex flex-wrap items-center justify-end gap-2">
                 {evaluateOnly ? null : (
                   <Button
                     size="sm"
@@ -102,50 +152,29 @@ export function TestsList({
                     Assign
                   </Button>
                 )}
+                {basePath ? (
+                  <LinkButton
+                    size="sm"
+                    variant={evaluateOnly ? "secondary" : "ghost"}
+                    href={`${basePath}/tests/${seg(t.id)}/evaluation`}
+                    aria-label={`Evaluate ${t.title}`}
+                  >
+                    Evaluate
+                  </LinkButton>
+                ) : null}
                 {basePath && evaluateOnly ? (
-                  <>
-                    <Link
-                      className="inline-flex h-8 items-center text-sm text-fg-link underline"
-                      href={`${basePath}/tests/${seg(t.id)}/evaluation`}
-                      aria-label={`Evaluate ${t.title}`}
-                    >
-                      Evaluation
-                    </Link>
-                    <Link
-                      className="inline-flex h-8 items-center text-sm text-fg-link underline"
-                      href={`${basePath}/tests/${seg(t.id)}/report`}
-                      aria-label={`Report for ${t.title}`}
-                    >
-                      Report
-                    </Link>
-                  </>
+                  <LinkButton size="sm" variant="ghost" href={`${basePath}/tests/${seg(t.id)}/report`} aria-label={`Report for ${t.title}`}>
+                    Report
+                  </LinkButton>
                 ) : basePath ? (
-                  <>
-                    <Link
-                      className="inline-flex h-8 items-center text-sm text-fg-link underline"
-                      href={`${basePath}/tests/${seg(t.id)}/attempts`}
-                    >
-                      Attempts
-                    </Link>
-                    <Link
-                      className="inline-flex h-8 items-center text-sm text-fg-link underline"
-                      href={`${basePath}/tests/${seg(t.id)}/evaluation`}
-                    >
-                      Evaluation
-                    </Link>
-                    <Link
-                      className="inline-flex h-8 items-center text-sm text-fg-link underline"
-                      href={`${basePath}/tests/${seg(t.id)}/overrides`}
-                    >
-                      Overrides
-                    </Link>
-                    <Link
-                      className="inline-flex h-8 items-center text-sm text-fg-link underline"
-                      href={`${basePath}/tests/${seg(t.id)}/report`}
-                    >
-                      Report
-                    </Link>
-                  </>
+                  <MoreLinks
+                    title={t.title}
+                    links={[
+                      { href: `${basePath}/tests/${seg(t.id)}/attempts`, label: "Attempts" },
+                      { href: `${basePath}/tests/${seg(t.id)}/overrides`, label: "Overrides" },
+                      { href: `${basePath}/tests/${seg(t.id)}/report`, label: "Report" },
+                    ]}
+                  />
                 ) : null}
               </span>
             ),

@@ -96,16 +96,14 @@ async def privacy_tier_of(session: AsyncSession, principal: Principal) -> str:
 
 async def consent_active(session: AsyncSession, user_id: uuid.UUID, purpose: str) -> bool:
     """Latest account-level consent row for ``purpose`` is ``granted``."""
-    row = (
-        await session.execute(
-            text(
-                "SELECT action FROM consents WHERE user_id = :u AND purpose = :p AND context_ref IS NULL "
-                "AND organization_id IS NULL ORDER BY created_at DESC, id DESC LIMIT 1"
-            ),
-            {"u": user_id, "p": purpose},
-        )
-    ).first()
-    return bool(row and row[0] == "granted")
+    from app.modules.identity import public as idp
+
+    acct = [
+        c
+        for c in await idp.consents_of(session, user_id)
+        if c.purpose == purpose and c.context_ref is None and c.organization_id is None
+    ]
+    return bool(acct and acct[-1].action == "granted")
 
 
 # --------------------------------------------------------------------------- rate limits
@@ -123,9 +121,15 @@ async def enforce_rate_limits(principal: Principal, client_ip: str | None) -> No
         (f"anl:sb:{principal.session_id}", core_rl.Rule(RATE_SESSION_BURST_10S, 10)),
         (f"anl:u:{principal.user_id}", core_rl.Rule(RATE_USER_PER_MIN, 60)),
     ]
+    # Same counters and limits; the session's and the user's counters share one lms_kv document
+    # per minute (a session always belongs to its user): one billed write instead of three.
+    problems = await core_rl.check_colocated(
+        checks, group=f"anl:u:{principal.user_id}", span_s=60, scope="user"
+    )
     if client_ip:
-        checks.append((f"anl:ip:{client_ip}", core_rl.Rule(RATE_IP_PER_MIN, 60)))
-    problems = [await core_rl.check(key, (rule,), scope="user") for key, rule in checks]
+        problems.append(
+            await core_rl.check(f"anl:ip:{client_ip}", (core_rl.Rule(RATE_IP_PER_MIN, 60),), scope="user")
+        )
     for problem in problems:
         if problem is not None:
             raise problem
@@ -148,6 +152,22 @@ class _Ctx:
     prev_clock: dict[uuid.UUID, tuple[datetime, int]] = field(default_factory=dict)
     facts: dict[tuple[str, uuid.UUID], Any] = field(default_factory=dict)
     prev_samples: dict[uuid.UUID, list[datetime]] = field(default_factory=dict)
+    stored_hbs: dict[uuid.UUID, list[Any]] = field(default_factory=dict)  # Firestore: per page
+
+
+def _fs() -> bool:
+    from app.core.firestore.backend import uses_firestore
+
+    return uses_firestore("analytics")
+
+
+async def _stored_heartbeats(ctx: _Ctx, page: uuid.UUID) -> list[Any]:
+    """Firestore: the page instance's already-stored heartbeats (read once per batch)."""
+    if page not in ctx.stored_hbs:
+        from app.modules.analytics import fs_raw
+
+        ctx.stored_hbs[page] = await fs_raw.page_heartbeats(ctx.principal.user_id, page)
+    return ctx.stored_hbs[page]
 
 
 class Rejected(Exception):
@@ -205,26 +225,20 @@ async def _lesson_course(session: AsyncSession, ctx: _Ctx, lesson: uuid.UUID) ->
     """The course of a lesson visible to the learner (RLS applies); ``None`` = unknown lesson."""
     key = ("lesson_course", lesson)
     if key not in ctx.facts:
-        row = (
-            await session.execute(
-                text(
-                    "SELECT cv.course_id FROM lessons l JOIN course_versions cv "
-                    "ON cv.id = l.course_version_id WHERE l.id = :l"
-                ),
-                {"l": lesson},
-            )
-        ).first()
-        ctx.facts[key] = row[0] if row else None
+        from app.modules.catalog import api as catalog_api
+
+        ids = await catalog_api.course_ids_for_lessons(session, lesson_id=lesson)
+        ctx.facts[key] = ids[0] if ids else None
     return ctx.facts[key]
 
 
 async def _asset_lesson(session: AsyncSession, ctx: _Ctx, asset: uuid.UUID) -> uuid.UUID | None:
     key = ("asset_lesson", asset)
     if key not in ctx.facts:
-        row = (
-            await session.execute(text("SELECT lesson_id FROM lesson_assets WHERE id = :a"), {"a": asset})
-        ).first()
-        ctx.facts[key] = row[0] if row else None
+        from app.modules.catalog import api as catalog_api
+
+        found = (await catalog_api.get_assets(session, [asset])).get(asset)
+        ctx.facts[key] = found.lesson_id if found else None
     return ctx.facts[key]
 
 
@@ -243,15 +257,9 @@ async def _attempt_ok(session: AsyncSession, ctx: _Ctx, attempt: uuid.UUID, effe
     deadline); late delivery of genuine in-attempt samples stays valid."""
     key = ("attempt", attempt)
     if key not in ctx.facts:
-        row = (
-            await session.execute(
-                text(
-                    "SELECT user_id, started_at, submitted_at, deadline_at FROM test_attempts WHERE id = :a"
-                ),
-                {"a": attempt},
-            )
-        ).first()
-        ctx.facts[key] = tuple(row) if row else None
+        from app.modules.assessments import public as assessments
+
+        ctx.facts[key] = await assessments.attempt_lifetime(session, attempt)
     fact = ctx.facts[key]
     if fact is None or fact[0] != ctx.principal.user_id:
         return False
@@ -316,6 +324,11 @@ async def _org_for(session: AsyncSession, ctx: _Ctx, ev: EventIn) -> uuid.UUID |
 async def _last_engaged(
     session: AsyncSession, ctx: _Ctx, page: uuid.UUID, event_id: uuid.UUID
 ) -> datetime | None:
+    if page not in ctx.last_engaged and _fs():
+        hbs = await _stored_heartbeats(ctx, page)
+        ctx.last_engaged[page] = max(
+            (h.effective_at for h in hbs if h.kind == "engaged" and h.event_id != event_id), default=None
+        )
     if page not in ctx.last_engaged:
         # Excludes the event itself so a retried sample is reported as a duplicate, not capped.
         row = (
@@ -397,6 +410,11 @@ async def ingest_batch(
             rejections[(r.code, known)] += 1
 
     inserted: set[str] = set()
+    if _fs() and (hb_rows or ev_rows):
+        from app.modules.analytics import fs_raw
+
+        inserted = await fs_raw.insert_batch(principal.user_id, received, hb_rows, ev_rows)
+        hb_rows, ev_rows = [], []
     if hb_rows:
         stmt = (
             pg_insert(ActivityHeartbeat)
@@ -432,6 +450,11 @@ async def ingest_batch(
             res["status"] = "duplicate"
             duplicate += 1
 
+    if rejections and _fs():
+        from app.modules.analytics import fs_raw
+
+        await fs_raw.add_rejections(received.replace(minute=0, second=0, microsecond=0), dict(rejections))
+        rejections = defaultdict(int)
     if rejections:
         hour = received.replace(minute=0, second=0, microsecond=0)
         for (code, etype), n in rejections.items():
@@ -449,6 +472,11 @@ async def ingest_batch(
 
 
 async def mark_dirty(session: AsyncSession, user_id: uuid.UUID, d: date, reason: str) -> None:
+    if _fs():
+        from app.modules.analytics import fs_raw
+
+        await fs_raw.mark_dirty(user_id, d, reason)
+        return
     await session.execute(
         text(
             "INSERT INTO analytics_dirty_days (user_id, activity_date, reason) VALUES (:u, :d, :r) "
@@ -625,6 +653,19 @@ async def _credit_wall_s(
     previous sample of the same page instance (this batch or already stored), capped at
     ``C_max``. The client's ``sample_interval_ms`` is only a further upper bound."""
     prev = max((t for t in ctx.prev_samples.get(page, []) if t < effective), default=None)
+    if _fs():
+        stored = max(
+            (
+                h.effective_at
+                for h in await _stored_heartbeats(ctx, page)
+                if h.event_id != event_id and h.effective_at < effective
+            ),
+            default=None,
+        )
+        if stored is not None and (prev is None or stored > prev):
+            prev = stored
+        wall = claimed_s if prev is None else (effective - prev).total_seconds()
+        return max(0.0, min(wall, claimed_s, TM.c_max_s))
     row = (
         await session.execute(
             text(
@@ -683,38 +724,46 @@ async def insert_server_event(
 ) -> bool:
     """Write a ``source='server'`` row (outbox consumer, CP-8). Idempotent on event_id."""
     ent = entity or {}
+    values: dict[str, Any] = dict(
+        event_id=event_id,
+        event_ts=uuid7_time(event_id),
+        event_type=event_type,
+        schema_version=1,
+        source="server",
+        purpose="learning",
+        user_id=user_id,
+        organization_id=organization_id,
+        auth_session_id=auth_session_id,
+        occurred_at=occurred_at,
+        received_at=utcnow(),
+        effective_at=occurred_at,
+        skew_ms=0,
+        privacy_tier=privacy_tier,
+        ingest_flags=[],
+        measurement_version=MEASUREMENT_VERSION,
+        payload=payload,
+        **{
+            k: ent.get(k)
+            for k in (
+                "course_id",
+                "lesson_id",
+                "topic_id",
+                "question_id",
+                "test_attempt_id",
+                "coding_problem_id",
+            )
+        },
+    )
+    if _fs():
+        from app.modules.analytics import fs_raw
+
+        # one batch document per server event, id = the event id (idempotent create)
+        return bool(
+            await fs_raw.insert_batch(user_id, values["received_at"], [], [values], doc_id=event_id.hex)
+        )
     stmt = (
         pg_insert(AnalyticsEvent)
-        .values(
-            event_id=event_id,
-            event_ts=uuid7_time(event_id),
-            event_type=event_type,
-            schema_version=1,
-            source="server",
-            purpose="learning",
-            user_id=user_id,
-            organization_id=organization_id,
-            auth_session_id=auth_session_id,
-            occurred_at=occurred_at,
-            received_at=utcnow(),
-            effective_at=occurred_at,
-            skew_ms=0,
-            privacy_tier=privacy_tier,
-            ingest_flags=[],
-            measurement_version=MEASUREMENT_VERSION,
-            payload=payload,
-            **{
-                k: ent.get(k)
-                for k in (
-                    "course_id",
-                    "lesson_id",
-                    "topic_id",
-                    "question_id",
-                    "test_attempt_id",
-                    "coding_problem_id",
-                )
-            },
-        )
+        .values(**values)
         .on_conflict_do_nothing(index_elements=["event_id", "event_ts"])
         .returning(AnalyticsEvent.event_id)
     )

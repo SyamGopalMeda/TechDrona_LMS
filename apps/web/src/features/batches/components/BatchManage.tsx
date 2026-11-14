@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Button, ErrorState, FormField, Input, Pagination, Select, Table, useToast } from "@/components/ui";
+import Link from "next/link";
+import { Button, ErrorState, FormField, Input, Pagination, SectionHeader, Select, Table, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ActionDialog } from "@/features/admin/components/console-ui";
-import { cleanQuery, toOutcome, useCursorList } from "@/features/admin/lib/console";
+import { cleanQuery, shortRef, toOutcome, useCursorList } from "@/features/admin/lib/console";
 import { useApi } from "@/features/trainer/shared/use-api";
 import { Boundary, LoadingBlock, TextArea, formatDate } from "@/features/trainer/shared/ui";
 import { BATCH_STAFF_ROLES, archivedBatchGuard } from "../lib/api";
@@ -175,6 +176,7 @@ export function AddMemberDialog({ batchId, existing, open, onClose, onDone }: { 
     <ActionDialog
       open={open}
       onClose={close}
+      onOpen={() => setPicked(null)}
       title="Add a student to this batch"
       submitLabel="Add to batch"
       validate={() => (picked ? null : "Choose a person to add.")}
@@ -206,6 +208,7 @@ export function MemberActionDialog({ batchId, member, kind, onClose, onDone }: {
           setTarget("");
           onClose();
         }}
+        onOpen={() => setTarget("")}
         title={`Move ${name} to another batch`}
         submitLabel="Move"
         validate={() => (target ? null : "Choose a batch.")}
@@ -249,7 +252,7 @@ export function MemberActionDialog({ batchId, member, kind, onClose, onDone }: {
 const ROLE_LABEL: Record<string, string> = Object.fromEntries(BATCH_STAFF_ROLES.map((r) => [r.value, r.label]));
 
 /** Trainers and evaluators of a batch = RBAC grants at batch scope; assign and revoke. */
-export function BatchStaff({ batchId, readOnly }: { batchId: string; readOnly?: boolean }) {
+export function BatchStaff({ batchId, readOnly, names }: { batchId: string; readOnly?: boolean; names?: Record<string, string | null> }) {
   const toast = useToast();
   const grants = useApi<{ data: BatchStaffGrant[] }>("rbac/grants", { scope_type: "batch", scope_id: batchId });
   const rows = (grants.data?.data ?? []).filter((g) => g.role_key in ROLE_LABEL);
@@ -265,20 +268,36 @@ export function BatchStaff({ batchId, readOnly }: { batchId: string; readOnly?: 
     setReason("");
     setRole("trainer");
   };
+  // The grants api returns ids only: use the member list's name when the person is also a member,
+  // else a readable short reference that opens their account (audit 1.11).
+  const person = (g: BatchStaffGrant) => {
+    const name = names?.[g.user_id];
+    return (
+      <Link className="inline-flex min-h-6 items-center text-fg-link underline-offset-2 hover:underline focus-visible:shadow-focus focus-visible:outline-none" href={`/admin/users/${encodeURIComponent(g.user_id)}`}>
+        {name ?? `User ${shortRef(g.user_id)}`}
+      </Link>
+    );
+  };
   return (
     <section aria-labelledby="batch-staff-h" className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="batch-staff-h" className="text-base font-semibold text-fg">
-          Trainers and evaluators
-        </h2>
-        {readOnly ? null : <Button onClick={() => setAssigning(true)}>Assign trainer or evaluator</Button>}
-      </div>
+      <SectionHeader
+        id="batch-staff-h"
+        title="Trainers and evaluators"
+        className="mb-0"
+        actions={
+          readOnly ? undefined : (
+            <Button variant="secondary" onClick={() => setAssigning(true)}>
+              Assign trainer or evaluator
+            </Button>
+          )
+        }
+      />
       <Boundary state={grants} rows={2}>
         {() => (
           <Table
             caption="Trainers and evaluators"
             columns={[
-              { key: "u", header: "Person", cell: (g: BatchStaffGrant) => <span className="font-mono text-xs">{g.user_id}</span> },
+              { key: "u", header: "Person", cell: (g: BatchStaffGrant) => person(g) },
               { key: "r", header: "Role", cell: (g) => ROLE_LABEL[g.role_key] ?? g.role_key },
               { key: "d", header: "Since", cell: (g) => formatDate(g.granted_at) },
               ...(readOnly
@@ -289,7 +308,7 @@ export function BatchStaff({ batchId, readOnly }: { batchId: string; readOnly?: 
                       header: <span className="sr-only">Actions</span>,
                       align: "right" as const,
                       cell: (g: BatchStaffGrant) => (
-                        <Button size="sm" variant="secondary" onClick={() => setRevoke(g)} aria-label={`Remove ${ROLE_LABEL[g.role_key] ?? g.role_key} ${g.user_id}`}>
+                        <Button size="sm" variant="secondary" onClick={() => setRevoke(g)} aria-label={`Remove ${ROLE_LABEL[g.role_key] ?? g.role_key} ${names?.[g.user_id] ?? shortRef(g.user_id)}`}>
                           Remove
                         </Button>
                       ),
@@ -298,17 +317,22 @@ export function BatchStaff({ batchId, readOnly }: { batchId: string; readOnly?: 
             ]}
             rows={rows}
             rowKey={(g) => g.grant_id}
-            empty={{ title: "No trainer or evaluator assigned yet" }}
+            empty={{ title: "No trainer or evaluator assigned yet", description: readOnly ? undefined : "Use Assign trainer or evaluator to give someone access to this batch." }}
           />
         )}
       </Boundary>
       <ActionDialog
         open={assigning}
         onClose={resetAssign}
+        onOpen={() => {
+          setUser(null);
+          setReason("");
+          setRole("trainer");
+        }}
         title="Assign a trainer or evaluator"
         description="Trainers author and grade for this batch. Evaluators grade and publish results but cannot author content."
         submitLabel="Assign"
-        validate={() => (!user ? "Choose a person." : !reason.trim() ? "Enter a reason." : null)}
+        validate={() => (!user ? "Choose a person." : reason.trim().length < 5 ? "Give a reason (5+ characters)." : null)}
         onSubmit={async () => toOutcome(await api.post("rbac/grants", { user_id: user!.user_id, role_key: role, scope_type: "batch", scope_id: batchId, expires_at: null, reason: reason.trim() }, { idempotencyKey: true }))}
         onDone={(o) => {
           if (o.kind !== "ok") return;
@@ -333,10 +357,12 @@ export function BatchStaff({ batchId, readOnly }: { batchId: string; readOnly?: 
           setRevoke(null);
           setRevokeReason("");
         }}
-        title="Remove this assignment?"
+        onOpen={() => setRevokeReason("")}
+        title={revoke ? `Remove ${names?.[revoke.user_id] ?? `user ${shortRef(revoke.user_id)}`} as ${(ROLE_LABEL[revoke.role_key] ?? revoke.role_key).toLowerCase()}?` : "Remove this assignment?"}
+        description="They lose access to this batch the next time they sign in."
         submitLabel="Remove"
         danger
-        validate={() => (revokeReason.trim() ? null : "Enter a reason.")}
+        validate={() => (revokeReason.trim().length < 5 ? "Give a reason (5+ characters)." : null)}
         onSubmit={async () => toOutcome(await api.post(`rbac/grants/${encodeURIComponent(revoke!.grant_id)}/revoke`, { reason: revokeReason.trim() }, { idempotencyKey: true }))}
         onDone={(o) => {
           if (o.kind !== "ok") return;

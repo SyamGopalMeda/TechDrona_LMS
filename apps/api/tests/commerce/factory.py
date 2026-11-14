@@ -19,6 +19,7 @@ from app.core.time import utcnow
 from app.modules.commerce.gateway import FakePaymentProvider
 from app.modules.commerce.models import Coupon, Plan, Price, Product, ProductItem
 from app.modules.identity.models import Consent
+from tests.commerce.fs_sync import mirror
 from tests.conftest import SERVICE_TOKEN
 from tests.identity.factory import add_member, make_user
 
@@ -57,8 +58,12 @@ async def make_product(
     )
     db.add(p)
     await db.flush()
-    for it in items if items is not None else [{"item_type": "course", "course_id": uuid7()}]:
-        db.add(ProductItem(id=uuid7(), product_id=pid, **it))
+    pis = [
+        ProductItem(id=uuid7(), product_id=pid, **it)
+        for it in (items if items is not None else [{"item_type": "course", "course_id": uuid7()}])
+    ]
+    for pi in pis:
+        db.add(pi)
     plan = Plan(
         id=uuid7(),
         product_id=pid,
@@ -82,6 +87,7 @@ async def make_product(
     )
     db.add(price)
     await db.flush()
+    await mirror(p, *pis, plan, price)  # Firestore leg of the store matrix (no-op on Postgres)
     return Catalog(p, plan, price)
 
 
@@ -98,6 +104,7 @@ async def make_coupon(db: AsyncSession, creator: uuid.UUID, **kw: Any) -> Coupon
     )
     db.add(c)
     await db.flush()
+    await mirror(c)
     return c
 
 
@@ -216,9 +223,10 @@ async def pay_via_webhook(
 
 async def rows(db: AsyncSession, model: Any, *where: Any) -> list[Any]:
     await system_context(db, "test.inspect")
-    return list(
-        (await db.execute(select(model).where(*where).execution_options(populate_existing=True))).scalars()
-    )
+    from app.modules.commerce import datastore as ds
+
+    stmt = select(model).where(*where).execution_options(populate_existing=True)
+    return list((await ds.execute(db, stmt)).scalars())
 
 
 def past(days: float) -> datetime:

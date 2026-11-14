@@ -1,0 +1,10 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "lms_approval_requests",
+      "fieldPath": "payload",
+      "indexes": []
+    }
+  ]
+}

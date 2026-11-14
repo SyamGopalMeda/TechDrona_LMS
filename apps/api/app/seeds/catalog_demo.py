@@ -30,6 +30,7 @@ from app.core.time import utcnow
 from app.modules.catalog.models import Course, CourseModule, CourseVersion, Lesson, LessonAsset
 from app.modules.identity.models import User
 from app.seeds import seeds_allowed
+from app.seeds.sync import sync_touched
 
 # Seeds run standalone: register every module's tables so cross-module FKs resolve.
 import_all_models()
@@ -185,6 +186,13 @@ async def main() -> int:
     try:
         async with async_sessionmaker(engine, expire_on_commit=False)() as session, session.begin():
             made = await seed(session)
+            await sync_touched(session, "catalog", "identity")
+            # TD_STORE_CATALOG=firestore: the demo catalogue is copied to Firestore too (p2.md).
+            from app.core.firestore.backfill import sync_if_enabled
+
+            synced = await sync_if_enabled(session, "catalog")
+            if synced:
+                print("Firestore:", synced)
     finally:
         await engine.dispose()
     print("DEV/DEMO catalogue ready:", ", ".join(made) or "(already present)")

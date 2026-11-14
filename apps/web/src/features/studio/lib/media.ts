@@ -63,6 +63,10 @@ export class ProviderUploadError extends Error {
 /** Multipart form POST of `file` to the provider URL with the ticket fields first (S3 POST policy order). */
 export async function postToProvider(ticket: UploadTicket, file: File, fetchImpl: typeof fetch = fetch): Promise<void> {
   if (!/^https?:\/\//.test(ticket.url)) throw new ProviderUploadError("The upload service returned no upload address.", null);
+  // The api's fake (demo) video adapter hands out tickets for an `*.invalid` host (RFC 2606),
+  // which can never be reached: say the provider is not integrated instead of blaming the network.
+  if (/^https?:\/\/[^/]*\.invalid(?::\d+)?(?:\/|$)/i.test(ticket.url))
+    throw new ProviderUploadError("Not integrated yet: video hosting is a placeholder in this environment, so files can't be uploaded here.", null);
   const form = new FormData();
   for (const [k, v] of Object.entries(ticket.fields ?? {})) form.append(k, typeof v === "string" ? v : JSON.stringify(v));
   form.append("file", file);

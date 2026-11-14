@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Card, FormField, Input, PageHeader, Pagination, Select, Table, Tabs, useToast, type Column } from "@/components/ui";
+import { Button, Dialog, FormField, Input, LoadingBlock, PageHeader, Pagination, Select, Table, Tabs, useToast, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import { ActionDialog, FilterBar, InlineProblem, JsonBlock, StateBadge, TextArea } from "@/features/admin/components/console-ui";
+import { ActionDialog, ConfirmDialog, FilterBar, InlineProblem, StateBadge, TextArea, ValueSummary } from "@/features/admin/components/console-ui";
 import { cleanQuery, formatDateTime, humanize, toOutcome, useCursorList } from "@/features/admin/lib/console";
+import { staffRef } from "../lib/ids";
 import type { RuleRow, RuleVersion } from "../lib/types";
+import { istLocalToIso } from "./Incidents";
 
 const SHADOW_DAYS = 14;
 
@@ -17,11 +19,15 @@ function shadowDays(v: RuleVersion): number | null {
 }
 
 
-/** SEC-006 rule catalogue (SEC-22) and versions (SEC-23..29): propose, simulate, shadow, activate (Dual). */
+/** Rule catalogue (SEC-22) and versions (SEC-23..29): propose, simulate, shadow, activate (two-person approval). */
 export function RuleVersions() {
   return (
     <div>
-      <PageHeader eyebrow="SEC-006" title="Risk rules" description="Rule catalogue and versions. New versions run in shadow for at least 14 days before activation, which a super admin approves." />
+      <PageHeader
+        breadcrumbs={[{ label: "Security", href: "/security" }, { label: "Risk rules" }]}
+        title="Risk rules"
+        description="The rules that score suspicious activity. A new version first runs in watch-only (shadow) mode for 14 days; then a super admin approves activating it."
+      />
       <Tabs
         label="Rules"
         items={[
@@ -55,7 +61,7 @@ function RuleCatalogue() {
         ),
     },
   ];
-  return <Table caption="Rule catalogue" columns={cols} rows={list.rows} rowKey={(r) => r.key} loading={list.loading} error={list.error} onRetry={() => void list.reload()} footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />} />;
+  return <Table caption="Rule catalogue" columns={cols} rows={list.rows} rowKey={(r) => r.key} empty={{ title: "No rules yet", description: "Rules are added with a new version under the Versions tab." }} loading={list.loading} error={list.error} onRetry={() => void list.reload()} footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />} />;
 }
 
 function VersionsList() {
@@ -70,13 +76,20 @@ function VersionsList() {
   const [definition, setDefinition] = useState("{\n  \n}");
   const [reason, setReason] = useState("");
   const [effective, setEffective] = useState("");
+  const [shadowFor, setShadowFor] = useState<RuleVersion | null>(null);
 
-  const simple = async (v: RuleVersion, action: "simulate" | "start-shadow") => {
+  const startShadow = async (v: RuleVersion) => {
+    await api.post(`security/rule-versions/${v.version_id}/start-shadow`, {}, { idempotencyKey: true });
+    toast.show({ title: "Version moved to shadow.", tone: "success" });
+    void list.reload();
+  };
+
+  const simple = async (v: RuleVersion, action: "simulate") => {
     try {
       const res = await api.post(`security/rule-versions/${v.version_id}/${action}`, {}, { idempotencyKey: true });
       // verified: api_engine.py simulate returns the shadow report synchronously (controls.py shadow_report).
       if (action === "simulate" && res.kind === "ok") setReport({ version: v, data: res.data });
-      toast.show({ title: action === "simulate" ? "Simulation complete (last 30 days)." : "Version moved to shadow.", tone: "success" });
+      toast.show({ title: "Simulation complete (last 30 days).", tone: "success" });
       void list.reload();
     } catch (err) {
       const e = err instanceof ApiError ? err : null;
@@ -115,7 +128,7 @@ function VersionsList() {
         return d === null ? "—" : `${d} of ${SHADOW_DAYS} days`;
       },
     },
-    { key: "by", header: "Proposed by", cell: (v) => <span className="font-mono text-xs">{v.proposed_by}</span> },
+    { key: "by", header: "Proposed by", priority: "secondary", cell: (v) => staffRef(v.proposed_by) },
     { key: "eligible", header: "Eligible from", cell: (v) => formatDateTime(v.eligible_at) },
     {
       key: "act",
@@ -129,7 +142,7 @@ function VersionsList() {
                 <Button size="sm" variant="secondary" onClick={() => void simple(v, "simulate")}>
                   Simulate
                 </Button>
-                <Button size="sm" variant="secondary" onClick={() => void simple(v, "start-shadow")}>
+                <Button size="sm" variant="secondary" onClick={() => setShadowFor(v)}>
                   Start shadow
                 </Button>
               </>
@@ -139,9 +152,19 @@ function VersionsList() {
                 <Button size="sm" variant="secondary" onClick={() => void openReport(v)}>
                   Shadow report
                 </Button>
-                <Button size="sm" disabled={d === null || d < SHADOW_DAYS} onClick={() => setDialog({ kind: "activate", version: v })} title={d !== null && d < SHADOW_DAYS ? `Shadow period incomplete (${d}/${SHADOW_DAYS} days)` : undefined}>
+                <Button
+                  size="sm"
+                  disabled={d === null || d < SHADOW_DAYS}
+                  aria-describedby={d === null || d < SHADOW_DAYS ? `shadow-wait-${v.version_id}` : undefined}
+                  onClick={() => setDialog({ kind: "activate", version: v })}
+                >
                   Request activation
                 </Button>
+                {d === null || d < SHADOW_DAYS ? (
+                  <span id={`shadow-wait-${v.version_id}`} className="basis-full text-xs text-fg-muted">
+                    Available after {SHADOW_DAYS} days in shadow{d !== null ? ` (${d} of ${SHADOW_DAYS} so far)` : ""}.
+                  </span>
+                ) : null}
               </>
             ) : null}
             {v.status === "retired" ? (
@@ -188,17 +211,33 @@ function VersionsList() {
           )}
         </FormField>
       </FilterBar>
-      <Table caption="Rule versions" columns={cols} rows={list.rows} rowKey={(v) => v.version_id} loading={list.loading} error={list.error} onRetry={() => void list.reload()} empty={{ title: "No versions" }} footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />} />
+      <Table caption="Rule versions" columns={cols} rows={list.rows} rowKey={(v) => v.version_id} loading={list.loading} error={list.error} onRetry={() => void list.reload()} empty={{ title: "No versions match", description: "Set Status and Family to “Any”, or propose a new version." }} footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />} />
 
-      {report ? (
-        <Card title={`Shadow report · v${report.version.semver}`} className="mt-4" actions={<Button size="sm" variant="ghost" onClick={() => setReport(null)}>Close</Button>}>
-          {report.error ? <InlineProblem error={report.error} /> : report.data ? <JsonBlock label="Shadow report" value={report.data} /> : <p className="text-sm text-fg-muted">Loading…</p>}
-        </Card>
-      ) : null}
+      {/* Opens on top (bottom sheet on phones) instead of below a long table. */}
+      <Dialog
+        open={report !== null}
+        onClose={() => setReport(null)}
+        size="lg"
+        title={report ? `Shadow report · ${report.version.rule_key ?? report.version.family} v${report.version.semver}` : "Shadow report"}
+        description="What this version would have done compared with the active rules. Nobody was restricted by it."
+      >
+        {report?.error ? (
+          <InlineProblem error={report.error} />
+        ) : report?.data ? (
+          <ValueSummary label="Shadow report" value={report.data} />
+        ) : (
+          <LoadingBlock label="Loading shadow report…" rows={3} />
+        )}
+      </Dialog>
 
       <ActionDialog
         open={dialog?.kind === "propose"}
         onClose={() => setDialog(null)}
+        onOpen={() => {
+          setRuleKey("");
+          setSemver("");
+          setDefinition("{\n  \n}");
+        }}
         title="Propose a rule version"
         description="Creates a draft. Simulate it, then run it in shadow for 14 days before requesting activation."
         submitLabel="Create draft"
@@ -223,15 +262,19 @@ function VersionsList() {
       <ActionDialog
         open={dialog?.kind === "activate" || dialog?.kind === "rollback"}
         onClose={() => setDialog(null)}
+        onOpen={() => {
+          setReason("");
+          setEffective("");
+        }}
         title={dialog?.kind === "rollback" ? `Request rollback to v${dialog.version?.semver ?? ""}` : `Request activation of v${dialog?.version?.semver ?? ""}`}
         description="A super admin (not you) must approve. Restrictions already in force are not changed retroactively."
         submitLabel="Request approval"
-        validate={() => (reason.trim().length < 10 ? "Explain why (10+ characters)." : null)}
+        validate={() => (reason.trim().length < 10 ? "Explain why (10+ characters)." : effective && !istLocalToIso(effective) ? "Enter a valid date and time, or leave it empty." : null)}
         onSubmit={async () =>
           toOutcome(
             await api.post(
               `security/rule-versions/${dialog!.version!.version_id}/${dialog!.kind === "rollback" ? "rollback-requests" : "activation-requests"}`,
-              { reason: reason.trim(), effective_from: effective ? new Date(effective).toISOString() : undefined },
+              { reason: reason.trim(), effective_from: effective ? (istLocalToIso(effective) ?? undefined) : undefined },
               { idempotencyKey: true },
             ),
           )
@@ -242,8 +285,17 @@ function VersionsList() {
         }}
       >
         <FormField label="Reason" required>{(f) => <TextArea {...f} value={reason} onChange={(e) => setReason(e.target.value)} />}</FormField>
-        <FormField label="Effective from" hint="Optional; defaults to on approval">{(f) => <Input {...f} type="datetime-local" value={effective} onChange={(e) => setEffective(e.target.value)} />}</FormField>
+        <FormField label="Effective from (IST)" hint="Optional. India time; empty means as soon as it is approved.">{(f) => <Input {...f} type="datetime-local" value={effective} onChange={(e) => setEffective(e.target.value)} />}</FormField>
       </ActionDialog>
+
+      <ConfirmDialog
+        open={shadowFor !== null}
+        onClose={() => setShadowFor(null)}
+        title={`Start shadow for v${shadowFor?.semver ?? ""}?`}
+        description={`The draft moves to shadow and cannot go back to draft. For the next ${SHADOW_DAYS} days it is compared against the active rules without restricting anyone; activation can only be requested once all ${SHADOW_DAYS} days are complete.`}
+        confirmLabel="Start shadow"
+        onConfirm={() => startShadow(shadowFor!)}
+      />
     </div>
   );
 }

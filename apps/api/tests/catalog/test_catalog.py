@@ -3,14 +3,22 @@ lesson keys, public catalogue/search, permission denials, cross-tenant 404 and R
 
 from __future__ import annotations
 
-from sqlalchemy import select, text
+import uuid
+
+import pytest
+from sqlalchemy import text
 
 from app.core.db import system_context, tenant_context
+from app.core.errors import ProblemError
 from app.core.ids import uuid7
 from app.core.principal import Principal
-from app.modules.catalog.models import Course, CourseVersion
+from app.modules.catalog import service as cat
+from app.modules.catalog.models import CourseVersion
 from tests.catalog.factory import idem, make_published_course, staff, student
 from tests.identity.factory import add_member, company_org, make_batch, make_user
+
+# Every test runs on Postgres and on Firestore (TD_STORE_CATALOG); see tests/catalog/conftest.py.
+pytestmark = pytest.mark.usefixtures("catalog_backend")
 
 
 async def _create(b, slug="dsa-placements", **kw):
@@ -154,6 +162,9 @@ async def test_permission_denials_and_company_courses(browser, db) -> None:
     # trainer may not publish (course.publish is content manager @P)
     r = await ta.post(f"/studio/courses/{c['id']}/draft/lessons", {"title": "A1", "lesson_type": "article"})
     assert r.status_code == 201, r.text
+    # the author previews the lesson (course.edit covers preview; QA 2026-11)
+    pv = await ta.get(f"/studio/lessons/{r.json()['id']}/preview")
+    assert pv.status_code == 200 and pv.json()["banner"].startswith("Preview"), pv.text
     r = await ta.post(f"/studio/courses/{c['id']}/submit-review")
     assert r.status_code == 200, r.text
     r = await ta.post(f"/studio/courses/{c['id']}/publish", {"change_type": "major"}, headers=idem())
@@ -164,12 +175,14 @@ async def test_permission_denials_and_company_courses(browser, db) -> None:
     assert r.status_code == 200, r.text
     # company courses never appear in the public catalogue
     assert (await browser.fork().get("/catalog/courses/company-course")).status_code == 404
-    # RLS: a public learner (no company membership) cannot read the row; the trainer can
+    # RLS (TN): a public learner (no company membership) cannot read the row; the trainer can
+    # (through the catalog loader, so the same check runs against the Firestore store)
     outsider = await make_user(db)
     await tenant_context(db, Principal(user_id=outsider.id, session_id=uuid7()))
-    assert (await db.execute(select(Course).where(Course.id == c["id"]))).scalar_one_or_none() is None
+    with pytest.raises(ProblemError):
+        await cat.get_course(db, uuid.UUID(c["id"]))
     await tenant_context(db, Principal(user_id=trainer.id, session_id=uuid7(), org_ids=(org,)))
-    assert (await db.execute(select(Course).where(Course.id == c["id"]))).scalar_one_or_none() is not None
+    assert (await cat.get_course(db, uuid.UUID(c["id"]))).organization_id == org
     # validation: bad slug and unknown field
     r = await ta.post("/studio/courses", {"title": "x" * 5, "slug": "Bad Slug"})
     assert r.status_code == 400 and r.json()["code"] == "validation_failed"

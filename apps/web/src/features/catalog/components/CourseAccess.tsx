@@ -8,11 +8,14 @@ import { api } from "@/lib/api/client";
 import { isApiError } from "@/lib/api/errors";
 import { formatMoney } from "../lib/format";
 import type { AccessOptionDto, CourseDetailDto } from "../lib/types";
+import { siteHref } from "@/lib/site/website";
 import { LinkButton } from "./LinkButton";
 
 export interface CourseAccessProps {
   course: Pick<CourseDetailDto, "id" | "slug" | "title" | "price_type"> & { access_options: AccessOptionDto[]; refund_rule?: string | null };
   signedIn: boolean;
+  /** In-app overview (STU-005): reload in place after enrolling instead of navigating. */
+  onEnrolled?: () => void;
 }
 
 function accessLabel(o: AccessOptionDto): string {
@@ -28,12 +31,15 @@ function accessLabel(o: AccessOptionDto): string {
  * already hold access can still start via LRN-03, which decides access server-side
  * (verified: app/modules/learning/router.py enrol returns 200 for an existing enrolment).
  */
-export function CourseAccess({ course, signedIn }: CourseAccessProps) {
+export function CourseAccess({ course, signedIn, onEnrolled }: CourseAccessProps) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const overview = `/app/courses/${encodeURIComponent(course.slug)}`;
   const here = `/courses/${encodeURIComponent(course.slug)}`;
+  // `/courses/*` is served by the website (marketing redirect), so a signed-in checkout returns
+  // to the in-app overview instead.
+  const returnTo = signedIn ? overview : here;
   const canEnrolFree = course.price_type === "free";
 
   async function enrol() {
@@ -41,11 +47,13 @@ export function CourseAccess({ course, signedIn }: CourseAccessProps) {
     setError(null);
     try {
       await api.post("me/enrolments", { course_id: course.id }, { idempotencyKey: true });
-      router.push(overview);
+      if (onEnrolled) onEnrolled();
+      else router.push(overview);
     } catch (err) {
       // Already enrolled is not a failure for the learner.
       if (isApiError(err) && (err.code === "already_enrolled" || err.code === "already_owned")) {
-        router.push(overview);
+        if (onEnrolled) onEnrolled();
+        else router.push(overview);
         return;
       }
       setError(err);
@@ -74,11 +82,15 @@ export function CourseAccess({ course, signedIn }: CourseAccessProps) {
           </div>
         )
       ) : course.access_options.length === 0 ? (
-        <p className="text-sm text-fg-muted">This course is not on sale right now. See <Link className="text-fg-link" href="/pricing">plans</Link> for access.</p>
+        <p className="text-sm text-fg-muted">This course is not on sale right now. See{" "}
+          <a className="text-fg-link" href={siteHref("/courses")}>
+            courses and plans
+          </a>{" "}
+          for access.</p>
       ) : (
         <ul className="space-y-3" aria-label="Access options">
           {course.access_options.map((o) => {
-            const checkout = `/app/checkout/new?price_id=${encodeURIComponent(o.price_id)}&return_to=${encodeURIComponent(here)}`;
+            const checkout = `/app/checkout/new?price_id=${encodeURIComponent(o.price_id)}&return_to=${encodeURIComponent(returnTo)}`;
             return (
               <li key={o.price_id} className="rounded-lg border border-line p-3">
                 <p className="font-medium text-fg">{o.name}</p>

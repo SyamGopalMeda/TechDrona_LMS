@@ -5,8 +5,10 @@ import { mockApi, problem, renderWithProviders } from "@/features/auth/test/mock
 import { formatINR } from "../lib/console";
 import { actionTypeLabel, ApprovalsQueue, fallbackDecidePath } from "./ApprovalsQueue";
 import { AdminDashboard, AuditLog, BreakGlass, FeatureFlags, parseIdList, RoleGrants } from "./Governance";
-import { UserDetail, UserSearch } from "./Users";
+import { UserDetail, UserDevices, UserSearch } from "./Users";
 import { parseProposed, PolicySettings } from "./PolicySettings";
+import { SECURITY_APPROVAL_TYPES } from "../lib/approval-types";
+import { resetIntegrationsCache } from "@/components/shell/Integrations";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 
@@ -48,6 +50,49 @@ describe("ApprovalsQueue (ADM-010)", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Send back" }));
     expect(await within(dialog).findByText("You cannot decide this request.")).toBeInTheDocument();
   });
+
+  it("opens every decision dialog with an empty note, so a reason never carries to another action (audit 0.5)", async () => {
+    const api = mockApi({ "GET admin/approvals": { body: { data: rows } }, "GET me": { body: me }, "POST admin/approvals/a1/approve": { body: { status: "executed" } } });
+    cleanups.push(api.restore);
+    renderWithProviders(<ApprovalsQueue />);
+    await userEvent.click(await screen.findByRole("button", { name: "Send back Change policy a1" }));
+    let dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText(/Reason/), "Wrong numbers in the payload");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await userEvent.click(screen.getByRole("button", { name: "Approve Change policy a1" }));
+    dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText(/Note/)).toHaveValue("");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(api.calls.some((c) => c.method === "POST" && c.path === "admin/approvals/a1/approve")).toBe(true));
+    expect(JSON.stringify(api.calls.find((c) => c.method === "POST")!.body ?? {})).not.toContain("Wrong numbers");
+  });
+
+  it("labels the cancel-request dismiss button so it is not a second Cancel (audit 0.7)", async () => {
+    const api = mockApi({ "GET admin/approvals": { body: { data: rows } }, "GET me": { body: me } });
+    cleanups.push(api.restore);
+    renderWithProviders(<ApprovalsQueue />);
+    await userEvent.click(await screen.findByRole("button", { name: "Cancel request" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: "Keep request" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+  });
+
+  it("shows rule-version activation and rollback requests in the security queue (audit 0.6)", async () => {
+    expect(SECURITY_APPROVAL_TYPES).toEqual(expect.arrayContaining(["risk.ruleset.activate", "risk.ruleset.rollback"]));
+    const sec = [
+      { ...rows[0]!, approval_request_id: "r1", action_type: "risk.ruleset.activate", request_reason: "Shadow looks clean" },
+      { ...rows[0]!, approval_request_id: "r2", action_type: "risk.ruleset.rollback", request_reason: "False positives spiked" },
+      { ...rows[0]!, approval_request_id: "r3", action_type: "policy.change", request_reason: "Not a security type" },
+    ];
+    const api = mockApi({ "GET admin/approvals": { body: { data: sec } }, "GET me": { body: me } });
+    cleanups.push(api.restore);
+    renderWithProviders(<ApprovalsQueue title="Security approvals" actionTypes={[...SECURITY_APPROVAL_TYPES]} />);
+    expect(await screen.findByText("Shadow looks clean")).toBeInTheDocument();
+    expect(screen.getByText("False positives spiked")).toBeInTheDocument();
+    expect(screen.queryByText("Not a security type")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve Activate rule version r1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve Roll back rule version r2" })).toBeInTheDocument();
+  });
 });
 
 const settings = {
@@ -76,15 +121,18 @@ describe("PolicySettings (ADM-006)", () => {
     });
     cleanups.push(api.restore);
     renderWithProviders(<PolicySettings />);
-    expect(await screen.findByText("devices.student.max_trusted")).toBeInTheDocument();
-    expect(screen.getByText("⏳ Pending ⇄")).toBeInTheDocument();
+    // Readable setting names, no raw keys, emoji or "∞" (Phase 2).
+    expect(await screen.findByText("Trusted devices per student")).toBeInTheDocument();
+    expect(screen.queryByText("devices.student.max_trusted")).not.toBeInTheDocument();
+    expect(screen.getByText("Waiting for approval")).toBeInTheDocument();
     expect(await screen.findByText(/needs ratification/)).toBeInTheDocument();
-    expect(screen.getByText(/risk.mode is SHADOW/)).toBeInTheDocument();
+    expect(screen.getByText(/Account security is watching only/)).toBeInTheDocument();
+    expect(screen.queryByText(/risk\.mode/)).not.toBeInTheDocument();
 
-    const input = screen.getByLabelText("Proposed value for devices.student.max_trusted");
+    const input = screen.getByLabelText("Proposed value for Trusted devices per student");
     await userEvent.type(input, "11");
     expect(screen.getByText("Max 10")).toBeInTheDocument();
-    const propose = screen.getByRole("button", { name: "Propose change to devices.student.max_trusted" });
+    const propose = screen.getByRole("button", { name: "Propose change to Trusted devices per student" });
     expect(propose).toBeDisabled();
     await userEvent.clear(input);
     await userEvent.type(input, "4");
@@ -132,7 +180,10 @@ describe("Role grants and audit log", () => {
     });
     cleanups.push(api.restore);
     renderWithProviders(<AuditLog />);
-    expect(await screen.findByText("case.decide")).toBeInTheDocument();
+    // Readable action and record; raw keys and ids stay out of the table (Phase 2, 1.11).
+    expect(await screen.findByText("Case decide")).toBeInTheDocument();
+    expect(screen.queryByText("case.decide")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "User #R1" })).toHaveAttribute("href", "/admin/users/r1");
     expect(await screen.findByRole("alert")).toHaveTextContent("Audit chain break detected at seq 1048000");
     await userEvent.type(screen.getByLabelText(/^Action/), "case.decide");
     await waitFor(() => expect(api.calls.some((c) => c.url.includes("action=case.decide"))).toBe(true));
@@ -162,15 +213,43 @@ describe("Admin dashboard (ADM-001)", () => {
           privacy: { open: 2, overdue: 0 },
           break_glass: { active: 1 },
           commerce: { paid_orders_30d: 42, revenue_paise_30d: 4200000 },
+          learning: { learners: 1100, courses_published: 12, courses_draft: 3, batches_active: 5, batches_planned: 2 },
         },
       },
     });
     cleanups.push(api.restore);
     renderWithProviders(<AdminDashboard />);
-    expect(await screen.findByText("1,200")).toBeInTheDocument();
-    expect(screen.getByText("Restricted L3")).toBeInTheDocument();
-    expect(screen.getByText("₹42,000.00")).toBeInTheDocument();
+    // Headline tiles: students, registrations, payments, courses, batches, approvals.
+    expect(await screen.findByRole("link", { name: /Students.*1,100.*1,200 accounts in all/ })).toHaveAttribute("href", "/admin/users?status=active");
+    expect(screen.getByRole("link", { name: /New registrations.*120/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Active courses.*12.*3 in draft/ })).toHaveAttribute("href", "/studio/courses");
+    expect(screen.getByRole("link", { name: /Active batches.*5.*2 planned/ })).toHaveAttribute("href", "/admin/batches");
+    // Colleges Data goes straight to the real portal page (full page load for its CSP).
+    const colleges = screen.getAllByRole("link", { name: /Colleges Data/ });
+    expect(colleges.every((a) => a.getAttribute("href") === "/college-portal/index.html")).toBe(true);
+    expect(screen.getByRole("heading", { level: 1, name: "Dashboard" })).toBeInTheDocument();
+    // Readable restriction levels instead of "Restricted L3".
+    expect(screen.getByText("Temporarily restricted")).toBeInTheDocument();
+    expect(screen.queryByText(/Restricted L\d/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/₹42,000\.00/).length).toBeGreaterThan(0);
     expect(screen.getByRole("alert")).toHaveTextContent("Break-glass elevation active: 1");
+    // "Needs your attention": only counts above zero, each a link to its queue, most urgent first.
+    const attention = screen.getByRole("heading", { name: "Needs your attention" }).closest("section")!;
+    const links = within(attention).getAllByRole("link");
+    expect(links.map((l) => l.getAttribute("href"))).toEqual(["/admin/break-glass", "/desk", "/admin/approvals", "/security/cases", "/desk"]);
+    expect(within(attention).getByText("1 request is waiting for your approval")).toBeInTheDocument();
+    expect(within(attention).queryByText(/privacy requests are overdue/)).not.toBeInTheDocument();
+    // Tiles link to their queues.
+    expect(screen.getByRole("link", { name: /Pending approvals.*Waiting in Approvals/ })).toHaveAttribute("href", "/admin/approvals");
+    expect(screen.getByRole("link", { name: /Audit log verified/ })).toHaveAttribute("href", "/admin/audit");
+  });
+
+  it("says when nothing needs attention", async () => {
+    const zero = { generated_at: "2026-11-03T10:00:00.000Z", users: { total: 1, active: 1, pending_verification: 0, deactivated: 0, minors: 0, new_7d: 0, new_30d: 0 }, sessions: { active: 0 }, support: { open: 0, breached: 0, unassigned: 0 }, security: { restricted_by_level: {}, open_cases: 0 }, approvals: { pending: 0 }, privacy: { open: 0, overdue: 0 }, break_glass: { active: 0 }, commerce: { paid_orders_30d: 0, revenue_paise_30d: 0 } };
+    const api = mockApi({ "GET audit/chain-status": { body: { verified: true, checked_rows: 1, last_seq: 1, last_row_hash: "a", first_bad_seq: null, reason: null } }, "GET admin/dashboard": { body: zero } });
+    cleanups.push(api.restore);
+    renderWithProviders(<AdminDashboard />);
+    expect(await screen.findByText("Nothing needs your attention")).toBeInTheDocument();
   });
 });
 
@@ -201,9 +280,99 @@ describe("Admin users (ADM-004)", () => {
     cleanups.push(api.restore);
     renderWithProviders(<UserSearch />);
     expect(await screen.findByText("Asha Rao")).toBeInTheDocument();
-    expect(screen.getByText("L2")).toBeInTheDocument();
+    expect(screen.getByText("Verification required")).toBeInTheDocument();
+    expect(screen.queryByText("L2")).not.toBeInTheDocument();
     await userEvent.type(screen.getByLabelText(/Search/), "asha");
     await waitFor(() => expect(api.calls.some((c) => c.url.includes("q=asha"))).toBe(true));
+  });
+
+  it("hides erased accounts by default and can show them", async () => {
+    const api = mockApi({ "GET admin/users": { body: { data: [], page } } });
+    cleanups.push(api.restore);
+    renderWithProviders(<UserSearch />);
+    await waitFor(() => expect(api.calls.some((c) => c.url.includes("status=current"))).toBe(true));
+    await userEvent.selectOptions(screen.getByLabelText(/Status/), "any");
+    await waitFor(() => expect(api.calls.at(-1)?.url.includes("status=")).toBe(false));
+  });
+
+  it("adds a user with a starting password and a batch-scoped Trainer role (ADM-06)", async () => {
+    const api = mockApi({
+      "GET admin/users": { body: { data: [], page } },
+      "GET batches": { body: { data: [{ id: "b1", name: "March cohort", code: "MAR26", status: "active" }] } },
+      "POST admin/users": { status: 201, body: { user_id: "n1", status: "active", role: { role_key: "trainer", status: "granted", grant_id: "g1" } } },
+    });
+    cleanups.push(api.restore);
+    renderWithProviders(<UserSearch />);
+    await userEvent.click(await screen.findByRole("button", { name: "Add user" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText(/Full name/), "Ravi Kumar");
+    await userEvent.type(within(dialog).getByLabelText(/^Email/), "ravi@example.com");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Suggest" }));
+    await userEvent.selectOptions(within(dialog).getByLabelText(/^Role/), "trainer");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create account" }));
+    expect(await within(dialog).findByText("Choose the batch this trainer will teach.")).toBeInTheDocument();
+    await userEvent.selectOptions(await within(dialog).findByLabelText(/^Batch/), "b1");
+    await userEvent.type(within(dialog).getByLabelText(/Reason/), "New trainer for March");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create account" }));
+    expect(await within(dialog).findByText("Confirm the person is 18 or older.")).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByLabelText(/18 or older/));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create account" }));
+    await waitFor(() => expect(api.calls.some((c) => c.method === "POST" && c.path === "admin/users")).toBe(true));
+    const post = api.calls.find((c) => c.method === "POST" && c.path === "admin/users")!;
+    expect(post.headers["idempotency-key"]).toBeTruthy();
+    expect(post.body).toMatchObject({ full_name: "Ravi Kumar", email: "ravi@example.com", role_key: "trainer", scope_type: "batch", scope_id: "b1", confirm_adult: true, must_change_password: false });
+    expect((post.body as { password: string }).password.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("simple authentication: Add user can require a password change on first login; Admin is just 'Admin'", async () => {
+    try { window.sessionStorage.clear(); } catch { /* ignore */ }
+    resetIntegrationsCache();
+    cleanups.push(resetIntegrationsCache);
+    const api = mockApi({
+      "GET public/integrations": { body: { integrations: { email: false }, simple_auth: true } },
+      "GET admin/users": { body: { data: [], page } },
+      "POST admin/users": { status: 201, body: { user_id: "n2", status: "active", role: null } },
+    });
+    cleanups.push(api.restore);
+    renderWithProviders(<UserSearch />);
+    await userEvent.click(await screen.findByRole("button", { name: "Add user" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByRole("option", { name: "Admin" })).toBeInTheDocument();
+    const must = within(dialog).getByLabelText(/Must change password on first login/);
+    expect(must).not.toBeChecked();
+    await userEvent.type(within(dialog).getByLabelText(/Full name/), "Meena Iyer");
+    await userEvent.type(within(dialog).getByLabelText(/^Email/), "meena@example.com");
+    await userEvent.type(within(dialog).getByLabelText(/Starting password/), "start-123");
+    await userEvent.click(must);
+    await userEvent.type(within(dialog).getByLabelText(/Reason/), "New student");
+    await userEvent.click(within(dialog).getByLabelText(/18 or older/));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create account" }));
+    await waitFor(() => expect(api.calls.some((c) => c.method === "POST" && c.path === "admin/users")).toBe(true));
+    const post = api.calls.find((c) => c.method === "POST" && c.path === "admin/users")!;
+    expect(post.body).toMatchObject({ email: "meena@example.com", password: "start-123", must_change_password: true });
+  });
+
+  it("keeps the Add user entries after closing the dialog, and Clear form empties them", async () => {
+    try { window.sessionStorage.clear(); } catch { /* ignore */ }
+    const api = mockApi({ "GET admin/users": { body: { data: [], page } } });
+    cleanups.push(api.restore);
+    renderWithProviders(<UserSearch />);
+    await userEvent.click(await screen.findByRole("button", { name: "Add user" }));
+    let dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText(/Full name/), "Tirumala");
+    await userEvent.type(within(dialog).getByLabelText(/^Email/), "t@example.com");
+    await userEvent.type(within(dialog).getByLabelText(/Starting password/), "a-long-starting-password-1");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Add user" }));
+    dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText(/Full name/)).toHaveValue("Tirumala");
+    expect(within(dialog).getByLabelText(/^Email/)).toHaveValue("t@example.com");
+    expect(within(dialog).getByLabelText(/Starting password/)).toHaveValue("a-long-starting-password-1");
+    // the password is never written to storage
+    expect(window.sessionStorage.getItem("td-admin-add-user-draft") ?? "").not.toContain("a-long-starting-password-1");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Clear form" }));
+    expect(within(dialog).getByLabelText(/Full name/)).toHaveValue("");
+    expect(within(dialog).getByLabelText(/Starting password/)).toHaveValue("");
   });
 
   it("deactivates with a reason and requests a dual-control MFA reset", async () => {
@@ -214,6 +383,10 @@ describe("Admin users (ADM-004)", () => {
     });
     cleanups.push(api.restore);
     renderWithProviders(<UserDetail userId="u1" />);
+    // Phase 2: the person's name is the h1, with breadcrumbs back to Users and no raw id as the subtitle.
+    expect(await screen.findByRole("heading", { level: 1, name: "Asha Rao" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("link", { name: "Users" })).toHaveAttribute("href", "/admin/users");
+    expect(screen.getByText("asha@example.com · Account #U1")).toBeInTheDocument();
     await userEvent.click(await screen.findByRole("button", { name: "Deactivate" }));
     let dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "Deactivate" }));
@@ -231,6 +404,28 @@ describe("Admin users (ADM-004)", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Request reset" }));
     expect(await within(dialog).findByText("Waiting for a second approver")).toBeInTheDocument();
     expect(api.calls.find((c) => c.path === "admin/users/u1/mfa-reset")!.body).toEqual({ reason: "Verified on a video call", verification_method: "video_call" });
+  });
+
+  it("simple authentication: no MFA reset or device list; Set new password asks for a change by default", async () => {
+    resetIntegrationsCache();
+    cleanups.push(resetIntegrationsCache);
+    const api = mockApi({
+      "GET public/integrations": { body: { integrations: { email: false }, simple_auth: true } },
+      "GET admin/users/u1": { body: account },
+      "POST admin/users/u1/password": { body: { user_id: "u1" } },
+    });
+    cleanups.push(api.restore);
+    renderWithProviders(<UserDetail userId="u1" />);
+    await userEvent.click(await screen.findByRole("button", { name: "Set new password" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Reset MFA" })).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Show devices" })).not.toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText(/Must change password on first login/)).toBeChecked();
+    await userEvent.type(within(dialog).getByLabelText(/^New password/), "temp-4567");
+    await userEvent.type(within(dialog).getByLabelText(/Reason/), "Forgot password, email not connected");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Set password" }));
+    await waitFor(() => expect(api.calls.some((c) => c.path === "admin/users/u1/password")).toBe(true));
+    expect(api.calls.find((c) => c.path === "admin/users/u1/password")!.body).toEqual({ password: "temp-4567", reason: "Forgot password, email not connected", must_change_password: true });
   });
 });
 
@@ -278,8 +473,11 @@ describe("Approvals payload and decide routing (ADM-13, ADM-15, ADM-22, ADM-25)"
     cleanups.push(api.restore);
     renderWithProviders(<ApprovalsQueue />);
     expect(await screen.findByText("Privileged role grant")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Show payload" }));
+    await userEvent.click(screen.getByRole("button", { name: "Show details" }));
     expect(await screen.findByText("security_reviewer")).toBeInTheDocument();
+    // Ids in the payload read as short references; the exact JSON stays under "Raw data".
+    expect(screen.getByText("User #U9")).toBeInTheDocument();
+    expect(screen.getByText("Raw data")).toBeInTheDocument();
     expect(screen.getByText("Payload hash ab12")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Approve Privileged role grant g7" }));
     const dialog = await screen.findByRole("dialog");
@@ -319,7 +517,9 @@ describe("Role list and revoke reason (ADM-22)", () => {
     await waitFor(() => expect(within(roleSelect).getAllByRole("option").map((o) => o.textContent)).toEqual(["Choose a role", "Admin", "Trainer"]));
     await userEvent.type(within(dialog).getByLabelText(/Reason/), "Grant reason text");
     await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    await userEvent.click(screen.getByRole("button", { name: "Revoke trainer from u5" }));
+    expect(screen.getByRole("link", { name: "User #U5" })).toHaveAttribute("href", "/admin/users/u5");
+    expect(screen.getByText("Batch #B1")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Revoke Trainer from user #U5" }));
     dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText(/Reason/)).toHaveValue("");
     await userEvent.type(within(dialog).getByLabelText(/Reason/), "Left the company");
@@ -366,5 +566,56 @@ describe("Commerce approvals in the admin queue (ADM-25)", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(api.calls.some((c) => c.path === "admin/approvals/c1/approve")).toBe(true));
     expect(api.calls.some((c) => c.path.startsWith("finance/approval-requests"))).toBe(false);
+  });
+});
+
+describe("Phase 2 identity and copy helpers", () => {
+  it("shortRef and personLabel never show a raw id", async () => {
+    const { shortRef, personLabel, formatCountdown } = await import("../lib/console");
+    expect(shortRef("9b2f6c1e-4d3a-4c1b-9f3c-21ab9f3c21ab")).toBe("#9F3C21AB");
+    expect(shortRef(null)).toBe("—");
+    expect(personLabel({ full_name: "Asha Rao", email: "a@x.in", id: "u1" })).toBe("Asha Rao");
+    expect(personLabel({ email: "a@x.in", id: "u1" })).toBe("a@x.in");
+    expect(personLabel({ id: "9b2f6c1e-4d3a-4c1b-9f3c-21ab9f3c21ab" })).toBe("User #9F3C21AB");
+    expect(formatCountdown(new Date(Date.now() + 12 * 86_400_000).toISOString())).toBe("in 12 days");
+  });
+
+  it("policy labels and bounds read as words", async () => {
+    const { settingLabel } = await import("../lib/policy-labels");
+    const { boundsText, istLocalToIso } = await import("./PolicySettings");
+    expect(settingLabel("otp.ttl_seconds")).toBe("Code expiry (seconds)");
+    expect(settingLabel("grace.some_new_key")).toBe("Some new key");
+    expect(boundsText({ kind: "int", choices: null, min_value: 1, max_value: null })).toBe("At least 1");
+    expect(boundsText({ kind: "int", choices: null, min_value: 1, max_value: 10 })).toBe("1 to 10");
+    expect(istLocalToIso("2026-11-12T09:30")).toBe("2026-11-12T04:00:00.000Z");
+    expect(istLocalToIso("")).toBeNull();
+  });
+
+  it("flag names are readable", async () => {
+    const { flagName } = await import("./Governance");
+    expect(flagName("payments.cashfree_enabled")).toBe("Payments · Cashfree enabled");
+  });
+});
+
+describe("UserDevices (admin, reason user_request)", () => {
+  it("loads only when opened and resets a device with reason_code user_request", async () => {
+    const api = mockApi({
+      "GET users/u9/devices": { body: { data: [{ user_device_id: "d1", label: "Chrome on Windows", trust_status: "trusted", last_used_at: "2026-11-10T10:00:00Z" }], limits: {} } },
+      "POST users/u9/devices/d1/reset": { body: { removed: true } },
+    });
+    cleanups.push(api.restore);
+    renderWithProviders(<UserDevices userId="u9" />);
+    expect(api.calls.length).toBe(0); // viewing is audited, so nothing loads until asked
+    await userEvent.click(screen.getByRole("button", { name: "Show devices" }));
+    expect(await screen.findByText("Chrome on Windows")).toBeInTheDocument();
+    expect(api.calls[0]!.url).toContain("reason_code=user_request");
+    await userEvent.click(screen.getByRole("button", { name: "Reset Chrome on Windows" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText(/^Reason/), "Lost phone, asked by email");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Reset device" }));
+    await waitFor(() => expect(api.calls.some((c) => c.method === "POST")).toBe(true));
+    const post = api.calls.find((c) => c.method === "POST")!;
+    expect(post.body).toEqual({ reason_code: "user_request", reason: "Lost phone, asked by email" });
+    expect(post.headers["idempotency-key"]).toBeTruthy();
   });
 });

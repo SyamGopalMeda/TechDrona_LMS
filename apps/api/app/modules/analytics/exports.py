@@ -38,11 +38,12 @@ from app.core.ids import uuid7
 from app.core.principal import Principal
 from app.core.time import ist_date, to_rfc3339
 from app.modules.admin import approvals as apr
+from app.modules.analytics import datastore as ds
 from app.modules.analytics import reports
 from app.modules.analytics.export_store import get_export_store
 from app.modules.analytics.models import ExportJob
 from app.modules.identity import clock
-from app.modules.rbac.models import ApprovalRequest
+from app.modules.rbac.public import ApprovalRequest
 from app.modules.security.policies import P5, S10, require_fresh_step_up
 
 log = structlog.get_logger("app.analytics.exports")
@@ -174,10 +175,11 @@ async def _estimate_rows(session: AsyncSession, r: ReportDef, scope_id: uuid.UUI
 async def _check_daily_limit(session: AsyncSession, principal: Principal) -> None:
     since = clock.now() - timedelta(days=1)
     n = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(func.count())
             .select_from(ExportJob)
-            .where(ExportJob.requested_by == principal.user_id, ExportJob.created_at > since)
+            .where(ExportJob.requested_by == principal.user_id, ExportJob.created_at > since),
         )
     ).scalar_one()
     if n >= DAILY_LIMIT:
@@ -239,8 +241,8 @@ async def request_export(
         reason_code=body.get("reason_code"),
         created_at=clock.now(),
     )
-    session.add(job)
-    await session.flush()
+    ds.add(session, job)
+    await ds.flush(session)
     approval_id: str | None = None
     if bulk:
         req = await apr.new_request(
@@ -261,7 +263,7 @@ async def request_export(
         )
         job.approval_request_id = req.id
         approval_id = str(req.id)
-        await session.flush()
+        await ds.flush(session)
     await audit(
         session,
         principal,
@@ -296,7 +298,7 @@ async def request_export(
 
 
 async def own_job(session: AsyncSession, principal: Principal, job_id: uuid.UUID) -> ExportJob:
-    job = await session.get(ExportJob, job_id)
+    job = await ds.get(session, ExportJob, job_id)
     if job is None or job.requested_by != principal.user_id:
         raise ProblemError("not_found")
     return job
@@ -315,21 +317,36 @@ async def list_jobs(
         q = q.where(ExportJob.scope_type == scope_type)
     if scope_id:
         q = q.where(ExportJob.scope_id == scope_id)
-    rows = (await session.execute(q.order_by(ExportJob.created_at.desc()).limit(limit))).scalars().all()
+    rows = (await ds.execute(session, q.order_by(ExportJob.created_at.desc()).limit(limit))).scalars().all()
     return [job_out(j) for j in rows]
 
 
 # --------------------------------------------------------------------------- download (ANL-15)
 
 
+def _job_scope(job: ExportJob) -> ScopeRef:
+    if job.scope_type == "platform" or job.scope_id is None:
+        return PLATFORM_SCOPE
+    return ScopeRef(job.scope_type, job.scope_id)  # type: ignore[arg-type]
+
+
 async def download(
-    session: AsyncSession, principal: Principal, job_id: uuid.UUID, request_id: str | None
+    session: AsyncSession,
+    principal: Principal,
+    job_id: uuid.UUID,
+    request_id: str | None,
+    request: Any = None,
 ) -> dict[str, Any]:
     job = (
-        await session.execute(select(ExportJob).where(ExportJob.id == job_id).with_for_update())
+        await ds.execute(session, select(ExportJob).where(ExportJob.id == job_id).with_for_update())
     ).scalar_one_or_none()
     if job is None or job.requested_by != principal.user_id:
         raise ProblemError("not_found")
+    # The requester must still hold the permissions checked at request time on the export's own
+    # scope (a revoked trainer grant must not keep a 24 h download window open).
+    ref = _job_scope(job)
+    await _require_scope_perm(principal, "report.export.request", ref, request)
+    await _require_scope_perm(principal, "analytics.read", ref, request)
     status = _effective_status(job)
     if status != "ready" or not job.file_s3_key:
         raise ProblemError("invalid_state_transition", current_state=status, allowed=["ready"])
@@ -340,7 +357,7 @@ async def download(
     now = clock.now()
     job.download_count += 1
     job.downloaded_at = now
-    await session.flush()
+    await ds.flush(session)
     filename = f"{job.report_key.replace('.', '-')}-{ist_date(job.completed_at or now).isoformat()}.csv"
     url, url_expires = get_export_store().download_url(job.file_s3_key, filename)
     await audit(
@@ -366,7 +383,7 @@ async def download(
 
 
 async def _job_for_approval(session: AsyncSession, req: ApprovalRequest) -> ExportJob:
-    job = await session.get(ExportJob, uuid.UUID(str(req.payload["export_job_id"])))
+    job = await ds.get(session, ExportJob, uuid.UUID(str(req.payload["export_job_id"])))
     if job is None:
         raise ProblemError("not_found")
     return job
@@ -383,7 +400,7 @@ async def execute_approved(
             "invalid_state_transition", current_state=job.status, allowed=["awaiting_approval"]
         )
     job.status = "running"
-    await session.flush()
+    await ds.flush(session)
     await audit(
         session,
         principal,
@@ -401,7 +418,7 @@ async def on_rejected(session: AsyncSession, principal: Principal, req: Approval
     job = await _job_for_approval(session, req)
     if job.status == "awaiting_approval":
         job.status = "rejected"
-        await session.flush()
+        await ds.flush(session)
         await audit(
             session,
             principal,
@@ -417,14 +434,14 @@ async def on_rejected(session: AsyncSession, principal: Principal, req: Approval
 async def decide(
     session: AsyncSession, principal: Principal, job_id: uuid.UUID, *, approve: bool, note: str | None
 ) -> dict[str, Any]:
-    job = await session.get(ExportJob, job_id)
+    job = await ds.get(session, ExportJob, job_id)
     if job is None or job.approval_request_id is None:
         raise ProblemError("not_found")
     out = await apr.decide(session, principal, job.approval_request_id, approve=approve, note=note)
-    await session.refresh(job)
+    await ds.refresh(session, job)
     if out.get("_expired"):
         job.status = "rejected"
-        await session.flush()
+        await ds.flush(session)
         raise ProblemError("invalid_state_transition", current_state="expired", allowed=[])
     return {
         "export_job_id": str(job.id),
@@ -513,8 +530,8 @@ def render_csv(
 async def generate(session: AsyncSession, job_id: uuid.UUID) -> str:
     """Build, store and finalise one ``running`` job. Returns the resulting status."""
     job = (
-        await session.execute(
-            select(ExportJob).where(ExportJob.id == job_id).with_for_update(skip_locked=True)
+        await ds.execute(
+            session, select(ExportJob).where(ExportJob.id == job_id).with_for_update(skip_locked=True)
         )
     ).scalar_one_or_none()
     if job is None or job.status != "running":
@@ -522,7 +539,7 @@ async def generate(session: AsyncSession, job_id: uuid.UUID) -> str:
     now = clock.now()
     stage = "report_error"
     try:
-        async with session.begin_nested():
+        async with await ds.begin_nested(session):
             cols, rows, notes = await _build(session, job)
         watermark, data = render_csv(job, cols, rows, notes, to_rfc3339(now))
         key = f"exports/{job.id}/{job.report_key.replace('.', '-')}.csv"
@@ -532,7 +549,7 @@ async def generate(session: AsyncSession, job_id: uuid.UUID) -> str:
         log.warning("export.generation_failed", export_job_id=str(job.id), error=type(e).__name__)
         job.status = "failed"
         job.failure_code = stage
-        await session.flush()
+        await ds.flush(session)
         await audit(
             session, AuditActor.system("analytics.export_generate"), "export.failed", TARGET_TYPE, job.id
         )
@@ -545,7 +562,7 @@ async def generate(session: AsyncSession, job_id: uuid.UUID) -> str:
     job.completed_at = now
     job.expires_at = now + FILE_TTL
     job.status = "ready"
-    await session.flush()
+    await ds.flush(session)
     await audit(
         session,
         AuditActor.system("analytics.export_generate"),
@@ -566,8 +583,9 @@ async def sweep(session: AsyncSession, *, generate_limit: int = 20) -> dict[str,
     expired = 0
     for job in (
         (
-            await session.execute(
-                select(ExportJob).where(ExportJob.status == "ready", ExportJob.expires_at <= now).limit(500)
+            await ds.execute(
+                session,
+                select(ExportJob).where(ExportJob.status == "ready", ExportJob.expires_at <= now).limit(500),
             )
         )
         .scalars()
@@ -581,29 +599,37 @@ async def sweep(session: AsyncSession, *, generate_limit: int = 20) -> dict[str,
         job.status = "expired"
         expired += 1
     lapsed = 0
-    waiting = (
-        await session.execute(
-            select(ExportJob, ApprovalRequest)
-            .join(ApprovalRequest, ApprovalRequest.id == ExportJob.approval_request_id)
-            .where(ExportJob.status == "awaiting_approval")
-        )
-    ).all()
-    for job, req in waiting:
+    from app.modules.rbac import public as rbac
+
+    waiting_jobs = list(
+        (
+            await ds.execute(session, select(ExportJob).where(ExportJob.status == "awaiting_approval"))
+        ).scalars()
+    )
+    reqs = await rbac.get_approvals(
+        session, [j.approval_request_id for j in waiting_jobs if j.approval_request_id]
+    )
+    for job in waiting_jobs:  # inner join: jobs without a visible approval are skipped
+        req = reqs.get(job.approval_request_id) if job.approval_request_id else None
+        if req is None:
+            continue
         if req.status in ("rejected", "cancelled", "expired") or (
             req.status == "pending" and req.expires_at <= now
         ):
             if req.status == "pending":
                 req.status = "expired"
+                await rbac.save_approval(session, req)
             job.status = "rejected"
             lapsed += 1
-    await session.flush()
+    await ds.flush(session)
     stale = (
         (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(ExportJob.id)
                 .where(ExportJob.status == "running", ExportJob.updated_at <= now - STALE_RUNNING)
                 .order_by(ExportJob.created_at)
-                .limit(generate_limit)
+                .limit(generate_limit),
             )
         )
         .scalars()

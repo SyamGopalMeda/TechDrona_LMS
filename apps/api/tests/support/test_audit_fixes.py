@@ -6,6 +6,7 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import update
 
 from app.core.db import system_context, tenant_context
@@ -15,6 +16,7 @@ from app.modules.identity import clock
 from app.modules.support.models import SupportTicket, SupportTicketMessage
 from tests.identity.factory import Browser, add_member, company_org
 from tests.security.helpers import adult, staff, staff_browser
+from tests.support import helpers as h
 
 
 def body(category: str) -> dict:
@@ -36,6 +38,7 @@ async def _student(client, db, org=None):
     return u, b
 
 
+@pytest.mark.usefixtures("support_backend")
 async def test_single_company_no_college_lane_or_org_field(client, db) -> None:
     """Single company: the ``college_access`` category and the ``organization_id`` body field
     are gone (422), tickets carry no organization, and DTOs no longer expose one."""
@@ -45,7 +48,8 @@ async def test_single_company_no_college_lane_or_org_field(client, db) -> None:
     assert (await sb.post("/support/tickets", with_org)).status_code in (400, 422)
     t = (await sb.post("/support/tickets", body("technical"))).json()
     assert "organization_id" not in t
-    row = await db.get(SupportTicket, uuid.UUID(t["ticket_id"]))
+    await system_context(db, "t")
+    row = await h.ticket(db, t["ticket_id"])
     assert row is not None and row.organization_id is None
 
 
@@ -88,6 +92,7 @@ async def _ticket_count(db, principal, tid) -> tuple[int, int]:
     return int(t or 0), min(int(m or 0), 1)
 
 
+@pytest.mark.usefixtures("support_backend")
 async def test_fr_sup_001_categories_and_lanes(client, db) -> None:
     """BE-17 (categories): certificate and appeal tickets can be created and land in the right
     lane (appeal -> Admin, certificate -> content managers and Admin)."""
@@ -106,6 +111,7 @@ async def test_fr_sup_001_categories_and_lanes(client, db) -> None:
     assert created["certificate"]["ticket_id"] in cm_ids and created["appeal"]["ticket_id"] not in cm_ids
 
 
+@pytest.mark.usefixtures("support_backend")
 async def test_assessment_ticket_with_running_attempt_is_p1(client, db) -> None:
     """BE-32: an assessment ticket from a learner with a test in progress is P1 (``high``,
     first response 4 h); without a running attempt it stays ``normal``."""
@@ -142,6 +148,7 @@ async def test_assessment_ticket_with_running_attempt_is_p1(client, db) -> None:
     assert window == timedelta(hours=4)
 
 
+@pytest.mark.usefixtures("support_backend")
 async def test_queue_sla_order_across_pages(client, db) -> None:
     """ADM-38: the queue is ordered by resolution deadline across pages, not within a page."""
     _s, sb = await _student(client, db)
@@ -152,11 +159,7 @@ async def test_queue_sla_order_across_pages(client, db) -> None:
     now = clock.now()
     # newest ticket has the earliest deadline
     for i, tid in enumerate(ids):
-        await db.execute(
-            update(SupportTicket)
-            .where(SupportTicket.id == uuid.UUID(tid))
-            .values(resolution_due_at=now + timedelta(hours=100 - i * 10))
-        )
+        await h.patch_ticket(db, tid, resolution_due_at=now + timedelta(hours=100 - i * 10))
     order: list[str] = []
     cursor = None
     while True:
@@ -169,6 +172,7 @@ async def test_queue_sla_order_across_pages(client, db) -> None:
     assert order == list(reversed(ids))
 
 
+@pytest.mark.usefixtures("support_backend")
 async def test_be17_attachments_upload_attach_and_download(client, db) -> None:
     """BE-17 attachments: MED-02 ``support_attachment`` upload, attach on SUP-01/SUP-04 (own
     keys only), download for requester and platform agent, 404 for outsiders."""
@@ -208,9 +212,9 @@ async def test_be17_attachments_upload_attach_and_download(client, db) -> None:
     assert (await ob.get(f"/support/tickets/{tid}/attachments/ticket/0")).status_code == 404
 
 
+@pytest.mark.usefixtures("support_backend")
 async def test_db01_support_erasure_minimises_tickets(client, db) -> None:
     from app.modules.support import privacy
-    from app.modules.support.models import SupportTicketMessage
 
     s, sb = await _student(client, db)
     t = (await sb.post("/support/tickets", body("technical"))).json()
@@ -220,23 +224,9 @@ async def test_db01_support_erasure_minimises_tickets(client, db) -> None:
     await system_context(db, "t")
     out = await privacy.erase_user(db, s.id)
     assert out["tickets_minimised"] == 1 and out["messages_redacted"] == 1
-    from sqlalchemy import select
-
-    row = (
-        await db.execute(
-            select(SupportTicket)
-            .where(SupportTicket.id == uuid.UUID(t["ticket_id"]))
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one()
+    row = await h.ticket(db, t["ticket_id"])
     assert row.subject == privacy.ERASED_SUBJECT and row.body == privacy.ERASED_BODY and row.context == {}
-    msg = (
-        await db.execute(
-            select(SupportTicketMessage)
-            .where(SupportTicketMessage.support_ticket_id == row.id)
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one()
+    (msg,) = await h.thread(db, row.id)
     assert msg.redacted_at is not None and "9999" not in msg.body
     again = await privacy.erase_user(db, s.id)
     assert again["tickets_minimised"] == 0 and again["messages_redacted"] == 0

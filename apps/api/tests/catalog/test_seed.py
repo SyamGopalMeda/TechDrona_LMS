@@ -5,13 +5,17 @@ from __future__ import annotations
 import pytest
 
 from app.seeds import catalog_demo, dev_users
+from tests.catalog.factory import sync_catalog
 
 
+# The production guard below is a pure-Python check (no store), so only this one runs on both.
+@pytest.mark.usefixtures("catalog_backend")
 async def test_catalog_demo_seed_idempotent_and_public(browser, db) -> None:
     await dev_users.seed(db)
     made = await catalog_demo.seed(db)
     assert made == ["demo-dsa-free", "demo-aptitude-paid"]
     assert await catalog_demo.seed(db) == []
+    await sync_catalog(db)  # the seed CLI copies to Firestore after seeding (TD_STORE_CATALOG)
     r = await browser.get("/catalog/courses/demo-dsa-free")
     assert r.status_code == 200 and r.json()["price_type"] == "free"
 

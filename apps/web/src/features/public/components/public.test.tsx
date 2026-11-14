@@ -80,22 +80,95 @@ describe("Help centre (FE-01 / FE-14, PUB-019)", () => {
   });
 });
 
-describe("PublicShell (FE-11)", () => {
-  it("has the full sitemap footer and Log in + Sign up for visitors", () => {
+describe("PublicShell (website header/footer)", () => {
+  const SITE = "https://35-244-50-26.sslip.io";
+
+  it("mirrors the website header: website sections (absolute), Login and an in-LMS Contact us pill; no LMS marketing nav", () => {
     render(<PublicShell>body</PublicShell>);
-    for (const name of ["Courses", "Placement", "Companies", "Pricing", "Corporate enquiries", "Help", "Status", "Terms", "Privacy", "Refund policy", "Device policy", "Grievance officer", "Certificate verification"]) {
-      expect(within(screen.getByRole("contentinfo")).getByRole("link", { name })).toBeInTheDocument();
-    }
     const header = screen.getByRole("banner");
-    expect(within(header).getByRole("link", { name: "Log in" })).toHaveAttribute("href", "/login");
-    expect(within(header).getByRole("link", { name: "Sign up" })).toHaveAttribute("href", "/signup");
+    const main = within(header).getByRole("navigation", { name: "Main" });
+    for (const [name, href] of [
+      ["Home", `${SITE}/`],
+      ["Solutions", `${SITE}/solutions`],
+      ["Training & Careers", `${SITE}/training`],
+      ["Courses", `${SITE}/courses`],
+      ["Projects", `${SITE}/projects`],
+      ["About", `${SITE}/about`],
+    ] as const) {
+      expect(within(main).getByRole("link", { name })).toHaveAttribute("href", href);
+    }
+    expect(within(header).getByRole("link", { name: "Login" })).toHaveAttribute("href", "/login");
+    // Contact and the logo stay in the LMS (help centre contact section, LMS home).
+    expect(within(header).getByRole("link", { name: /Contact/ })).toHaveAttribute("href", "/help#help-contact");
+    expect(within(header).getByRole("link", { name: "Tech Drona LMS home" })).toHaveAttribute("href", "/");
+    for (const gone of ["Placement prep", "Companies", "Pricing", "For teams", "Sign up"]) {
+      expect(within(header).queryByRole("link", { name: gone })).not.toBeInTheDocument();
+    }
   });
 
-  it("shows Go to dashboard instead of Log in when signed in", () => {
+  it("has the website footer columns plus the LMS support and policy links", () => {
+    render(<PublicShell>body</PublicShell>);
+    const footer = screen.getByRole("contentinfo");
+    expect(within(footer).getByRole("link", { name: "All courses" })).toHaveAttribute("href", `${SITE}/courses`);
+    expect(within(footer).getByRole("link", { name: "About us" })).toHaveAttribute("href", `${SITE}/about`);
+    expect(within(footer).getByRole("link", { name: "Contact" })).toHaveAttribute("href", "/help#help-contact");
+    for (const [name, href] of [
+      ["Help", "/help"],
+      ["Grievance officer", "/help/grievance"],
+      ["Certificate verification", "/verify"],
+      ["Terms", "/legal/terms"],
+      ["Privacy", "/legal/privacy"],
+      ["Refund policy", "/legal/refund-policy"],
+      ["Device policy", "/legal/device-policy"],
+    ] as const) {
+      expect(within(footer).getByRole("link", { name })).toHaveAttribute("href", href);
+    }
+    for (const gone of ["Placement", "Companies", "Pricing", "Corporate enquiries", "Status"]) {
+      expect(within(footer).queryByRole("link", { name: gone })).not.toBeInTheDocument();
+    }
+  });
+
+  it("shows Go to dashboard instead of Login when signed in", () => {
     render(<PublicShell signedIn>body</PublicShell>);
     const header = screen.getByRole("banner");
     expect(within(header).getByRole("link", { name: "Go to dashboard" })).toHaveAttribute("href", "/app");
-    expect(within(header).queryByRole("link", { name: "Log in" })).not.toBeInTheDocument();
+    expect(within(header).queryByRole("link", { name: "Login" })).not.toBeInTheDocument();
+    // Signed in, Courses opens the in-app catalogue (header and footer) instead of the website.
+    expect(within(within(header).getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Courses" })).toHaveAttribute("href", "/app/courses");
+    expect(within(screen.getByRole("contentinfo")).getByRole("link", { name: "All courses" })).toHaveAttribute("href", "/app/courses");
+  });
+
+  it("opens the website-style slide-in menu (dialog) and closes it on Escape and on a link", async () => {
+    render(<PublicShell>body</PublicShell>);
+    const header = screen.getByRole("banner");
+    const menu = within(header).getByRole("button", { name: "Menu" });
+    expect(menu).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(menu);
+    expect(menu).toHaveAttribute("aria-expanded", "true");
+    const dialog = screen.getByRole("dialog", { name: "Menu" });
+    for (const name of ["Home", "Solutions", "Training & Careers", "Courses", "Projects", "About"]) {
+      expect(within(dialog).getByRole("link", { name })).toBeInTheDocument();
+    }
+    expect(within(dialog).getByRole("link", { name: /Log in to Tech Drona/ })).toHaveAttribute("href", "/login");
+    expect(within(dialog).getByRole("link", { name: /Contact us/ })).toHaveAttribute("href", "/help#help-contact");
+    await userEvent.keyboard("{Escape}");
+    expect(menu).toHaveAttribute("aria-expanded", "false");
+    expect(menu).toHaveFocus();
+    await userEvent.click(menu);
+    const stop = (e: MouseEvent) => e.preventDefault();
+    window.addEventListener("click", stop);
+    await userEvent.click(within(screen.getByRole("dialog", { name: "Menu" })).getByRole("link", { name: "Projects" }));
+    window.removeEventListener("click", stop);
+    expect(menu).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("opens a website dropdown from its arrow button", async () => {
+    render(<PublicShell>body</PublicShell>);
+    const btn = screen.getByRole("button", { name: "Show Solutions menu" });
+    await userEvent.click(btn);
+    const open = screen.getByRole("button", { name: "Hide Solutions menu" });
+    expect(open).toHaveAttribute("aria-expanded", "true");
+    expect(within(document.getElementById(open.getAttribute("aria-controls")!)!).getByRole("link", { name: /Applied AI/ })).toHaveAttribute("href", "https://35-244-50-26.sslip.io/solutions#ai");
   });
 });
 
@@ -165,7 +238,8 @@ describe("Placement hub and topic (PUB-004/005)", () => {
 describe("Companies (PUB-006/007) — honest state, no invented data", () => {
   it("explains hubs are not published and links to what exists", () => {
     render(<CompaniesIndex />);
-    expect(screen.getByText("Company hubs are not published yet")).toBeInTheDocument();
+    expect(screen.getByText("Company guides are coming soon")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Companies" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Placement topics" })).toHaveAttribute("href", "/placement");
   });
 

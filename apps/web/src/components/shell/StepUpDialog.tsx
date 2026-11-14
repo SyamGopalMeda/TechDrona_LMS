@@ -5,6 +5,7 @@ import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import type { StepUpChallenge } from "@/lib/api/problem";
 import { Button, Dialog, FormField, Input } from "@/components/ui";
+import { ServiceNotIntegrated } from "@/components/shell/Integrations";
 
 export interface StepUpRequest {
   challenge: StepUpChallenge;
@@ -225,6 +226,7 @@ export function StepUpDialog({ request, onDone }: { request: StepUpRequest | nul
             </FormField>
           ) : isOtp && sentTo === null ? (
             <div className="space-y-2">
+              <ServiceNotIntegrated service={method === "email_otp" ? "email" : "sms"} />
               <p className="text-sm text-fg-secondary">
                 We will send a 6-digit code {method === "email_otp" ? "to your email address" : "by SMS to your mobile number"}.
               </p>

@@ -15,6 +15,15 @@ describe("buildCsp", () => {
     expect(d["frame-ancestors"]).toEqual(["'none'"]);
   });
 
+  it("frames 'self' only when a page opts in (College Data Portal); frame-ancestors stays 'none'", () => {
+    expect(parseCsp(buildCsp(NONCE, { dev: false }))["frame-src"]).not.toContain("'self'");
+    expect(parseCsp(buildCsp(NONCE, { dev: false, frameSelf: false }))["frame-src"]).not.toContain("'self'");
+    const d = parseCsp(buildCsp(NONCE, { dev: false, frameSelf: true }));
+    expect(d["frame-src"]).toContain("'self'");
+    expect(d["frame-src"]).toContain("https://player.vdocipher.com");
+    expect(d["frame-ancestors"]).toEqual(["'none'"]);
+  });
+
   it("allows Razorpay Checkout script, frames and API calls", () => {
     const d = parseCsp(buildCsp(NONCE, { dev: false }));
     expect(d["script-src"]).toContain("https://checkout.razorpay.com");
@@ -84,7 +93,7 @@ describe("upload origins from env", () => {
 
   it("production derives the AWS virtual-hosted bucket origin and never adds localhost", () => {
     const env = { NODE_ENV: "production", S3_BUCKET_UPLOADS: "td-uploads-prod", AWS_REGION: "ap-south-1" };
-    expect(cspOptionsFromEnv(env)).toEqual({ dev: false, uploadOrigins: ["https://td-uploads-prod.s3.ap-south-1.amazonaws.com", ...VDOCIPHER.upload] });
+    expect(cspOptionsFromEnv(env)).toEqual({ dev: false, uploadOrigins: ["https://td-uploads-prod.s3.ap-south-1.amazonaws.com", ...VDOCIPHER.upload], siteOrigin: null });
   });
 
   it("production allows the content bucket and the VdoCipher upload origin in connect-src and form-action (webstaff R7)", () => {

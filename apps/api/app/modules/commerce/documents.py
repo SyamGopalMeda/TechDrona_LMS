@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.startup_checks import register_fake_adapter
 from app.core.time import utcnow
+from app.modules.commerce import datastore as ds
 from app.modules.commerce import policy
 from app.modules.commerce.models import Invoice, Order, OrderItem, Product
 
@@ -63,6 +64,15 @@ class S3DocumentStore:
             kw["aws_secret_access_key"] = s.AWS_SECRET_ACCESS_KEY
             if s.AWS_SESSION_TOKEN:
                 kw["aws_session_token"] = s.AWS_SESSION_TOKEN
+        # botocore >= 1.36 adds a streaming CRC trailer (aws-chunked) to every PutObject by default.
+        # S3-compatible stores (SeaweedFS on the GCP demo) then keep the chunk framing INSIDE the
+        # object, corrupting every stored PDF/image (found live 2026-11-11). Only send/verify
+        # checksums when the operation requires them; real S3 behaves the same either way.
+        from botocore.config import Config
+
+        kw["config"] = Config(
+            request_checksum_calculation="when_required", response_checksum_validation="when_required"
+        )
         return boto3.client("s3", **kw)
 
     async def put(self, bucket: str, key: str, data: bytes, content_type: str) -> None:
@@ -147,7 +157,9 @@ def invoice_key(inv: Invoice) -> str:
 async def _lines(session: AsyncSession, inv: Invoice) -> list[dict[str, Any]]:
     if inv.invoice_type == "credit_note":
         orig = (
-            await session.execute(select(Invoice.invoice_number).where(Invoice.id == inv.original_invoice_id))
+            await ds.execute(
+                session, select(Invoice.invoice_number).where(Invoice.id == inv.original_invoice_id)
+            )
         ).scalar_one_or_none()
         return [
             {
@@ -163,10 +175,11 @@ async def _lines(session: AsyncSession, inv: Invoice) -> list[dict[str, Any]]:
             }
         ]
     rows = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(OrderItem, Product.name)
             .join(Product, Product.id == OrderItem.product_id)
-            .where(OrderItem.order_id == inv.order_id)
+            .where(OrderItem.order_id == inv.order_id),
         )
     ).all()
     out = []
@@ -197,9 +210,11 @@ async def render_invoice_pdf(session: AsyncSession, inv: Invoice) -> bytes:
     original_number = None
     if inv.original_invoice_id:
         original_number = (
-            await session.execute(select(Invoice.invoice_number).where(Invoice.id == inv.original_invoice_id))
+            await ds.execute(
+                session, select(Invoice.invoice_number).where(Invoice.id == inv.original_invoice_id)
+            )
         ).scalar_one_or_none()
-    order = (await session.execute(select(Order).where(Order.id == inv.order_id))).scalar_one()
+    order = (await ds.execute(session, select(Order).where(Order.id == inv.order_id))).scalar_one()
 
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_title(_latin1(f"{inv.invoice_number}"))
@@ -311,9 +326,10 @@ async def ensure_invoice_pdf(session: AsyncSession, inv: Invoice) -> str:
         return inv.pdf_s3_key
     data = await render_invoice_pdf(session, inv)
     key = invoice_key(inv)
+    await ds.before_side_effect(session)
     await get_document_store().put(bucket(), key, data, "application/pdf")
     inv.pdf_s3_key = key
-    await session.flush()
+    await ds.flush(session)
     return key
 
 
@@ -351,11 +367,12 @@ GST_COLUMNS = (
 async def gst_rows(session: AsyncSession, period_from: date, period_to: date) -> list[dict[str, Any]]:
     """Invoices and credit notes issued in [from, to] (IST issue dates), oldest first."""
     invs = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(Invoice, Order.order_number)
             .join(Order, Order.id == Invoice.order_id)
             .where(Invoice.issue_date >= period_from, Invoice.issue_date <= period_to)
-            .order_by(Invoice.issue_date, Invoice.invoice_number)
+            .order_by(Invoice.issue_date, Invoice.invoice_number),
         )
     ).all()
     numbers = {i.id: i.invoice_number for i, _ in invs}
@@ -366,17 +383,20 @@ async def gst_rows(session: AsyncSession, period_from: date, period_to: date) ->
     }
     if missing:
         for iid, num in (
-            await session.execute(select(Invoice.id, Invoice.invoice_number).where(Invoice.id.in_(missing)))
+            await ds.execute(
+                session, select(Invoice.id, Invoice.invoice_number).where(Invoice.id.in_(missing))
+            )
         ).all():
             numbers[iid] = num
     order_ids = {i.order_id for i, _ in invs}
     sac_rate: dict[uuid.UUID, tuple[str, str]] = {}
     if order_ids:
         for oid, sac, rate in (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(OrderItem.order_id, OrderItem.sac_code, OrderItem.gst_rate).where(
                     OrderItem.order_id.in_(order_ids)
-                )
+                ),
             )
         ).all():
             sac_rate.setdefault(oid, (str(sac), f"{Decimal(rate):.2f}"))

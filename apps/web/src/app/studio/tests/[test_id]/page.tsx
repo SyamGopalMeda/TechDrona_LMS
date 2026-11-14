@@ -1,16 +1,10 @@
 import type { Metadata } from "next";
-import { PageHeader } from "@/components/ui";
 import { TestBuilder } from "@/features/studio/components/Tests";
 
 export const metadata: Metadata = { title: "Test builder" };
 
-/** CMS-011 */
+/** CMS-011: the test title is the h1 (rendered by the builder once it loads). */
 export default async function Page({ params }: { params: Promise<{ test_id: string }> }) {
   const { test_id } = await params;
-  return (
-    <div>
-      <PageHeader title="Test builder" eyebrow="CMS-011" />
-      <TestBuilder testId={test_id} />
-    </div>
-  );
+  return <TestBuilder testId={test_id} crumbs={[{ label: "Template mocks", href: "/studio/tests" }]} />;
 }

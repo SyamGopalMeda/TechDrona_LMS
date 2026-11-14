@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Badge } from "@/components/ui";
+import { StatusBadge, Badge } from "@/components/ui";
 import { cn } from "@/lib/ui/cn";
-import { StateBadge } from "@/features/admin/components/console-ui";
 import { formatDateTime } from "@/features/admin/lib/console";
 import { STATUS_LABELS, type AttachmentMeta, type TicketMessage, type TicketStatus } from "../lib/types";
 import { attachmentDownloadUrl } from "../lib/attachments";
@@ -41,7 +40,7 @@ export function MessageThread({ ticketId, messages, viewer }: { ticketId: string
 }
 
 export function TicketStatusBadge({ status }: { status: TicketStatus }) {
-  return <StateBadge state={status === "pending_user" || status === "pending_internal" ? "pending" : status} label={STATUS_LABELS[status] ?? status} />;
+  return <StatusBadge status={status} label={STATUS_LABELS[status] ?? status} />;
 }
 
 function formatSize(bytes: number | null): string {

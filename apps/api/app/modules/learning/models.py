@@ -23,10 +23,9 @@ class Enrolment(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(_UUID, primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(_UUID, ForeignKey("users.id"), nullable=False)
-    course_id: Mapped[uuid.UUID] = mapped_column(_UUID, ForeignKey("courses.id"), nullable=False)
-    course_version_id: Mapped[uuid.UUID] = mapped_column(
-        _UUID, ForeignKey("course_versions.id"), nullable=False
-    )
+    # No ForeignKey into the catalog: the catalog may live in Firestore (learning_0004).
+    course_id: Mapped[uuid.UUID] = mapped_column(_UUID, nullable=False)
+    course_version_id: Mapped[uuid.UUID] = mapped_column(_UUID, nullable=False)
     organization_id: Mapped[uuid.UUID | None] = mapped_column(_UUID, ForeignKey("organizations.id"))
     batch_id: Mapped[uuid.UUID | None] = mapped_column(_UUID, ForeignKey("batches.id"))
     source: Mapped[str] = mapped_column(Text, nullable=False)
@@ -66,7 +65,7 @@ class Assignment(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(_UUID, primary_key=True)
     organization_id: Mapped[uuid.UUID | None] = mapped_column(_UUID, ForeignKey("organizations.id"))
-    course_id: Mapped[uuid.UUID | None] = mapped_column(_UUID, ForeignKey("courses.id"))
+    course_id: Mapped[uuid.UUID | None] = mapped_column(_UUID)  # catalog: no FK (learning_0004)
     batch_id: Mapped[uuid.UUID | None] = mapped_column(_UUID, ForeignKey("batches.id"))
     lesson_id: Mapped[uuid.UUID | None] = mapped_column(_UUID)
     title: Mapped[str] = mapped_column(Text, nullable=False)
@@ -124,10 +123,9 @@ class Certificate(Base):
     public_code: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     user_id: Mapped[uuid.UUID] = mapped_column(_UUID, ForeignKey("users.id"), nullable=False)
     organization_id: Mapped[uuid.UUID | None] = mapped_column(_UUID, ForeignKey("organizations.id"))
-    course_id: Mapped[uuid.UUID] = mapped_column(_UUID, ForeignKey("courses.id"), nullable=False)
-    course_version_id: Mapped[uuid.UUID] = mapped_column(
-        _UUID, ForeignKey("course_versions.id"), nullable=False
-    )
+    # No ForeignKey into the catalog: the catalog may live in Firestore (learning_0004).
+    course_id: Mapped[uuid.UUID] = mapped_column(_UUID, nullable=False)
+    course_version_id: Mapped[uuid.UUID] = mapped_column(_UUID, nullable=False)
     enrolment_id: Mapped[uuid.UUID] = mapped_column(_UUID, ForeignKey("enrolments.id"), nullable=False)
     name_on_certificate: Mapped[str] = mapped_column(Text, nullable=False)
     identity_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
@@ -261,3 +259,10 @@ class AssignmentRegradeRequest(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(_TS)
     created_at: Mapped[datetime] = mapped_column(_TS, nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(_TS, nullable=False, server_default=func.now())
+
+
+# Certificate email outbox (learning_0005) lives in cert_models.py; imported so Base.metadata has it.
+from app.modules.learning.cert_models import CertificateOutbox  # noqa: E402, F401
+
+# Issued documents, templates, settings (learning_0006) live in doc_models.py.
+from app.modules.learning.doc_models import DocumentSettings, DocumentTemplate, IssuedDocument  # noqa: E402, F401

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createUuid7Generator, UUID7_PATTERN, uuid7Timestamp } from "@/lib/ids/uuid7";
-import { parseAnalyticsConfig } from "./config";
+import { loadAnalyticsConfig, parseAnalyticsConfig, resetAnalyticsConfigCache } from "./config";
 import { assertRouteTemplate, rfc3339WithOffset, type AnalyticsBatch } from "./envelope";
 import { EngagementMeter, TM_1_0_DEFAULTS } from "./time-model";
 import { ActivityTracker } from "./tracker";
@@ -240,5 +240,17 @@ describe("config and time formatting", () => {
 
   it("formats RFC 3339 with offset and ms", () => {
     expect(rfc3339WithOffset(Date.UTC(2026, 10, 3, 10, 15, 2, 123))).toMatch(/^2026-11-0\dT\d{2}:\d{2}:02\.123[+-]\d{2}:\d{2}$/);
+  });
+});
+
+describe("loadAnalyticsConfig (F15)", () => {
+  it("returns null on 403 (analytics refused, e.g. learning access paused) so no tracker starts", async () => {
+    resetAnalyticsConfigCache();
+    const f = vi.fn(async () => new Response(JSON.stringify({ code: "account_restricted" }), { status: 403 }));
+    expect(await loadAnalyticsConfig(f as unknown as typeof fetch)).toBeNull();
+    resetAnalyticsConfigCache();
+    const g = vi.fn(async () => new Response("", { status: 500 }));
+    expect(await loadAnalyticsConfig(g as unknown as typeof fetch)).toBe(TM_1_0_DEFAULTS);
+    resetAnalyticsConfigCache();
   });
 });

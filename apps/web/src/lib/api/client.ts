@@ -12,6 +12,8 @@ import { isProblemDetails, type ProblemDetails, type StepUpChallenge } from "./p
  *  - 403 account_restricted → navigate to /account/restricted?case_ref=…&level=…
  *  - 401 unauthenticated / session_expired / session_revoked → /login?next=…&reason=…
  *  - 403 mfa_enrolment_required → enrol_url (default /app/settings/security/mfa)
+ *  - 403 password_change_required → /change-password?next=<here> (admin asked for a new password)
+ *  - 403 consent_required (terms / privacy notice / core service only) → /accept-terms?next=<here>
  *  - 401 login_incomplete   → the pending login step (/login/mfa, /login/verify-device, /login/session-choice)
  *  - 409 session_cap_reached (pending_session_choice) → hooks.onSessionChoiceRequired or /login/session-choice
  *  - 409 playback_conflict  → hooks.onPlaybackConflict (player shows PLY-005), then throws
@@ -152,6 +154,26 @@ export async function apiRequestRaw(path: string, options: RequestOptions = {}):
   return (await send<never>(path, options, true)) as Response;
 }
 
+/** Page where an account flagged "must change password" chooses its own password. */
+export const CHANGE_PASSWORD_PATH = "/change-password";
+/** Page where a signed-in account agrees to the required Terms / Privacy Notice (`consent_required`). */
+export const ACCEPT_TERMS_PATH = "/accept-terms";
+/** Purposes every account needs (resolver `consent_required`); other consent problems are handled where they occur. */
+const REQUIRED_CONSENTS = new Set(["terms", "privacy_notice", "core_service"]);
+
+/** `/<page>?next=<here>` unless already on that page (no loop); null when already there. */
+function gatePath(page: string, here: string): string | null {
+  if (here.split("?")[0] === page) return null;
+  return here.startsWith("/") && !here.startsWith("//") && here !== "/" ? `${page}?next=${encodeURIComponent(here)}` : page;
+}
+
+/** A 403 `consent_required` that only names required purposes (not a checkout / exam consent). */
+export function isRequiredConsentProblem(problem: { code?: string; purposes?: unknown } | null | undefined): boolean {
+  if (problem?.code !== "consent_required") return false;
+  const p = problem.purposes;
+  return Array.isArray(p) && p.length > 0 && p.every((x) => typeof x === "string" && REQUIRED_CONSENTS.has(x));
+}
+
 const MFA_ENROL_FALLBACK = "/app/settings/security/mfa";
 
 /** INV-10: same-origin enrolment page from the problem's `enrol_url`, else the default. */
@@ -244,6 +266,16 @@ async function send<T>(path: string, options: RequestOptions, raw: boolean): Pro
       const target = mfaEnrolPath(problem?.enrol_url);
       const here = currentPath().split("?")[0];
       if (here !== target.split("?")[0]) navigate(target);
+    }
+
+    if (code === "password_change_required" && handle.auth) {
+      const target = gatePath(CHANGE_PASSWORD_PATH, currentPath());
+      if (target) navigate(target);
+    }
+
+    if (res.status === 403 && handle.auth && isRequiredConsentProblem(problem)) {
+      const target = gatePath(ACCEPT_TERMS_PATH, currentPath());
+      if (target) navigate(target);
     }
 
     if (code === "login_incomplete" && handle.auth && problem?.next_step) {

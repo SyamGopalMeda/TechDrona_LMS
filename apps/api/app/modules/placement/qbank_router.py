@@ -32,6 +32,7 @@ from app.modules.placement import bank as qbank
 from app.modules.placement import banks, bulk_import
 from app.modules.placement.models import QuestionBank, QuestionMedia
 from app.modules.placement.policies import company_owner, require_in_org, resolve_owner
+from app.modules.placement.rls import bind_principal
 from app.modules.placement.schemas import (
     BankAddQuestions,
     BankCreate,
@@ -44,12 +45,20 @@ from app.modules.placement.schemas import (
     ResolveIn,
 )
 
-qbank_studio = authenticated_router(prefix="/studio", tags=["placement-question-banks"])
-qbank_media = authenticated_router(tags=["placement-question-banks"])
+qbank_studio = authenticated_router(
+    prefix="/studio", tags=["placement-question-banks"], dependencies=[Depends(bind_principal)]
+)
+qbank_media = authenticated_router(tags=["placement-question-banks"], dependencies=[Depends(bind_principal)])
 
 PERM = "question.create"
 MEDIA_PREFIX = "content/question_image/"
 PRESIGN_SKEW_SECONDS = 30
+
+
+def _nopg(session: Any) -> Any:
+    """The request session, or ``None`` without Postgres (``db.NO_POSTGRES`` is falsy): core
+    ``idempotent`` then keeps no Postgres savepoint (it checks ``session is not None``)."""
+    return session or None
 
 
 async def _idem(
@@ -58,7 +67,9 @@ async def _idem(
     async def op() -> IdemResult:
         return IdemResult(body=await fn(), status=status)
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=required)
+    return await idempotent(
+        request, _nopg(session), user_id=principal.user_id, operation=op, required=required
+    )
 
 
 async def _require_app(session: Any) -> None:
@@ -576,8 +587,13 @@ async def qbk_14_media_upload(
             scan_status="pending",
             created_by=principal.user_id,
         )
-        session.add(m)
-        await session.flush()
+        if qbank._fs():
+            now = utcnow()
+            m.created_at, m.updated_at = now, now
+            await (await qbank._repo(session)).create_media(m)
+        else:
+            session.add(m)
+            await session.flush()
         await audit(
             session,
             principal,
@@ -605,13 +621,21 @@ async def qbk_15_media_complete(
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
     """Pull the scan result (repeatable; the author polls while ``scan_status`` is pending)."""
-    m = await session.get(QuestionMedia, media_id)
+    m = await _get_media(session, media_id)
     if m is None:
         raise ProblemError("not_found")
     await require_in_org(request, session, principal, PERM, m.organization_id)
-    await refresh_scan(m)
+    if await refresh_scan(m) and qbank._fs():
+        m.updated_at = utcnow()
+        await (await qbank._repo(session)).save_media(m)
     await session.flush()
     return _media_out(m)
+
+
+async def _get_media(session: Any, media_id: uuid.UUID) -> QuestionMedia | None:
+    if qbank._fs():
+        return await (await qbank._repo(session)).get_media(media_id)
+    return await session.get(QuestionMedia, media_id)
 
 
 @qbank_media.get("/question-media/{media_id}", response_model=None)
@@ -624,7 +648,7 @@ async def qbk_16_media_get(
     the image's organization or platform images)."""
     from app.modules.media.storage import presign_get, storage_settings
 
-    m = await session.get(QuestionMedia, media_id)
+    m = await _get_media(session, media_id)
     if m is None:
         raise ProblemError("not_found")
     # SEC-04: strictly read-only. A viewer (e.g. a learner) may not UPDATE the row under RLS

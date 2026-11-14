@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Badge, Button, Checkbox, Dialog, EmptyState, ErrorState, Input, Select, useToast } from "@/components/ui";
+import { Badge, Button, Checkbox, Dialog, EmptyState, ErrorState, Input, PageHeader, Select, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { LoadingBlock, StatusBadge, useFailToast } from "@/features/trainer/shared/ui";
 import { seg, useApi } from "@/features/trainer/shared/use-api";
@@ -81,43 +80,56 @@ export function BankDetail({ bankId }: { bankId: string }) {
     }
   };
 
-  if (state.error && !data) return <ErrorState error={state.error} onRetry={reload} />;
-  if (!data || !bank) return <LoadingBlock rows={5} label="Loading bank" />;
+  const crumbs = [{ label: "Question banks", href: "/studio/question-banks" }];
+  if (state.error && !data)
+    return (
+      <div>
+        <PageHeader title="Question bank" breadcrumbs={[...crumbs, { label: "Question bank" }]} />
+        <ErrorState error={state.error} onRetry={reload} />
+      </div>
+    );
+  if (!data || !bank)
+    return (
+      <div>
+        <PageHeader title="Question bank" breadcrumbs={[...crumbs, { label: "Question bank" }]} />
+        <LoadingBlock rows={5} label="Loading bank" />
+      </div>
+    );
 
   return (
     <div className="space-y-5">
-      <Link href="/studio/question-banks" className="text-sm text-fg-link underline">
-        ← All banks
-      </Link>
-      <header className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-fg">{bank.name}</h1>
-          <p className="text-sm text-fg-muted">
+      <PageHeader
+        title={bank.name}
+        breadcrumbs={[...crumbs, { label: bank.name }]}
+        description={
+          <>
             {bank.subject || "Uncategorised"} · {bank.question_count} {bank.question_count === 1 ? "question" : "questions"}
-          </p>
-          {bank.description ? <p className="mt-1 max-w-prose text-sm text-fg-secondary">{bank.description}</p> : null}
-          <div className="mt-1 flex gap-3 text-sm">
-            <button type="button" className="text-fg-link underline" onClick={() => setDialog("edit-bank")}>
+            {bank.description ? <span className="mt-1 block max-w-prose text-fg-secondary">{bank.description}</span> : null}
+          </>
+        }
+        actions={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setDialog("edit-bank")}>
               Edit details
-            </button>
-            <button type="button" className="text-danger-fg underline" onClick={() => setDialog("delete-bank")}>
+            </Button>
+            <Button variant="danger-secondary" size="sm" onClick={() => setDialog("delete-bank")}>
               Delete bank
-            </button>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => setDialog("from")}>
-            From bank
-          </Button>
-          <Button variant="secondary" onClick={() => setDialog("bulk")}>
-            Bulk import
-          </Button>
-          <Button variant="secondary" onClick={() => setDialog("ai")}>
-            <span aria-hidden="true">✦</span> AI
-          </Button>
-          <Button onClick={() => setEditing({ id: null })}>Add question</Button>
-        </div>
-      </header>
+            </Button>
+          </>
+        }
+      />
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Add questions">
+        <Button onClick={() => setEditing({ id: null })}>Add question</Button>
+        <Button variant="secondary" onClick={() => setDialog("from")}>
+          From bank
+        </Button>
+        <Button variant="secondary" onClick={() => setDialog("bulk")}>
+          Bulk import
+        </Button>
+        <Button variant="secondary" onClick={() => setDialog("ai")}>
+          <span aria-hidden="true">✦</span> Generate with AI
+        </Button>
+      </div>
 
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by type">
         <Chip active={group === "all"} onClick={() => setGroup("all")} count={totalCount}>
@@ -154,7 +166,7 @@ export function BankDetail({ bankId }: { bankId: string }) {
         <EmptyState
           title={bank.question_count ? "No questions match" : "This bank is empty"}
           description={bank.question_count ? "Try other filters." : "Add a question, import some from a chat model or let AI draft a few."}
-          action={!bank.question_count ? <Button onClick={() => setEditing({ id: null })}>Add question</Button> : undefined}
+          icon={bank.question_count ? "search" : "document"}
         />
       ) : (
         <ul aria-label="Questions" aria-busy={state.loading} className="divide-y divide-line rounded-xl border border-line bg-surface">

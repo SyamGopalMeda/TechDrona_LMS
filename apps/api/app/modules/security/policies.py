@@ -56,13 +56,30 @@ async def need_perm(session: AsyncSession, principal: Principal, perm: str) -> N
         raise ProblemError("permission_denied", permission=perm)
 
 
+# A compressing reverse proxy (Caddy ``encode zstd gzip``) rewrites our strong ETag ``"v3"`` to
+# ``"v3-zstd"`` / ``"v3-gzip"`` on compressed responses, and the browser echoes that value back
+# in If-Match. The suffix only names the transfer coding of the same representation version.
+_CODING_SUFFIXES = ("-zstd", "-gzip", "-br", "-deflate")
+
+
+def _strip_coding(tag: str) -> str:
+    t = tag.strip()
+    if t.startswith("W/"):
+        t = t[2:]
+    t = t.strip('"')
+    for suffix in _CODING_SUFFIXES:
+        if t.endswith(suffix):
+            return t[: -len(suffix)]
+    return t
+
+
 def check_if_match(request: Request, version: int, *, required: bool = True) -> None:
     raw = request.headers.get("if-match")
     if not raw:
         if required:
             raise ProblemError("precondition_required")
         return
-    if raw.strip() not in (f'"v{version}"', f"v{version}", f'W/"v{version}"'):
+    if _strip_coding(raw) != f"v{version}":
         raise ProblemError("version_conflict", current_etag=f'"v{version}"')
 
 

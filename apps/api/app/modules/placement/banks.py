@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.errors import ProblemError
+from app.core.firestore.collation import citext_key
 from app.core.ids import uuid7
 from app.core.principal import Principal
 from app.core.time import to_rfc3339, utcnow
@@ -62,6 +63,8 @@ async def _stats(
     tags: dict[uuid.UUID, list[str]] = {}
     if not bank_ids:
         return types, tags
+    if qbank._fs():
+        return await _fs_stats(session, bank_ids)
     rows = await session.execute(
         select(QuestionBankItem.bank_id, Question.question_type, func.count())
         .join(Question, Question.id == QuestionBankItem.question_id)
@@ -126,6 +129,10 @@ async def list_banks(
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
+    if qbank._fs():
+        return await _fs_list_banks(
+            session, organization_ids, text_query, subject, types, sort, limit, offset
+        )
     base = select(QuestionBank).where(
         QuestionBank.deleted_at.is_(None), _org_filter(QuestionBank.organization_id, organization_ids)
     )
@@ -188,7 +195,11 @@ async def list_banks(
 
 
 async def get_bank(session: AsyncSession, bank_id: uuid.UUID) -> QuestionBank:
-    b = await session.get(QuestionBank, bank_id)
+    b = (
+        await (await qbank._repo(session)).get_bank(bank_id)
+        if qbank._fs()
+        else await session.get(QuestionBank, bank_id)
+    )
     if b is None or b.deleted_at is not None:
         raise ProblemError("not_found")
     return b
@@ -215,6 +226,10 @@ async def create_bank(session: AsyncSession, principal: Principal, body: BankCre
         default_topic_id=body.default_topic_id,
         created_by=principal.user_id,
     )
+    if qbank._fs():
+        now = utcnow()
+        b.last_added_at, b.created_at, b.updated_at, b.deleted_at = None, now, now, None
+        return await (await qbank._repo(session)).save_bank(b, new=True)
     session.add(b)
     await session.flush()
     await session.refresh(b)
@@ -240,6 +255,8 @@ async def patch_bank(session: AsyncSession, b: QuestionBank, body: BankPatch) ->
             await qbank._validate_topic(session, body.default_topic_id, "default_topic_id")
         b.default_topic_id = body.default_topic_id
     b.updated_at = utcnow()
+    if qbank._fs():
+        return await (await qbank._repo(session)).save_bank(b)
     await session.flush()
     return b
 
@@ -247,6 +264,10 @@ async def patch_bank(session: AsyncSession, b: QuestionBank, body: BankPatch) ->
 async def delete_bank(session: AsyncSession, b: QuestionBank) -> None:
     """Soft delete: the bank disappears, its questions stay in the global bank."""
     b.deleted_at = utcnow()
+    if qbank._fs():
+        b.updated_at = b.deleted_at
+        await (await qbank._repo(session)).save_bank(b)
+        return
     await session.flush()
 
 
@@ -254,6 +275,8 @@ async def add_questions(
     session: AsyncSession, principal: Principal, b: QuestionBank, question_ids: list[uuid.UUID]
 ) -> int:
     """Add existing questions (visible under RLS, owned by the bank's org or the platform)."""
+    if qbank._fs():
+        return await _fs_add_questions(session, principal, b, question_ids)
     existing = set(
         (
             await session.execute(
@@ -303,6 +326,8 @@ async def remove_question(
 ) -> bool:
     """Remove from the bank; with ``purge`` also soft-delete a never-published question.
     Returns whether the question was purged."""
+    if qbank._fs():
+        return await _fs_remove_question(session, b, question_id, purge=purge)
     item = (
         await session.execute(
             select(QuestionBankItem).where(
@@ -360,6 +385,18 @@ async def bank_questions(
     limit: int = 100,
     offset: int = 0,
 ) -> dict[str, Any]:
+    if qbank._fs():
+        return await _fs_bank_questions(
+            session,
+            b,
+            qtype=qtype,
+            difficulty=difficulty,
+            tag=tag,
+            text_query=text_query,
+            published_only=published_only,
+            limit=limit,
+            offset=offset,
+        )
     lv = aliased(QuestionVersion)
     newest = select(func.max(lv.version_no)).where(lv.question_id == Question.id).scalar_subquery()
     base = (
@@ -477,29 +514,23 @@ async def resolve_questions(
     there is none) or the newest version (``"latest"``). Answer keys only where
     ``keys_visible[question_id]`` is true. Hidden coding test cases are never included (they
     live in the coding module; only ``coding_problem_id`` is returned)."""
+    from app.modules.placement import public
+
     out: list[dict[str, Any]] = []
     for qid in dict.fromkeys(question_ids):
-        q = await session.get(Question, qid)
+        q = await public.get_question(session, qid)
         if q is None or q.deleted_at is not None:
             raise ProblemError("not_found")
         if prefer == "published":
             v = (
-                await session.get(QuestionVersion, q.current_version_id)
+                await public.get_version(session, q.current_version_id)
                 if q.status == "active" and q.current_version_id
                 else None
             )
         else:
             v = await qbank.latest_version(session, q.id)
         options: list[QuestionOption] = (await qbank.options_of(session, [v.id])).get(v.id, []) if v else []
-        tags = list(
-            (
-                await session.execute(
-                    select(QuestionTag.tag_value).where(
-                        QuestionTag.question_id == q.id, QuestionTag.tag_value.is_not(None)
-                    )
-                )
-            ).scalars()
-        )
+        tags = await _tag_values(session, q.id)
         visible = bool((keys_visible or {}).get(q.id))
         out.append(
             {
@@ -512,3 +543,284 @@ async def resolve_questions(
             }
         )
     return out
+
+
+# --------------------------------------------------------------------------- Firestore paths
+# (``TD_STORE_PLACEMENT=firestore``): the same results computed from the repository in memory
+# (MIGRATION-PLAN §1.6: banks are a small corpus).
+
+
+async def _tag_values(session: AsyncSession, question_id: uuid.UUID) -> list[str]:
+    if qbank._fs():
+        return [t.tag_value for t in await (await qbank._repo(session)).tags_of([question_id]) if t.tag_value]
+    return [
+        str(v)
+        for v in (
+            await session.execute(
+                select(QuestionTag.tag_value).where(
+                    QuestionTag.question_id == question_id, QuestionTag.tag_value.is_not(None)
+                )
+            )
+        ).scalars()
+    ]
+
+
+async def _fs_live_items(
+    session: AsyncSession, bank_ids: list[uuid.UUID]
+) -> tuple[list[QuestionBankItem], dict[uuid.UUID, Question]]:
+    r = await qbank._repo(session)
+    items = await r.bank_items(bank_ids)
+    qs = await r.get_questions({i.question_id for i in items})
+    live = {k: q for k, q in qs.items() if q.deleted_at is None}
+    return [i for i in items if i.question_id in live], live
+
+
+async def _fs_stats(
+    session: AsyncSession, bank_ids: list[uuid.UUID]
+) -> tuple[dict[uuid.UUID, Counter[str]], dict[uuid.UUID, list[str]]]:
+    types: dict[uuid.UUID, Counter[str]] = defaultdict(Counter)
+    tags: dict[uuid.UUID, list[str]] = {}
+    items, live = await _fs_live_items(session, bank_ids)
+    for i in items:
+        types[i.bank_id][live[i.question_id].question_type] += 1
+    tag_rows = await (await qbank._repo(session)).tags_of({i.question_id for i in items})
+    by_q: dict[uuid.UUID, list[str]] = defaultdict(list)
+    for t in tag_rows:
+        if t.tag_value is not None:
+            by_q[t.question_id].append(t.tag_value)
+    per: dict[uuid.UUID, Counter[str]] = defaultdict(Counter)
+    for i in items:
+        for v in by_q.get(i.question_id, []):
+            per[i.bank_id][v] += 1
+    for bid, c in per.items():
+        tags[bid] = [v for _n, v in sorted((-n, v) for v, n in c.items())[:TOP_TAGS]]
+    return types, tags
+
+
+def _org_ok(org: uuid.UUID | None, organization_ids: list[uuid.UUID | None]) -> bool:
+    return org in organization_ids
+
+
+async def _fs_list_banks(
+    session: AsyncSession,
+    organization_ids: list[uuid.UUID | None],
+    text_query: str | None,
+    subject: str | None,
+    types: list[str] | None,
+    sort: str,
+    limit: int,
+    offset: int,
+) -> dict[str, Any]:
+    r = await qbank._repo(session)
+    visible = [
+        b
+        for b in await r.visible_banks()
+        if b.deleted_at is None and _org_ok(b.organization_id, organization_ids)
+    ]
+    rows = list(visible)
+    if text_query:
+        needle = text_query.lower()
+        rows = [b for b in rows if needle in b.name.lower() or needle in (b.subject or "").lower()]
+    if subject == NO_SUBJECT:
+        rows = [b for b in rows if b.subject is None]
+    elif subject:
+        rows = [b for b in rows if b.subject == subject]
+    if types:
+        items, live = await _fs_live_items(session, [b.id for b in rows])
+        has = {i.bank_id for i in items if live[i.question_id].question_type in types}
+        rows = [b for b in rows if b.id in has]
+    if sort == "name":
+        rows.sort(key=lambda b: (citext_key(b.name), b.id))  # ORDER BY lower(name), id
+    elif sort == "updated":
+        rows.sort(key=lambda b: b.id)
+        rows.sort(key=lambda b: b.last_added_at or b.updated_at, reverse=True)
+    else:
+        rows.sort(key=lambda b: (b.created_at, b.id), reverse=True)
+    total = len(rows)
+    rows = rows[offset : offset + limit]
+    tcounts, tags = await _fs_stats(session, [b.id for b in rows])
+    vis_items, _ = await _fs_live_items(session, [b.id for b in visible]) if visible else ([], {})
+    subj = Counter(b.subject for b in visible)
+    return {
+        "items": [bank_out(b, tcounts.get(b.id), tags.get(b.id)) for b in rows],
+        "total": total,
+        "counters": {
+            "banks": len(visible),
+            "questions": len({i.question_id for i in vis_items}),
+            "subjects": len([s for s in subj if s]),
+        },
+        "subjects": [
+            {"subject": s, "count": n}
+            for s, n in sorted(subj.items(), key=lambda kv: (kv[0] is None, kv[0] or ""))
+        ],
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+async def _fs_add_questions(
+    session: AsyncSession, principal: Principal, b: QuestionBank, question_ids: list[uuid.UUID]
+) -> int:
+    from app.modules.placement import public
+
+    r = await qbank._repo(session)
+    existing = {i.question_id for i in await r.bank_items([b.id])}
+    new: list[QuestionBankItem] = []
+    now = utcnow()
+    for i, qid in enumerate(dict.fromkeys(question_ids)):
+        q = await public.get_question(session, qid)
+        if (
+            q is None
+            or q.deleted_at is not None
+            or (q.organization_id is not None and q.organization_id != b.organization_id)
+            or (
+                q.organization_id is None
+                and b.organization_id is not None
+                and (q.status != "active" or q.current_version_id is None)
+            )
+        ):
+            raise ProblemError(
+                "validation_failed",
+                errors=[{"field": f"question_ids.{i}", "code": "not_found", "message": "unknown question"}],
+            )
+        if qid in existing:
+            continue
+        new.append(
+            QuestionBankItem(
+                id=uuid7(),
+                bank_id=b.id,
+                question_id=qid,
+                organization_id=b.organization_id,
+                added_by=principal.user_id,
+                added_at=now,
+            )
+        )
+    added = await r.add_bank_items(b, new) if new else 0
+    if added:
+        fresh = await r.get_bank(b.id)
+        if fresh is not None:
+            b.last_added_at, b.updated_at = fresh.last_added_at, fresh.updated_at
+    return added
+
+
+async def _fs_remove_question(
+    session: AsyncSession, b: QuestionBank, question_id: uuid.UUID, *, purge: bool
+) -> bool:
+    r = await qbank._repo(session)
+    if purge:  # checks first: Postgres rolled the whole request back on the error below
+        q = await qbank.get_question(session, question_id)
+        versions = await qbank.versions_of(session, q.id)
+        if not any(i.question_id == question_id for i in await r.bank_items([b.id])):
+            raise ProblemError("not_found")
+        if any(v.published_at is not None for v in versions) or q.current_version_id is not None:
+            raise ProblemError(
+                "invalid_state_transition",
+                detail="Published questions cannot be deleted; retire them instead.",
+            )
+    if not await r.remove_bank_item(b.id, question_id):
+        raise ProblemError("not_found")
+    if purge:
+        q.deleted_at = utcnow()
+        q.updated_at = q.deleted_at
+        await r.save_question(q)
+        return True
+    return False
+
+
+async def _fs_bank_questions(
+    session: AsyncSession,
+    b: QuestionBank,
+    *,
+    qtype: str | None,
+    difficulty: int | None,
+    tag: str | None,
+    text_query: str | None,
+    published_only: bool,
+    limit: int,
+    offset: int,
+) -> dict[str, Any]:
+    import re
+
+    r = await qbank._repo(session)
+    items, live = await _fs_live_items(session, [b.id])
+    vers = await r.versions_of(list(live))
+    newest: dict[uuid.UUID, Any] = {}
+    by_id: dict[uuid.UUID, Any] = {}
+    for v, o in vers:  # version_no descending per question
+        newest.setdefault(v.question_id, (v, o))
+        by_id[v.id] = (v, o)
+    tag_rows = await r.tags_of(list(live))
+    tags_by: dict[uuid.UUID, list[str]] = defaultdict(list)
+    for t in tag_rows:
+        if t.tag_value is not None:
+            tags_by[t.question_id].append(str(t.tag_value))
+    rows: list[tuple[Question, Any, Any, Any]] = []
+    for i in items:
+        q = live[i.question_id]
+        if b.organization_id is None or q.organization_id is not None:
+            pick = newest.get(q.id)
+        else:
+            pick = by_id.get(q.current_version_id) if q.current_version_id else None
+        if pick is not None:
+            rows.append((q, pick[0], pick[1], i.added_at))
+    if qtype:
+        allowed = set(qtype.split(","))
+        rows = [x for x in rows if x[0].question_type in allowed]
+    if difficulty is not None:
+        rows = [x for x in rows if x[1].difficulty == difficulty]
+    if tag:
+        rows = [x for x in rows if tag in tags_by.get(x[0].id, [])]
+    if published_only:
+        rows = [x for x in rows if x[0].status == "active" and x[0].current_version_id is not None]
+    if text_query:
+        needle = text_query.lower()
+        strip = re.compile(r"<[^>]+>")
+        rows = [
+            x
+            for x in rows
+            if needle in strip.sub("", str((x[1].stem or {}).get("html") or "")).lower()
+            or any(needle in t.lower() for t in tags_by.get(x[0].id, []))
+        ]
+    rows.sort(key=lambda x: x[0].id)
+    rows.sort(key=lambda x: x[3], reverse=True)
+    total = len(rows)
+    page = rows[offset : offset + limit]
+    types, _ = await _fs_stats(session, [b.id])
+    all_tags = sorted({t for i in items for t in tags_by.get(i.question_id, [])})
+    out = []
+    for question, v, vopts, added_at in page:
+        out.append(
+            {
+                "question_id": str(question.id),
+                "question_type": question.question_type,
+                "status": question.status,
+                "organization_id": str(question.organization_id) if question.organization_id else None,
+                "primary_topic_id": str(question.primary_topic_id),
+                "tags": sorted(tags_by.get(question.id, [])),
+                "added_at": to_rfc3339(added_at),
+                "published_version_id": str(question.current_version_id)
+                if question.status == "active" and question.current_version_id
+                else None,
+                "latest_version": {
+                    "question_version_id": str(v.id),
+                    "version_no": v.version_no,
+                    "status": v.status,
+                    "reviewed": v.reviewed_by is not None,
+                    "difficulty": v.difficulty,
+                    "stem_html": html_of(v.stem) or "",
+                    "option_count": len(vopts),
+                    "correct_count": sum(1 for o in vopts if o.is_correct),
+                    "has_images": bool((v.stem or {}).get("images"))
+                    or any(o.body and o.body.get("image") for o in vopts),
+                },
+            }
+        )
+    return {
+        "bank": bank_out(b, types.get(b.id)),
+        "items": out,
+        "total": total,
+        "type_counts": dict(types.get(b.id) or {}),
+        "tags": all_tags,
+        "limit": limit,
+        "offset": offset,
+    }

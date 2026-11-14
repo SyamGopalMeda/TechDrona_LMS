@@ -121,7 +121,12 @@ describe("Products and prices (FIN-002, ADM-28/INV-04)", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Edit product" }));
     dialog = await screen.findByRole("dialog");
     await userEvent.selectOptions(within(dialog).getByLabelText(/^Status/), "retired");
-    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    // Retiring needs an explicit confirmation (audit 0.7).
+    await userEvent.click(within(dialog).getByRole("button", { name: "Retire product" }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(/Confirm that you want to retire/);
+    expect(api.calls.some((c) => c.method === "PATCH")).toBe(false);
+    await userEvent.click(within(dialog).getByLabelText(/I understand/));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Retire product" }));
     await waitFor(() => expect(api.calls.some((c) => c.method === "PATCH")).toBe(true));
     expect(api.calls.find((c) => c.method === "PATCH")!.body).toEqual({ name: "DSA Pro", description_md: null, status: "retired" });
   });
@@ -227,6 +232,9 @@ describe("Subscriptions (FIN-006, ADM-28)", () => {
     await waitFor(() => expect(api.calls.some((c) => c.url.includes("status=active"))).toBe(true));
     await userEvent.click(screen.getByRole("button", { name: "Cancel subscription sub_RZP1" }));
     const dialog = await screen.findByRole("dialog");
+    // The dismiss button must not also read "Cancel" (audit 0.7).
+    expect(within(dialog).getByRole("button", { name: "Keep subscription" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: "Cancel subscription" }));
     expect(within(dialog).getByText(/Give a reason/)).toBeInTheDocument();
     await userEvent.type(within(dialog).getByLabelText(/^Reason/), "Duplicate mandate");
@@ -236,5 +244,26 @@ describe("Subscriptions (FIN-006, ADM-28)", () => {
     const post = api.calls.find((c) => c.method === "POST")!;
     expect(post.body).toEqual({ reason: "Duplicate mandate", ticket_ref: "TD-T-42", immediate: false });
     expect(post.headers["idempotency-key"]).toBeTruthy();
+  });
+});
+
+describe("Finance catalogue copy (Phase 2)", () => {
+  it("says Unlimited instead of ∞ and offers no Edit on an expired coupon", async () => {
+    const api = mockApi({ "GET finance/coupons": { body: { data: [{ ...coupon, max_redemptions: null }, { ...coupon, coupon_id: "cp9", code: "OLD5", status: "expired" }], page } } });
+    cleanups.push(api.restore);
+    renderWithProviders(<Coupons />);
+    expect(await screen.findByText("12 / Unlimited")).toBeInTheDocument();
+    expect(screen.queryByText(/∞/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit coupon WELCOME10" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit coupon OLD5" })).not.toBeInTheDocument();
+  });
+
+  it("shows the subscriber as a short reference and the cap as Max per debit", async () => {
+    const api = mockApi({ "GET finance/subscriptions": { body: { data: [{ subscription_id: "s1", user_id: "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0", plan_id: "pl", price_id: "pr", status: "active", gateway_subscription_id: null, mandate_max_amount_paise: 99900, current_period_start: null, current_period_end: null, next_charge_at: null, cancel_at_period_end: false, grace_until: null, paid_count: 0 }], page } } });
+    cleanups.push(api.restore);
+    renderWithProviders(<Subscriptions />);
+    expect(await screen.findByText("User #C7D8E9F0")).toBeInTheDocument();
+    expect(screen.getByText("Max per debit")).toBeInTheDocument();
+    expect(screen.queryByText("Mandate cap")).not.toBeInTheDocument();
   });
 });

@@ -1,0 +1,2868 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "lms_policy_settings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "setting_key",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_policy_settings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "scope_type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "scope_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "is_active",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_courses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "visibility",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "organization_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "published_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_courses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "card.category",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "published_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_course_versions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "course_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "version_no",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_lessons",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "course_version_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "position",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_courses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "visibility",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "organization_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "id",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_resources",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "access_level",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "organization_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "id",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_resources",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "course_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "id",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_resources",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "company_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "id",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "channels",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "id",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "channels",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "read_at",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "id",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "read_at",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "template_key",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "data.batch_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_support_tickets",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "requester_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "id",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_support_tickets",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "requester_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "id",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_support_tickets",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "requester_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_support_tickets",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "requester_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_support_tickets",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "resolved_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_support_ticket_messages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "support_ticket_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "visibility",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_support_ticket_messages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "author_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_support_ticket_messages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "requester_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "author_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_support_user_notes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_corporate_enquiries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_privacy_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "received_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_privacy_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "due_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_break_glass_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "started_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_break_glass_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_ai_usage",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_ai_quota",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_ai_tutor_turns",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "thread",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_ai_tutor_turns",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_tests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "organization_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_tests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_test_sections",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "position",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_test_section_rules",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "test_section_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "position",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_test_assignments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_test_attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "attempt_no",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_test_attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_overrides",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_sections",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "attempt_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "position",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_responses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "attempt_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "saved_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "attempt_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "occurred_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_results",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "graded_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_item_grades",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_integrity_decisions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "attempt_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "action",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "actor_user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "subject_user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "target_type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "target_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "organization_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "reason_code",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "target_type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "target_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_problems",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "organization_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_problems",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_test_cases",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "coding_problem_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "problem_version",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "ordinal",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_problem_validations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "coding_problem_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_reference_solutions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "coding_problem_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "language_key",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "coding_problem_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_submission_results",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "code_submission_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "ordinal",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_drafts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "coding_problem_id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_engage_activities",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "deleted",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_engage_activities",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "deleted",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "activity_type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_engage_questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "activity_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "position",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_engage_runs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "activity_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "run_no",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_engage_participants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "joined_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_entitlements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_entitlements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "ends_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_entitlements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "grace_ends_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_entitlements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "source_type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_entitlement_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "entitlement_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "occurred_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_entitlement_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "event_type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "source_ref",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_verification_tokens",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "destination_hmac",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_enrolments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "last_activity_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_enrolments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "course_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_lesson_progress",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "updated_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_certificates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "issued_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_assignment_sections",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "assignment_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "position",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_assignment_items",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "assignment_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "position",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_assignment_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "assignment_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_assignment_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_assignment_regrade_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "assignment_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_certificate_outbox",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_issued_documents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "doc_type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_playback_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "started_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_playback_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "started_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_mentor_slots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "mentor_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "starts_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_mentor_slots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "starts_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_mentor_bookings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_resumes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "version_no",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_learning_paths",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "organization_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "updated_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_learning_path_versions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "path_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "version_no",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_path_articles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "organization_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "updated_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_path_allocations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "path_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_path_allocations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "batch_id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_path_allocations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_ids",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_path_step_progress",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "allocation_id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_question_versions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "question_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_question_tags",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "question_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_question_tags",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tag_type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "company_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_question_tags",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tag_value",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_question_bank_items",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "question_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "added_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_company_path_steps",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "company_path_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "position",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_practice_responses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_practice_responses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "practice_session_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_practice_responses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "question_version_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_login_attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "identifier_hash",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "attempted_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_login_attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "ip",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "attempted_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_login_attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "ip",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "outcome",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "attempted_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_login_attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "attempted_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_topic_mastery",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "topic_id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_security_activity_feed_daily",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "activity_date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_daily_learning_aggregates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "entity_kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "activity_date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_analytics_batches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "event_ids",
+          "arrayConfig": "CONTAINS"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_analytics_batches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "page_instance_ids",
+          "arrayConfig": "CONTAINS"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_analytics_batches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "days",
+          "arrayConfig": "CONTAINS"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_analytics_batches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "session_ids",
+          "arrayConfig": "CONTAINS"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_engagement_intervals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "page_instance_id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_engagement_intervals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "started_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_daily_learning_aggregates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "activity_date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_test_attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_test_attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_results",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "graded_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_problems",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "slug",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "coding_problem_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "mode",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "mode",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "coding_problem_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "queue_name",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "started_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "coding_problem_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "mode",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "normalized_sha256",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "queued_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_problem_validations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "requested_by",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_test_cases",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "is_hidden",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_drafts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_testcase_content_tokens",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_coding_problems",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_path_allocations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "path_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_path_allocations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "path_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_path_allocations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "user_ids",
+          "arrayConfig": "CONTAINS"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_path_articles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "deleted_at",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "updated_at",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_company_path_steps",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "position",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_question_media",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "scan_status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_question_bank_items",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bank_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "added_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_practice_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_recommendations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_question_reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_account_restrictions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "ended_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_account_restrictions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "ended_at",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_unblock_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_risk_evaluations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_security_signals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "rule_key",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "occurred_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_security_counters",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "counter_key",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "bucket_start",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_login_attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "ip_prefix",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "attempted_at",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "lms_policy_settings",
+      "fieldPath": "value",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_course_versions",
+      "fieldPath": "outline",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_course_versions",
+      "fieldPath": "description_md",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_lessons",
+      "fieldPath": "article_body",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_notifications",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_notification_dedupe",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_notifications",
+      "fieldPath": "delivery",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_support_tickets",
+      "fieldPath": "body",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_support_tickets",
+      "fieldPath": "context",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_support_ticket_messages",
+      "fieldPath": "body",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_support_ticket_messages",
+      "fieldPath": "attachments",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_corporate_enquiries",
+      "fieldPath": "message",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_privacy_requests",
+      "fieldPath": "export_payload",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_privacy_requests",
+      "fieldPath": "details",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_erasure_ledger",
+      "fieldPath": "scope",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_ai_tutor_turns",
+      "fieldPath": "content",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_ai_quota",
+      "fieldPath": "reserved",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_ai_usage_months",
+      "fieldPath": "by_feature",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_ai_usage_months",
+      "fieldPath": "by_day",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_test_attempts",
+      "fieldPath": "layout",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_test_attempts",
+      "fieldPath": "selection_seed",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_attempt_responses",
+      "fieldPath": "response",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_attempt_events",
+      "fieldPath": "payload",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_attempt_results",
+      "fieldPath": "section_scores",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_attempt_results",
+      "fieldPath": "topic_scores",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_attempt_item_grades",
+      "fieldPath": "ai_feedback",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_attempt_item_grades",
+      "fieldPath": "ai_criteria",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "fieldPath": "before_state_json",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "fieldPath": "after_state_json",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "fieldPath": "prev_hash",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "fieldPath": "row_hash",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_audit_log",
+      "fieldPath": "reason",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_audit_outbox",
+      "fieldPath": "record_json",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_coding_test_case_blobs",
+      "fieldPath": "ciphertext",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_coding_test_cases",
+      "fieldPath": "wrapped_data_key",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "fieldPath": "source_code",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_code_submissions",
+      "fieldPath": "compile_output",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_coding_drafts",
+      "fieldPath": "source_code",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_coding_reference_solutions",
+      "fieldPath": "source_code",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_coding_problems",
+      "fieldPath": "statement_md",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_payment_webhook_events",
+      "fieldPath": "payload",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_reconciliation_runs",
+      "fieldPath": "summary",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_reconciliation_runs",
+      "fieldPath": "mismatches",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_invoices",
+      "fieldPath": "buyer_address",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_plans",
+      "fieldPath": "gateway_plan_ids",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_products",
+      "fieldPath": "description_md",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_payment_webhook_events",
+      "fieldPath": "payload_sha256",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_payment_webhook_events",
+      "fieldPath": "last_error",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_refunds",
+      "fieldPath": "last_error",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_playback_sessions",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_batch_plans",
+      "fieldPath": "plan",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_learning_paths",
+      "fieldPath": "steps",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_learning_path_versions",
+      "fieldPath": "steps",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_path_articles",
+      "fieldPath": "body_md",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_path_articles",
+      "fieldPath": "toc",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_question_versions",
+      "fieldPath": "options",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_question_versions",
+      "fieldPath": "stem",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_question_versions",
+      "fieldPath": "explanation",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_question_versions",
+      "fieldPath": "answer_key",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_practice_sessions",
+      "fieldPath": "served",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_company_paths",
+      "fieldPath": "pattern",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_approval_requests",
+      "fieldPath": "payload",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_kv",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_idempotency_keys",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_events",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_coding_testcase_content_tokens",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_analytics_batches",
+      "fieldPath": "heartbeats",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_analytics_batches",
+      "fieldPath": "events",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_analytics_batches",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_analytics_page_heartbeats",
+      "fieldPath": "hbs",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_analytics_page_heartbeats",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_verification_tokens",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_password_reset_tokens",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_security_signals",
+      "fieldPath": "evidence",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_risk_evaluations",
+      "fieldPath": "signals",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_unblock_requests",
+      "fieldPath": "what_happened",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_security_signals",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_risk_evaluations",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_security_counters",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_login_attempts",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_session_network_observations",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    }
+  ]
+}

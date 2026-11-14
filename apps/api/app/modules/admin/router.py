@@ -14,12 +14,13 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import or_, select
+from sqlalchemy import select
 
 from app.core.audit import audit
 from app.core.auth import PLATFORM_SCOPE, require_active_principal, require_permission
-from app.core.db import PrincipalDbSession, system_context
+from app.core.db import PrincipalDbSession
 from app.core.errors import ProblemError, problem_response
+from app.core.firestore.backend import uses_firestore
 from app.core.idempotency import IdemResult, idempotent
 from app.core.principal import Principal
 from app.core.routing import authenticated_router
@@ -29,12 +30,14 @@ from app.modules.admin import approvals as apr
 from app.modules.admin import flags as flags_mod
 from app.modules.admin import policy as pol
 from app.modules.admin import privacy as prv
-from app.modules.admin.models import FeatureFlag, PolicySetting, PrivacyRequest, RetentionPolicy
+from app.modules.admin.fs_rows import idem_session, pg_system
+from app.modules.admin.intervals import interval_days
+from app.modules.admin.models import FeatureFlag, PrivacyRequest, RetentionPolicy
 from app.modules.identity import clock
 from app.modules.identity.policy import register_policy_resolver
 from app.modules.rbac import service as rs
 from app.modules.rbac.catalogue import ADMIN_ROLE, admin_roles
-from app.modules.rbac.models import ApprovalRequest
+from app.modules.rbac.public import ApprovalRequest
 
 register_policy_resolver(pol.identity_resolver)
 
@@ -83,20 +86,13 @@ async def list_settings(
     session: PrincipalDbSession, principal: Principal = Depends(require_active_principal)
 ) -> dict[str, Any]:
     await _can_read_policy(session, principal)
-    pending = (
-        (
-            await session.execute(
-                select(ApprovalRequest).where(
-                    ApprovalRequest.action_type == "policy.change", ApprovalRequest.status == "pending"
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    from app.modules.rbac import public as rbac_public
+
+    pending = await rbac_public.find_approvals(session, action_type="policy.change", status="pending")
     out = []
+    active = await pol.active_platform_rows(session, list(pol.REGISTRY))
     for k in pol.REGISTRY.values():
-        row = await pol.active_row(session, k.key, "platform", None)
+        row = active.get(k.key)
         out.append(
             {
                 **pol.setting_out(k, row),
@@ -112,17 +108,7 @@ async def get_setting(
 ) -> JSONResponse:
     await _can_read_policy(session, principal)
     k = pol.spec(setting_key)
-    rows = (
-        (
-            await session.execute(
-                select(PolicySetting)
-                .where(PolicySetting.setting_key == setting_key)
-                .order_by(PolicySetting.created_at.desc())
-            )
-        )
-        .scalars()
-        .all()
-    )
+    rows = await pol.history_rows(session, setting_key)
     plat = next((x for x in rows if x.scope_type == "platform" and x.is_active), None)
     body = {
         **pol.setting_out(k, plat),
@@ -199,11 +185,26 @@ async def propose_change(
         )
         return IdemResult(status=202, body=apr.pending_response(req))
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=True)
+    return await idempotent(
+        request, idem_session(session), user_id=principal.user_id, operation=op, required=True
+    )
 
 
 async def _execute_policy_change(session: Any, principal: Principal, req: ApprovalRequest) -> dict[str, Any]:
     p = req.payload
+    if uses_firestore("admin"):
+        # Runs inside the approval's decision journal (rbac.public.decision): the policy head and
+        # the active row it replaces are captured so a later failure restores them, and the new
+        # version row is removed (all-or-nothing, as the Postgres transaction).
+        from app.modules.admin.repo_firestore import system_repo as _policy_repo
+        from app.modules.admin.store_specs import POLICY, POLICY_HEADS, head_id
+        from app.modules.identity.fs_journal import capture
+
+        hid = head_id(p["setting_key"], p["scope_type"], p.get("scope_id"))
+        head = await _policy_repo("admin.policy").store.get(POLICY_HEADS, hid)
+        await capture(POLICY_HEADS, hid)
+        if head is not None and head.get("active_id"):
+            await capture(POLICY, head["active_id"])
     row = await pol.write_setting(
         session,
         key=p["setting_key"],
@@ -216,6 +217,12 @@ async def _execute_policy_change(session: Any, principal: Principal, req: Approv
         approval_request_id=req.id,
         effective_from=datetime.fromisoformat(p["effective_from"]) if p.get("effective_from") else None,
     )
+    if uses_firestore("admin"):
+        from app.modules.identity.fs_journal import current as _journal
+
+        j = _journal()
+        if j is not None:
+            j.record(POLICY, str(row.id), None)  # created by this action
     await audit(
         session,
         principal,
@@ -245,7 +252,7 @@ class FlagPatch(BaseModel):
     user_allowlist: list[uuid.UUID] | None = None
 
 
-def _flag_out(f: FeatureFlag) -> dict[str, Any]:
+def _flag_out(f: Any) -> dict[str, Any]:
     return {
         "flag_key": f.flag_key,
         "description": f.description,
@@ -259,6 +266,11 @@ def _flag_out(f: FeatureFlag) -> dict[str, Any]:
 async def flags(
     session: PrincipalDbSession, principal: Principal = perm("feature_flag.manage")
 ) -> dict[str, Any]:
+    if uses_firestore("admin"):
+        from app.core.firestore.store import ScopedStore
+        from app.modules.admin.repo_firestore import AdminSettingsRepo
+
+        return {"data": [_flag_out(f) for f in await AdminSettingsRepo(ScopedStore(principal)).list_flags()]}
     rows = (await session.execute(select(FeatureFlag).order_by(FeatureFlag.flag_key))).scalars()
     return {"data": [_flag_out(f) for f in rows]}
 
@@ -271,16 +283,25 @@ async def patch_flag(
     principal: Principal = perm("feature_flag.manage"),
 ) -> dict[str, Any]:
     p5(principal)
-    f = (
-        await session.execute(select(FeatureFlag).where(FeatureFlag.flag_key == flag_key))
-    ).scalar_one_or_none()
-    if f is None:
-        raise ProblemError("not_found")
-    before = _flag_out(f)
-    for k, v in body.model_dump(exclude_none=True).items():
-        setattr(f, k, v)
-    f.updated_by = principal.user_id
-    await session.flush()
+    f: Any
+    if uses_firestore("admin"):
+        from app.core.firestore.store import ScopedStore
+        from app.modules.admin.repo_firestore import AdminSettingsRepo
+
+        repo = AdminSettingsRepo(ScopedStore(principal))
+        prev, f = await repo.patch_flag(flag_key, body.model_dump(exclude_none=True), principal.user_id)
+        before = _flag_out(prev)
+    else:
+        f = (
+            await session.execute(select(FeatureFlag).where(FeatureFlag.flag_key == flag_key))
+        ).scalar_one_or_none()
+        if f is None:
+            raise ProblemError("not_found")
+        before = _flag_out(f)
+        for k, v in body.model_dump(exclude_none=True).items():
+            setattr(f, k, v)
+        f.updated_by = principal.user_id
+        await session.flush()
     flags_mod.invalidate(flag_key)
     await audit(
         session, principal, "feature_flag.changed", "feature_flag", f.id, before=before, after=_flag_out(f)
@@ -307,24 +328,22 @@ class NoteIn(BaseModel):
 @r.get("/admin/approvals", openapi_extra=NEUTRAL)
 async def approvals(
     session: PrincipalDbSession,
-    status: str = "pending",
+    # approval_requests.status CHECK (rbac_0001); anything else is a 400, not a silent empty list.
+    status: Literal["pending", "approved", "rejected", "expired", "cancelled", "executed"] = "pending",
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
-    rows = (
-        (
-            await session.execute(
-                select(ApprovalRequest)
-                .where(ApprovalRequest.status == status)
-                .order_by(ApprovalRequest.expires_at)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    from app.modules.rbac import public as rbac_public
+
+    rows = await rbac_public.find_approvals(session, status=status, order="expires_asc")
     out = []
+    # a sole Admin may decide their own requests (rbac.service.is_sole_admin); the UI shows the
+    # Approve/Reject buttons on their own rows only when this is true
+    sole = await rs.is_sole_admin(session, principal.user_id)
     for q in rows:
         if q.requested_by == principal.user_id or await apr.can_approve(session, principal, q):
-            out.append(apr.approval_out(q))
+            out.append(
+                {**apr.approval_out(q), "self_decidable": sole and q.requested_by == principal.user_id}
+            )
     return {"data": out}
 
 
@@ -334,7 +353,9 @@ async def approval(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
-    q = await session.get(ApprovalRequest, approval_id)
+    from app.modules.rbac import public as rbac_public
+
+    q = await rbac_public.get_approval(session, approval_id)
     if q is None or not (q.requested_by == principal.user_id or await apr.can_approve(session, principal, q)):
         raise ProblemError("not_found")
     return apr.approval_out(q, include_payload=True)
@@ -343,6 +364,15 @@ async def approval(
 async def _decide(
     approval_id: uuid.UUID, body: NoteIn, request: Request, session: Any, principal: Principal, approve: bool
 ) -> JSONResponse:
+    # QA 2026-11-11 (D4): refuse people without approval.decide BEFORE asking for a step-up, so a
+    # student/trainer can't trigger MFA/OTP prompts (or OTP e-mails) on an endpoint they can't use.
+    from app.core.auth import PLATFORM_SCOPE, get_permission_checker
+
+    checker = get_permission_checker()
+    if checker is None or not await checker.has_permission(
+        principal, "approval.decide", PLATFORM_SCOPE, request
+    ):
+        raise ProblemError("permission_denied", permission="approval.decide")
     p5(principal)
 
     async def op() -> IdemResult:
@@ -352,7 +382,9 @@ async def _decide(
             return IdemResult(status=409, body=exc.to_body(None))
         return IdemResult(body=out)
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=approve)
+    return await idempotent(
+        request, idem_session(session), user_id=principal.user_id, operation=op, required=approve
+    )
 
 
 @r.post("/admin/approvals/{approval_id}/approve")
@@ -417,25 +449,17 @@ class RejectIn(BaseModel):
 
 
 async def _own_prv(session: Any, principal: Principal, request_id: uuid.UUID) -> PrivacyRequest:
-    r_ = (
-        await session.execute(select(PrivacyRequest).where(PrivacyRequest.id == request_id).with_for_update())
-    ).scalar_one_or_none()
-    if r_ is None or r_.user_id != principal.user_id:
+    r_ = await prv.load(session, request_id, principal=principal, own=True)
+    if r_ is None:
         raise ProblemError("not_found")
-    return r_
+    return r_  # type: ignore[no-any-return,unused-ignore]
 
 
 @me_r.get("/privacy-requests", openapi_extra=NEUTRAL)
 async def my_privacy(
     session: PrincipalDbSession, principal: Principal = Depends(require_active_principal)
 ) -> dict[str, Any]:
-    rows = (
-        await session.execute(
-            select(PrivacyRequest)
-            .where(PrivacyRequest.user_id == principal.user_id)
-            .order_by(PrivacyRequest.received_at.desc())
-        )
-    ).scalars()
+    rows = await prv.list_own(session, principal)
     return {"data": [prv.request_out(x) for x in rows]}
 
 
@@ -447,7 +471,13 @@ async def create_privacy(
     principal: Principal = Depends(require_active_principal),
 ) -> JSONResponse:
     if body.request_type == "erasure":
-        p5(principal, 900)
+        # Learner-facing: advertise the account's real step-up methods (a student without TOTP
+        # confirms with an email/SMS code), not the staff-only ``["totp"]`` of ``p5``.
+        from app.modules.identity.router import step_up_problem_for
+
+        problem = await step_up_problem_for(session, principal, 900)
+        if problem:
+            raise problem
         if not body.confirm:
             raise ProblemError(
                 "validation_failed",
@@ -457,15 +487,7 @@ async def create_privacy(
 
     async def op() -> IdemResult:
         today = clock.now() - timedelta(days=1)
-        n = len(
-            (
-                await session.execute(
-                    select(PrivacyRequest.id).where(
-                        PrivacyRequest.user_id == principal.user_id, PrivacyRequest.received_at > today
-                    )
-                )
-            ).all()
-        )
+        n = await prv.count_own_since(session, principal, today)
         if n >= 3:
             raise ProblemError("rate_limited", headers={"Retry-After": "86400"})
         x = await prv.create(
@@ -474,6 +496,7 @@ async def create_privacy(
             body.request_type,
             body.details,
             request.headers.get("idempotency-key"),
+            principal=principal,
         )
         await audit(
             session,
@@ -486,7 +509,9 @@ async def create_privacy(
         )
         return IdemResult(status=201, body=prv.request_out(x))
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=True)
+    return await idempotent(
+        request, idem_session(session), user_id=principal.user_id, operation=op, required=True
+    )
 
 
 @me_r.get("/privacy-requests/{request_id}", openapi_extra=NEUTRAL)
@@ -508,6 +533,7 @@ async def withdraw_privacy(
     if x.status not in prv.OPEN_STATES:
         raise ProblemError("invalid_state_transition", current_state=x.status, allowed=list(prv.OPEN_STATES))
     x.status = "withdrawn"
+    await prv.save(principal, x, own=True)
     await audit(
         session,
         principal,
@@ -538,35 +564,22 @@ async def my_export(
 async def privacy_queue(
     session: PrincipalDbSession, principal: Principal = perm("privacy.request.process")
 ) -> dict[str, Any]:
-    rows = (
-        await session.execute(
-            select(PrivacyRequest)
-            .where(
-                or_(
-                    PrivacyRequest.status.in_(prv.OPEN_STATES),
-                    PrivacyRequest.completed_at > clock.now() - timedelta(days=30),
-                )
-            )
-            .order_by(PrivacyRequest.due_at)
-        )
-    ).scalars()
+    rows = await prv.queue(session, principal)
     return {"data": [prv.request_out(x, staff=True) for x in rows]}
 
 
-async def _prv(session: Any, request_id: uuid.UUID) -> PrivacyRequest:
-    x = (
-        await session.execute(select(PrivacyRequest).where(PrivacyRequest.id == request_id).with_for_update())
-    ).scalar_one_or_none()
+async def _prv(session: Any, request_id: uuid.UUID, principal: Principal | None = None) -> PrivacyRequest:
+    x = await prv.load(session, request_id, principal=principal, own=False)
     if x is None:
         raise ProblemError("not_found")
-    return x
+    return x  # type: ignore[no-any-return,unused-ignore]
 
 
 @r.get("/admin/privacy-requests/{request_id}", openapi_extra=NEUTRAL)
 async def privacy_detail(
     request_id: uuid.UUID, session: PrincipalDbSession, principal: Principal = perm("privacy.request.process")
 ) -> dict[str, Any]:
-    x = await _prv(session, request_id)
+    x = await _prv(session, request_id, principal)
     await audit(
         session, principal, "privacy.request.viewed", "privacy_request", x.id, subject_user_id=x.user_id
     )
@@ -581,11 +594,12 @@ async def privacy_verify(
     principal: Principal = perm("privacy.request.process"),
 ) -> dict[str, Any]:
     p5(principal)
-    x = await _prv(session, request_id)
+    x = await _prv(session, request_id, principal)
     x.identity_verification_method = body.method
     x.identity_verified_at = clock.now()
     if x.status in ("received", "identity_verification"):
         x.status = "in_progress"
+    await prv.save(principal, x)
     await audit(
         session,
         principal,
@@ -609,7 +623,7 @@ async def privacy_complete(
     p5(principal)
 
     async def op() -> IdemResult:
-        x = await _prv(session, request_id)
+        x = await _prv(session, request_id, principal)
         if x.status not in prv.OPEN_STATES:
             raise ProblemError(
                 "invalid_state_transition", current_state=x.status, allowed=list(prv.OPEN_STATES)
@@ -620,7 +634,7 @@ async def privacy_complete(
             if x.cooling_off_until and x.cooling_off_until > clock.now():
                 raise ProblemError("invalid_state_transition", current_state="cooling_off", allowed=[])
             if x.user_id:
-                async with system_context(session, "admin.privacy_erasure"):
+                async with pg_system(session, "admin.privacy_erasure"):
                     res = await prv.execute_erasure(session, x.user_id, x.id)
                     await session.flush()
                 if not res.complete:
@@ -630,6 +644,7 @@ async def privacy_complete(
                         "Erasure partly executed (sessions revoked, account deactivated; modules done: "
                         f"{', '.join(sorted(res.ran)) or 'none'}). Pending modules: {', '.join(res.missing)}."
                     )
+                    await prv.save(principal, x)
                     await audit(
                         session,
                         principal,
@@ -641,12 +656,13 @@ async def privacy_complete(
                     )
                     return IdemResult(body=prv.request_out(x, staff=True))
         if x.request_type == "access_export" and x.user_id:
-            async with system_context(session, "admin.privacy_export"):
+            async with pg_system(session, "admin.privacy_export"):
                 payload = await prv.build_export(session, x.user_id)
             x.export_payload = payload
         x.status = "completed"
         x.completed_at = clock.now()
         x.response_summary = body.response_summary
+        await prv.save(principal, x)
         await audit(
             session,
             principal,
@@ -658,7 +674,9 @@ async def privacy_complete(
         )
         return IdemResult(body=prv.request_out(x, staff=True))
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=True)
+    return await idempotent(
+        request, idem_session(session), user_id=principal.user_id, operation=op, required=True
+    )
 
 
 @r.post("/admin/privacy-requests/{request_id}/reject")
@@ -669,12 +687,13 @@ async def privacy_reject(
     principal: Principal = perm("privacy.request.process"),
 ) -> dict[str, Any]:
     p5(principal)
-    x = await _prv(session, request_id)
+    x = await _prv(session, request_id, principal)
     if x.status not in prv.OPEN_STATES:
         raise ProblemError("invalid_state_transition", current_state=x.status, allowed=list(prv.OPEN_STATES))
     x.status = "rejected"
     x.response_summary = body.reason
     x.completed_at = clock.now()
+    await prv.save(principal, x)
     await audit(
         session,
         principal,
@@ -689,7 +708,13 @@ async def privacy_reject(
 
 @r.get("/admin/retention-policies", openapi_extra=NEUTRAL)
 async def retention(session: PrincipalDbSession, principal: Principal = perm("audit.read")) -> dict[str, Any]:
-    rows = (await session.execute(select(RetentionPolicy).order_by(RetentionPolicy.table_name))).scalars()
+    rows: Any
+    if uses_firestore("admin"):
+        from app.modules.admin.repo_firestore_privacy import privacy_repo
+
+        rows = await privacy_repo(principal).retention_policies()
+    else:
+        rows = (await session.execute(select(RetentionPolicy).order_by(RetentionPolicy.table_name))).scalars()
     return {
         "data": [
             {
@@ -697,7 +722,7 @@ async def retention(session: PrincipalDbSession, principal: Principal = perm("au
                 "data_category": x.data_category,
                 "table_name": x.table_name,
                 "retention_class": x.retention_class,
-                "retention_days": x.retention_interval.days if x.retention_interval else None,
+                "retention_days": interval_days(x.retention_interval),
                 "deletion_method": x.deletion_method,
                 "job_name": x.job_name,
                 "owner_module": x.owner_module,
@@ -711,3 +736,8 @@ router = APIRouter()
 router.include_router(r)
 router.include_router(me_r)
 router.include_router(accounts.r)
+
+# ADM-016 courses overview (admin course cards + dashboard certificate tiles).
+from app.modules.admin import courses_overview as _courses_overview  # noqa: E402
+
+router.include_router(_courses_overview.r)

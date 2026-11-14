@@ -172,14 +172,22 @@ function StatusPanel({ s, fallbackCaseRef }: { s: SecurityStatus; fallbackCaseRe
 
   if (s.level === 3) {
     const until = formatDateTime(s.until);
+    // An L3 past its end stays enforced until the learner re-verifies (RE §6.1): a headline
+    // "paused until <a past date>" reads as a bug, so say what is still needed instead.
+    const ended = !!s.until && new Date(s.until).getTime() <= Date.now();
     return (
       <div className="space-y-6">
         {reverify}
         <Panel level={3}>
           <LevelMeter level={3} />
           <h1 id="restriction-title" className="mt-2 font-display text-2xl font-bold text-fg">
-            Learning access paused until {until}
+            {ended ? "Learning access is still paused" : `Learning access paused until ${until}`}
           </h1>
+          {ended ? (
+            <p className="mt-1 text-sm text-fg">
+              The pause period ended on {until}. {reverify ? "Confirm it’s you above to get your access back." : "Access returns once your account is confirmed."}
+            </p>
+          ) : null}
           <p className="mt-2 text-sm text-fg">Case reference: {caseRef ? <ReferenceChip value={caseRef} /> : "—"}</p>
           <p className="mt-3 text-sm text-fg-secondary">
             Our account-protection system paused video lessons, tests and practice on your account for {durationText(s.starts_at, s.until)}. Here&apos;s why:

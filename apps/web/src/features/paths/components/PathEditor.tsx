@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { Badge, Button, Card, EmptyState, FormField, Input, Select, useToast } from "@/components/ui";
+import { Badge, Button, Card, ConfirmDialog, EmptyState, FormField, Input, LinkButton, PageHeader, SectionHeader, Select, StatusBadge, useToast } from "@/components/ui";
+import { SectionNav, StickyActionBar } from "@/features/studio/components/EditorChrome";
 import { Boundary, TextArea, fieldErrorsOf, useFailToast } from "@/features/trainer/shared/ui";
 import { useApi } from "@/features/trainer/shared/use-api";
 import { pathsApi, seg } from "../lib/api";
@@ -86,8 +87,20 @@ const ADDABLE: StepType[] = ["reading", "video", "article", "assignment", "asses
 /* ------------------------------------------------------------------ page */
 
 export function PathEditor({ pathId }: { pathId: string }) {
+  const base = usePathsBase();
   const state = useApi<PathDetail>(`paths/${seg(pathId)}`);
-  return <Boundary state={state}>{(p) => <EditorBody key={`${p.id}:${p.updated_at}`} path={p} reload={state.reload} />}</Boundary>;
+  return (
+    <>
+      {/* Until the path loads (or if it fails) the page still has its h1 and a way back. */}
+      {state.data === undefined ? <PageHeader breadcrumbs={[{ label: "Learning paths", href: base }, { label: "Learning path" }]} title="Learning path" /> : null}
+      <Boundary state={state}>{(p) => <EditorBody key={`${p.id}:${p.updated_at}`} path={p} reload={state.reload} />}</Boundary>
+    </>
+  );
+}
+
+/** "Published v3" / "Archived" / "Draft" through the shared status vocabulary (tone stays the kit's). */
+function PathStatusBadge({ path }: { path: PathDetail }) {
+  return <StatusBadge status={path.status} label={path.status === "published" ? `Published v${path.version_no}` : undefined} />;
 }
 
 function EditorBody({ path, reload }: { path: PathDetail; reload: () => Promise<void> }) {
@@ -103,6 +116,7 @@ function EditorBody({ path, reload }: { path: PathDetail; reload: () => Promise<
   const [busy, setBusy] = useState<"save" | "publish" | "archive" | null>(null);
   const [errs, setErrs] = useState<Record<string, string>>({});
   const [allocOpen, setAllocOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const t = useMemo(() => totals(steps), [steps]);
 
   const update = (next: EditorStep[]) => {
@@ -154,47 +168,47 @@ function EditorBody({ path, reload }: { path: PathDetail; reload: () => Promise<
     }
   };
 
+  // Runs from the ConfirmDialog: a thrown error is shown inside the dialog, which stays open.
   const onArchive = async () => {
-    if (!window.confirm(`Archive "${path.title}"? Learners keep their current allocations.`)) return;
     setBusy("archive");
     try {
       await pathsApi.archivePath(path.id);
       router.push(base);
     } catch (e) {
-      fail(e);
       setBusy(null);
+      throw e;
     }
   };
+  const unsaved = dirty || metaDirty;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <Link href={base} className="text-sm text-fg-link underline">
-            ← All paths
-          </Link>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Badge tone={path.status === "published" ? "success" : "neutral"}>{path.status === "published" ? `Published v${path.version_no}` : path.status === "archived" ? "Archived" : "Draft"}</Badge>
-            {path.has_unpublished_changes || dirty || metaDirty ? <Badge tone="warning">Unpublished changes</Badge> : null}
-            <span className="text-sm text-fg-muted">
-              {t.count} steps · {t.credits} credits · {formatHours(t.hours)}
-            </span>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="ghost" onClick={() => void onArchive()} loading={busy === "archive"} disabled={!!busy || path.status === "archived"}>
-            Archive
+      <PageHeader
+        breadcrumbs={[{ label: "Learning paths", href: base }, { label: path.title || "Learning path" }]}
+        title={path.title || "Learning path"}
+        meta={
+          <>
+            <PathStatusBadge path={path} />
+            {path.has_unpublished_changes || unsaved ? <Badge tone="warning">Unpublished changes</Badge> : null}
+          </>
+        }
+        description={`${t.count} ${t.count === 1 ? "step" : "steps"} · ${t.credits} credits · ${formatHours(t.hours)}`}
+        actions={
+          <Button variant="ghost" onClick={() => setArchiveOpen(true)} disabled={!!busy || path.status === "archived"}>
+            Archive path
           </Button>
-          <Button variant="secondary" onClick={() => void onSave()} loading={busy === "save"} disabled={!!busy || (!dirty && !metaDirty)}>
-            Save
-          </Button>
-          <Button onClick={() => void onPublish()} loading={busy === "publish"} disabled={!!busy || path.status === "archived"}>
-            Publish
-          </Button>
-        </div>
-      </div>
+        }
+      />
 
-      <Card>
+      <SectionNav
+        sections={[
+          { id: "path-details", label: "Details" },
+          { id: "path-steps", label: `Steps (${t.count})` },
+          { id: "path-allocations", label: "Allocated to" },
+        ]}
+      />
+
+      <Card id="path-details" title="Details" className="scroll-mt-20">
         <div className="grid gap-3 md:grid-cols-[1fr_12rem]">
           <FormField label="Title" required error={errs.title}>{(p) => <Input {...p} value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />}</FormField>
           <FormField label="Level">
@@ -218,10 +232,8 @@ function EditorBody({ path, reload }: { path: PathDetail; reload: () => Promise<
         </div>
       </Card>
 
-      <section aria-labelledby="steps-h" className="space-y-3">
-        <h2 id="steps-h" className="font-display text-lg font-semibold">
-          Steps
-        </h2>
+      <section id="path-steps" aria-labelledby="steps-h" className="scroll-mt-20 space-y-3">
+        <SectionHeader id="steps-h" title="Steps" description="Drag a step, or use Up and Down, to change the order." />
         {steps.length === 0 ? <EmptyState title="No steps yet" description="Add readings, videos, articles, assignments, assessments or a super-step that groups several steps." /> : null}
         <StepList steps={steps} onChange={update} errs={errs} prefix="steps" numberPrefix="" />
         <AddStepBar onAdd={(type) => update([...steps, newStep(type)])} />
@@ -229,6 +241,35 @@ function EditorBody({ path, reload }: { path: PathDetail; reload: () => Promise<
 
       <AllocationsSection path={path} onAllocate={() => setAllocOpen(true)} reload={reload} />
       <AllocateDialog open={allocOpen} onClose={() => setAllocOpen(false)} path={path} onDone={() => void reload()} />
+
+      {/* Save / Publish stay in view while editing long step lists. Publish is the page's one primary. */}
+      <StickyActionBar
+        status={
+          unsaved ? (
+            <span className="font-medium text-warning-fg">Unsaved changes</span>
+          ) : path.has_unpublished_changes ? (
+            <span className="text-fg-secondary">Saved. Publish to make the changes visible to learners.</span>
+          ) : (
+            <span className="text-fg-muted">All changes saved.</span>
+          )
+        }
+      >
+        <Button variant="secondary" onClick={() => void onSave()} loading={busy === "save"} disabled={!!busy || !unsaved}>
+          Save
+        </Button>
+        <Button onClick={() => void onPublish()} loading={busy === "publish"} disabled={!!busy || path.status === "archived"}>
+          Publish
+        </Button>
+      </StickyActionBar>
+
+      <ConfirmDialog
+        open={archiveOpen}
+        onClose={() => setArchiveOpen(false)}
+        title="Archive this path?"
+        description={`"${path.title}" will no longer be offered for new allocations. Learners keep their current allocations.`}
+        confirmLabel="Archive path"
+        onConfirm={onArchive}
+      />
     </div>
   );
 }
@@ -340,22 +381,22 @@ function StepCard({
   const label = STEP_TYPE_LABEL[step.step_type];
   return (
     <div className="rounded-xl border border-line bg-surface p-4 shadow-xs">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span draggable onDragStart={onDragStart} className="cursor-grab select-none px-1 text-fg-muted" title="Drag to reorder" aria-hidden="true">
           ⋮⋮
         </span>
         <span className="text-sm font-semibold tabular-nums text-fg-muted">{number}.</span>
         <StepTypeIcon type={step.step_type} />
         <span className="text-xs font-semibold uppercase tracking-wide text-fg-muted">{label}</span>
-        <div className="ml-auto flex gap-1">
+        <div className="ml-auto flex flex-wrap justify-end gap-1">
           <Button variant="ghost" size="sm" onClick={onUp} disabled={!onUp} aria-label={`Move step ${number} up`}>
-            ↑
+            <span aria-hidden="true">↑</span> Up
           </Button>
           <Button variant="ghost" size="sm" onClick={onDown} disabled={!onDown} aria-label={`Move step ${number} down`}>
-            ↓
+            <span aria-hidden="true">↓</span> Down
           </Button>
-          <Button variant="ghost" size="sm" onClick={onRemove} aria-label={`Delete step ${number}`}>
-            🗑
+          <Button variant="ghost" size="sm" onClick={onRemove} aria-label={`Delete step ${number}`} className="text-danger-fg hover:bg-danger-subtle">
+            Delete
           </Button>
         </div>
       </div>
@@ -477,7 +518,7 @@ export function LinkPicker({
     <FormField label={label} error={error}>
       {(p) => (
         <div className="flex flex-col gap-2 sm:flex-row">
-          <Input type="search" aria-label={`Search ${kind}s`} placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} className="sm:w-40" />
+          <Input type="search" aria-label={`Search ${kind}s`} placeholder={`Search ${kind}s…`} value={q} onChange={(e) => setQ(e.target.value)} className="sm:w-40" />
           <Select {...p} value={value ?? ""} onChange={(e) => onChange(e.target.value || null)} options={options} />
         </div>
       )}
@@ -489,10 +530,11 @@ function AllocationsSection({ path, onAllocate, reload }: { path: PathDetail; on
   const base = usePathsBase();
   const fail = useFailToast();
   const active = path.allocations.filter((a) => a.status === "active");
+  const [revoking, setRevoking] = useState<Allocation | null>(null);
+  // Runs from the ConfirmDialog: a thrown error is shown inside it.
   const revoke = async (a: Allocation) => {
-    if (!window.confirm("Remove this allocation? Learners will no longer see the path.")) return;
+    await pathsApi.revokeAllocation(a.id);
     try {
-      await pathsApi.revokeAllocation(a.id);
       await reload();
     } catch (e) {
       fail(e);
@@ -500,9 +542,11 @@ function AllocationsSection({ path, onAllocate, reload }: { path: PathDetail; on
   };
   return (
     <Card
+      id="path-allocations"
+      className="scroll-mt-20"
       title="Allocated to"
       actions={
-        <Button onClick={onAllocate} disabled={path.status !== "published"}>
+        <Button variant="secondary" size="sm" onClick={onAllocate} disabled={path.status !== "published"}>
           Allocate
         </Button>
       }
@@ -521,10 +565,10 @@ function AllocationsSection({ path, onAllocate, reload }: { path: PathDetail; on
                 </p>
               </div>
               <div className="flex gap-2">
-                <Link href={`${base}/allocations/${encodeURIComponent(a.id)}`} className="inline-flex h-8 items-center rounded-md border border-line-control px-3 text-sm font-medium hover:bg-surface-hover">
+                <LinkButton variant="secondary" size="sm" href={`${base}/allocations/${encodeURIComponent(a.id)}`}>
                   Progress
-                </Link>
-                <Button variant="ghost" size="sm" onClick={() => void revoke(a)}>
+                </LinkButton>
+                <Button variant="ghost" size="sm" onClick={() => setRevoking(a)} className="text-danger-fg hover:bg-danger-subtle">
                   Remove
                 </Button>
               </div>
@@ -532,6 +576,15 @@ function AllocationsSection({ path, onAllocate, reload }: { path: PathDetail; on
           ))}
         </ul>
       )}
+      <ConfirmDialog
+        open={revoking !== null}
+        onClose={() => setRevoking(null)}
+        title="Remove this allocation?"
+        description="Learners in it will no longer see the path. Their progress so far is kept."
+        confirmLabel="Remove allocation"
+        danger
+        onConfirm={() => (revoking ? revoke(revoking) : undefined)}
+      />
     </Card>
   );
 }

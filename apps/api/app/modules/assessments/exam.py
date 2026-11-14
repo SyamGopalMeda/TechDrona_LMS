@@ -17,6 +17,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.assessments import datastore as adb
 from app.modules.assessments.models import AttemptEvent, Test, TestAttempt
 from app.modules.assessments.schemas import RECORDABLE_EVENTS
 
@@ -123,10 +124,11 @@ async def event_counts(
     """Recordable event counts per attempt (one grouped query)."""
     if not attempt_ids:
         return {}
-    rows = await session.execute(
+    rows = await adb.execute(
+        session,
         select(AttemptEvent.attempt_id, AttemptEvent.event_type, func.count())
         .where(AttemptEvent.attempt_id.in_(attempt_ids), AttemptEvent.event_type.in_(RECORDABLE_EVENTS))
-        .group_by(AttemptEvent.attempt_id, AttemptEvent.event_type)
+        .group_by(AttemptEvent.attempt_id, AttemptEvent.event_type),
     )
     out: dict[uuid.UUID, dict[str, int]] = {a: {} for a in attempt_ids}
     for aid, et, n in rows.all():
@@ -138,10 +140,11 @@ async def connectivity_event_count(
     session: AsyncSession, attempt_id: uuid.UUID, types: frozenset[str]
 ) -> int:
     """Stored connectivity events of one attempt (SEC-13 cap)."""
-    n = await session.execute(
+    n = await adb.execute(
+        session,
         select(func.count())
         .select_from(AttemptEvent)
-        .where(AttemptEvent.attempt_id == attempt_id, AttemptEvent.event_type.in_(types))
+        .where(AttemptEvent.attempt_id == attempt_id, AttemptEvent.event_type.in_(types)),
     )
     return int(n.scalar_one())
 

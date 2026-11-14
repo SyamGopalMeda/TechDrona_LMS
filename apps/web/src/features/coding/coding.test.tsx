@@ -147,6 +147,24 @@ describe("CodingWorkspace (COD-002)", () => {
     expect(screen.getByRole("button", { name: /^Submit/ })).toBeDisabled();
     expect(submitCalls).toBe(1);
   });
+  it("renders the problem statement as Markdown, never as raw markup", async () => {
+    const api = mockApi({
+      "GET coding/problems/two-sum": {
+        body: { ...problemBody, statement_md: "Read `n` integers and **print** their sum.", constraints_md: "1 <= n <= 10\n<img src=x onerror=alert(1)>" },
+      },
+      "GET coding/languages": { body: { data: [{ language_key: "python3", display_name: "Python" }, { language_key: "cpp17", display_name: "C++17" }] } },
+    });
+    restore = api.restore;
+    vi.stubGlobal("fetch", api.fetchImpl);
+    const { container } = renderWithProviders(<CodingWorkspace slug="two-sum" />);
+    // The statement is rendered in both the wide and the narrow layout.
+    expect(await screen.findAllByText("n", { selector: "code" }, { timeout: 5_000 })).not.toHaveLength(0);
+    expect(screen.getAllByText("print", { selector: "strong" })).not.toHaveLength(0);
+    expect(container.textContent).not.toContain("`n`");
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.textContent).toContain("<img src=x onerror=alert(1)>");
+  }, 15_000);
+
   it("restores the saved draft (COD-05) and autosaves edits (COD-04)", async () => {
     const api = mockApi({
       "GET coding/problems/two-sum": { body: problemBody },

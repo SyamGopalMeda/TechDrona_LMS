@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button, Card, Checkbox, FormField, Input, PageHeader, Pagination, Select, Table, useToast, type Column } from "@/components/ui";
+import { Badge, Button, Checkbox, Dialog, FormField, Input, LoadingBlock, PageHeader, Pagination, Select, Table, useToast, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import type { Schema } from "@/lib/api-types";
 import { ActionDialog, FilterBar, KeyValueList, StateBadge, TextArea } from "@/features/admin/components/console-ui";
-import { cleanQuery, formatDate, formatINR, humanize, toOutcome, useCursorList, type MutationOutcome } from "@/features/admin/lib/console";
+import { cleanQuery, formatDate, formatINR, humanize, personLabel, shortRef, toOutcome, useCursorList, type MutationOutcome } from "@/features/admin/lib/console";
 
 /* ------------------------------------------------------------------ shared */
 
@@ -67,6 +67,17 @@ const ITEM_TYPES = ["course", "test", "company_path", "topic_practice", "feature
 
 export const productLabel = (p: Pick<CatalogProduct, "name" | "sku">) => `${p.name} (${p.sku})`;
 
+/**
+ * Refund rules the api knows (schemas.ProductIn default; the refund engine applies the published
+ * 7-day / 20 % rule). Shown as words, stored as the key.
+ */
+export const REFUND_RULES: { value: string; label: string }[] = [{ value: "standard_7d_20pct", label: "Standard: full refund within 7 days if under 20 % is used" }];
+export const refundRuleLabel = (key: string | null | undefined) => REFUND_RULES.find((r) => r.value === key)?.label ?? humanize(key);
+
+/** "Course #9F3C21AB", "Feature: Mock interview ×5" for a product unlock. */
+const unlockLabel = (u: NonNullable<CatalogProduct["unlocks"]>[number]) =>
+  `${humanize(u.item_type)}${u.feature_key ? `: ${humanize(u.feature_key)}` : u.ref_id ? ` ${shortRef(u.ref_id)}` : ""}${u.quantity ? ` ×${u.quantity}` : ""}`;
+
 const planTerm = (pl: CatalogPlan) =>
   pl.billing_type === "recurring" ? `Every ${pl.interval_count ?? 1} ${pl.interval_unit ?? "month"}${(pl.interval_count ?? 1) > 1 ? "s" : ""}` : pl.access_duration_days ? `${pl.access_duration_days} days access` : "One time";
 
@@ -94,7 +105,7 @@ export function validateItems(items: ItemDraft[]): string | null {
   return null;
 }
 
-/** FIN-002 products, plans and prices (COM-20..24). Price decreases over 20 % (or with live subscriptions) need a second finance admin. */
+/** FIN-002 products, plans and prices (COM-20..24). Price decreases over 20 % (or with live subscriptions) need a second admin. */
 export function Products() {
   const toast = useToast();
   const list = useCursorList<CatalogProduct>("finance/products");
@@ -107,7 +118,10 @@ export function Products() {
   const [plan, setPlan] = useState({ code: "", billing_type: "one_time", access_duration_days: "365", interval_unit: "month", interval_count: "1" });
   const [price, setPrice] = useState({ amount: "", valid_from: "", valid_until: "", reason: "" });
   const [now] = useState(() => Date.now());
+  const [retireAck, setRetireAck] = useState(false);
   const close = () => setDialog(null);
+  // Retiring takes a product off sale: ask for an explicit confirmation (audit 0.7).
+  const retiring = dialog?.kind === "edit" && edit.status === "retired" && dialog.product.status !== "retired";
   const set = (k: keyof typeof emptyProduct) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const cols: Column<CatalogProduct>[] = [
@@ -176,9 +190,8 @@ export function Products() {
   return (
     <div>
       <PageHeader
-        eyebrow="FIN-002"
-        title="Products and prices"
-        description="Prices are GST-inclusive. A price cut of more than 20 % needs a second finance admin."
+        title="Products & prices"
+        description="Prices are GST-inclusive. A price cut of more than 20 % needs a second admin."
         actions={
           <Button
             onClick={() => {
@@ -191,16 +204,18 @@ export function Products() {
           </Button>
         }
       />
-      <Table caption="Products" columns={cols} rows={list.rows} rowKey={(p) => p.product_id} loading={list.loading} error={list.error} onRetry={() => void list.reload()} empty={{ title: "No products yet", description: "Create a product, then add plans and prices." }} />
+      <Table caption="Products" columns={cols} rows={list.rows} rowKey={(p) => p.product_id} loading={list.loading} error={list.error} onRetry={() => void list.reload()} empty={{ title: "No products yet", description: "Create a product, then add plans and prices.", icon: "card" }} />
 
-      {open ? (
-        <Card
-          className="mt-4"
-          title={productLabel(open)}
-          actions={
-            <span className="flex flex-wrap gap-2">
+      {/* Product details open in a dialog (bottom sheet on phones) instead of a card below the table; it steps aside while an edit dialog is open. */}
+      <Dialog
+        open={open !== null && dialog === null}
+        onClose={() => setOpenId(null)}
+        size="xl"
+        title={open ? productLabel(open) : "Product"}
+        footer={
+          open ? (
+            <>
               <Button
-                size="sm"
                 variant="secondary"
                 onClick={() => {
                   setEdit({ name: open.name, description_md: open.description_md ?? "", status: open.status });
@@ -210,8 +225,6 @@ export function Products() {
                 Edit product
               </Button>
               <Button
-                size="sm"
-                variant="secondary"
                 onClick={() => {
                   setPlan({ code: "", billing_type: "one_time", access_duration_days: "365", interval_unit: "month", interval_count: "1" });
                   setDialog({ kind: "plan", product: open });
@@ -219,26 +232,25 @@ export function Products() {
               >
                 Add plan
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => setOpenId(null)}>
-                Close
-              </Button>
-            </span>
-          }
-        >
-          <KeyValueList
-            items={[
-              { label: "Kind", value: humanize(open.product_kind) },
-              { label: "Status", value: <StateBadge state={open.status} /> },
-              { label: "SAC / GST", value: `${open.sac_code} · ${Number(open.gst_rate)}%` },
-              { label: "Refund rule", value: humanize(open.refund_policy_key) },
-              { label: "Unlocks", value: open.unlocks?.length ? open.unlocks.map((u) => `${humanize(u.item_type)} ${u.feature_key ?? u.ref_id ?? ""}${u.quantity ? ` ×${u.quantity}` : ""}`).join(", ") : "Nothing yet" },
-            ]}
-          />
-          <div className="mt-4">
-            <Table caption={`Plans of ${open.sku}`} showCaption columns={planCols} rows={open.plans ?? []} rowKey={(pl) => pl.plan_id} empty={{ title: "No plans", description: "Add a plan to sell this product." }} />
+            </>
+          ) : null
+        }
+      >
+        {open ? (
+          <div className="space-y-4">
+            <KeyValueList
+              items={[
+                { label: "Kind", value: humanize(open.product_kind) },
+                { label: "Status", value: <StateBadge state={open.status} /> },
+                { label: "SAC / GST", value: `${open.sac_code} · ${Number(open.gst_rate)}%` },
+                { label: "Refund rule", value: refundRuleLabel(open.refund_policy_key) },
+                { label: "Unlocks", value: open.unlocks?.length ? open.unlocks.map(unlockLabel).join(", ") : "Nothing yet", wide: true },
+              ]}
+            />
+            <Table caption={`Plans of ${open.sku}`} showCaption columns={planCols} rows={open.plans ?? []} rowKey={(pl) => pl.plan_id} empty={{ title: "No plans", description: "Add a plan to sell this product.", icon: "card" }} />
           </div>
-        </Card>
-      ) : null}
+        ) : null}
+      </Dialog>
 
       <ActionDialog
         open={dialog?.kind === "create"}
@@ -287,7 +299,9 @@ export function Products() {
         <FormField label="Kind" required>{(f) => <Select {...f} value={form.product_kind} onChange={set("product_kind")} options={PRODUCT_KINDS.map((k) => ({ value: k, label: humanize(k) }))} />}</FormField>
         <FormField label="SAC code">{(f) => <Input {...f} inputMode="numeric" value={form.sac_code} onChange={set("sac_code")} />}</FormField>
         <FormField label="GST rate (%)">{(f) => <Input {...f} inputMode="decimal" value={form.gst_rate} onChange={set("gst_rate")} />}</FormField>
-        <FormField label="Refund rule key">{(f) => <Input {...f} value={form.refund_policy_key} onChange={set("refund_policy_key")} />}</FormField>
+        <FormField label="Refund rule" hint="The refund rule shown to buyers at checkout.">
+          {(f) => <Select {...f} value={form.refund_policy_key} onChange={set("refund_policy_key")} options={REFUND_RULES.some((r) => r.value === form.refund_policy_key) ? REFUND_RULES : [...REFUND_RULES, { value: form.refund_policy_key, label: humanize(form.refund_policy_key) }]} />}
+        </FormField>
         <FormField label="Status">{(f) => <Select {...f} value={form.status} onChange={set("status")} options={["draft", "active"].map((s) => ({ value: s, label: humanize(s) }))} />}</FormField>
         <FormField label="Description">{(f) => <TextArea {...f} value={form.description_md} onChange={set("description_md")} maxLength={20000} />}</FormField>
         <fieldset className="space-y-2 rounded-lg border border-line p-3">
@@ -298,7 +312,7 @@ export function Products() {
               <FormField label={`Unlock ${i + 1} type`}>
                 {(f) => <Select {...f} value={it.item_type} onChange={(e) => setItems((xs) => xs.map((x, j) => (j === i ? { ...x, item_type: e.target.value as ItemDraft["item_type"] } : x)))} options={ITEM_TYPES.map((t) => ({ value: t, label: humanize(t) }))} />}
               </FormField>
-              <FormField label={it.item_type === "feature" ? `Unlock ${i + 1} feature key` : `Unlock ${i + 1} id`}>
+              <FormField label={it.item_type === "feature" ? `Unlock ${i + 1} feature key` : `Unlock ${i + 1} id`} hint={it.item_type === "feature" ? "e.g. mock_interview" : `Full ${humanize(it.item_type).toLowerCase()} id, from its page in Studio.`}>
                 {(f) => <Input {...f} value={it.ref} onChange={(e) => setItems((xs) => xs.map((x, j) => (j === i ? { ...x, ref: e.target.value } : x)))} />}
               </FormField>
               <FormField label={`Unlock ${i + 1} quantity`}>
@@ -318,9 +332,11 @@ export function Products() {
       <ActionDialog
         open={dialog?.kind === "edit"}
         onClose={close}
-        title={`Edit ${dialog?.kind === "edit" ? dialog.product.sku : ""}`}
-        submitLabel="Save"
-        validate={() => (edit.name.trim().length < 2 ? "Enter a name." : null)}
+        onOpen={() => setRetireAck(false)}
+        title={`Edit ${dialog?.kind === "edit" ? dialog.product.name : ""}`}
+        submitLabel={retiring ? "Retire product" : "Save"}
+        danger={retiring}
+        validate={() => (edit.name.trim().length < 2 ? "Enter a name." : retiring && !retireAck ? "Confirm that you want to retire this product." : null)}
         onSubmit={async () => {
           const p = (dialog as { product: CatalogProduct }).product;
           return toOutcome(
@@ -334,6 +350,13 @@ export function Products() {
       >
         <FormField label="Name" required>{(f) => <Input {...f} value={edit.name} onChange={(e) => setEdit((x) => ({ ...x, name: e.target.value }))} />}</FormField>
         <FormField label="Status">{(f) => <Select {...f} value={edit.status} onChange={(e) => setEdit((x) => ({ ...x, status: e.target.value }))} options={["draft", "active", "retired"].map((s) => ({ value: s, label: humanize(s) }))} />}</FormField>
+        {retiring ? (
+          <div role="note" className="space-y-2 rounded-lg border border-warning-border bg-warning-subtle p-3 text-sm">
+            <p className="font-semibold text-warning-fg">Retiring takes this product off sale</p>
+            <p className="text-fg-secondary">It disappears from the catalogue and nobody can buy it. Check that no live campaign or coupon still points to it.</p>
+            <Checkbox label="I understand — retire this product" checked={retireAck} onChange={(e) => setRetireAck(e.target.checked)} />
+          </div>
+        ) : null}
         <FormField label="Description">{(f) => <TextArea {...f} value={edit.description_md} onChange={(e) => setEdit((x) => ({ ...x, description_md: e.target.value }))} maxLength={20000} />}</FormField>
       </ActionDialog>
 
@@ -416,7 +439,7 @@ export function Products() {
         <FormField label="Reason" required>{(f) => <TextArea {...f} value={price.reason} onChange={(e) => setPrice((x) => ({ ...x, reason: e.target.value }))} maxLength={500} />}</FormField>
         {bigDecrease ? (
           <p className="text-sm text-info-fg">
-            <span aria-hidden="true">ⓘ </span>This is a cut of more than 20 %: a second finance admin must approve it.
+            <span aria-hidden="true">ⓘ </span>This is a cut of more than 20 %: a second admin must approve it.
           </p>
         ) : null}
       </ActionDialog>
@@ -454,12 +477,14 @@ export function couponNeedsDual(discountType: string, percentOff: number | null,
   return discountType === "free_access" || (percentOff !== null && percentOff > COUPON_DUAL_PERCENT) || maxRedemptions === null || maxRedemptions > COUPON_DUAL_REDEMPTIONS;
 }
 
+const COUPON_ENDED = new Set(["expired", "retired", "archived"]);
+
 const couponValue = (c: CouponRow) => (c.discount_type === "percent" ? `${c.percent_off}% off` : c.discount_type === "flat" ? `${formatINR(c.amount_off_paise)} off` : "Free access");
 
 /**
  * POST finance/coupons answers 202 with the coupon (`status: "paused"`) plus the approval
  * envelope fields `approval_status`, `approval_request_id`, `action_type`,
- * `required_approver_role` and `expires_at` when it needs a second finance admin (COM-26,
+ * `required_approver_role` and `expires_at` when it needs a second admin (COM-26,
  * webstaff R6). The coupon keeps its own `status`, so the api client returns the body as ok:
  * turn it into the dual-control outcome here, using the server's role and expiry.
  */
@@ -474,7 +499,7 @@ export function couponCreateOutcome(res: Awaited<ReturnType<typeof api.post<Coup
         status: "approval_pending",
         approval_request_id: d.approval_request_id!,
         action_type: d.action_type ?? "commerce.coupon.activate",
-        required_approver_role: d.required_approver_role ?? "finance_admin",
+        required_approver_role: d.required_approver_role ?? "super_admin",
         expires_at: d.expires_at ?? "",
       },
       requestId: res.requestId,
@@ -485,7 +510,7 @@ export function couponCreateOutcome(res: Awaited<ReturnType<typeof api.post<Coup
 
 const emptyCoupon = { code: "", discount_type: "percent", percent_off: "", amount_off: "", max_redemptions: "", per_user_limit: "1", min_order: "", valid_from: "", valid_until: "", first_time_only: false, reason: "" };
 
-/** FIN-003 coupons (COM-25..27). Big or unlimited coupons are created paused until a second finance admin approves. */
+/** FIN-003 coupons (COM-25..27). Big or unlimited coupons are created paused until a second admin approves. */
 export function Coupons() {
   const toast = useToast();
   const [status, setStatus] = useState("");
@@ -508,7 +533,7 @@ export function Coupons() {
   const cols: Column<CouponRow>[] = [
     { key: "code", header: "Code", cell: (c) => <span className="font-mono text-xs">{c.code}</span> },
     { key: "value", header: "Discount", cell: couponValue },
-    { key: "used", header: "Redeemed", align: "right", cell: (c) => `${c.redeemed_count} / ${c.max_redemptions ?? "∞"}` },
+    { key: "used", header: "Redeemed", align: "right", cell: (c) => `${c.redeemed_count} / ${c.max_redemptions ?? "Unlimited"}` },
     { key: "per", header: "Per user", align: "right", cell: (c) => String(c.per_user_limit) },
     { key: "valid", header: "Valid", cell: (c) => `${formatDate(c.valid_from)} – ${c.valid_until ? formatDate(c.valid_until) : "open"}` },
     { key: "scope", header: "Applies to", cell: (c) => (c.applicable_product_ids.length ? `${c.applicable_product_ids.length} products` : "All products") + (c.first_time_only ? " · first purchase" : "") },
@@ -525,28 +550,29 @@ export function Coupons() {
     {
       key: "act",
       header: <span className="sr-only">Actions</span>,
-      cell: (c) => (
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => {
-            setPatch({ status: c.status === "paused" ? "paused" : "active", valid_until: "", max_redemptions: "" });
-            setEdit(c);
-          }}
-          aria-label={`Edit coupon ${c.code}`}
-        >
-          Edit
-        </Button>
-      ),
+      // An expired coupon cannot be changed (the api only takes active/paused): no Edit.
+      cell: (c) =>
+        COUPON_ENDED.has(c.status) ? null : (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setPatch({ status: c.status === "paused" ? "paused" : "active", valid_until: "", max_redemptions: "" });
+              setEdit(c);
+            }}
+            aria-label={`Edit coupon ${c.code}`}
+          >
+            Edit
+          </Button>
+        ),
     },
   ];
 
   return (
     <div>
       <PageHeader
-        eyebrow="FIN-003"
         title="Coupons"
-        description={`More than ${COUPON_DUAL_PERCENT} % off, free access, or more than ${COUPON_DUAL_REDEMPTIONS.toLocaleString("en-IN")} (or unlimited) redemptions needs a second finance admin.`}
+        description={`More than ${COUPON_DUAL_PERCENT} % off, free access, or more than ${COUPON_DUAL_REDEMPTIONS.toLocaleString("en-IN")} (or unlimited) redemptions needs a second admin.`}
         actions={
           <Button
             onClick={() => {
@@ -562,7 +588,7 @@ export function Coupons() {
       <FilterBar label="Coupon filters">
         <FormField label="Status">{(f) => <Select {...f} value={status} onChange={(e) => setStatus(e.target.value)} options={[{ value: "", label: "Any" }, ...["active", "paused", "expired"].map((s) => ({ value: s, label: humanize(s) }))]} />}</FormField>
       </FilterBar>
-      <Table caption="Coupons" columns={cols} rows={rows} rowKey={(c) => c.coupon_id} loading={list.loading} error={list.error} onRetry={() => void list.reload()} empty={{ title: "No coupons" }} footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />} />
+      <Table caption="Coupons" columns={cols} rows={rows} rowKey={(c) => c.coupon_id} loading={list.loading} error={list.error} onRetry={() => void list.reload()} empty={{ title: status ? "No coupons match" : "No coupons yet", description: status ? "Choose another status to see more coupons." : "Create a coupon to offer a discount at checkout.", icon: "card" }} footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />} />
 
       <ActionDialog
         open={create}
@@ -606,7 +632,7 @@ export function Coupons() {
           return outcome;
         }}
         onDone={(o) => {
-          if (o.kind === "approval_pending") toast.show({ title: `Coupon ${form.code.trim()} was created paused. It goes live when a second finance admin approves.`, tone: "info" });
+          if (o.kind === "approval_pending") toast.show({ title: `Coupon ${form.code.trim()} was created paused. It goes live when a second admin approves.`, tone: "info" });
           else toast.show({ title: `Coupon ${o.data.code} is active.`, tone: "success" });
           void list.reload();
         }}
@@ -623,19 +649,26 @@ export function Coupons() {
         <Checkbox label="First purchase only" checked={form.first_time_only} onChange={(e) => setForm((x) => ({ ...x, first_time_only: e.target.checked }))} />
         <fieldset className="space-y-1 rounded-lg border border-line p-3">
           <legend className="px-1 text-sm font-semibold text-fg">Applies to</legend>
-          <p className="text-xs text-fg-muted">None selected = every product.</p>
+          <p className="text-xs text-fg-muted">
+            {productIds.length ? `${productIds.length} selected.` : "None selected = every product."}
+          </p>
           {products.rows ? (
-            products.rows.map((p) => (
-              <Checkbox key={p.product_id} label={productLabel(p)} checked={productIds.includes(p.product_id)} onChange={(e) => setProductIds((xs) => (e.target.checked ? [...xs, p.product_id] : xs.filter((x) => x !== p.product_id)))} />
-            ))
+            // A long catalogue scrolls inside the box instead of stretching the dialog.
+            <div className="max-h-60 space-y-1 overflow-y-auto pr-1">
+              {products.rows.map((p) => (
+                <Checkbox key={p.product_id} label={productLabel(p)} checked={productIds.includes(p.product_id)} onChange={(e) => setProductIds((xs) => (e.target.checked ? [...xs, p.product_id] : xs.filter((x) => x !== p.product_id)))} />
+              ))}
+            </div>
+          ) : products.error ? (
+            <p className="text-sm text-fg-muted">Products could not be loaded. Close and reopen this dialog to try again.</p>
           ) : (
-            <p className="text-sm text-fg-muted">{products.error ? "Products could not be loaded." : "Loading products…"}</p>
+            <LoadingBlock label="Loading products…" rows={2} />
           )}
         </fieldset>
         <FormField label="Reason" required>{(f) => <TextArea {...f} value={form.reason} onChange={set("reason")} maxLength={500} />}</FormField>
         {needsDual ? (
           <p className="text-sm text-info-fg">
-            <span aria-hidden="true">ⓘ </span>This coupon is created paused: a second finance admin must approve it before it can be redeemed.
+            <span aria-hidden="true">ⓘ </span>This coupon is created paused: a second admin must approve it before it can be redeemed.
           </p>
         ) : null}
       </ActionDialog>
@@ -665,7 +698,7 @@ export function Coupons() {
           void list.reload();
         }}
       >
-        {edit ? <KeyValueList items={[{ label: "Discount", value: couponValue(edit) }, { label: "Redeemed", value: `${edit.redeemed_count} / ${edit.max_redemptions ?? "∞"}` }]} /> : null}
+        {edit ? <KeyValueList items={[{ label: "Discount", value: couponValue(edit) }, { label: "Redeemed", value: `${edit.redeemed_count} / ${edit.max_redemptions ?? "Unlimited"}` }]} /> : null}
         <FormField label="Status">{(f) => <Select {...f} value={patch.status} onChange={(e) => setPatch((x) => ({ ...x, status: e.target.value }))} options={["active", "paused"].map((s) => ({ value: s, label: humanize(s) }))} />}</FormField>
         <FormField label="New valid until" hint="Empty = unchanged.">{(f) => <Input {...f} type="date" value={patch.valid_until} onChange={(e) => setPatch((x) => ({ ...x, valid_until: e.target.value }))} />}</FormField>
         <FormField label="New max redemptions" hint="Empty = unchanged.">{(f) => <Input {...f} inputMode="numeric" value={patch.max_redemptions} onChange={(e) => setPatch((x) => ({ ...x, max_redemptions: e.target.value }))} />}</FormField>
@@ -697,6 +730,9 @@ export interface SubscriptionRow {
 const SUB_STATUSES = ["created", "authenticated", "active", "pending", "halted", "paused", "cancelled", "completed", "expired"];
 const SUB_ENDED = new Set(["cancelled", "completed", "expired"]);
 
+/** The gateway's subscription id (what finance searches in the gateway), else a short reference. */
+const subRef = (s: Pick<SubscriptionRow, "gateway_subscription_id" | "subscription_id">) => s.gateway_subscription_id ?? shortRef(s.subscription_id);
+
 /** FIN-006 UPI AutoPay subscriptions (COM-09/10 admin view) with cancel on the user's behalf (reason required). */
 export function Subscriptions() {
   const toast = useToast();
@@ -705,12 +741,12 @@ export function Subscriptions() {
   const [cancel, setCancel] = useState<SubscriptionRow | null>(null);
   const [form, setForm] = useState({ reason: "", ticket_ref: "", immediate: false });
   const cols: Column<SubscriptionRow>[] = [
-    { key: "id", header: "Subscription", cell: (s) => <span className="font-mono text-xs">{s.gateway_subscription_id ?? s.subscription_id}</span> },
-    { key: "user", header: "User", cell: (s) => <span className="font-mono text-xs">{s.user_id}</span> },
+    { key: "id", header: "Subscription", cell: (s) => <span className="font-mono text-xs">{subRef(s)}</span> },
+    { key: "user", header: "User", cell: (s) => <span title={s.user_id}>{personLabel({ id: s.user_id })}</span> },
     { key: "status", header: "Status", cell: (s) => <span className="flex flex-col gap-1"><StateBadge state={s.status} />{s.cancel_at_period_end && !SUB_ENDED.has(s.status) ? <Badge tone="warning">Ends at period end</Badge> : null}</span> },
     { key: "period", header: "Current period", cell: (s) => `${formatDate(s.current_period_start)} – ${formatDate(s.current_period_end)}` },
     { key: "next", header: "Next debit", cell: (s) => formatDate(s.next_charge_at) },
-    { key: "mandate", header: "Mandate cap", align: "right", cell: (s) => formatINR(s.mandate_max_amount_paise) },
+    { key: "mandate", header: "Max per debit", align: "right", cell: (s) => formatINR(s.mandate_max_amount_paise) },
     { key: "paid", header: "Debits", align: "right", cell: (s) => String(s.paid_count) },
     {
       key: "act",
@@ -724,7 +760,7 @@ export function Subscriptions() {
               setForm({ reason: "", ticket_ref: "", immediate: false });
               setCancel(s);
             }}
-            aria-label={`Cancel subscription ${s.gateway_subscription_id ?? s.subscription_id}`}
+            aria-label={`Cancel subscription ${subRef(s)}`}
           >
             Cancel
           </Button>
@@ -733,17 +769,18 @@ export function Subscriptions() {
   ];
   return (
     <div>
-      <PageHeader eyebrow="FIN-006" title="Subscriptions" description="UPI AutoPay mandates (₹15,000 cap per debit). Cancelling on a user's behalf needs a reason and is audited." />
+      <PageHeader title="Subscriptions" description="UPI AutoPay subscriptions (at most ₹15,000 per debit). Cancelling for a user needs a reason and is recorded in the audit log." />
       <FilterBar label="Subscription filters">
         <FormField label="Status">{(f) => <Select {...f} value={status} onChange={(e) => setStatus(e.target.value)} options={[{ value: "", label: "Any" }, ...SUB_STATUSES.map((s) => ({ value: s, label: humanize(s) }))]} />}</FormField>
       </FilterBar>
-      <Table caption="Subscriptions" columns={cols} rows={list.rows} rowKey={(s) => s.subscription_id} loading={list.loading} error={list.error} onRetry={() => void list.reload()} empty={{ title: "No subscriptions match" }} footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />} />
+      <Table caption="Subscriptions" columns={cols} rows={list.rows} rowKey={(s) => s.subscription_id} loading={list.loading} error={list.error} onRetry={() => void list.reload()} empty={{ title: status ? "No subscriptions match" : "No subscriptions yet", description: status ? "Choose another status to see more subscriptions." : "Subscriptions appear when a buyer sets up UPI AutoPay.", icon: "card" }} footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />} />
       <ActionDialog
         open={cancel !== null}
         onClose={() => setCancel(null)}
-        title="Cancel subscription?"
+        title={`Cancel subscription ${cancel ? subRef(cancel) : ""}?`}
         description={form.immediate ? "The mandate is cancelled now and access moves to its grace period." : "No further debits; access continues until the current period ends."}
         submitLabel="Cancel subscription"
+        cancelLabel="Keep subscription"
         danger
         validate={() => (form.reason.trim().length < 3 ? "Give a reason (3+ characters)." : form.ticket_ref.trim().length > 40 ? "Ticket reference: at most 40 characters." : null)}
         onSubmit={async () =>

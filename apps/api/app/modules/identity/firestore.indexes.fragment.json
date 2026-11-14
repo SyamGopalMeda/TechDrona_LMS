@@ -1,0 +1,42 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "lms_verification_tokens",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "destination_hmac",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "lms_verification_tokens",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_password_reset_tokens",
+      "fieldPath": "expire_at",
+      "ttl": true,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    }
+  ]
+}

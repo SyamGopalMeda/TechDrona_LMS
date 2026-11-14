@@ -1,0 +1,189 @@
+/* Tech Drona — design tokens (UI shell agent).
+   Brand: navy #032269 (official logo colour). Accent: warm saffron, the complement of navy.
+   Every colour in the portal comes from here — views and map use var(--td-*) only.
+   Themes: html[data-theme="light"|"dark"]; any element with [data-theme] re-scopes the tokens (used by the style guide).
+   Contrast: text, muted, link and every status colour meet WCAG AA (4.5:1) on --td-surface and --td-bg in both themes. */
+
+:root {
+  /* type */
+  --td-font: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --td-font-display: "Plus Jakarta Sans", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --td-font-mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+  --td-text-xs: .75rem;
+  --td-text-sm: .8125rem;
+  --td-text-md: .9375rem;
+  --td-text-lg: 1.125rem;
+  --td-text-xl: 1.375rem;
+  --td-text-2xl: 1.75rem;
+  --td-text-3xl: 2.25rem;
+
+  /* spacing (4px grid) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 48px;
+  --sp-9: 64px;
+
+  /* controls + type rhythm (8-pt grid; 40px minimum hit target, 44px on touch) */
+  --td-control-h: 40px;
+  --td-control-h-sm: 32px;
+  --td-leading: 1.5;
+  --td-leading-tight: 1.25;
+  --td-measure: 80ch;          /* longest helper-text line (wide screens) */
+  --td-content-max: 1600px;    /* full-layout content column */
+
+  /* shape */
+  --td-radius-sm: 8px;
+  --td-radius: 12px;
+  --td-radius-lg: 16px;
+  --td-radius-pill: 999px;
+
+  /* motion */
+  --td-ease: cubic-bezier(.2, .7, .2, 1);
+  --td-dur-1: 120ms;
+  --td-dur-2: 200ms;
+  --td-dur-3: 320ms;
+
+  /* shell metrics */
+  --td-topbar-h: 64px;
+  --td-nav-w: 248px;
+  --td-nav-rail: 76px;
+  --td-tabbar-h: 64px;
+  --td-z-nav: 40;
+  --td-z-sheet: 45;
+  --td-z-topbar: 50;
+  --td-z-overlay: 100;
+  --td-z-toast: 200;
+
+  /* fixed brand values (identical in both themes) */
+  --td-navy: #032269;
+  --td-navy-900: #021849;
+  --td-saffron: #F5A524;
+}
+
+/* ---------- Light (default) ---------- */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --td-brand: #032269;          /* navy — headings, brand text, strong marks (14.6:1 on white) */
+  --td-brand-2: #2650C8;        /* royal blue — focus, active, charts (6.9:1) */
+  --td-link: #1E46B8;           /* links (8.0:1) */
+  --td-brand-solid: #032269;    /* primary button fill */
+  --td-brand-hover: #0C3188;
+  --td-on-brand: #FFFFFF;
+  --td-brand-soft: #EAF0FB;
+  --td-brand-soft-2: #D6E1F6;
+  --td-accent: #F5A524;         /* saffron — highlights, active markers, never as text */
+  --td-accent-ink: #8A5000;     /* saffron used as text (6.5:1 on white) */
+  --td-accent-soft: #FEF3DD;
+  --td-on-accent: #2B1A00;
+
+  --td-bg: #F5F7FB;            /* calm, slightly cool canvas */
+  --td-surface: #FFFFFF;
+  --td-surface-2: #F2F5FA;
+  --td-surface-3: #E5EAF3;
+  --td-text: #0A1530;
+  --td-text-2: #2B3553;
+  --td-muted: #566181;          /* 6.1:1 on white, 5.7:1 on bg */
+  --td-border: #E3E8F0;
+  --td-border-strong: #C7D0E0;
+  --td-border-input: #7D88A3;   /* form-field borders: 3.5:1 on surface, 3.2:1 on surface-2 (WCAG 1.4.11) */
+
+  --td-good: #0E7A47;           /* 5.4:1 */
+  --td-good-soft: #E2F5EB;
+  --td-warn: #8F5200;           /* 6.2:1 */
+  --td-warn-soft: #FDF1DA;
+  --td-bad: #BE2F2B;            /* 5.8:1 */
+  --td-bad-soft: #FCE9E7;
+  --td-info: #1A5FC2;           /* 6.1:1 */
+  --td-info-soft: #E6EFFC;
+  --td-neutral: #4C5672;
+  --td-neutral-soft: #EDF0F6;
+
+  /* data provenance — same family as the status colours, so "estimated" always reads as caution */
+  --td-verified: var(--td-good);
+  --td-verified-soft: var(--td-good-soft);
+  --td-estimated: var(--td-warn);
+  --td-estimated-soft: var(--td-warn-soft);
+  --td-pending: var(--td-muted);
+
+  /* demo-data banner */
+  --td-demo-bg: #FCE9E7;
+  --td-demo-fg: #8C1D19;
+  --td-demo-bd: #F2B8B3;
+
+  --td-focus: #2650C8;          /* focus outline colour (6.9:1 on white) */
+  --td-ring: 0 0 0 2px var(--td-surface), 0 0 0 4px var(--td-focus);
+  --td-shadow-xs: 0 1px 1px rgba(3, 18, 60, .04);
+  --td-shadow-sm: 0 1px 2px rgba(3, 18, 60, .05), 0 1px 3px -1px rgba(3, 18, 60, .04);
+  --td-shadow: 0 1px 2px rgba(3, 18, 60, .04), 0 6px 18px -6px rgba(3, 18, 60, .12);
+  --td-shadow-lg: 0 2px 6px rgba(3, 18, 60, .06), 0 24px 56px -12px rgba(3, 18, 60, .28);
+  --td-backdrop: rgba(2, 12, 40, .45);
+  --td-topbar-bg: rgba(255, 255, 255, .9);
+  --td-hero: linear-gradient(135deg, #032269 0%, #0B3392 60%, #2650C8 100%);
+  --td-logo-navy: block;        /* which logo file to show: navy on light … */
+  --td-logo-white: none;        /* … white on dark */
+}
+
+/* ---------- Dark ---------- */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --td-brand: #B4C6FF;
+  --td-brand-2: #86A4FF;
+  --td-link: #A3BAFF;
+  --td-brand-solid: #3560E0;    /* white text 5.4:1 */
+  --td-brand-hover: #2B52C8;    /* hover: white text 6.6:1 (was #4670EA, 4.4:1 — final device QA) */
+  --td-on-brand: #FFFFFF;
+  --td-brand-soft: #14224F;
+  --td-brand-soft-2: #1C2E66;
+  --td-accent: #F7B23E;
+  --td-accent-ink: #F8C46A;
+  --td-accent-soft: #3A2A0E;
+  --td-on-accent: #2B1A00;
+
+  --td-bg: #060C20;
+  --td-surface: #0C1531;
+  --td-surface-2: #121D3E;
+  --td-surface-3: #1A2750;
+  --td-text: #E9EEFB;
+  --td-text-2: #C5CEE8;
+  --td-muted: #98A5C9;          /* 7.3:1 on surface */
+  --td-border: #1F2C55;
+  --td-border-strong: #2F3F70;
+  --td-border-input: #5C6FA6;   /* 3.7:1 on surface, 3.4:1 on surface-2 */
+
+  --td-good: #4CD493;
+  --td-good-soft: #0D2E22;
+  --td-warn: #F5BB52;
+  --td-warn-soft: #33270C;
+  --td-bad: #FF8A82;
+  --td-bad-soft: #3A1619;
+  --td-info: #7DB8FF;
+  --td-info-soft: #0F2546;
+  --td-neutral: #ABB4D2;
+  --td-neutral-soft: #1A2445;
+
+  --td-demo-bg: #3A1619;
+  --td-demo-fg: #FFC4BE;
+  --td-demo-bd: #6B2A2A;
+
+  --td-focus: #9DB5FF;          /* 8.4:1 on surface */
+  --td-ring: 0 0 0 2px var(--td-surface), 0 0 0 4px var(--td-focus);
+  --td-shadow-xs: 0 1px 1px rgba(0, 0, 0, .3);
+  --td-shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
+  --td-shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 8px 24px -8px rgba(0, 0, 0, .55);
+  --td-shadow-lg: 0 2px 8px rgba(0, 0, 0, .4), 0 24px 56px -12px rgba(0, 0, 0, .75);
+  --td-backdrop: rgba(2, 5, 16, .68);
+  --td-topbar-bg: rgba(12, 21, 49, .9);
+  --td-hero: linear-gradient(135deg, #0A1C55 0%, #142D7A 60%, #2448B0 100%);
+  --td-logo-navy: none;
+  --td-logo-white: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --td-dur-1: 0ms; --td-dur-2: 0ms; --td-dur-3: 0ms; }
+}

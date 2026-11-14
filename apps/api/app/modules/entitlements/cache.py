@@ -121,14 +121,39 @@ def _after_commit(sync_session: Any) -> None:
         t.add_done_callback(_tasks.discard)
 
 
+class _Pending:
+    """``info`` holder for ``_after_commit`` outside a SQLAlchemy session."""
+
+    def __init__(self, ids: set[uuid.UUID]) -> None:
+        self.info: dict[str, Any] = {_PENDING_KEY: ids}
+
+
 def _after_rollback(sync_session: Any) -> None:
     sync_session.info.pop(_PENDING_KEY, None)
 
 
 def bump_after_commit(session: Any, user_id: uuid.UUID) -> None:
-    """Schedule a version bump for ``user_id`` right after ``session`` commits (COM-21)."""
+    """Schedule a version bump for ``user_id`` right after ``session`` commits (COM-21).
+
+    Without Postgres (Firebase stack): on the ``NO_POSTGRES`` / ``None`` placeholder the
+    entitlement rows were written by the Firestore repository in their own, already committed
+    transaction, so the bump is scheduled now; on a ``MemoryTx`` it runs after the request's
+    units of work commit (``sqlstore.after_commit``), like the SQLAlchemy hook on Postgres."""
     from sqlalchemy import event
 
+    from app.core.db import is_memory_tx, no_sql_session
+
+    if no_sql_session(session):
+        _after_commit(_Pending({user_id}))
+        return
+    if is_memory_tx(session):
+        from app.core.firestore.sqlstore import after_commit
+
+        async def _bump() -> None:
+            _after_commit(_Pending({user_id}))
+
+        after_commit(session, _bump)
+        return
     sync = getattr(session, "sync_session", session)
     pending: set[uuid.UUID] | None = sync.info.get(_PENDING_KEY)
     if pending is None:

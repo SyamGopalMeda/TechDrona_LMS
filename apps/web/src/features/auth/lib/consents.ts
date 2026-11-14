@@ -52,5 +52,8 @@ export const PURPOSE_LABELS: Record<string, { label: string; description: string
   device_fingerprint: { label: "Device fingerprint for account protection", description: "Withdrawing deletes the fingerprint within 24 hours." },
   marketing_email: { label: "Product news and offers by email", description: "Stops within 24 hours." },
   marketing_sms: { label: "Product news and offers by SMS / WhatsApp", description: "Stops within 24 hours." },
-  analytics_product: { label: "Product analytics", description: "Route and feature usage to improve the product." },
+  analytics_product: {
+    label: "Product analytics",
+    description: "Route and feature usage to improve the product, measured with Google Analytics (Firebase). We never send your name, email or answers; it is off on tests and exams.",
+  },
 };

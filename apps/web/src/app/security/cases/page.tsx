@@ -3,7 +3,7 @@ import { CaseQueue } from "@/features/security-admin/components/CaseQueue";
 
 export const metadata: Metadata = { title: "Cases" };
 
-/** SEC-002 (H1) */
+/** Security case queue. */
 export default function Page() {
   return <CaseQueue />;
 }

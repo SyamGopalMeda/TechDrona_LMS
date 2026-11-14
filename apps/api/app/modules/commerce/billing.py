@@ -34,6 +34,7 @@ from app.core.errors import ProblemError
 from app.core.outbox import emit_event
 from app.core.principal import Principal
 from app.core.time import utcnow
+from app.modules.commerce import datastore as ds
 from app.modules.commerce import documents, policy
 from app.modules.commerce.gateway import GatewayUnavailable, PaymentGateway
 from app.modules.commerce.models import (
@@ -45,8 +46,8 @@ from app.modules.commerce.models import (
 )
 from app.modules.commerce.pricing import load_price
 from app.modules.commerce.service import TERMINAL_SUB, sub_json
+from app.modules.entitlements import public as ent_pub
 from app.modules.entitlements import service as ent
-from app.modules.entitlements.models import Entitlement
 
 log = structlog.get_logger("commerce.billing")
 
@@ -86,13 +87,14 @@ async def resume_subscription(
         )
     if sub.current_period_end is not None and sub.current_period_end <= now:
         raise ProblemError("invalid_state_transition", current_state="period_ended", allowed=[])
+    await ds.before_side_effect(session)
     try:
         await gw.undo_scheduled_cancel(sub.gateway_subscription_id)
     except GatewayUnavailable as e:
         raise ProblemError("service_unavailable") from e
     sub.cancel_at_period_end = False
     sub.cancel_reason = None
-    await session.flush()
+    await ds.flush(session)
     await audit(
         session,
         principal,
@@ -138,8 +140,8 @@ async def change_plan(
         price, plan, product = await load_price(session, price_id)
     except ProblemError as e:
         raise _vf("price_id", "unknown_price", "This plan is not available.") from e
-    cur_price = (await session.execute(select(Price).where(Price.id == sub.price_id))).scalar_one()
-    cur_plan = (await session.execute(select(Plan).where(Plan.id == sub.plan_id))).scalar_one()
+    cur_price = (await ds.execute(session, select(Price).where(Price.id == sub.price_id))).scalar_one()
+    cur_plan = (await ds.execute(session, select(Plan).where(Plan.id == sub.plan_id))).scalar_one()
     if not price.is_recurring or plan.billing_type != "recurring":
         raise _vf("price_id", "not_recurring", "Choose a subscription plan.")
     if plan.id == cur_plan.id:
@@ -186,6 +188,7 @@ async def change_plan(
     # COM-16: the add-on goes first. If the plan update then fails, the add-on is deleted again
     # so the provider is left as it was (the DB transaction rolls back on the raised error).
     addon_id: str | None = None
+    await ds.before_side_effect(session)
     try:
         if proration > 0:
             addon_id = await gw.add_subscription_addon(
@@ -206,19 +209,15 @@ async def change_plan(
         sub.pending_addon_paise += proration
         # COM-16: ``mandate_max_amount_paise`` records what the customer authorised; it is no
         # longer raised locally (a DB-only raise does not change the bank mandate).
-        await session.flush()
-        sub_ent = (
-            await session.execute(
-                select(Entitlement).where(Entitlement.subscription_id == sub.id).with_for_update()
-            )
-        ).scalar_one_or_none()
+        await ds.flush(session)
+        sub_ent = await ent_pub.for_subscription(session, sub.id, for_update=True)
         if sub_ent is not None:
             await ent.change_product(
                 session, sub_ent, product.id, actor, reason="subscription_upgrade", source_ref=sub.id
             )
     else:
         sub.scheduled_plan_id, sub.scheduled_price_id, sub.scheduled_change_at = plan.id, price.id, end
-        await session.flush()
+        await ds.flush(session)
     await audit(
         session,
         principal,
@@ -267,10 +266,11 @@ def gst_export_json(x: GstExport) -> dict[str, Any]:
 async def count_gst_rows(session: AsyncSession, period_from: date, period_to: date) -> int:
     return int(
         (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(func.count())
                 .select_from(Invoice)
-                .where(Invoice.issue_date >= period_from, Invoice.issue_date <= period_to)
+                .where(Invoice.issue_date >= period_from, Invoice.issue_date <= period_to),
             )
         ).scalar_one()
     )
@@ -285,13 +285,14 @@ async def render_gst_export(session: AsyncSession, job: GstExport) -> GstExport:
     )
     data = documents.gst_csv(rows, watermark=watermark)
     key = f"gst-exports/{job.period_from:%Y/%m}/{job.id}.csv"
+    await ds.before_side_effect(session)
     await documents.get_document_store().put(documents.bucket(), key, data, "text/csv")
     job.s3_key = key
     job.row_count = len(rows)
     job.status = "ready"
     job.completed_at = now
     job.download_expires_at = now + timedelta(hours=policy.GST_EXPORT_DOWNLOAD_HOURS)
-    await session.flush()
+    await ds.flush(session)
     return job
 
 

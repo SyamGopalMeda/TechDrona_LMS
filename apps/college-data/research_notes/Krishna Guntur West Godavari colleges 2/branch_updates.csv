@@ -1,0 +1,37 @@
+college_db_id,college,branch,is_it,intake_2023_24,intake_latest,basis,source_url
+c4,VIT-AP University,"B.Tech Computer Science and Engineering (all specialisations, 2023 entry)",yes,2798 (actual admitted),,verified,https://universitywebsitbucket.s3.ap-south-1.amazonaws.com/Annual+Reports/Annual+Report_2023-24.pdf
+c4,VIT-AP University,B.Tech CSE - Business Systems,yes,227 (actual admitted),,verified,https://universitywebsitbucket.s3.ap-south-1.amazonaws.com/Annual+Reports/Annual+Report_2023-24.pdf
+c4,VIT-AP University,B.Tech Electronics and Communication Engineering,no,373 (actual admitted),,verified,https://universitywebsitbucket.s3.ap-south-1.amazonaws.com/Annual+Reports/Annual+Report_2023-24.pdf
+c4,VIT-AP University,B.Tech Mechanical Engineering,no,94 (actual admitted),,verified,https://universitywebsitbucket.s3.ap-south-1.amazonaws.com/Annual+Reports/Annual+Report_2023-24.pdf
+c4,VIT-AP University,5-yr Integrated M.Tech Software Engineering (MTSE),yes,288 (actual admitted),,verified,https://universitywebsitbucket.s3.ap-south-1.amazonaws.com/Annual+Reports/Annual+Report_2023-24.pdf
+c4,VIT-AP University,5-yr Integrated M.Tech with Virtusa,yes,284 (actual admitted),,verified,https://universitywebsitbucket.s3.ap-south-1.amazonaws.com/Annual+Reports/Annual+Report_2023-24.pdf
+c27,Sri Mittapalli College of Engineering,Computer Science and Engineering,yes,240 (admitted 176),420 (2025-26),verified,https://www.smce.ac.in/pdfs/mandatory-disclosure.pdf
+c27,Sri Mittapalli College of Engineering,Information Technology,yes,60 (admitted 28),60 (2025-26),verified,https://www.smce.ac.in/pdfs/mandatory-disclosure.pdf
+c27,Sri Mittapalli College of Engineering,CSE (Artificial Intelligence),yes,120 (admitted 109),240 (2025-26),verified,https://www.smce.ac.in/pdfs/mandatory-disclosure.pdf
+c27,Sri Mittapalli College of Engineering,CSE (Data Science),yes,60 (admitted 50),120 (2025-26),verified,https://www.smce.ac.in/pdfs/mandatory-disclosure.pdf
+c27,Sri Mittapalli College of Engineering,Electronics and Communication Engineering,no,60 (admitted 30),90 (2025-26),verified,https://www.smce.ac.in/pdfs/mandatory-disclosure.pdf
+c148,Vishnu Institute of Technology (VITB),Computer Science and Engineering,yes,240,240 (2026-27),verified,https://vishnu.edu.in/Docs/AICTE/EOA_Report_202324_VIT.pdf ; 2026-27: https://vishnu.edu.in/Docs/AICTE/EOA_Report_202627_VIT.PDF
+c148,Vishnu Institute of Technology (VITB),Information Technology,yes,240,120 (2026-27),verified,https://vishnu.edu.in/Docs/AICTE/EOA_Report_202324_VIT.pdf ; 2026-27: https://vishnu.edu.in/Docs/AICTE/EOA_Report_202627_VIT.PDF
+c148,Vishnu Institute of Technology (VITB),Computer Science and Business Systems,yes,60,60 (2026-27),verified,https://vishnu.edu.in/Docs/AICTE/EOA_Report_202324_VIT.pdf ; 2026-27: https://vishnu.edu.in/Docs/AICTE/EOA_Report_202627_VIT.PDF
+c148,Vishnu Institute of Technology (VITB),CSE (AI & Data Science),yes,120,180 (2026-27),verified,https://vishnu.edu.in/Docs/AICTE/EOA_Report_202324_VIT.pdf ; 2026-27: https://vishnu.edu.in/Docs/AICTE/EOA_Report_202627_VIT.PDF
+c148,Vishnu Institute of Technology (VITB),CSE (AI & Machine Learning),yes,120,180 (2026-27),verified,https://vishnu.edu.in/Docs/AICTE/EOA_Report_202324_VIT.pdf ; 2026-27: https://vishnu.edu.in/Docs/AICTE/EOA_Report_202627_VIT.PDF
+c148,Vishnu Institute of Technology (VITB),Electronics and Communication Engineering,no,180,180 (2026-27),verified,https://vishnu.edu.in/Docs/AICTE/EOA_Report_202324_VIT.pdf ; 2026-27: https://vishnu.edu.in/Docs/AICTE/EOA_Report_202627_VIT.PDF
+c148,Vishnu Institute of Technology (VITB),Electrical and Electronics Engineering,no,60,60 (2026-27),verified,https://vishnu.edu.in/Docs/AICTE/EOA_Report_202324_VIT.pdf ; 2026-27: https://vishnu.edu.in/Docs/AICTE/EOA_Report_202627_VIT.PDF
+c148,Vishnu Institute of Technology (VITB),Civil Engineering,no,60,60 (2026-27),verified,https://vishnu.edu.in/Docs/AICTE/EOA_Report_202324_VIT.pdf ; 2026-27: https://vishnu.edu.in/Docs/AICTE/EOA_Report_202627_VIT.PDF
+c148,Vishnu Institute of Technology (VITB),Mechanical Engineering,no,60,60 (2026-27),verified,https://vishnu.edu.in/Docs/AICTE/EOA_Report_202324_VIT.pdf ; 2026-27: https://vishnu.edu.in/Docs/AICTE/EOA_Report_202627_VIT.PDF
+c83,Usha Rama College of Engineering & Technology,B.Tech CSE,yes,120 (admitted 131),240 (2025-26),verified,https://cdn.usharama.edu.in/documents/mandatory-disclosure.pdf
+c83,Usha Rama College of Engineering & Technology,B.Tech IT,yes,60 (admitted 63),60 (2025-26),verified,https://cdn.usharama.edu.in/documents/mandatory-disclosure.pdf
+c83,Usha Rama College of Engineering & Technology,B.Tech AI&ML,yes,60 (admitted 64),60 (2025-26),verified,https://cdn.usharama.edu.in/documents/mandatory-disclosure.pdf
+c83,Usha Rama College of Engineering & Technology,B.Tech AI&DS,yes,60 (admitted 63),60 (2025-26),verified,https://cdn.usharama.edu.in/documents/mandatory-disclosure.pdf
+c83,Usha Rama College of Engineering & Technology,B.Tech ECE,no,180 (admitted 188),180 (2025-26),verified,https://cdn.usharama.edu.in/documents/mandatory-disclosure.pdf
+c83,Usha Rama College of Engineering & Technology,B.Tech EEE,no,30 (admitted 23),30 (2025-26),verified,https://cdn.usharama.edu.in/documents/mandatory-disclosure.pdf
+c83,Usha Rama College of Engineering & Technology,B.Tech ME,no,30 (admitted 10),30 (2025-26),verified,https://cdn.usharama.edu.in/documents/mandatory-disclosure.pdf
+c26,Priyadarshini Institute of Technology & Science for Women,Computer Science and Engineering,yes,,120 (2025-26 and 2026-27),verified,https://pitw.ac.in/aicte-eoa.pdf
+c26,Priyadarshini Institute of Technology & Science for Women,Electronics and Communication Engineering,no,,60 (2025-26 and 2026-27),verified,https://pitw.ac.in/aicte-eoa.pdf
+c24,Priyadarshini Institute of Technology & Management,Computer Science and Engineering,yes,,"60 (2021-22, latest EoA posted)",verified,https://pitmgnt.ac.in/assets/documents/AICTE-EOA-2021-22.pdf
+c24,Priyadarshini Institute of Technology & Management,Artificial Intelligence and Data Science,yes,,"60 (2021-22, latest EoA posted)",verified,https://pitmgnt.ac.in/assets/documents/AICTE-EOA-2021-22.pdf
+c24,Priyadarshini Institute of Technology & Management,Electronics and Communication Engineering,no,,"120 (2021-22, latest EoA posted)",verified,https://pitmgnt.ac.in/assets/documents/AICTE-EOA-2021-22.pdf
+c24,Priyadarshini Institute of Technology & Management,Electrical and Electronics Engineering,no,,"60 (2021-22, latest EoA posted)",verified,https://pitmgnt.ac.in/assets/documents/AICTE-EOA-2021-22.pdf
+c24,Priyadarshini Institute of Technology & Management,Civil Engineering,no,,"60 (2021-22, latest EoA posted)",verified,https://pitmgnt.ac.in/assets/documents/AICTE-EOA-2021-22.pdf
+c24,Priyadarshini Institute of Technology & Management,Mechanical Engineering,no,,"60 (2021-22, latest EoA posted)",verified,https://pitmgnt.ac.in/assets/documents/AICTE-EOA-2021-22.pdf
+c36,Narasaraopeta Engineering College (NEC),CSE (Artificial Intelligence),yes,120 (admitted 104 + 12 supernumerary),300 (2025-26),verified,https://www.nrtec.in/wp-content/uploads/2026/08/NBA-CSE-AI-DCS-2026.pdf

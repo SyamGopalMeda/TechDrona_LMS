@@ -1,18 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Badge, Button, Dialog, EmptyState, ErrorState, Input, Select, useToast } from "@/components/ui";
+import { Badge, Button, ConfirmDialog, EmptyState, ErrorState, Input, LinkButton, Select, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { seg, useApi } from "@/features/trainer/shared/use-api";
 import { ACTIVITY_TYPES, plural, settingsSummary, TYPE_LABEL } from "../lib/labels";
 import type { Activity, ActivityList as ActivityListData, ActivitySummary, ActivityType } from "../lib/types";
 import { errorText, Loading, StatusBadge } from "./parts";
 import { useEngageScope } from "../lib/scope";
-
-const linkBtn =
-  "inline-flex h-8 items-center justify-center rounded-md px-3 text-sm font-medium focus-visible:outline-none focus-visible:shadow-focus";
 
 function NewMenu() {
   const { base } = useEngageScope();
@@ -68,7 +64,11 @@ export function ActivityCard({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wide text-fg-muted">{TYPE_LABEL[a.activity_type]}</p>
-          <h2 className="mt-0.5 break-words font-display text-base font-semibold text-fg">{a.title}</h2>
+          <h2 className="mt-0.5 break-words font-display text-base font-semibold text-fg">
+            <Link href={`${base}/${seg(a.id)}`} className="text-fg no-underline hover:text-brand hover:underline focus-visible:shadow-focus focus-visible:outline-none">
+              {a.title}
+            </Link>
+          </h2>
         </div>
         {a.latest_run ? <StatusBadge status={a.latest_run.status} /> : <Badge>Not run yet</Badge>}
       </div>
@@ -76,17 +76,18 @@ export function ActivityCard({
         {TYPE_LABEL[a.activity_type]} · {plural(a.question_count, "question")}
       </p>
       <p className="text-xs text-fg-muted">{settingsSummary(a)}</p>
+      {/* One primary per view: the header's "New" is the page's primary; card actions are secondary. */}
       <div className="mt-auto flex flex-wrap gap-2">
-        <Link href={`${base}/${seg(a.id)}`} className={`${linkBtn} bg-brand text-brand-on hover:bg-brand-hover`}>
+        <LinkButton size="sm" variant="secondary" href={`${base}/${seg(a.id)}`} aria-label={`Open control room for ${a.title}`}>
           Open control room
-        </Link>
-        <Link href={`${base}/${seg(a.id)}/edit`} className={`${linkBtn} border border-line-control bg-surface text-fg hover:bg-surface-hover`} aria-label={`Edit ${a.title}`}>
+        </LinkButton>
+        <LinkButton size="sm" variant="ghost" href={`${base}/${seg(a.id)}/edit`} aria-label={`Edit ${a.title}`}>
           Edit
-        </Link>
-        <Button size="sm" variant="secondary" onClick={onDuplicate} disabled={busy} aria-label={`Duplicate ${a.title}`}>
+        </LinkButton>
+        <Button size="sm" variant="ghost" onClick={onDuplicate} disabled={busy} aria-label={`Duplicate ${a.title}`}>
           Duplicate
         </Button>
-        <Button size="sm" variant="ghost" onClick={onDelete} disabled={busy} aria-label={`Delete ${a.title}`}>
+        <Button size="sm" variant="danger-secondary" onClick={onDelete} disabled={busy} aria-label={`Delete ${a.title}`}>
           Delete
         </Button>
       </div>
@@ -98,7 +99,6 @@ export function ActivityCard({
 export function EngageActivities() {
   const { base } = useEngageScope();
   const toast = useToast();
-  const router = useRouter();
   const [q, setQ] = useState("");
   const [query, setQuery] = useState("");
   const [type, setType] = useState<ActivityType | "">("");
@@ -124,15 +124,13 @@ export function EngageActivities() {
     }
   };
 
+  // Errors propagate to ConfirmDialog, which shows them inline and stays open.
   const remove = async (a: ActivitySummary) => {
     setBusy(a.id);
     try {
       await api.delete(`engage/activities/${seg(a.id)}`);
       toast.show({ title: `Deleted "${a.title}"`, tone: "success" });
-      setConfirm(null);
       await list.reload();
-    } catch (err) {
-      toast.show({ ...errorText(err, "Couldn't delete"), tone: "danger" });
     } finally {
       setBusy(null);
     }
@@ -177,7 +175,9 @@ export function EngageActivities() {
           title={query || type ? "No activities match" : "No activities yet"}
           description="Create a quiz, poll, word cloud or survey, then launch it live for your batch."
           action={
-            <Button onClick={() => router.push(`${base}/new?type=poll`)}>Create a poll</Button>
+            <LinkButton variant="secondary" href={`${base}/new?type=poll`}>
+              Create a poll
+            </LinkButton>
           }
         />
       ) : (
@@ -188,22 +188,14 @@ export function EngageActivities() {
         </ul>
       )}
 
-      <Dialog
+      <ConfirmDialog
         open={confirm !== null}
         onClose={() => setConfirm(null)}
-        dismissible={busy === null}
         title="Delete activity"
-        description={confirm ? `Delete "${confirm.title}"? This cannot be undone.` : undefined}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setConfirm(null)} disabled={busy !== null}>
-              Cancel
-            </Button>
-            <Button variant="danger" loading={busy !== null} onClick={() => confirm && void remove(confirm)}>
-              Delete
-            </Button>
-          </>
-        }
+        description={confirm ? `Delete "${confirm.title}"? Its past runs and results go too. This cannot be undone.` : undefined}
+        confirmLabel="Delete activity"
+        danger
+        onConfirm={() => (confirm ? remove(confirm) : undefined)}
       />
     </div>
   );

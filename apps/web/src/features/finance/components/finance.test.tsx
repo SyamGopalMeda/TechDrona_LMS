@@ -1,9 +1,9 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockApi, problem, renderWithProviders } from "@/features/auth/test/mock-api";
 import { downloadSink } from "@/features/commerce/lib/download";
-import { Invoices, Orders, Reconciliation, Refunds, RevenueSummary, reconciliationRange } from "./Finance";
+import { FinanceHome, Invoices, MismatchList, Orders, Reconciliation, Refunds, RevenueSummary, istToday, orderRef, reconciliationRange } from "./Finance";
 import { inclusiveDays } from "./FinanceDocuments";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
@@ -28,7 +28,7 @@ describe("Refunds (FIN-005)", () => {
     cleanups.push(api.restore);
     renderWithProviders(<Refunds />);
     expect(await screen.findByText("₹2,624.25", { selector: "td" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Decide refund for TD-O-1" }));
+    await userEvent.click(screen.getByRole("button", { name: "Review refund for order #TDO1" }));
     const dialog = await screen.findByRole("dialog");
     await userEvent.type(within(dialog).getByLabelText(/^Note/), "Within 7 days");
     await userEvent.click(within(dialog).getByRole("button", { name: "Approve refund" }));
@@ -45,11 +45,11 @@ describe("Refunds (FIN-005)", () => {
     });
     cleanups.push(api.restore);
     renderWithProviders(<Refunds />);
-    await userEvent.click(await screen.findByRole("button", { name: "Decide refund for TD-O-2" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Review refund for order #TDO2" }));
     const dialog = await screen.findByRole("dialog");
     const goodwill = within(dialog).getByRole("checkbox", { name: /Goodwill/ });
     expect(goodwill).toBeChecked();
-    expect(within(dialog).getByText(/A second finance admin must approve/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/A second admin must approve/)).toBeInTheDocument();
     await userEvent.click(goodwill);
     await userEvent.type(within(dialog).getByLabelText(/^Note/), "Service outage");
     await userEvent.click(within(dialog).getByRole("button", { name: "Approve refund" }));
@@ -157,7 +157,7 @@ describe("Refund second approval (FIN-005, ADM-25)", () => {
     cleanups.push(api.restore);
     renderWithProviders(<Refunds />);
     expect(await screen.findByText("⇄ Awaiting second approver")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Second approval for refund TD-O-3" }));
+    await userEvent.click(screen.getByRole("button", { name: "Second approval for refund on order #TDO3" }));
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "Approve refund" }));
     await waitFor(() => expect(api.calls.some((c) => c.path === "finance/approval-requests/ap9/approve")).toBe(true));
@@ -185,6 +185,21 @@ describe("Order detail (FIN-004, ADM-37)", () => {
 });
 
 describe("Reconciliation (FIN-009, ADM-40)", () => {
+  it("says the online gateway is not integrated yet when the API reports the fake adapter", async () => {
+    const api = mockApi({ "GET finance/reconciliation": { body: { data: [], gateway: { provider: "fake", integrated: false } } } });
+    cleanups.push(api.restore);
+    renderWithProviders(<Reconciliation />);
+    expect(await screen.findByText("Online payment gateway: not integrated yet")).toBeInTheDocument();
+  });
+
+  it("shows no gateway notice when the gateway is integrated", async () => {
+    const api = mockApi({ "GET finance/reconciliation": { body: { data: [], gateway: { provider: "razorpay", integrated: true } } } });
+    cleanups.push(api.restore);
+    renderWithProviders(<Reconciliation />);
+    expect(await screen.findByText("No reconciliation runs yet")).toBeInTheDocument();
+    expect(screen.queryByText(/not integrated yet/)).not.toBeInTheDocument();
+  });
+
   it("sends the To day inclusively (next day 00:00 IST)", async () => {
     expect(reconciliationRange("2026-10-01", "2026-10-31")).toEqual({ body: { range_from: "2026-10-01T00:00:00+05:30", range_to: "2026-11-01T00:00:00+05:30" } });
     expect(reconciliationRange("2026-10-05", "2026-10-05")).toEqual({ body: { range_from: "2026-10-05T00:00:00+05:30", range_to: "2026-10-06T00:00:00+05:30" } });
@@ -241,5 +256,70 @@ describe("Finance-initiated refund (COM-01 price_adjustment)", () => {
     const post = api.calls.find((c) => c.method === "POST")!;
     expect(post.body).toEqual({ order_id: "o1", reason_code: "price_adjustment", amount_paise: 50000, note: "Price dropped after purchase" });
     expect(post.headers["idempotency-key"]).toBeTruthy();
+  });
+});
+
+describe("Finance Phase 2 presentation (audit 1.11)", () => {
+  it("home: the refund tile links to its queue, warns when work waits and says 50+ for a full page", async () => {
+    const api = mockApi({
+      "GET finance/refunds": { body: { data: refunds.data, page: { ...page, has_more: true, next_cursor: "c2" } } },
+      "GET finance/reconciliation": { body: { data: [{ run_id: "r1", gateway: "razorpay", range_from: "2026-10-01T00:00:00Z", range_to: "2026-10-02T00:00:00Z", status: "completed", mismatches: [{ type: "amount_mismatch" }], created_at: "2026-10-02T00:00:00Z" }] } },
+      "GET finance/reports/revenue": { body: { range_from: "2026-10-01T00:00:00Z", range_to: "2026-10-31T00:00:00Z", orders_paid: 0, gross_paise: 0, gst_paise: 0, discount_pre_tax_paise: 0, refunds_processed: 0, refunded_paise: 0, net_paise: 0, by_product_kind: [] } },
+    });
+    cleanups.push(api.restore);
+    renderWithProviders(<FinanceHome />);
+    expect(screen.getByRole("heading", { level: 1, name: "Revenue" })).toBeInTheDocument();
+    const refundTile = await screen.findByRole("link", { name: /Refunds waiting for a decision/ });
+    expect(refundTile).toHaveAttribute("href", "/finance/refunds");
+    expect(refundTile).toHaveTextContent("2+");
+    expect(screen.getByRole("link", { name: /Mismatches in the last reconciliation/ })).toHaveAttribute("href", "/finance/reconciliation");
+    expect(screen.queryByText(/Indian grouping/)).not.toBeInTheDocument();
+  });
+
+  it("orders: a readable reference when there is no order number, and details in a dialog with product names", async () => {
+    expect(orderRef({ order_id: "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0", order_number: "" })).toBe("#C7D8E9F0");
+    const order = { order_id: "o1", order_number: "TD-O-9", status: "paid", total_paise: 349900, created_at: "2026-11-01T10:00:00Z" };
+    const api = mockApi({
+      "GET finance/orders": { body: { data: [order], page } },
+      "GET finance/orders/o1": { body: { ...order, items: [{ order_item_id: "oi1", product_id: "p1", price_id: null, unit_amount_paise: 349900, taxable_paise: 296525, cgst_paise: 0, sgst_paise: 0, igst_paise: 53375, total_paise: 349900, gst_rate: "18.00", sac_code: "9992" }], webhook_events: [{ event_type: "payment.captured", status: "processed", is_stale: false, refetch_status: null, received_at: "2026-11-01T10:01:00Z" }], entitlements: [], invoices: [] } },
+      "GET finance/products": { body: { data: [{ product_id: "p1", name: "DSA Pro", sku: "DSA-PRO" }], page } },
+    });
+    cleanups.push(api.restore);
+    renderWithProviders(<Orders />);
+    await userEvent.click(await screen.findByRole("button", { name: "Details for order TD-O-9" }));
+    const dialog = await screen.findByRole("dialog", { name: "Order TD-O-9" });
+    expect(await within(dialog).findByText("DSA Pro")).toBeInTheDocument();
+    expect(within(dialog).getByText("Payment captured")).toBeInTheDocument();
+  });
+
+  it("orders: a partial user id is not sent and says how to fix it", async () => {
+    const api = mockApi({ "GET finance/orders": { body: { data: [], page } } });
+    cleanups.push(api.restore);
+    renderWithProviders(<Orders />);
+    await userEvent.type(await screen.findByLabelText(/Buyer's user id/), "abc");
+    expect(screen.getByText(/Paste the full user id/)).toBeInTheDocument();
+    expect(api.calls.some((c) => c.url.includes("user_id="))).toBe(false);
+  });
+
+  it("refunds: order short refs instead of UUIDs and day counts in words", async () => {
+    const api = mockApi({ "GET finance/refunds": { body: { data: [{ ...refunds.data[0]!, order_id: "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0", eligibility: { ...refunds.data[0]!.eligibility, days_since_purchase: 12 } }], page } } });
+    cleanups.push(api.restore);
+    renderWithProviders(<Refunds />);
+    expect(await screen.findByText("#C7D8E9F0")).toBeInTheDocument();
+    expect(screen.queryByText(/0b1c2d3e-4f50/)).not.toBeInTheDocument();
+    expect(screen.getByText(/12 days since purchase/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review refund for order #C7D8E9F0" })).toHaveTextContent("Review");
+  });
+
+  it("reconciliation: mismatches as a readable table, raw JSON only under a disclosure", () => {
+    render(<MismatchList mismatches={[{ type: "amount_mismatch", payment_id: "pay_1", ours: 349900, provider: 300000 }]} />);
+    expect(screen.getByText("Amount does not match")).toBeInTheDocument();
+    expect(screen.getByText("₹3,499.00")).toBeInTheDocument();
+    expect(screen.getByText("Raw data")).toBeInTheDocument();
+    expect(screen.getByText("Raw data").closest("details")).not.toHaveAttribute("open");
+  });
+
+  it("reconciliation: dates cannot be in the future (IST)", () => {
+    expect(istToday(Date.parse("2026-11-10T20:00:00Z"))).toBe("2026-11-11");
   });
 });

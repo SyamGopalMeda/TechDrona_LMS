@@ -53,6 +53,10 @@ EXCEPTIONS: dict[tuple[str, str, str], str] = {
         "Requester/approver-scoped list: rows are filtered to approval requests the caller raised "
         "or may decide (apr.can_approve), so a learner gets 200 with an empty list, never others' rows."
     ),
+    ("POST", "/sso/website", "*"): (
+        "Website single sign-on mints a Firebase custom token; without the service-account key (as in "
+        "tests) it answers 503 service_unavailable, the documented 'not configured' response."
+    ),
 }
 
 

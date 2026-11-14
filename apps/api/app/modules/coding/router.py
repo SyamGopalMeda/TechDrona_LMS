@@ -19,8 +19,13 @@ from sqlalchemy import select
 from app.core.access import check_access
 from app.core.audit import audit
 from app.core.auth import ScopeRef, require_active_principal, require_step_up
-from app.core.db import PrincipalDbSession
+from app.core.config import get_settings
 from app.core.errors import ProblemError
+from app.core.firestore.backend import uses_firestore
+
+# Postgres stack: the request session unchanged. No Postgres: the SQL engine's ``MemoryTx`` with the
+# principal's RLS context, so modules on the engine (assessments: the attempt validator) can use it.
+from app.core.firestore.sqlstore import StorePrincipalDbSession as PrincipalDbSession
 from app.core.idempotency import HEADER as IDEM_HEADER
 from app.core.idempotency import IdemResult, idempotent, route_key
 from app.core.models import IdempotencyKey
@@ -31,6 +36,7 @@ from app.modules.coding import authoring, service
 from app.modules.coding import privacy as _privacy  # noqa: F401  (registers the erasure provider)
 from app.modules.coding.models import CodeSubmission, CodingProblem, CodingTestCase
 from app.modules.coding.policies import check_permission, has_permission, scope_for
+from app.modules.coding.rls import bind_principal
 from app.modules.coding.schemas import (
     DraftIn,
     ProblemCreateIn,
@@ -42,12 +48,28 @@ from app.modules.coding.schemas import (
     ValidateIn,
 )
 
-router = authenticated_router(tags=["coding"])
+router = authenticated_router(tags=["coding"], dependencies=[Depends(bind_principal)])
 
 Limit = Annotated[int, Query(ge=1, le=MAX_LIMIT)]
 
 
 # --------------------------------------------------------------------------- catalogue
+
+
+def _fs() -> bool:
+    return uses_firestore("coding")
+
+
+async def _repo(session: Any) -> Any:
+    from app.modules.coding import repo_firestore
+
+    return await repo_firestore.repo(session)
+
+
+def _nopg(session: Any) -> Any:
+    """The request session, or ``None`` without Postgres (``db.NO_POSTGRES`` is falsy): core
+    ``idempotent`` then keeps no Postgres savepoint (it checks ``session is not None``)."""
+    return session or None
 
 
 @router.get("/coding/languages", openapi_extra={"x-td-idle": "neutral"})
@@ -62,7 +84,10 @@ async def list_languages(session: PrincipalDbSession) -> dict[str, Any]:
                 "starter_template": lang.starter_template,
             }
             for lang in langs
-        ]
+        ],
+        # FakeJudgeAdapter never runs code (every run is "Wrong answer" unless a FAKE_VERDICT
+        # marker is present): screens must say the code runner is not integrated yet.
+        "judge": {"simulated": get_settings().JUDGE_PROVIDER.lower() == "fake"},
     }
 
 
@@ -74,27 +99,51 @@ async def list_problems(
     cursor: str | None = None,
     limit: Limit = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
-    q = select(CodingProblem).where(CodingProblem.status == "published")
-    if difficulty is not None:
-        q = q.where(CodingProblem.difficulty == difficulty)
+    after: uuid.UUID | None = None
     if cursor:
         try:
-            q = q.where(CodingProblem.id > uuid.UUID(str(decode_cursor(cursor)["id"])))
+            after = uuid.UUID(str(decode_cursor(cursor)["id"]))
         except (KeyError, ValueError) as e:
             raise ProblemError("invalid_cursor") from e
-    rows = list((await session.execute(q.order_by(CodingProblem.id).limit(limit + 1))).scalars())
-    more = len(rows) > limit
-    rows = rows[:limit]
-    ids = [p.id for p in rows]
-    status_rows = await session.execute(
-        select(CodeSubmission.coding_problem_id, CodeSubmission.verdict).where(
-            CodeSubmission.user_id == principal.user_id,
-            CodeSubmission.mode == "submit",
-            CodeSubmission.coding_problem_id.in_(ids),
+    pairs: Any
+    if _fs():
+        repo = await _repo(session)
+        found = sorted(
+            (
+                p
+                for p in await repo.problems(status="published")
+                if (difficulty is None or p.difficulty == difficulty) and (after is None or p.id > after)
+            ),
+            key=lambda p: p.id,
         )
-    )
+        rows = found[: limit + 1]
+        more = len(rows) > limit
+        rows = rows[:limit]
+        ids = {p.id for p in rows}
+        pairs = [
+            (s.coding_problem_id, s.verdict)
+            for s in await repo.submissions_of(principal.user_id, (("mode", "==", "submit"),))
+            if s.coding_problem_id in ids
+        ]
+    else:
+        q = select(CodingProblem).where(CodingProblem.status == "published")
+        if difficulty is not None:
+            q = q.where(CodingProblem.difficulty == difficulty)
+        if after is not None:
+            q = q.where(CodingProblem.id > after)
+        rows = list((await session.execute(q.order_by(CodingProblem.id).limit(limit + 1))).scalars())
+        more = len(rows) > limit
+        rows = rows[:limit]
+        status_rows = await session.execute(
+            select(CodeSubmission.coding_problem_id, CodeSubmission.verdict).where(
+                CodeSubmission.user_id == principal.user_id,
+                CodeSubmission.mode == "submit",
+                CodeSubmission.coding_problem_id.in_([p.id for p in rows]),
+            )
+        )
+        pairs = status_rows.all()
     mine: dict[uuid.UUID, str] = {}
-    for pid, verdict in status_rows.all():
+    for pid, verdict in pairs:
         if verdict == "AC":
             mine[pid] = "solved"
         else:
@@ -153,6 +202,12 @@ async def _idem_exists(request: Request, session: Any, principal: Principal) -> 
     key = request.headers.get(IDEM_HEADER)
     if not key:
         raise ProblemError("idempotency_key_required")
+    if uses_firestore("core"):  # the idempotency record lives where core.idempotent keeps it
+        from app.core.firestore.core_store import IDEM_JOB, IDEMPOTENCY, idem_doc_id
+        from app.core.firestore.store import ScopedStore
+
+        doc_id = idem_doc_id(principal.user_id, route_key(request), key)
+        return await ScopedStore.system(IDEM_JOB).get(IDEMPOTENCY, doc_id) is not None
     row = await session.execute(
         select(IdempotencyKey.id).where(
             IdempotencyKey.user_id == principal.user_id,
@@ -204,7 +259,7 @@ async def run_code(
         pos = await service.queue_position(session, principal, sub)
         return IdemResult(body=service.accepted_body(sub, pos), status=202, resource_id=sub.id)
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op)
 
 
 @router.post(
@@ -258,7 +313,7 @@ async def submit_code(
         pos = await service.queue_position(session, principal, sub)
         return IdemResult(body=service.accepted_body(sub, pos), status=202, resource_id=sub.id)
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op)
 
 
 @router.get("/coding/submissions/{submission_id}", openapi_extra={"x-td-idle": "neutral"})
@@ -268,7 +323,11 @@ async def get_submission(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
-    sub = await session.get(CodeSubmission, submission_id)
+    sub = (
+        await (await _repo(session)).get_submission(submission_id)
+        if _fs()
+        else await session.get(CodeSubmission, submission_id)
+    )
     if sub is None:
         raise ProblemError("not_found")
     staff_view = False
@@ -296,24 +355,43 @@ async def _batch_reader(request: Request, session: Any, principal: Principal, su
     an org-attributed learner who is an active member of a batch the caller holds it on."""
     if sub.organization_id is None:
         return False
-    from app.modules.orgs.models import Batch, BatchMember
+    if _fs():
+        return await _fs_batch_reader(request, session, principal, sub)
+    from app.modules.orgs import public as orgs
 
     for g in principal.grants:
         if g.scope_type != "batch" or g.scope_id is None:
             continue
-        member = (
-            await session.execute(
-                select(BatchMember.id)
-                .join(Batch, Batch.id == BatchMember.batch_id)
-                .where(
-                    BatchMember.batch_id == g.scope_id,
-                    BatchMember.user_id == sub.user_id,
-                    BatchMember.status == "active",
-                    Batch.organization_id == sub.organization_id,
-                )
-            )
-        ).first()
-        if member is None:
+        b = await orgs.get_batch(session, g.scope_id)
+        if b is None or b.organization_id != sub.organization_id:
+            continue
+        if not await orgs.batch_members(session, batch_ids=[g.scope_id], user_ids=[sub.user_id]):
+            continue
+        try:
+            if await has_permission(
+                request, principal, "submission.code.read", ScopeRef("batch", g.scope_id)
+            ):
+                return True
+        except ProblemError:
+            continue
+    return False
+
+
+async def _fs_batch_reader(request: Request, session: Any, principal: Principal, sub: CodeSubmission) -> bool:
+    """``_batch_reader`` through ``orgs.public`` (same rule: an ``active`` member row of the grant's
+    batch, the batch belonging to the submission's organization)."""
+    from app.modules.orgs import public as orgs_public
+
+    for g in principal.grants:
+        if g.scope_type != "batch" or g.scope_id is None:
+            continue
+        members = await orgs_public.batch_members(
+            session, batch_ids=[g.scope_id], user_ids=[sub.user_id], active_only=False
+        )
+        if not any(m.status == "active" for m in members):
+            continue
+        batch = await orgs_public.get_batch(session, g.scope_id)
+        if batch is None or batch.organization_id != sub.organization_id:
             continue
         try:
             if await has_permission(
@@ -334,6 +412,34 @@ async def my_submissions(
     cursor: str | None = None,
     limit: Limit = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
+    if _fs():
+        before: uuid.UUID | None = None
+        if cursor:
+            try:
+                before = uuid.UUID(str(decode_cursor(cursor)["id"]))
+            except (KeyError, ValueError) as e:
+                raise ProblemError("invalid_cursor") from e
+        flt: list[Any] = []
+        if problem_id:
+            flt.append(("coding_problem_id", "==", str(problem_id)))
+        if mode:
+            flt.append(("mode", "==", mode))
+        subs = sorted(
+            (
+                s
+                for s in await (await _repo(session)).submissions_of(principal.user_id, flt)
+                if before is None or s.id < before
+            ),
+            key=lambda s: s.id,
+            reverse=True,
+        )
+        frows = subs[: limit + 1]
+        fmore = len(frows) > limit
+        frows = frows[:limit]
+        return {
+            "data": [service.history_item(s) for s in frows],
+            "meta": page_meta({"id": str(frows[-1].id)} if fmore and frows else None, limit),
+        }
     q = select(CodeSubmission).where(CodeSubmission.user_id == principal.user_id)
     if problem_id:
         q = q.where(CodeSubmission.coding_problem_id == problem_id)
@@ -359,7 +465,11 @@ async def my_submissions(
 async def _studio_problem(
     request: Request, session: Any, principal: Principal, problem_id: uuid.UUID
 ) -> CodingProblem:
-    p = await session.get(CodingProblem, problem_id)
+    p = (
+        await (await _repo(session)).get_problem(problem_id)
+        if _fs()
+        else await session.get(CodingProblem, problem_id)
+    )
     if p is None:
         raise ProblemError("not_found")
     await check_permission(request, principal, "coding_problem.manage", scope_for(p.organization_id))
@@ -707,7 +817,7 @@ async def validate_problem(
         )
         return IdemResult(body=authoring.validation_out(v, v.fingerprint), status=200, resource_id=v.id)
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=False)
 
 
 @router.get("/studio/coding/problems/{problem_id}/validation")
@@ -740,10 +850,17 @@ async def hidden_case_content(
     """COD-17: short-lived (5 min), single-use, user-bound download links for one hidden case.
     Requires ``coding_test_case.hidden.read`` on the problem's scope, a fresh staff step-up
     (S10) and a reason (>= 10 chars); 30 requests/hour; audited ``coding.testcase.read_hidden``."""
-    case = await session.get(CodingTestCase, test_case_id)
-    if case is None:
-        raise ProblemError("not_found")
-    p = await session.get(CodingProblem, case.coding_problem_id)
+    if _fs():
+        frepo = await _repo(session)
+        case = await frepo.get_case(test_case_id)
+        if case is None:
+            raise ProblemError("not_found")
+        p = await frepo.get_problem(case.coding_problem_id)
+    else:
+        case = await session.get(CodingTestCase, test_case_id)
+        if case is None:
+            raise ProblemError("not_found")
+        p = await session.get(CodingProblem, case.coding_problem_id)
     if p is None:
         raise ProblemError("not_found")
     await check_permission(request, principal, "coding_test_case.hidden.read", scope_for(p.organization_id))

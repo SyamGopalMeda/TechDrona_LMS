@@ -40,7 +40,9 @@ describe("NotificationsInbox (STU-024, INV-07)", () => {
     restore = mockApi({ "GET me/notifications": { body: { data: [], unread_count: 0, page } } }).restore;
     renderWithProviders(<NotificationsInbox />);
     expect(await screen.findByText("No notifications yet")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Mark all as read" })).toBeDisabled();
+    // Nothing unread: the bulk action is hidden rather than shown disabled.
+    expect(screen.queryByRole("button", { name: "Mark all as read" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/isn't available yet/)).not.toBeInTheDocument();
   });
 });
 

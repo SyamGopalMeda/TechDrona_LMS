@@ -312,7 +312,11 @@ describe("EvaluationView", () => {
     expect(screen.getByText("AI help used 2")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Run AI grading" }));
     await waitFor(() => expect(api.calls.some((c) => c.method === "POST" && c.path === "assignments/a1/ai-grading")).toBe(true));
-    await userEvent.click(screen.getByRole("button", { name: "Publish results" }));
+    const publishBtn = screen.getByRole("button", { name: "Publish results" });
+    // Not the primary action while marks are unfinalized; the reason is announced with it.
+    expect(publishBtn.className.split(" ")).not.toContain("bg-brand"); // not the primary fill
+    expect(publishBtn).toHaveAccessibleDescription(/0 of 1 submission finalized/);
+    await userEvent.click(publishBtn);
     expect(screen.getByText(/1 submission is not finalized/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Publish" }));
     await waitFor(() => expect(api.calls.some((c) => c.path === "assignments/a1/release-grades")).toBe(true));

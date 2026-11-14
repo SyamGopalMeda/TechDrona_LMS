@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Button, Card, Dialog, FormField, Input, StatTile, Table, Tabs, useToast } from "@/components/ui";
+import { Button, Card, Dialog, EmptyState, FormField, Input, PageHeader, StatTile, Table, Tabs, useToast } from "@/components/ui";
 import { useApi, seg } from "@/features/trainer/shared/use-api";
 import { Boundary, StatusBadge, TextArea, fieldErrorsOf, formatDateTime, safeExternalUrl, useFailToast } from "@/features/trainer/shared/ui";
 import { KIND_LABEL, LIVE_STATUSES, SCORE_LABEL, isHttpsUrl, send } from "../lib/api";
@@ -48,7 +48,11 @@ function SessionTable({ view, caption }: { view: "upcoming" | "pending_feedback"
     <Table
       caption={caption}
       columns={[
-        { key: "w", header: "When", cell: (s: Session) => formatDateTime(s.starts_at) },
+        {
+          key: "w",
+          header: "When",
+          cell: (s: Session) => formatDateTime(s.starts_at),
+        },
         {
           key: "s",
           header: "Student",
@@ -58,13 +62,20 @@ function SessionTable({ view, caption }: { view: "upcoming" | "pending_feedback"
             </Link>
           ),
         },
-        { key: "k", header: "Type", cell: (s) => `${KIND_LABEL[s.session_kind] ?? s.session_kind} · ${s.duration_minutes} min` },
-        { key: "st", header: "Status", cell: (s) => <BookingBadge status={s.status} /> },
+        {
+          key: "k",
+          header: "Type",
+          cell: (s) => `${KIND_LABEL[s.session_kind] ?? s.session_kind} · ${s.duration_minutes} min`,
+        },
+        {
+          key: "st",
+          header: "Status",
+          cell: (s) => <BookingBadge status={s.status} />,
+        },
         {
           key: "f",
           header: "Feedback",
-          cell: (s) =>
-            s.feedback ? "Given" : s.feedback_overdue ? <span className="text-danger-fg">Overdue</span> : view === "upcoming" ? "—" : `Due ${formatDateTime(s.feedback_due_at)}`,
+          cell: (s) => (s.feedback ? "Given" : s.feedback_overdue ? <span className="text-danger-fg">Overdue</span> : view === "upcoming" ? "—" : `Due ${formatDateTime(s.feedback_due_at)}`),
         },
       ]}
       rows={list.data?.data}
@@ -82,8 +93,13 @@ function SessionTable({ view, caption }: { view: "upcoming" | "pending_feedback"
 
 /** MEN-001 dashboard: upcoming sessions, pending feedback, résumé reviews. */
 export function MentorSessions() {
-  const counts = useApi<SessionList>("mentor/sessions", { view: "all", limit: 1 });
-  const reviews = useApi<{ data: ReviewQueueItem[] }>("mentor/resume-reviews", { status: "open" });
+  const counts = useApi<SessionList>("mentor/sessions", {
+    view: "all",
+    limit: 1,
+  });
+  const reviews = useApi<{ data: ReviewQueueItem[] }>("mentor/resume-reviews", {
+    status: "open",
+  });
   const c = counts.data?.counts;
   return (
     <div className="space-y-6">
@@ -103,9 +119,21 @@ export function MentorSessions() {
       <Tabs
         label="Sessions"
         items={[
-          { id: "upcoming", label: "Upcoming", content: <SessionTable view="upcoming" caption="Upcoming sessions" /> },
-          { id: "pending", label: "Pending feedback", content: <SessionTable view="pending_feedback" caption="Sessions needing feedback" /> },
-          { id: "past", label: "Past", content: <SessionTable view="past" caption="Past sessions" /> },
+          {
+            id: "upcoming",
+            label: "Upcoming",
+            content: <SessionTable view="upcoming" caption="Upcoming sessions" />,
+          },
+          {
+            id: "pending",
+            label: "Pending feedback",
+            content: <SessionTable view="pending_feedback" caption="Sessions needing feedback" />,
+          },
+          {
+            id: "past",
+            label: "Past",
+            content: <SessionTable view="past" caption="Past sessions" />,
+          },
         ]}
       />
       <p className="text-sm">
@@ -123,7 +151,13 @@ export function MentorSessions() {
 
 /* ------------------------------------------------------------------ MEN-003 */
 
-const EMPTY_SCORES: Record<ScoreKey, string> = { communication: "", problem_solving: "", technical_depth: "", confidence: "", overall: "" };
+const EMPTY_SCORES: Record<ScoreKey, string> = {
+  communication: "",
+  problem_solving: "",
+  technical_depth: "",
+  confidence: "",
+  overall: "",
+};
 
 /** Rubric feedback: 5 criteria, each 1–5 (all required), plus optional comments. */
 export function FeedbackForm({ bookingId, onDone }: { bookingId: string; onDone: (f: Feedback) => void }) {
@@ -142,9 +176,15 @@ export function FeedbackForm({ bookingId, onDone }: { bookingId: string; onDone:
     if (Object.keys(errs).length) return;
     setBusy(true);
     try {
-      const body = { scores: Object.fromEntries(SCORE_KEYS.map((k) => [k, Number(scores[k])])), ...(comments.trim() ? { comments: comments.trim() } : {}) };
+      const body = {
+        scores: Object.fromEntries(SCORE_KEYS.map((k) => [k, Number(scores[k])])),
+        ...(comments.trim() ? { comments: comments.trim() } : {}),
+      };
       const f = await send<Feedback>("post", `mentor/bookings/${seg(bookingId)}/feedback`, body, { idempotencyKey: true });
-      toast.show({ tone: "success", title: "Feedback shared with the student" });
+      toast.show({
+        tone: "success",
+        title: "Feedback shared with the student",
+      });
       onDone(f);
     } catch (err) {
       const fe = fieldErrorsOf(err);
@@ -245,7 +285,10 @@ export function MentorSessionDetail({ bookingId }: { bookingId: string }) {
     try {
       const s = await send<Session>("post", `mentor/bookings/${seg(bookingId)}/no-show`, { party: noShow }, { idempotencyKey: true });
       setLocal((prev) => ({ ...(prev ?? state.data!), ...s }));
-      toast.show({ tone: "success", title: noShow === "mentor" ? "Marked as missed — the student's credit is restored" : "Marked student no-show" });
+      toast.show({
+        tone: "success",
+        title: noShow === "mentor" ? "Marked as missed — the student's credit is restored" : "Marked student no-show",
+      });
       setNoShow(null);
     } catch (err) {
       fail(err, "Couldn't record the no-show");
@@ -254,86 +297,101 @@ export function MentorSessionDetail({ bookingId }: { bookingId: string }) {
     }
   }
 
+  const head = local ?? state.data;
+  const title = head ? `${KIND_LABEL[head.session_kind] ?? "Session"} with ${head.student_name ?? "a student"}` : "Session";
   return (
-    <Boundary state={state}>
-      {(fetched) => {
-        const d = local ?? fetched;
-        const live = LIVE_STATUSES.includes(d.status);
-        const started = Date.parse(d.starts_at) <= Date.now();
-        return (
-          <div className="space-y-6">
-            <div className="flex flex-wrap items-center gap-3 text-sm text-fg-secondary">
-              <Link className="text-fg-link underline" href={`/mentor/students/${seg(d.student_id)}`}>
-                {d.student_name ?? "Student"}
-              </Link>
-              <span>
-                {KIND_LABEL[d.session_kind] ?? d.session_kind} · {formatDateTime(d.starts_at)} · {d.duration_minutes} min
-              </span>
-              <BookingBadge status={d.status} />
+    <div>
+      <PageHeader
+        breadcrumbs={[{ label: "Sessions", href: "/mentor" }, { label: title }]}
+        title={title}
+        meta={head ? <BookingBadge status={head.status} /> : null}
+        description={head ? `${formatDateTime(head.starts_at)} · ${head.duration_minutes} min` : undefined}
+        actions={
+          head ? (
+            <Link
+              className="inline-flex min-h-touch items-center rounded-md border border-line-control bg-surface px-3 text-sm font-medium text-fg no-underline hover:bg-surface-hover focus-visible:shadow-focus focus-visible:outline-none md:min-h-9"
+              href={`/mentor/students/${seg(head.student_id)}`}
+            >
+              View student
+            </Link>
+          ) : undefined
+        }
+      />
+      <Boundary state={state}>
+        {(fetched) => {
+          const d = local ?? fetched;
+          const live = LIVE_STATUSES.includes(d.status);
+          const started = Date.parse(d.starts_at) <= Date.now();
+          return (
+            <div className="space-y-6">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Card title="Meeting">
+                  <div className="space-y-3">
+                    <MeetingLink url={d.meeting_url} />
+                    {live ? <MeetingLinkEditor session={d} onSaved={(s) => setLocal(s)} /> : null}
+                  </div>
+                </Card>
+                <Card title="Readiness snapshot">
+                  {d.weak_topics.length ? (
+                    <p className="text-sm text-fg-secondary">Weakest topics: {d.weak_topics.join(", ")}</p>
+                  ) : (
+                    <EmptyState variant="inline" icon="chart" title="No weak topics recorded" description="Topics appear once the student has practised enough questions." />
+                  )}
+                </Card>
+              </div>
+              <Card title="Rubric feedback">
+                {d.feedback ? (
+                  <FeedbackView feedback={d.feedback} />
+                ) : live && started ? (
+                  <div className="space-y-3">
+                    <p className={`text-sm ${d.feedback_overdue ? "text-danger-fg" : "text-fg-muted"}`}>
+                      {d.feedback_overdue ? "Overdue — " : ""}Feedback due by {formatDateTime(d.feedback_due_at)}.
+                    </p>
+                    <FeedbackForm bookingId={d.id} onDone={(f) => setLocal({ ...d, feedback: f, status: "completed" })} />
+                  </div>
+                ) : live ? (
+                  <p className="text-sm text-fg-muted">You can give feedback once the session has started.</p>
+                ) : (
+                  <p className="text-sm text-fg-muted">No feedback for this session.</p>
+                )}
+              </Card>
+              {live && started && !d.feedback ? (
+                <Card title="No-show">
+                  <p className="text-sm text-fg-muted">Student no-show can be recorded 10 minutes after the start. If you missed the session, the student&apos;s credit is restored automatically.</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button variant="secondary" onClick={() => setNoShow("student")}>
+                      Student didn&apos;t join
+                    </Button>
+                    <Button variant="secondary" onClick={() => setNoShow("mentor")}>
+                      I missed this session
+                    </Button>
+                  </div>
+                </Card>
+              ) : null}
+              <Card title="Private notes">
+                <NotesPanel studentId={d.student_id} bookingId={d.id} notes={d.notes} onAdded={(n: Note) => setLocal({ ...d, notes: [n, ...d.notes] })} />
+              </Card>
+              <Dialog
+                open={noShow !== null}
+                onClose={() => setNoShow(null)}
+                title={noShow === "mentor" ? "Record that you missed this session?" : "Record a student no-show?"}
+                description={noShow === "mentor" ? "The student gets the session credit back and an apology." : "The session credit stays used."}
+                footer={
+                  <>
+                    <Button variant="secondary" onClick={() => setNoShow(null)}>
+                      Keep as is
+                    </Button>
+                    <Button loading={busy} onClick={() => void markNoShow()}>
+                      Confirm
+                    </Button>
+                  </>
+                }
+              />
             </div>
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card title="Meeting">
-                <div className="space-y-3">
-                  <MeetingLink url={d.meeting_url} />
-                  {live ? <MeetingLinkEditor session={d} onSaved={(s) => setLocal(s)} /> : null}
-                </div>
-              </Card>
-              <Card title="Readiness snapshot">
-                {d.weak_topics.length ? <p className="text-sm text-fg-secondary">Weakest topics: {d.weak_topics.join(", ")}</p> : <p className="text-sm text-fg-muted">No weak topics recorded.</p>}
-              </Card>
-            </div>
-            <Card title="Rubric feedback">
-              {d.feedback ? (
-                <FeedbackView feedback={d.feedback} />
-              ) : live && started ? (
-                <div className="space-y-3">
-                  <p className={`text-sm ${d.feedback_overdue ? "text-danger-fg" : "text-fg-muted"}`}>
-                    {d.feedback_overdue ? "Overdue — " : ""}Feedback due by {formatDateTime(d.feedback_due_at)}.
-                  </p>
-                  <FeedbackForm bookingId={d.id} onDone={(f) => setLocal({ ...d, feedback: f, status: "completed" })} />
-                </div>
-              ) : live ? (
-                <p className="text-sm text-fg-muted">You can give feedback once the session has started.</p>
-              ) : (
-                <p className="text-sm text-fg-muted">No feedback for this session.</p>
-              )}
-            </Card>
-            {live && started && !d.feedback ? (
-              <Card title="No-show">
-                <p className="text-sm text-fg-muted">Student no-show can be recorded 10 minutes after the start. If you missed the session, the student&apos;s credit is restored automatically.</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button variant="secondary" onClick={() => setNoShow("student")}>
-                    Student didn&apos;t join
-                  </Button>
-                  <Button variant="secondary" onClick={() => setNoShow("mentor")}>
-                    I missed this session
-                  </Button>
-                </div>
-              </Card>
-            ) : null}
-            <Card title="Private notes">
-              <NotesPanel studentId={d.student_id} bookingId={d.id} notes={d.notes} onAdded={(n: Note) => setLocal({ ...d, notes: [n, ...d.notes] })} />
-            </Card>
-            <Dialog
-              open={noShow !== null}
-              onClose={() => setNoShow(null)}
-              title={noShow === "mentor" ? "Record that you missed this session?" : "Record a student no-show?"}
-              description={noShow === "mentor" ? "The student gets the session credit back and an apology." : "The session credit stays used."}
-              footer={
-                <>
-                  <Button variant="secondary" onClick={() => setNoShow(null)}>
-                    Keep as is
-                  </Button>
-                  <Button loading={busy} onClick={() => void markNoShow()}>
-                    Confirm
-                  </Button>
-                </>
-              }
-            />
-          </div>
-        );
-      }}
-    </Boundary>
+          );
+        }}
+      </Boundary>
+    </div>
   );
 }
 
@@ -341,7 +399,9 @@ export function MentorSessionDetail({ bookingId }: { bookingId: string }) {
 
 /** Assigned students (`GET /mentor/students`, cursor envelope). */
 export function MentorStudents() {
-  const list = useApi<{ data: MentorStudentSummary[] }>("mentor/students", { limit: 100 });
+  const list = useApi<{ data: MentorStudentSummary[] }>("mentor/students", {
+    limit: 100,
+  });
   return (
     <Table
       caption="Assigned students"
@@ -355,16 +415,31 @@ export function MentorStudents() {
             </Link>
           ),
         },
-        { key: "b", header: "Batch", cell: (s) => (s.batches.length ? s.batches.map((b) => b.name ?? "Batch").join(", ") : (s.batch_name ?? "—")) },
-        { key: "c", header: "Target companies", cell: (s) => (s.target_companies.length ? s.target_companies.join(", ") : "—") },
-        { key: "x", header: "Next session", cell: (s) => (s.next_session_at ? formatDateTime(s.next_session_at) : "—") },
+        {
+          key: "b",
+          header: "Batch",
+          cell: (s) => (s.batches.length ? s.batches.map((b) => b.name ?? "Batch").join(", ") : (s.batch_name ?? "—")),
+        },
+        {
+          key: "c",
+          header: "Target companies",
+          cell: (s) => (s.target_companies.length ? s.target_companies.join(", ") : "—"),
+        },
+        {
+          key: "x",
+          header: "Next session",
+          cell: (s) => (s.next_session_at ? formatDateTime(s.next_session_at) : "—"),
+        },
       ]}
       rows={list.data?.data}
       rowKey={(s) => s.user_id}
       loading={list.loading}
       error={list.error}
       onRetry={() => void list.reload()}
-      empty={{ title: "No students assigned yet", description: "Students appear here once you're assigned to their batch or they book a session with you." }}
+      empty={{
+        title: "No students assigned yet",
+        description: "Students appear here once you're assigned to their batch or they book a session with you.",
+      }}
     />
   );
 }
@@ -373,57 +448,81 @@ export function MentorStudents() {
 export function MentorStudent({ userId }: { userId: string }) {
   const detail = useApi<MentorStudentDetail>(`mentor/students/${seg(userId)}`);
   const [added, setAdded] = useState<Note[]>([]);
+  const d0 = detail.data;
+  const name = d0?.full_name ?? "Student";
 
   return (
-    <Boundary state={detail}>
-      {(d) => (
-        <div className="space-y-6">
-          <p className="text-sm text-fg-secondary">
-            {d.full_name ?? "Student"}
-            {d.batch_name ? ` · ${d.batch_name}` : ""}
-            {d.target_companies.length ? ` · Targets: ${d.target_companies.join(", ")}` : ""}
-            {d.next_session_at ? ` · Next session ${formatDateTime(d.next_session_at)}` : ""}
-          </p>
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card title="Readiness">
-              <p className="text-sm text-fg-muted">Company readiness is not available yet.</p>
-              {d.weak_topics.length ? <p className="mt-3 text-sm text-fg-secondary">Weakest topics: {d.weak_topics.join(", ")}</p> : null}
-            </Card>
-            <Card title="Your notes">
-              <NotesPanel studentId={d.user_id} notes={[...added, ...d.notes]} onAdded={(n) => setAdded((a) => [n, ...a])} />
+    <div>
+      <PageHeader
+        breadcrumbs={[{ label: "Students", href: "/mentor/students" }, { label: name }]}
+        title={name}
+        description={
+          d0
+            ? [d0.batch_name, d0.target_companies.length ? `Targets: ${d0.target_companies.join(", ")}` : null, d0.next_session_at ? `Next session ${formatDateTime(d0.next_session_at)}` : null]
+                .filter(Boolean)
+                .join(" · ") || undefined
+            : undefined
+        }
+      />
+      <Boundary state={detail}>
+        {(d) => (
+          <div className="space-y-6">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card title="Readiness">
+                <p className="text-sm text-fg-muted">Company readiness is not available yet.</p>
+                {d.weak_topics.length ? <p className="mt-3 text-sm text-fg-secondary">Weakest topics: {d.weak_topics.join(", ")}</p> : null}
+              </Card>
+              <Card title="Your notes">
+                <NotesPanel studentId={d.user_id} notes={[...added, ...d.notes]} onAdded={(n) => setAdded((a) => [n, ...a])} />
+              </Card>
+            </div>
+            <Table
+              caption="Topic mastery"
+              showCaption
+              columns={[
+                {
+                  key: "t",
+                  header: "Topic",
+                  cell: (t: MentorStudentDetail["topics"][number]) => t.name ?? "Topic",
+                },
+                {
+                  key: "b",
+                  header: "Band",
+                  cell: (t) => <StatusBadge status={t.band} />,
+                },
+                {
+                  key: "a",
+                  header: "Questions attempted",
+                  align: "right",
+                  cell: (t) => t.attempts,
+                },
+              ]}
+              rows={d.topics}
+              rowKey={(t) => t.topic_id}
+              empty={{
+                title: "No practice data yet",
+                description: "Topic mastery appears after the student answers practice questions.",
+              }}
+            />
+            <Card title="Feedback history">
+              {d.feedback.length ? (
+                <ul className="space-y-4">
+                  {d.feedback.map((f) => (
+                    <li key={f.id} className="space-y-1">
+                      <p className="text-sm font-medium text-fg">
+                        {KIND_LABEL[f.session_kind] ?? f.session_kind} · {formatDateTime(f.starts_at)}
+                      </p>
+                      <FeedbackView feedback={f} />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyState variant="inline" icon="chat" title="No session feedback yet" description="Feedback you give after each session is collected here." />
+              )}
             </Card>
           </div>
-          <Table
-            caption="Topic mastery"
-            showCaption
-            columns={[
-              { key: "t", header: "Topic", cell: (t: MentorStudentDetail["topics"][number]) => t.name ?? "Topic" },
-              { key: "b", header: "Band", cell: (t) => <StatusBadge status={t.band} /> },
-              { key: "a", header: "Questions attempted", align: "right", cell: (t) => t.attempts },
-            ]}
-            rows={d.topics}
-            rowKey={(t) => t.topic_id}
-            empty={{ title: "No practice data yet" }}
-          />
-          <Card title="Feedback history">
-            {d.feedback.length ? (
-              <ul className="space-y-4">
-                {d.feedback.map((f) => (
-                  <li key={f.id} className="space-y-1">
-                    <p className="text-sm font-medium text-fg">
-                      {KIND_LABEL[f.session_kind] ?? f.session_kind} · {formatDateTime(f.starts_at)}
-                    </p>
-                    <FeedbackView feedback={f} />
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-fg-muted">No session feedback yet.</p>
-            )}
-          </Card>
-        </div>
-      )}
-    </Boundary>
+        )}
+      </Boundary>
+    </div>
   );
 }
-

@@ -18,7 +18,7 @@ describe("Signup keeps ?next= (FE-10)", () => {
 
   it("the sign-in links keep next in both directions", () => {
     const { unmount } = render(<SignupForm next="/app/checkout/new?price_id=p1" />);
-    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", `/login?next=${encodeURIComponent("/app/checkout/new?price_id=p1")}`);
+    expect(screen.getByRole("link", { name: "Log in" })).toHaveAttribute("href", `/login?next=${encodeURIComponent("/app/checkout/new?price_id=p1")}`);
     unmount();
     render(<LoginForm next="/courses/dsa" />);
     expect(screen.getByRole("link", { name: "Create an account" })).toHaveAttribute("href", "/signup?next=%2Fcourses%2Fdsa");

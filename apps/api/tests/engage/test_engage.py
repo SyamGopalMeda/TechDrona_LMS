@@ -176,12 +176,12 @@ async def test_authz_student_admin_and_cross_batch(world: World, client: Any) ->
     r = await client.post(f"{API}/activities", json=body(w), headers=tb.headers)
     assert r.status_code in (403, 404)
     r = await client.post(f"{API}/activities/{a['id']}/runs", json={}, headers=tb.headers)
-    assert r.status_code == 404
+    assert r.status_code == 403  # same company org: batch-scope refusal, as for GET above
     run = await launch(client, t, a["id"])
     r = await control(client, tb, run["id"], "start")
-    assert r.status_code == 404
+    assert r.status_code == 403  # same company org: batch-scope refusal (was 404 cross-org)
     r = await client.get(f"{API}/runs/{run['id']}/presenter", headers=tb.headers)
-    assert r.status_code == 404
+    assert r.status_code == 403
     # a trainer of another batch of the company cannot manage, launch, control or invite
     other = await w.persona(
         "trainer_a2", grants=(("trainer", "batch", w.batch_a2),), org_ids=(w.org_a,), tier="staff"
@@ -625,6 +625,23 @@ async def test_bank_import_copies_key_only_with_key_access(world: World, client:
         headers=w.personas["trainer_a"].headers,
     )
     assert r.json()["data"] == [] and r.json()["skipped"][0]["reason"] == "not_found"
+
+
+async def test_bank_import_requires_activity_manage(world: World, client: Any) -> None:
+    """The import is an authoring helper: callers without ``engage.activity.manage`` on any scope
+    (a learner, an evaluator) get 403 even for the shared platform bank."""
+    w = world
+    tid = await topic(w.db, "python/tuples")
+    q = await question(w.db, w.personas["author"], w.personas["reviewer"], tid, stem="Which is a tuple?")
+    payload = {"question_ids": [str(q.question_id)]}
+    for name in ("student", "evaluator_a"):
+        r = await client.post(f"{API}/bank-import", json=payload, headers=w.personas[name].headers)
+        assert r.status_code == 403, (name, r.text)
+        assert r.json()["permission"] == "engage.activity.manage"
+    # batch trainer (batch-scoped grant) and platform content manager keep access
+    for name in ("trainer_a", "author"):
+        r = await client.post(f"{API}/bank-import", json=payload, headers=w.personas[name].headers)
+        assert r.status_code == 200 and r.json()["data"], (name, r.text)
 
 
 def test_word_normalisation_unit() -> None:

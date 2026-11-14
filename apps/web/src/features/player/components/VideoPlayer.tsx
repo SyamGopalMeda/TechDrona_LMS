@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, Dialog } from "@/components/ui";
 import { ContentErrorState } from "@/features/learning/components/States";
 import type { VideoEvents } from "@/lib/analytics/video";
-import { drmSupported, embedUrl, loadVdoApi, type VdoPlayerInstance, type VdoVideo } from "../lib/vdocipher";
+import { drmSupported, embedUrl, isDemoPlaybackToken, loadVdoApi, type VdoPlayerInstance, type VdoVideo } from "../lib/vdocipher";
 import { usePlaybackSession, type PlayerSignals } from "../lib/use-playback-session";
 
 export interface VideoPlayerProps {
@@ -204,6 +204,15 @@ export function VideoPlayer({ lessonAssetId, lessonTitle, onPlayingChange, video
           <p role="status" className="text-sm text-fg-muted">
             Loading video…
           </p>
+        </Frame>
+      ) : state.phase === "ready" && isDemoPlaybackToken(state.token.otp, state.token.playback_info) ? (
+        <Frame>
+          <div role="status">
+            <p className="font-semibold text-fg">Video hosting: not integrated yet</p>
+            <p className="mt-1 text-sm text-fg-secondary">
+              This is a demo lesson. The secure video service (VdoCipher) is not connected, so there is no real video to play here yet.
+            </p>
+          </div>
         </Frame>
       ) : state.phase === "ready" ? (
         <div className="aspect-video w-full overflow-hidden rounded-xl bg-surface-sunken">

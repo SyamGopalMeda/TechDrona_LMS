@@ -23,7 +23,9 @@ from app.core.outbox import emit_event
 from app.core.principal import Principal
 from app.modules.admin.policy import get_value
 from app.modules.identity import clock
-from app.modules.identity.models import User
+from app.modules.identity import public as identity_public
+from app.modules.identity.public import User
+from app.modules.security import repo_fs_engine as fx
 from app.modules.security import restrictions as rx
 from app.modules.security.catalogue import (
     BUILTIN_HC,
@@ -51,7 +53,7 @@ from app.modules.security.rules import (
     score_sharing,
     score_takeover,
 )
-from app.modules.sessions.models import UserDevice
+from app.modules.sessions import public as sessions_public
 
 log = structlog.get_logger("app.security.engine")
 SYSTEM = AuditActor.system("security.engine")
@@ -63,15 +65,18 @@ CONFIRMED_OUTCOMES = ("uphold", "lift_with_warning", "lift_conditions", "convert
 
 
 async def ruleset(session: AsyncSession, family: str) -> tuple[dict[str, Any], str]:
-    row = (
-        await session.execute(
-            select(RiskRuleVersion).where(
-                RiskRuleVersion.family == family,
-                RiskRuleVersion.rule_id.is_(None),
-                RiskRuleVersion.status == "active",
+    if fx.fs():
+        row = await fx.repo().active_ruleset_row(family)
+    else:
+        row = (
+            await session.execute(
+                select(RiskRuleVersion).where(
+                    RiskRuleVersion.family == family,
+                    RiskRuleVersion.rule_id.is_(None),
+                    RiskRuleVersion.status == "active",
+                )
             )
-        )
-    ).scalar_one_or_none()
+        ).scalar_one_or_none()
     base = dict(BUILTIN_RULESETS[family])
     if row is not None:
         merged = {**base, **row.definition}
@@ -81,6 +86,12 @@ async def ruleset(session: AsyncSession, family: str) -> tuple[dict[str, Any], s
 
 async def rule_version(session: AsyncSession, key: str) -> RiskRuleVersion | None:
     """Most relevant DB version of one rule: active, else latest shadow."""
+    if fx.fs():
+        fs_rows: list[Any] = await fx.repo().live_rule_versions(key)
+        for fr in fs_rows:
+            if fr.status == "active":
+                return fr
+        return fs_rows[0] if fs_rows else None
     rows = (
         (
             await session.execute(
@@ -135,7 +146,11 @@ async def record_signal(
     family = rd.family
     minor = False
     if user_id is not None:
-        user = user or await session.get(User, user_id)
+        user = user or (
+            await fx.get_user(session, user_id)
+            if fx.fs()
+            else await identity_public.get_user(session, user_id)
+        )
         minor = bool(user is None or user.is_minor)
         if family == "sharing" and (minor or (user is not None and user.is_synthetic)):
             return None
@@ -155,7 +170,8 @@ async def record_signal(
     if defn_family:
         _, rv = await ruleset(session, defn_family)
         version = rv.rsplit("-", 1)[-1]
-    sig = SecuritySignal(
+    sig = fx.new(
+        SecuritySignal,
         id=uuid7(),
         occurred_at=occurred_at or clock.now(),
         user_id=user_id,
@@ -171,8 +187,8 @@ async def record_signal(
         device_id=device_id,
         is_minor_at_time=minor,
     )
-    session.add(sig)
-    await session.flush()
+    await fx.add(session, sig)
+    await fx.flush(session)
     return sig
 
 
@@ -192,6 +208,14 @@ def to_sig(s: SecuritySignal) -> Sig:
 async def user_signals(
     session: AsyncSession, user_id: uuid.UUID, family: str, since: datetime, until: datetime | None = None
 ) -> list[SecuritySignal]:
+    if fx.fs():
+        return [
+            s
+            for s in await fx.repo().user_signals(user_id, family=family)
+            if s.occurred_at > since
+            and s.suppressed_by_decision_id is None
+            and (until is None or s.occurred_at <= until)
+        ]
     q = select(SecuritySignal).where(
         SecuritySignal.user_id == user_id,
         SecuritySignal.family == family,
@@ -204,6 +228,8 @@ async def user_signals(
 
 
 async def has_monitoring_consent(session: AsyncSession, user_id: uuid.UUID) -> bool:
+    if fx.fs():
+        return await fx.security_monitoring_granted(session, user_id)
     from app.modules.identity.service import current_consents
 
     state = await current_consents(session, user_id)
@@ -211,16 +237,12 @@ async def has_monitoring_consent(session: AsyncSession, user_id: uuid.UUID) -> b
 
 
 async def primary_org(session: AsyncSession, user_id: uuid.UUID) -> uuid.UUID | None:
-    from app.modules.orgs.models import OrgMembership
+    if fx.fs():
+        return await fx.primary_org(session, user_id)
+    from app.modules.orgs import public as orgs_public
 
-    return (
-        await session.execute(
-            select(OrgMembership.organization_id)
-            .where(OrgMembership.user_id == user_id, OrgMembership.status == "active")
-            .order_by(OrgMembership.organization_id)
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    ids = await orgs_public.active_org_ids(session, user_id)  # active memberships, by id
+    return ids[0] if ids else None
 
 
 # --------------------------------------------------------------------------- cases
@@ -235,6 +257,8 @@ async def sla_hours(session: AsyncSession, family: str, level: int) -> tuple[int
 
 async def confirmed_incidents(session: AsyncSession, user_id: uuid.UUID, days: int) -> int:
     since = clock.now() - timedelta(days=days)
+    if fx.fs():
+        return await _decision_count(user_id, CONFIRMED_OUTCOMES, since)
     return int(
         (
             await session.execute(
@@ -252,12 +276,37 @@ async def confirmed_incidents(session: AsyncSession, user_id: uuid.UUID, days: i
     )
 
 
+async def _decision_count(user_id: uuid.UUID, outcomes: tuple[str, ...], since: datetime) -> int:
+    """Firestore: decisions of the user's sharing cases with ``outcome IN outcomes`` and
+    ``created_at > since`` (the Postgres join ``case_decisions x security_cases``)."""
+    r = fx.repo()
+    case_ids = [c.id for c in await r.cases_of(user_id, "sharing")]
+    if not case_ids:
+        return 0
+    return sum(
+        1 for d in await r.decisions_for_cases(case_ids) if d.outcome in outcomes and d.created_at > since
+    )
+
+
 async def high_risk_reasons(session: AsyncSession, user_id: uuid.UUID) -> list[str]:
     """UNB §5 rule 1: reseller pattern, repeat incident, staff role, device graph."""
     from app.modules.rbac.service import active_grants
 
     reasons: list[str] = []
     since = clock.now() - timedelta(days=30)
+    if fx.fs():
+        fs_rules = {
+            s.rule_key
+            for s in await fx.repo().user_signals(user_id)
+            if s.occurred_at > since and s.suppressed_by_decision_id is None
+        }
+        if {"SH-09", "SH-11", "SH-06"} <= fs_rules:
+            reasons.append("reseller_pattern")
+        if await confirmed_incidents(session, user_id, 180) >= 2:
+            reasons.append("repeat_incident")
+        if await fx.has_staff_grant(session, user_id):
+            reasons.append("staff_account")
+        return reasons
     rules = set(
         (
             await session.execute(
@@ -290,19 +339,24 @@ async def open_case(
     recommended_level: int | None = None,
     actor: Principal | AuditActor = SYSTEM,
 ) -> SecurityCase:
-    existing = (
-        await session.execute(
-            select(SecurityCase)
-            .where(
-                SecurityCase.user_id == user_id,
-                SecurityCase.family == family,
-                SecurityCase.status != "closed",
+    if fx.fs():
+        open_rows = [c for c in await fx.repo().cases_of(user_id, family) if c.status != "closed"]
+        open_rows.sort(key=lambda c: (c.created_at, str(c.id)), reverse=True)
+        existing = open_rows[0] if open_rows else None
+    else:
+        existing = (
+            await session.execute(
+                select(SecurityCase)
+                .where(
+                    SecurityCase.user_id == user_id,
+                    SecurityCase.family == family,
+                    SecurityCase.status != "closed",
+                )
+                .order_by(SecurityCase.created_at.desc())
+                .limit(1)
+                .with_for_update()
             )
-            .order_by(SecurityCase.created_at.desc())
-            .limit(1)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+        ).scalar_one_or_none()
     now = clock.now()
     first_h, dec_h = await sla_hours(session, family, level)
     reasons = await high_risk_reasons(session, user_id)
@@ -317,9 +371,10 @@ async def open_case(
         existing.is_high_risk = existing.is_high_risk or bool(reasons)
         existing.high_risk_reasons = sorted(set(existing.high_risk_reasons) | set(reasons))
         existing.version += 1
-        await session.flush()
+        await fx.save(session, existing)
         return existing
-    case = SecurityCase(
+    case = fx.new(
+        SecurityCase,
         id=uuid7(),
         created_at=clock.now(),
         case_ref=make_ref("SEC"),
@@ -340,8 +395,10 @@ async def open_case(
         panel_views={},
         version=1,
     )
-    session.add(case)
-    await session.flush()
+    await fx.add(session, case)
+    await fx.flush(session)
+    if fx.fs():  # R-RISK: an open case keeps the user's evidence (Postgres purge predicate)
+        await fx.hold_evidence([user_id])
     await audit(
         session,
         actor,
@@ -370,12 +427,14 @@ async def notify_user(
     sms: bool = False,
     dedupe_key: str | None = None,
 ) -> None:
-    from app.modules.notifications.service import notify, send_sms
+    from app.modules.notifications.public import notify, send_sms
 
-    user = await session.get(User, user_id)
+    user = (
+        await fx.get_user(session, user_id) if fx.fs() else await identity_public.get_user(session, user_id)
+    )
     if user is None:
         return
-    await notify(
+    nid = await notify(
         session,
         user_id,
         template_key,
@@ -389,6 +448,8 @@ async def notify_user(
         email_text=text_body,
         dedupe_key=dedupe_key,
     )
+    if fx.fs():
+        fx.notification_created(user_id, nid, dedupe_key)
     if sms and user.phone_e164 and user.phone_verified_at:
         await send_sms(user.phone_e164, f"Tech Drona: {subject}", template_key=template_key)
 
@@ -400,12 +461,23 @@ async def sharing_context(
     session: AsyncSession, user_id: uuid.UUID, now: datetime
 ) -> tuple[SharingContext, Any]:
     st = await rx.get_state(session, user_id)
-    devs = (
-        await session.execute(
-            select(UserDevice.device_id, UserDevice.owner_verified_at).where(UserDevice.user_id == user_id)
-        )
-    ).all()
-    verified = {str(d): ts for d, ts in devs}
+    if fx.fs():
+        from app.modules.sessions import public as sp
+
+        verified = {
+            str(d.device_id): d.owner_verified_at
+            for d in await sp.list_user_devices(session, user_id=user_id)
+        }
+        tainted = {
+            str(s.device_id)
+            for s in await fx.repo().user_signals(user_id, rule_key="SH-13")
+            if s.occurred_at > now - timedelta(days=30)
+            and s.suppressed_by_decision_id is None
+            and s.device_id
+        }
+        return await _sharing_ctx(session, user_id, st, verified, tainted)
+    devs = await sessions_public.list_user_devices(session, user_id=user_id)
+    verified = {str(d.device_id): d.owner_verified_at for d in devs}
     tainted = {
         str(d)
         for d in (
@@ -420,6 +492,12 @@ async def sharing_context(
         ).scalars()
         if d
     }
+    return await _sharing_ctx(session, user_id, st, verified, tainted)
+
+
+async def _sharing_ctx(
+    session: AsyncSession, user_id: uuid.UUID, st: Any, verified: dict[str, Any], tainted: set[str]
+) -> tuple[SharingContext, Any]:
     active = await rx.active_for(session, user_id, "sharing")
     current = active.level if active is not None else 0
     repeat_days = int(await get_value(session, "risk.repeat_window_days"))
@@ -437,7 +515,7 @@ async def sharing_context(
 
 async def _hc_exclusions(session: AsyncSession, user: User, s3: list[Sig]) -> list[str]:
     """HC-01 conditions (3)-(5) plus consent: reasons the rule may not fire."""
-    from app.modules.admin.models import PolicySetting
+    from app.modules.admin.policy import active_user_exception_count
 
     out: list[str] = []
     if user.is_synthetic:
@@ -445,20 +523,13 @@ async def _hc_exclusions(session: AsyncSession, user: User, s3: list[Sig]) -> li
     if not await has_monitoring_consent(session, user.id):
         out.append("no_security_monitoring_consent")
     now = clock.now()
-    exc = (
-        await session.execute(
-            select(func.count())
-            .select_from(PolicySetting)
-            .where(
-                PolicySetting.scope_type == "user",
-                PolicySetting.scope_id == user.id,
-                PolicySetting.is_active.is_(True),
-                PolicySetting.expires_at > now,
-            )
-        )
-    ).scalar_one()
+    exc = await active_user_exception_count(session, user.id, now)
     if exc:
         out.append("user_exception")
+    if fx.fs():
+        if await _decision_count(user.id, ("lift_false_positive",), now - timedelta(days=30)):
+            out.append("recent_false_positive_lift")
+        return out
     fp = (
         await session.execute(
             select(func.count())
@@ -479,6 +550,8 @@ async def _hc_exclusions(session: AsyncSession, user: User, s3: list[Sig]) -> li
 
 async def _hc_daily_ok(session: AsyncSession, rule: str) -> bool:
     """RE §5.7 (b): checked before applying, under a per-rule advisory lock."""
+    if fx.fs():
+        return await _hc_daily_ok_fs(session, rule)
     await session.execute(text("SELECT pg_advisory_xact_lock(hashtext('hc:' || :r))"), {"r": rule})
     limit = int(await get_value(session, "risk.hc.circuit_breaker.max_daily_restrictions"))
     n = (
@@ -494,6 +567,21 @@ async def _hc_daily_ok(session: AsyncSession, rule: str) -> bool:
     return int(n) < limit
 
 
+async def _hc_daily_ok_fs(session: AsyncSession, rule: str) -> bool:
+    """Firestore: the per-rule lock is a request lease (``request_locks``) held until the request
+    ends, like the transaction-scoped advisory lock. Jobs without a lock scope run unlocked."""
+    from app.core import request_locks
+
+    try:
+        await request_locks.acquire(f"hc:{rule}")
+    except RuntimeError:  # no lock scope (a job outside a request)
+        pass
+    limit = int(await get_value(session, "risk.hc.circuit_breaker.max_daily_restrictions"))
+    since = clock.now() - timedelta(hours=24)
+    n = sum(1 for r in await fx.repo().restrictions_by_hc_rule(rule) if r.created_at > since)
+    return n < limit
+
+
 async def trip_breaker(session: AsyncSession, rule: str, reason: str) -> bool:
     """Move the rule's active version to shadow (system actor, ``circuit_breaker``) and alert."""
     v = await rule_version(session, rule)
@@ -503,8 +591,12 @@ async def trip_breaker(session: AsyncSession, rule: str, reason: str) -> bool:
     v.status_changed_at = clock.now()
     v.status_changed_by = None
     v.status_change_reason = "circuit_breaker"
-    await session.execute(update(RiskRule).where(RiskRule.key == rule).values(active_version_id=None))
-    await session.flush()
+    if fx.fs():
+        await fx.repo().save_rule_version(v)
+        await fx.repo().clear_active_version(rule)
+    else:
+        await session.execute(update(RiskRule).where(RiskRule.key == rule).values(active_version_id=None))
+        await session.flush()
     await audit(
         session,
         SYSTEM,
@@ -528,6 +620,19 @@ async def check_fp_breaker(session: AsyncSession, rule: str) -> bool:
     restrictions exceed ``max_fp_rate x min_decisions`` (absolute threshold)."""
     rate = float(await get_value(session, "risk.hc.circuit_breaker.max_fp_rate"))
     n = int(await get_value(session, "risk.hc.circuit_breaker.min_decisions"))
+    if fx.fs():
+        r = fx.repo()
+        ids = [x.case_id for x in await r.restrictions_by_hc_rule(rule) if x.case_id is not None]
+        decs = sorted(
+            await r.decisions_for_cases(ids) if ids else [],
+            key=lambda d: (d.created_at, str(d.id)),
+            reverse=True,
+        )
+        outcomes = [d.outcome for d in decs[:n]]
+        fps = sum(1 for o in outcomes if o == "lift_false_positive")
+        if fps > rate * n + 1e-9:
+            return await trip_breaker(session, rule, f"false_positive_rate:{fps}/{len(outcomes)}")
+        return False
     hc_cases = select(AccountRestriction.case_id).where(AccountRestriction.hc_rule == rule)
     rows = (
         (
@@ -556,7 +661,9 @@ async def evaluate_sharing(
     keep_session_id: uuid.UUID | None = None,
 ) -> RiskEvaluation | None:
     now = now or clock.now()
-    user = await session.get(User, user_id)
+    user = (
+        await fx.get_user(session, user_id) if fx.fs() else await identity_public.get_user(session, user_id)
+    )
     if user is None or user.is_minor or user.is_synthetic:
         return None  # RE §4.4: nothing is computed or written for minors
     mode = await risk_mode(session)
@@ -579,7 +686,8 @@ async def evaluate_sharing(
     def _row(
         mode_: str, action_: str, lvl_after: int, gates_: dict[str, Any], keys: list[str]
     ) -> RiskEvaluation:
-        return RiskEvaluation(
+        return fx.new(
+            RiskEvaluation,
             id=uuid7(),
             evaluated_at=now,
             user_id=user_id,
@@ -634,8 +742,8 @@ async def evaluate_sharing(
                     break
                 await trip_breaker(session, rule, "tripped_daily_limit")
                 hc_gates["breaker"] = "tripped_daily_limit"
-            session.add(_row("shadow", "restrict_L3", 3, hc_gates, [key]))
-            await session.flush()
+            await fx.add(session, _row("shadow", "restrict_L3", 3, hc_gates, [key]))
+            await fx.flush(session)
             break
 
     changed = level_after != level_before or abs(result.score - prev_score) >= 5
@@ -652,8 +760,8 @@ async def evaluate_sharing(
         )
         st.sharing_level = level_after
     if ev is not None:
-        session.add(ev)
-    await session.flush()
+        await fx.add(session, ev)
+    await fx.flush(session, st)
     return ev
 
 
@@ -722,6 +830,8 @@ async def _apply_sharing_action(
         ev.restriction_id = r.id
         st = await rx.get_state(session, user.id)
         st.l2_issued_at = now
+        if fx.fs():
+            await fx.flush(session, st)
         await notify_user(
             session,
             user.id,
@@ -778,6 +888,8 @@ async def _apply_sharing_action(
             ev.action = "restrict_L3"
             case.recommended_level = 4
             case.priority = "high"
+            if fx.fs():
+                await fx.save(session, case)
     elif action == "recommend_L4":
         case = await open_case(
             session,
@@ -806,7 +918,7 @@ async def _apply_sharing_action(
                     rule_keys=rule_keys,
                 )
                 ev.restriction_id = r.id
-    await session.flush()
+    await fx.flush(session)
 
 
 # --------------------------------------------------------------------------- takeover
@@ -831,10 +943,17 @@ async def protect_lock(
         rule_keys=[rule],
     )
     ref = make_ref("ACC")
-    session.add(
-        SecurityNotice(
-            id=uuid7(), created_at=clock.now(), event_ref=ref, user_id=user.id, kind="replay", rule_key=rule
-        )
+    await fx.add(
+        session,
+        fx.new(
+            SecurityNotice,
+            id=uuid7(),
+            created_at=clock.now(),
+            event_ref=ref,
+            user_id=user.id,
+            kind="replay",
+            rule_key=rule,
+        ),
     )
     await notify_user(
         session,
@@ -855,8 +974,14 @@ async def evaluate_takeover(
 ) -> RiskEvaluation | None:
     """Adults: score with thresholds T-step-up ≥ 40, T-protect ≥ 70. HC-T rules for everyone.
     Minors: deterministic rules only, no evaluation rows (RE §4.4)."""
+    from app.core.config import get_settings
+
+    if get_settings().account_protection_off:  # testing phase: takeover engine switched off
+        return None
     now = clock.now()
-    user = await session.get(User, user_id)
+    user = (
+        await fx.get_user(session, user_id) if fx.fs() else await identity_public.get_user(session, user_id)
+    )
     if user is None:
         return None
     definition, rs_version = await ruleset(session, "takeover")
@@ -887,7 +1012,8 @@ async def evaluate_takeover(
         if not active_step or trigger in ("login",):
             action = "step_up"
     prev = float(st.takeover_score)
-    ev = RiskEvaluation(
+    ev = fx.new(
+        RiskEvaluation,
         id=uuid7(),
         evaluated_at=now,
         user_id=user_id,
@@ -930,8 +1056,8 @@ async def evaluate_takeover(
             "your account.",
             dedupe_key=f"stepup:{now:%Y%m%d%H}",
         )
-    session.add(ev)
-    await session.flush()
+    await fx.add(session, ev)
+    await fx.flush(session, st)
     return ev
 
 
@@ -955,17 +1081,22 @@ async def _hc_takeover(
     if t2_status == "active":
         to05 = any(s.rule_key == "TO-05" and s.occurred_at > hour for s in sigs)
         to03 = any(s.rule_key == "TO-03" and s.occurred_at > hour for s in sigs)
-        ab03 = (
-            await session.execute(
-                select(func.count())
-                .select_from(SecuritySignal)
-                .where(
-                    SecuritySignal.user_id == user.id,
-                    SecuritySignal.rule_key == "AB-03",
-                    SecuritySignal.occurred_at > hour,
-                )
+        if fx.fs():
+            ab03 = sum(
+                1 for s in await fx.repo().user_signals(user.id, rule_key="AB-03") if s.occurred_at > hour
             )
-        ).scalar_one()
+        else:
+            ab03 = (
+                await session.execute(
+                    select(func.count())
+                    .select_from(SecuritySignal)
+                    .where(
+                        SecuritySignal.user_id == user.id,
+                        SecuritySignal.rule_key == "AB-03",
+                        SecuritySignal.occurred_at > hour,
+                    )
+                )
+            ).scalar_one()
         if to05 and (to03 or ab03):
             return "HC-T2"
     if user.is_minor:
@@ -979,6 +1110,8 @@ async def _hc_takeover(
 async def disown(session: AsyncSession, user: User, notice: SecurityNotice) -> AccountRestriction:
     """SEC-46 "This wasn't me" → HC-T3 → T-protect."""
     notice.disowned_at = clock.now()
+    if fx.fs():  # Postgres: flushed with the caller's FOR UPDATE row
+        await fx.save(session, notice)
     await record_signal(
         session,
         rule_key="HC-T3",
@@ -990,7 +1123,8 @@ async def disown(session: AsyncSession, user: User, notice: SecurityNotice) -> A
     )
     r = await protect_lock(session, user, "HC-T3")
     if not user.is_minor:
-        ev = RiskEvaluation(
+        ev = fx.new(
+            RiskEvaluation,
             id=uuid7(),
             evaluated_at=clock.now(),
             user_id=user.id,
@@ -1010,8 +1144,8 @@ async def disown(session: AsyncSession, user: User, notice: SecurityNotice) -> A
             explanation_keys=["hct3.replay"],
             is_minor_at_time=False,
         )
-        session.add(ev)
-        await session.flush()
+        await fx.add(session, ev)
+        await fx.flush(session)
     return r
 
 
@@ -1022,6 +1156,14 @@ async def evaluations_for(
     since: datetime | None,
     until: datetime | None,
 ) -> list[RiskEvaluation]:
+    if fx.fs():
+        rows = [
+            e
+            for e in await fx.repo().evaluations(user_id, family or None)
+            if (not since or e.evaluated_at >= since) and (not until or e.evaluated_at <= until)
+        ]
+        rows.sort(key=lambda e: (e.evaluated_at, str(e.id)), reverse=True)
+        return rows[:200]
     conds: list[Any] = [RiskEvaluation.user_id == user_id]
     if family:
         conds.append(RiskEvaluation.family == family)

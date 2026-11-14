@@ -449,3 +449,34 @@ async def test_company_paths_and_student_readiness(client, world: World, db, all
         headers={**student.headers, **idem()},
     )
     assert r.status_code == 201 and ("company_path", uuid.UUID(path_id)) in allow_access.calls
+
+
+async def test_admin_reviews_a_content_managers_question(client, world: World, db) -> None:
+    """QA 2026-11 (F10): Admin holds question.review and question.publish, so a lone content
+    manager's question can be reviewed and published (reviewer != author and publisher != author
+    both still hold); Admin still cannot author."""
+    t = await topic(db, "quant/admin-review")
+    author, admin = world.personas["author"], world.personas["admin"]
+    qid = (await client.post(f"{API}/studio/questions", json=mcq_body(t), headers=author.headers)).json()[
+        "question_id"
+    ]
+    assert (
+        await client.post(f"{API}/studio/questions/{qid}/submit-review", headers=author.headers)
+    ).status_code == 200
+    # the Admin review queue lists it and the detail (with keys) opens for review
+    q = await client.get(
+        f"{API}/studio/questions", params={"version_status": "awaiting_review"}, headers=admin.headers
+    )
+    assert q.status_code == 200 and qid in {x["question_id"] for x in q.json()["items"]}
+    d = await client.get(f"{API}/studio/questions/{qid}", headers=admin.headers)
+    assert d.status_code == 200 and d.json()["keys_visible"] is True
+    assert (await client.get(f"{API}/studio/questions", headers=admin.headers)).status_code == 403
+    r = await client.post(
+        f"{API}/studio/questions/{qid}/review", json={"decision": "approve"}, headers=admin.headers
+    )
+    assert r.status_code == 200, r.text
+    # the author may not publish their own question (ADM-48); the Admin can
+    r = await client.post(f"{API}/studio/questions/{qid}/publish", headers=author.headers)
+    assert r.status_code == 403 and r.json()["code"] == "sod_violation"
+    r = await client.post(f"{API}/studio/questions/{qid}/publish", headers=admin.headers)
+    assert r.status_code == 200 and r.json()["status"] == "active"

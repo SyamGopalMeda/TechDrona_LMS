@@ -146,7 +146,7 @@ export async function uiLogin(
   await page.goto(`/login${opts.next ? `?next=${encodeURIComponent(opts.next)}` : ""}`);
   await page.getByLabel("Email or mobile").fill(identifier);
   await page.getByLabel(/^Password/).fill(password);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: "Log in", exact: true }).click();
   await page.waitForURL((u) => !/^\/login\/?$/.test(u.pathname), { timeout: 20_000 }).catch(() => undefined);
   if (/\/login\/mfa/.test(page.url())) {
     await page.getByLabel("Authenticator code").fill(await freshTotp(opts.totpSecret!));

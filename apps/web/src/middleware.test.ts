@@ -3,7 +3,8 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mintCsrfToken, verifyCsrfToken } from "@/lib/bff/csrf";
 import { isPortalPath, safeNextPath } from "@/lib/nav/portals";
-import { middleware } from "./middleware";
+import { parseCsp } from "@/lib/security/csp";
+import { config, middleware } from "./middleware";
 
 const KEY = "m".repeat(64);
 
@@ -18,6 +19,14 @@ describe("middleware", () => {
     const res = await middleware(new NextRequest("http://localhost:3000/trainer/grading?tab=late"));
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toBe("http://localhost:3000/login?next=%2Ftrainer%2Fgrading%3Ftab%3Dlate");
+  });
+
+  it("treats the module hub and /continue as signed-in pages", async () => {
+    const res = await middleware(new NextRequest("http://localhost:3000/continue?area=colleges"));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("http://localhost:3000/login?next=%2Fcontinue%3Farea%3Dcolleges");
+    const hub = await middleware(new NextRequest("http://localhost:3000/modules"));
+    expect(hub.headers.get("location")).toBe("http://localhost:3000/login?next=%2Fmodules");
   });
 
   it("lets portal routes through with a session cookie, no-store, CSP nonce and a session-bound CSRF cookie", async () => {
@@ -44,6 +53,30 @@ describe("middleware", () => {
     expect(res.status).toBe(200);
     expect(res.headers.getSetCookie()).toHaveLength(0);
     expect(res.headers.get("cache-control")).toBeNull();
+  });
+});
+
+describe("middleware: College Data Portal", () => {
+  beforeEach(() => vi.stubEnv("NODE_ENV", "development"));
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("lets only /admin/college-data frame same-origin content", async () => {
+    const page = await middleware(new NextRequest("http://localhost:3000/admin/college-data", { headers: { cookie: "td_session=S1" } }));
+    const d = parseCsp(page.headers.get("content-security-policy")!);
+    expect(d["frame-src"]).toContain("'self'");
+    expect(d["frame-ancestors"]).toEqual(["'none'"]);
+    const other = await middleware(new NextRequest("http://localhost:3000/admin/users", { headers: { cookie: "td_session=S1" } }));
+    expect(parseCsp(other.headers.get("content-security-policy")!)["frame-src"]).not.toContain("'self'");
+  });
+
+  it("does not run on /college-portal (the route handler authenticates and keeps the portal's CSP)", () => {
+    const source = config.matcher[0]!.source;
+    const re = new RegExp(`^${source}$`);
+    expect(re.test("/college-portal/index.html")).toBe(false);
+    expect(re.test("/college-portal/api/colleges")).toBe(false);
+    expect(re.test("/college-portal")).toBe(false);
+    expect(re.test("/admin/college-data")).toBe(true);
+    expect(re.test("/college-portals")).toBe(true);
   });
 });
 

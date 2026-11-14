@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Card, ErrorState, StatTile, Table } from "@/components/ui";
+import { Card, ErrorState, StatGrid, StatTile, Table } from "@/components/ui";
 import { api, type Page } from "@/lib/api/client";
-import { useMemberNames } from "../lib/batches";
+import { useMemberNames, useTeachingQuery } from "../lib/batches";
 import type { AssignmentSummary, TestAssignment, TestSummary } from "../lib/types";
 import { useApi, seg } from "../shared/use-api";
 import { LoadingBlock, formatDateTime } from "../shared/ui";
@@ -15,7 +15,7 @@ import { LessonFunnelView, ProgressDistributionView, type LessonFunnelCourse, ty
 /** TRN-001 grading backlog: `GET /assignments?scope=mine` carries `pending_count` per assignment. */
 export function GradingBacklog() {
   // verified: app/modules/learning/router.py list_assignments → pending_count (submitted + late)
-  const list = useApi<Page<AssignmentSummary>>("assignments", { scope: "mine", limit: 100 });
+  const list = useApi<Page<AssignmentSummary>>("assignments", { scope: "mine", limit: 100, ...useTeachingQuery() });
   if (list.error) return <ErrorState error={list.error} onRetry={() => void list.reload()} />;
   if (list.loading || !list.data) return <p className="text-sm text-fg-muted">Loading grading backlog…</p>;
   const pending = list.data.data.filter((a) => a.pending_count > 0).sort((a, b) => b.pending_count - a.pending_count);
@@ -32,12 +32,12 @@ export function GradingBacklog() {
       </p>
       <ul className="space-y-1 text-sm">
         {pending.slice(0, 5).map((a) => (
-          <li key={a.assignment_id} className="flex justify-between gap-2">
-            <span className="truncate">
+          <li key={a.assignment_id} className="flex min-w-0 justify-between gap-2">
+            <span className="min-w-0 truncate">
               {a.title}
               {a.batch_name ? <span className="text-fg-muted"> · {a.batch_name}</span> : null}
             </span>
-            <span className="tabular-nums text-fg-secondary">{a.pending_count}</span>
+            <span className="shrink-0 tabular-nums text-fg-secondary">{a.pending_count}</span>
           </li>
         ))}
       </ul>
@@ -161,11 +161,11 @@ export function BatchProgress({ batchId }: { batchId: string }) {
   return (
     <Card title="Batch progress">
       <div className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-3">
+        <StatGrid columns={3}>
           <StatTile label="Learners" value={String(r.learners_total)} />
           <StatTile label="Median learning time this week" value={wl.suppressed ? null : mins(wl.median_s)} hint={wl.suppressed ? "Hidden: too few active learners to report" : undefined} />
           <StatTile label="Need attention" value={String(atRisk.length)} />
-        </div>
+        </StatGrid>
         <Table
           caption="Students needing attention"
           showCaption

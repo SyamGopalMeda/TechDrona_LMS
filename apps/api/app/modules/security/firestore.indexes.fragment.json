@@ -1,0 +1,77 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "lms_account_restrictions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "ended_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_account_restrictions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "ended_at",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_unblock_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_risk_evaluations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "id",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "lms_security_signals",
+      "fieldPath": "evidence",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_risk_evaluations",
+      "fieldPath": "signals",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_unblock_requests",
+      "fieldPath": "what_happened",
+      "indexes": []
+    }
+  ]
+}

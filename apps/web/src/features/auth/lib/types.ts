@@ -45,7 +45,7 @@ export interface DeviceChannel {
  * returned by session-choice `{cancel: true}`.
  */
 export type LoginResponse =
-  | { result: "authenticated"; session?: SessionSummary; restriction?: RestrictionSummary; redirect?: string }
+  | { result: "authenticated"; session?: SessionSummary; restriction?: RestrictionSummary; redirect?: string; must_change_password?: boolean }
   | { result: "mfa_required"; methods: string[] }
   | { result: "device_verification_required"; channels: DeviceChannel[]; alternatives?: string[]; reason?: string }
   | { result: "cancelled" };

@@ -1,0 +1,92 @@
+# Tech Drona LMS GCP demo — TLS edge (automatic Let's Encrypt certificates).
+# {$TD_SITE_HOST}  -> the Tech Drona company website (static React build in /srv/website, mounted from
+#                    /opt/techdrona/website). Old LMS paths on this host redirect to the LMS host.
+# {$TD_HOST}       -> LMS web BFF only (the API is never routed directly). lms.<site host>.
+# {$TD_FILES_HOST} -> SeaweedFS S3 for SigV4 presigned upload/download URLs (credentials required).
+
+{$TD_SITE_HOST} {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000"
+	header X-Content-Type-Options "nosniff"
+	header Referrer-Policy "strict-origin-when-cross-origin"
+	# security audit 2026-11-11: never framed by other sites (clickjacking on /admin), no plugins,
+	# no <base> hijack, no powerful browser features. A full script allow-list CSP is a later step.
+	header X-Frame-Options "DENY"
+	header Content-Security-Policy "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+	header Permissions-Policy "camera=(), microphone=(), geolocation=(), usb=(), payment=(self)"
+	header -Server
+	# LMS addresses that used to live on this host (bookmarks, emails, QR codes) -> the LMS host.
+	# /admin, /learn, /teach and /verify stay here: they are the website's own admin, student and verify pages.
+	@lms path /login /login/* /signup /signup/* /forgot-password /forgot-password/* /reset-password /reset-password/* /app /app/* /trainer /trainer/* /evaluator /evaluator/* /studio /studio/* /security /security/* /finance /finance/* /desk /desk/* /mentor /mentor/* /modules /modules/* /sso/* /college-portal /college-portal/* /account /account/* /unblock-request /api/v1/*
+	redir @lms https://{$TD_HOST}{uri} 302
+	@admin path /admin /admin/* /teach /teach/*
+	header @admin X-Robots-Tag "noindex, nofollow"
+	@hashed path /assets/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+	@html path / /index.html
+	header @html Cache-Control "no-cache"
+	root * /srv/website
+	try_files {path} {path}.html /index.html
+	file_server
+}
+
+{$TD_HOST} {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000"
+	# The LMS is a back-end system of the ONE Tech Drona website, not a second public website:
+	# never indexed, and its marketing pages are not shown to visitors who are not signed in.
+	header X-Robots-Tag "noindex, nofollow"
+	# QA 2026-11-11: Caddy's own responses (redirects, robots.txt) announced "Server: Caddy"; the site host hides it too.
+	header -Server
+	@robots path /robots.txt
+	respond @robots <<TXT
+		User-agent: *
+		Disallow: /
+		TXT 200
+	@sitemap path /sitemap.xml
+	respond @sitemap 404
+	# The course catalogue, pricing and enquiry pages belong to the main website (TD_SITE_HOST) for
+	# EVERYONE (signed in or not): the LMS is the learning back end, not a second public website.
+	@anon_home {
+		path /
+		not header Cookie *td_session=*
+	}
+	redir @anon_home /login 302
+	@site_courses path /courses /courses/*
+	redir @site_courses https://{$TD_SITE_HOST}/courses 302
+	@site_enquiry path /enquiries /enquiries/*
+	redir @site_enquiry https://{$TD_SITE_HOST}/contact 302
+	@site_marketing path /pricing /pricing/* /placement /placement/* /companies /companies/* /free-resources /free-resources/* /status
+	redir @site_marketing https://{$TD_SITE_HOST}/ 302
+	@home_signed_in path /
+	redir @home_signed_in /modules 302
+	reverse_proxy web:3000 {
+		# The BFF trusts exactly one proxy hop (TD_TRUSTED_PROXY_HOPS=1) and reads this header
+		# first; Caddy overwrites any client-supplied value with the real peer address.
+		header_up CloudFront-Viewer-Address {remote_host}:{remote_port}
+	}
+}
+
+{$TD_FILES_HOST} {
+	# QA 2026-11-11: same transport headers as the other two hosts (no HSTS, "Server: Caddy" before)
+	header Strict-Transport-Security "max-age=31536000"
+	header X-Content-Type-Options "nosniff"
+	header -Server
+	@preflight method OPTIONS
+	handle @preflight {
+		header Access-Control-Allow-Origin "https://{$TD_HOST}"
+		header Access-Control-Allow-Methods "GET, HEAD, POST, PUT"
+		header Access-Control-Allow-Headers "*"
+		header Access-Control-Max-Age "600"
+		respond 204
+	}
+	handle {
+		reverse_proxy s3:8333 {
+			header_down -Server
+			header_down -Access-Control-Allow-Origin
+			header_down -Access-Control-Allow-Credentials
+		}
+		header Access-Control-Allow-Origin "https://{$TD_HOST}"
+		header Access-Control-Expose-Headers "ETag"
+	}
+}

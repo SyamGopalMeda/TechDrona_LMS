@@ -25,6 +25,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.firestore.backend import uses_firestore
 from app.core.time import utcnow
 from app.modules.analytics.params import MASTERY_MODEL_VERSION
 
@@ -116,8 +117,20 @@ class ScoredResponse:
     organization_id: uuid.UUID | None = None
 
 
+def _fs() -> bool:
+    from app.core.firestore.backend import uses_firestore
+
+    return uses_firestore("analytics")
+
+
 async def _item_difficulty(session: AsyncSession, r: ScoredResponse) -> float:
-    if r.question_version_id is not None:
+    if r.question_version_id is not None and _fs():
+        from app.modules.analytics import fs_raw
+
+        fb = await fs_raw.item_difficulty(r.question_version_id)
+        if fb is not None:
+            return fb
+    elif r.question_version_id is not None:
         row = (
             await session.execute(
                 text("SELECT difficulty_b FROM question_item_stats WHERE question_version_id = :q"),
@@ -141,6 +154,40 @@ async def apply_response(session: AsyncSession, r: ScoredResponse) -> int:
     touched = 0
     for i, topic in enumerate(dict.fromkeys(r.topic_ids)):
         w = base_w if i == 0 else base_w * 0.5
+        if _fs():
+            from app.modules.analytics import fs_raw
+
+            def update(cur: Any, w: float = w) -> dict[str, Any]:
+                st = (
+                    MasteryState(
+                        float(cur.theta),
+                        float(cur.n_eff),
+                        cur.attempts,
+                        cur.correct,
+                        cur.wa_num,
+                        cur.wa_den,
+                        cur.last_practiced_at,
+                    )
+                    if cur is not None
+                    else MasteryState()
+                )
+                new = elo_update(st, correct=bool(r.correct), b=b, w=w, at=at)
+                return {
+                    "theta": round(new.theta, 3),
+                    "n_eff": round(new.n_eff, 2),
+                    "attempts": new.attempts,
+                    "correct": new.correct,
+                    "weighted_accuracy": round(new.weighted_accuracy, 4),
+                    "wa_num": new.wa_num,
+                    "wa_den": new.wa_den,
+                    "band": new.band,
+                    "last_practiced_at": new.last_practiced_at,
+                    "model_version": MASTERY_MODEL_VERSION,
+                }
+
+            await fs_raw.upsert_mastery(r.user_id, topic, r.organization_id, update)
+            touched += 1
+            continue
         row = (
             await session.execute(
                 text(
@@ -212,6 +259,8 @@ async def get_topic_mastery(
     session: AsyncSession, user_id: uuid.UUID, topic_ids: list[uuid.UUID] | None = None
 ) -> list[TopicMasteryView]:
     """Placement/recommendations interface (CP-11). Runs under the caller's RLS context."""
+    if uses_firestore("analytics"):
+        return await _fs_topic_mastery(user_id, topic_ids)
     sql = (
         "SELECT topic_id, theta, band, weighted_accuracy, n_eff, attempts, last_practiced_at, model_version "
         "FROM topic_mastery WHERE user_id = :u"
@@ -250,3 +299,28 @@ def rollup(
             acc[node] = (s + v.mastery * v.n_eff, n + v.n_eff)
             node = parent_of.get(node)
     return {k: (s / n if n > 0 else 0.0) for k, (s, n) in acc.items()}
+
+
+async def _fs_topic_mastery(user_id: uuid.UUID, topic_ids: list[uuid.UUID] | None) -> list[TopicMasteryView]:
+    from app.modules.analytics.repo_firestore import feed_repo
+    from app.modules.analytics.store_specs import TopicRow
+
+    want = None if topic_ids is None else {str(t) for t in topic_ids}
+    out: list[TopicMasteryView] = []
+    for d in await feed_repo("analytics.mastery_read").topic_mastery(user_id):
+        if want is not None and d.get("topic_id") not in want:
+            continue
+        r = TopicRow.of(d)
+        out.append(
+            TopicMasteryView(
+                topic_id=r.topic_id,
+                mastery=round(sigmoid(float(r.theta)), 4),
+                band=r.band,
+                weighted_accuracy=float(r.weighted_accuracy),
+                n_eff=float(r.n_eff),
+                attempts=r.attempts,
+                last_practiced_at=r.last_practiced_at,
+                model_version=r.model_version,
+            )
+        )
+    return out

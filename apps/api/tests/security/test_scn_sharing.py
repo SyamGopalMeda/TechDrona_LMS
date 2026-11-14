@@ -416,6 +416,7 @@ async def test_scn09c_deferral_keeps_attempt_session(db, monkeypatch) -> None:
     async def holding(session, ids):
         return {a[1]} & set(ids)
 
+    prev = ss._active_attempt_lookup  # restore the app's real hook afterwards (other tests rely on it)
     ss.register_active_attempt_lookup(holding)
     try:
         case = await engine.open_case(db, user_id=u.id, family="sharing", level=3, opened_reason="engine_L3")
@@ -423,7 +424,7 @@ async def test_scn09c_deferral_keeps_attempt_session(db, monkeypatch) -> None:
             db, user_id=u.id, level=3, family="sharing", source="engine", actor=engine.SYSTEM, case_id=case.id
         )
     finally:
-        ss.register_active_attempt_lookup(None)
+        ss.register_active_attempt_lookup(prev)
     assert r.deferred_until is not None and r.deferred_until - r.starts_at == timedelta(hours=3)
     assert (await db.get(AuthSession, a[1])).status == "active"
     assert (await db.get(AuthSession, b[1])).end_reason == "risk_L3"

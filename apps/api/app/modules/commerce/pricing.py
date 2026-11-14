@@ -22,10 +22,11 @@ from app.core.db import as_system as core_as_system
 from app.core.money import percent_of, round_half_up
 from app.core.principal import Principal
 from app.core.time import utcnow
+from app.modules.commerce import datastore as ds
 from app.modules.commerce import policy
 from app.modules.commerce.models import Coupon, CouponRedemption, Order, Plan, Price, Product, ProductItem
+from app.modules.entitlements import public as ent_pub
 from app.modules.entitlements import service as ent_svc
-from app.modules.entitlements.models import Entitlement
 
 COUPON_ERROR = {
     "invalid": "coupon_invalid",
@@ -48,7 +49,7 @@ async def as_system(
     compatibility; the restored context is whatever was active before the block."""
     async with core_as_system(session, job):
         yield
-        await session.flush()
+        await ds.flush(session)
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,7 +98,8 @@ async def load_price(
 
     now = now or utcnow()
     row = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(Price, Plan, Product)
             .join(Plan, Plan.id == Price.plan_id)
             .join(Product, Product.id == Plan.product_id)
@@ -108,7 +110,7 @@ async def load_price(
                 or_(Price.valid_until.is_(None), Price.valid_until > now),
                 Plan.status == "active",
                 Product.status == "active",
-            )
+            ),
         )
     ).first()
     if row is None:
@@ -150,7 +152,7 @@ async def check_coupon(
     q = select(Coupon).where(func.lower(Coupon.code) == code.strip().lower())
     if for_update:
         q = q.with_for_update()
-    c = (await session.execute(q)).scalar_one_or_none()
+    c = (await ds.execute(session, q)).scalar_one_or_none()
     if c is None or c.status == "paused":
         return CouponCheck("invalid")
     if c.status == "expired" or c.valid_from > now or (c.valid_until is not None and c.valid_until <= now):
@@ -164,29 +166,34 @@ async def check_coupon(
     )
     if c.max_redemptions is not None:
         used = (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(func.count())
                 .select_from(CouponRedemption)
-                .where(CouponRedemption.coupon_id == c.id, live)
+                .where(CouponRedemption.coupon_id == c.id, live),
             )
         ).scalar_one()
         if used >= c.max_redemptions:
             return CouponCheck("cap_reached", c)
     mine = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(func.count())
             .select_from(CouponRedemption)
-            .where(CouponRedemption.coupon_id == c.id, CouponRedemption.user_id == user_id, live)
+            .where(CouponRedemption.coupon_id == c.id, CouponRedemption.user_id == user_id, live),
         )
     ).scalar_one()
     if mine >= c.per_user_limit:
         return CouponCheck("cap_reached", c)
     if c.first_time_only:
         prior = (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(func.count())
                 .select_from(Order)
-                .where(Order.user_id == user_id, Order.status.in_(("paid", "refunded", "partially_refunded")))
+                .where(
+                    Order.user_id == user_id, Order.status.in_(("paid", "refunded", "partially_refunded"))
+                ),
             )
         ).scalar_one()
         if prior:
@@ -255,7 +262,9 @@ class Quote:
 
 
 async def _item_refs(session: AsyncSession, product_id: uuid.UUID) -> set[tuple[str, str]]:
-    rows = (await session.execute(select(ProductItem).where(ProductItem.product_id == product_id))).scalars()
+    rows = (
+        await ds.execute(session, select(ProductItem).where(ProductItem.product_id == product_id))
+    ).scalars()
     refs: set[tuple[str, str]] = set()
     for i in rows:
         ref = i.course_id or i.test_id or i.company_path_id or i.topic_id
@@ -289,19 +298,11 @@ async def ownership_checks(
     """BR-ENT-05 (block duplicate) and BR-ENT-06/07 (warn on overlap)."""
     warnings: list[dict[str, Any]] = []
     blocking: list[dict[str, Any]] = []
-    ents = (
-        (
-            await session.execute(
-                select(Entitlement).where(
-                    Entitlement.user_id == user_id,
-                    Entitlement.status.in_(("active", "grace")),
-                    Entitlement.product_id.is_not(None),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    ents = [
+        e
+        for e in await ent_pub.user_entitlements(session, user_id, statuses=("active", "grace"))
+        if e.product_id is not None
+    ]
     target = await _item_refs(session, product.id)
     for e in ents:
         if ent_svc.effective_state(e, now) not in ("active", "grace"):

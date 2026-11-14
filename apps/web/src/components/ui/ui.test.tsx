@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api/errors";
 import { useState } from "react";
-import { Button, Dialog, ErrorState, ErrorSummary, LoadingBlock, FormField, Input, PageHeader, Pagination, StatTile, StatusBadge, Table, Tabs, ToastProvider, nextCursorStack, previousCursorStack, useToast } from "./index";
+import { Button, Dialog, ErrorState, LinkButton, ProgressBar, ErrorSummary, LoadingBlock, FormField, Input, PageHeader, Pagination, StatTile, StatusBadge, Table, Tabs, ToastProvider, nextCursorStack, previousCursorStack, useToast } from "./index";
 
 describe("FormField", () => {
   it("wires label, hint and error to the control", () => {
@@ -91,6 +91,45 @@ describe("ErrorState", () => {
     expect(screen.getByText("REQ-9")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(onRetry).toHaveBeenCalled();
+  });
+
+  it("does not repeat the title as the body and offers a way out", () => {
+    render(<ErrorState title="Course not found" detail="Course not found" secondaryAction={{ href: "/app", label: "Go to my dashboard" }} />);
+    expect(screen.getAllByText("Course not found")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "Go to my dashboard" })).toHaveAttribute("href", "/app");
+  });
+
+  it("hides Try again for problems a retry cannot fix (401/403/404)", () => {
+    for (const status of [401, 403, 404]) {
+      const { unmount } = render(<ErrorState title="No access" status={status} onRetry={() => {}} />);
+      expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+      unmount();
+    }
+    render(<ErrorState error={new ApiError(403, null, "r1")} onRetry={() => {}} />);
+    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+    expect(screen.getByText("r1")).toHaveClass("font-mono");
+  });
+});
+
+describe("Button inverse variants (on the navy band)", () => {
+  it("uses the on-brand white fill for inverse and a white outline for inverse-secondary", () => {
+    render(
+      <>
+        <LinkButton href="/signup" variant="inverse">Create a free account</LinkButton>
+        <LinkButton href="/courses" variant="inverse-secondary">Browse courses</LinkButton>
+      </>,
+    );
+    expect(screen.getByRole("link", { name: "Create a free account" })).toHaveClass("bg-fg-on-surface-brand", "text-surface-brand");
+    const outline = screen.getByRole("link", { name: "Browse courses" });
+    expect(outline).toHaveClass("border", "text-fg-on-surface-brand", "bg-transparent");
+    expect(outline).not.toHaveClass("bg-brand");
+  });
+});
+
+describe("ProgressBar", () => {
+  it("reports server progress accessibly", () => {
+    render(<ProgressBar value={42.4} label="DSA progress" />);
+    expect(screen.getByRole("progressbar", { name: "DSA progress" })).toHaveAttribute("aria-valuenow", "42");
   });
 });
 

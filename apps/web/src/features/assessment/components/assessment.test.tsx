@@ -160,6 +160,28 @@ describe("AttemptRunner (TST-002)", () => {
     expect(screen.getByRole("button", { name: "Question 2, answered" })).toBeInTheDocument();
   });
 
+  it("shows an answer the server refused as not saved, and counts it as not answered at submission", async () => {
+    const api = mockApi({
+      "GET attempts/a1/state": { body: payload() },
+      "POST attempts/a1/autosave": (c) => {
+        const seq = (c.body as { items: { client_seq: number }[] }).items.at(-1)!.client_seq;
+        return { body: { ...ack(seq).body, rejected: [{ question_version_id: "q2", client_seq: seq, field: "response.value", code: "invalid", message: "must be a number" }] } };
+      },
+    });
+    restore = api.restore;
+    renderWithProviders(<AttemptRunner attemptId="a1" store={memoryStore()} />);
+    await screen.findByText(/A train 240 m long/);
+    await userEvent.click(screen.getByRole("button", { name: /Question 2,/ }));
+    await userEvent.type(await screen.findByRole("textbox"), "abc");
+    expect(await screen.findByText(/Your answer to this question was not saved: must be a number/, undefined, { timeout: 5_000 })).toBeInTheDocument();
+    expect(screen.getByText("1 answer not saved")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Submit test" }));
+    const dialog = await screen.findByRole("dialog", { name: "Submit test?" });
+    expect(within(dialog).getByText(/1 answer was not saved because it is not valid/)).toBeInTheDocument();
+    expect(within(dialog).getByText("2 questions are not answered.")).toBeInTheDocument();
+  });
+
   it("confirms and submits the test with an Idempotency-Key, then goes to TST-005", async () => {
     const api = mockApi({
       "GET attempts/a1/state": { body: payload() },

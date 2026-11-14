@@ -294,6 +294,38 @@ async def test_platform_export_by_admin_and_student_denied(client, db, store) ->
     assert (await bs.get(f"/exports/{res.json()['export_job_id']}")).status_code == 404
 
 
+async def test_download_rechecks_scope_permission(client, db, store) -> None:
+    """ANL-15: the download re-runs the request-time check (``report.export.request`` +
+    ``analytics.read`` on the export's own scope). A trainer whose grant on that batch was
+    revoked after requesting cannot fetch the file any more."""
+    from sqlalchemy import text, update
+
+    from app.core.db import system_context
+    from app.modules.rbac.models import RoleGrant as RG
+
+    batch, _students = await cohort(db, 1)
+    keep, _ = await cohort(db, 1)
+    trainer = await make_user(db, with_totp=True)
+    await grant(db, trainer.id, "trainer", "batch", keep)  # stays staff after the revoke
+    gid = await grant(db, trainer.id, "trainer", "batch", batch)
+    b = await login(client, trainer)
+    res = await b.post("/exports", batch_body(batch))
+    assert res.status_code == 202, res.text
+    jid = res.json()["export_job_id"]
+    assert await run_export(uuid.UUID(jid)) == "ready"
+    assert (await b.get(f"/exports/{jid}/download", headers=JSON)).status_code == 200
+
+    await system_context(db, "test.factory")
+    await db.execute(update(RG).where(RG.id == gid).values(revoked_at=text("now()")))
+    await db.flush()
+    denied = await b.get(f"/exports/{jid}/download", headers=JSON)
+    assert denied.status_code in (403, 404), denied.text
+    if denied.status_code == 403:
+        assert denied.json()["permission"] == "report.export.request"
+    job = await job_row(db, jid)
+    assert job.download_count == 1  # the refused attempt did not consume a download
+
+
 async def test_restricted_principal_cannot_request(client, auth) -> None:
     from app.core.principal import Principal
 

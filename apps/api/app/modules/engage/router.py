@@ -8,7 +8,8 @@ Manager (``engage.activity.manage``, scoped to the activity's batch, or the plat
   DELETE /engage/activities/{id}                   soft delete (closes live runs)
   POST   /engage/activities/{id}/duplicate         copy "<title> (copy)"
   POST   /engage/activities/{id}/runs              new run + join code; 10/h per activity+user
-  POST   /engage/bank-import                       placement questions → question drafts (not saved)
+  POST   /engage/bank-import                       placement questions → question drafts (not saved);
+                                                   needs the permission on some scope held
   GET    /engage/runs/{run_id}/presenter           live state (counts, distribution, winners, leaderboard)
   GET    /engage/runs/{run_id}/results             same payload (summary page)
   POST   /engage/runs/{run_id}/control             start|close|goto|reveal|hide|publish|unpublish|finalise

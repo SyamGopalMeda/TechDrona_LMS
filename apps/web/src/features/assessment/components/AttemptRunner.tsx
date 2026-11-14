@@ -113,6 +113,9 @@ export function AttemptRunner({ attemptId, forceResume = false, store = localPen
   const protocolRef = useRef<ExamProtocol | null>(null);
   const closedByIntegrity = useRef(false);
   const [integrity, setIntegrity] = useState<IntegritySummary | null>(null);
+  // Answers the server refused (e.g. letters in a numeric box), by question version: shown on that
+  // question until the learner changes the answer. Other answers keep saving normally.
+  const [rejected, setRejected] = useState<Record<string, string>>({});
   const [localEvents, setLocalEvents] = useState(0);
   const [fullscreenOff, setFullscreenOff] = useState(false);
   const timeOnQuestion = useRef(new Map<string, number>());
@@ -197,6 +200,10 @@ export function AttemptRunner({ attemptId, forceResume = false, store = localPen
         currentSectionId: () => currentSectionRef.current ?? activeSection(p)?.section_id,
         onChange: setSnap,
         onAck: (r) => {
+          if (r.rejected?.length) {
+            const bad = r.rejected;
+            setRejected((m) => ({ ...m, ...Object.fromEntries(bad.map((x) => [x.question_version_id, x.message])) }));
+          }
           setDeadlineAt(r.deadline_at);
           setSectionDeadlineAt(r.section_deadline_at ?? null);
           if (r.integrity) {
@@ -463,6 +470,7 @@ export function AttemptRunner({ attemptId, forceResume = false, store = localPen
   const update = (id: string, patch: Partial<Pick<AnswerState, "response" | "flagged">>) => {
     const cur = answers.get(id) ?? { response: null, flagged: false, client_seq: 0 };
     const next: AnswerState = { ...cur, ...patch };
+    if (patch.response !== undefined) setRejected((m) => (m[id] ? Object.fromEntries(Object.entries(m).filter(([k]) => k !== id)) : m));
     const seq = queueRef.current?.setAnswer(id, next.response, next.flagged, spentOn(id)) ?? cur.client_seq;
     setAnswers((m) => new Map(m).set(id, { ...next, client_seq: seq }));
   };
@@ -497,7 +505,9 @@ export function AttemptRunner({ attemptId, forceResume = false, store = localPen
 
   const ids = questions.map((q) => q.question_version_id);
   const counts = paletteCounts(ids, answers, visited);
-  const unanswered = counts.not_answered + counts.not_visited + counts.marked;
+  // Answers the server refused are not stored: they count as not answered at submission.
+  const rejectedCount = ids.filter((id) => rejected[id]).length;
+  const unanswered = counts.not_answered + counts.not_visited + counts.marked + rejectedCount;
 
   const submit = async () => {
     const q = queueRef.current;
@@ -526,6 +536,14 @@ export function AttemptRunner({ attemptId, forceResume = false, store = localPen
     } catch (e) {
       if (isApiError(e) && e.code === "attempt_closed") {
         goSubmitted("deadline");
+        return;
+      }
+      if (isApiError(e) && e.code === "confirm_required") {
+        // The server counts more unanswered questions than shown here (e.g. a refused answer):
+        // resync, and use a fresh key so the next confirmation isn't the replayed refusal.
+        submitKey.current = null;
+        setSubmitError(e);
+        await load("state");
         return;
       }
       if (isApiError(e) && e.code === "attempt_bound_elsewhere") {
@@ -631,7 +649,13 @@ export function AttemptRunner({ attemptId, forceResume = false, store = localPen
             <h1 className="truncate font-display text-base font-semibold text-fg">{payload.test.title}</h1>
             {sections.length > 1 ? <span className="hidden text-sm text-fg-muted sm:inline">· {section.title}</span> : null}
           </div>
-          <AutosaveIndicator status={snap.status} lastSavedAt={snap.lastSavedAt} />
+          {rejectedCount > 0 ? (
+            <span role="status" className="text-sm font-medium text-danger-fg">
+              {rejectedCount} answer{rejectedCount === 1 ? "" : "s"} not saved
+            </span>
+          ) : (
+            <AutosaveIndicator status={snap.status} lastSavedAt={snap.lastSavedAt} />
+          )}
           <Timer clock={clock} deadlineAt={effectiveDeadline} onExpire={() => void onExpire()} />
           <Button variant="secondary" size="sm" className="lg:hidden" onClick={() => setPaletteOpen(true)}>
             Questions {index + 1}/{questions.length}
@@ -692,6 +716,11 @@ export function AttemptRunner({ attemptId, forceResume = false, store = localPen
 
       <div className="mx-auto flex max-w-wide gap-6 px-4 py-6 pb-24 lg:pb-6">
         <section aria-label="Question" className="min-w-0 flex-1">
+          {rejected[question.question_version_id] ? (
+            <p role="alert" className="mb-4 rounded-lg border border-danger-border bg-danger-subtle p-3 text-sm font-semibold text-danger-fg">
+              Your answer to this question was not saved: {rejected[question.question_version_id]}. Please correct it.
+            </p>
+          ) : null}
           <QuestionView
             key={question.question_version_id}
             number={index + 1}
@@ -795,7 +824,7 @@ export function AttemptRunner({ attemptId, forceResume = false, store = localPen
       >
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
           <dt className="text-fg-muted">Answered</dt>
-          <dd className="tabular-nums">{counts.answered + counts.answered_marked}</dd>
+          <dd className="tabular-nums">{Math.max(0, counts.answered + counts.answered_marked - rejectedCount)}</dd>
           <dt className="text-fg-muted">Not answered</dt>
           <dd className="tabular-nums">{counts.not_answered}</dd>
           <dt className="text-fg-muted">Marked for review</dt>
@@ -805,6 +834,12 @@ export function AttemptRunner({ attemptId, forceResume = false, store = localPen
           <dt className="text-fg-muted">Time left</dt>
           <dd className="font-mono tabular-nums">{remainingNow === null ? "—" : formatCountdown(remainingNow)}</dd>
         </dl>
+        {rejectedCount > 0 ? (
+          <p role="alert" className="mt-3 border-l-4 border-danger-border bg-danger-subtle p-2 text-sm text-danger-fg">
+            {rejectedCount} answer{rejectedCount === 1 ? " was" : "s were"} not saved because {rejectedCount === 1 ? "it is" : "they are"} not valid for the question, and will
+            count as not answered. Go back to correct {rejectedCount === 1 ? "it" : "them"}.
+          </p>
+        ) : null}
         {unanswered > 0 ? (
           <p className="mt-3 border-l-4 border-warning-border bg-warning-subtle p-2 text-sm text-warning-fg">
             {unanswered} question{unanswered === 1 ? " is" : "s are"} not answered.

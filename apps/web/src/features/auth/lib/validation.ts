@@ -3,7 +3,9 @@
  * authoritative; these only give earlier, clearer feedback.
  */
 
-export const PASSWORD_MIN = 15; // without MFA (AUTH-01 `password_too_short`)
+// Client pre-check only (owner decision 2026-11-11: simple passwords allowed while testing). The api
+// enforces the real policy (15 without MFA unless TD_PASSWORD_POLICY_RELAXED) and its field error is shown.
+export const PASSWORD_MIN = 6;
 export const PASSWORD_MIN_WITH_MFA = 8;
 export const PASSWORD_MAX = 128;
 

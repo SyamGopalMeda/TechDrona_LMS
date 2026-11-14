@@ -1,18 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { api } from "@/lib/api/client";
 import type { Batch, BatchMember } from "@/features/batches/lib/types";
 import { hasPlatformGrant, trainerBatchIds, useMyGrants } from "../shared/grants";
 import { seg } from "../shared/use-api";
 
 /**
- * Batches the signed-in staff member works in. Platform-scope staff (Admin) get every
- * non-archived batch from `GET batches`; batch staff get their RBAC-06 grants
- * (`trainer` / `evaluator` @ batch) → ORG-22 for each.
+ * Batches the signed-in staff member works in. Batch staff get their RBAC-06 grants
+ * (`trainer` / `evaluator` @ batch) → ORG-22 for each. Platform-scope staff get every
+ * non-archived batch from `GET batches` in the Evaluator portal; in the Teacher portal
+ * (`/trainer`) an Admin gets only the batches they are the teacher of (`GET batches?mine=true`):
+ * the Admin portal is where every batch is managed.
  */
 export function useTrainerBatches() {
   const grants = useMyGrants();
+  const teacherPortal = isTeacherPortal(usePathname());
   const [batches, setBatches] = useState<Batch[] | undefined>();
   const [error, setError] = useState<unknown>(null);
   const ids = trainerBatchIds(grants.data?.data).join(",");
@@ -23,13 +27,16 @@ export function useTrainerBatches() {
     let live = true;
     const list = ids ? ids.split(",") : [];
     const load = platform
-      ? api.get<{ data: Batch[] }>("batches").then((r) => (r.data ?? []).filter((b) => b.status !== "archived"))
+      ? (teacherPortal
+          ? api.get<{ data: Batch[] }>("batches", { query: { mine: true } })
+          : api.get<{ data: Batch[] }>("batches")
+        ).then((r) => (r.data ?? []).filter((b) => b.status !== "archived"))
       : Promise.all(list.map((id) => api.get<Batch>(`batches/${seg(id)}`)));
     load.then((b) => live && setBatches(b)).catch((e: unknown) => live && setError(e));
     return () => {
       live = false;
     };
-  }, [grants.data, ids, platform]);
+  }, [grants.data, ids, platform, teacherPortal]);
 
   return {
     batches,
@@ -39,6 +46,20 @@ export function useTrainerBatches() {
       (grants.data !== undefined && batches === undefined && !error),
     reload: grants.reload,
   };
+}
+
+/** True inside the Teacher (trainer) portal, where lists are limited to the batches the user teaches. */
+export function isTeacherPortal(pathname: string | null | undefined): boolean {
+  return pathname === "/trainer" || !!pathname?.startsWith("/trainer/");
+}
+
+/**
+ * Query flag for staff assignment lists (`GET assignments?scope=mine`): in the Teacher portal,
+ * `teaching=true` makes the api ignore platform grants, so an Admin who teaches a batch sees that
+ * batch's work there rather than every assignment. Elsewhere (Evaluator portal) it adds nothing.
+ */
+export function useTeachingQuery(): { teaching?: true } {
+  return isTeacherPortal(usePathname()) ? { teaching: true } : {};
 }
 
 /**

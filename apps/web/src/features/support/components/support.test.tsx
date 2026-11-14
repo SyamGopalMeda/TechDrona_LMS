@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockApi, problem, renderWithProviders } from "@/features/auth/test/mock-api";
 import { MyTicket, MyTickets, NewTicketForm } from "./StudentSupport";
-import { SupportUnblockTriage, TicketDetail, TicketQueue, UserLookup } from "./SupportDesk";
+import { SupportUnblockTriage, TicketDetail, TicketQueue, UserLookup, resolveTicketId } from "./SupportDesk";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 
@@ -33,9 +33,9 @@ describe("Support user lookup (SUP-003/004)", () => {
     cleanups.push(api.restore);
     renderWithProviders(<UserLookup userId="u1" />);
     expect(api.calls).toHaveLength(0);
-    await userEvent.type(screen.getByLabelText(/Ticket id/), "T-481");
+    await userEvent.type(screen.getByLabelText(/Ticket number/), "T-481");
     await userEvent.click(screen.getByRole("button", { name: "Open" }));
-    expect(await screen.findByText("Support resets left (30 d): 1")).toBeInTheDocument();
+    expect(await screen.findByText("Support resets left (last 30 days): 1")).toBeInTheDocument();
     expect(api.calls.every((c) => c.url.includes("reason_code=ticket"))).toBe(true);
     expect(screen.getByText("49.36.112.x")).toBeInTheDocument();
     expect(screen.queryByText(/Reveal full IP/)).not.toBeInTheDocument();
@@ -141,6 +141,31 @@ describe("Support ticket detail (SUP-002)", () => {
     expect(api.calls.find((c) => c.method === "POST")!.body).toEqual({ body: "We reset your device.", visibility: "internal" });
     await userEvent.click(screen.getByRole("button", { name: "Assign to me" }));
     await waitFor(() => expect(api.calls.find((c) => c.method === "PATCH")?.body).toEqual({ assign_to_me: true }));
+  });
+
+  it("confirms before closing a ticket and opens each dialog with fresh fields (audit 0.5/0.7)", async () => {
+    const api = mockApi({
+      "GET support/tickets/t1": { body: { ...ticket, viewer: "agent", messages: [] } },
+      "GET support/macros": { body: { data: [] } },
+      "PATCH support/tickets/t1": { body: ticket },
+    });
+    cleanups.push(api.restore);
+    renderWithProviders(<TicketDetail ticketId="t1" />);
+    await userEvent.selectOptions(await screen.findByLabelText("Status"), "closed");
+    let dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Close this ticket?")).toBeInTheDocument();
+    expect(api.calls.some((c) => c.method === "PATCH")).toBe(false);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close ticket" }));
+    await waitFor(() => expect(api.calls.find((c) => c.method === "PATCH")?.body).toEqual({ status: "closed" }));
+
+    // A note typed for one escalation never carries into the next dialog.
+    await userEvent.click(screen.getByRole("button", { name: "Escalate" }));
+    dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText(/^Note/), "secret context for security");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await userEvent.click(screen.getByRole("button", { name: "Escalate" }));
+    dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText(/^Note/)).toHaveValue("");
   });
 });
 
@@ -290,6 +315,18 @@ describe("Student support (STU-025)", () => {
     cleanups.push(api.restore);
     renderWithProviders(<MyTickets />);
     expect(await screen.findByText("Cannot sign in")).toBeInTheDocument();
+    // The page's one main action is a primary button (not an outline link).
+    const create = screen.getByRole("link", { name: "New ticket" });
+    expect(create).toHaveAttribute("href", "/app/support/new");
+    expect(create.className).toContain("bg-brand");
+  });
+
+  it("gives the new-ticket form breadcrumbs and a styled file picker", () => {
+    renderWithProviders(<NewTicketForm />);
+    const crumbs = screen.getByRole("navigation", { name: /breadcrumb/i });
+    expect(within(crumbs).getByRole("link", { name: "Support" })).toHaveAttribute("href", "/app/support");
+    expect(screen.getByLabelText(/Attachments/).className).toContain("file:");
+    expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute("href", "/app/support");
   });
 });
 
@@ -312,7 +349,7 @@ describe("Support unblock triage (SUP-005)", () => {
     expect(screen.getByText("Security")).toBeInTheDocument();
     // Old-shape rows (no ids) get no actions and an honest notice.
     expect(screen.queryByRole("button", { name: /Forward/ })).not.toBeInTheDocument();
-    expect(screen.getByText(/arrived without a request id/)).toBeInTheDocument();
+    expect(screen.getByText(/older requests cannot be lifted or forwarded/)).toBeInTheDocument();
   });
 
   it("lifts an L1/L2 restriction and forwards an L3 request (ADM-27/INV-06)", async () => {
@@ -332,10 +369,10 @@ describe("Support unblock triage (SUP-005)", () => {
     cleanups.push(api.restore);
     renderWithProviders(<SupportUnblockTriage />);
     expect(await screen.findByText("APL-1")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Lift L3 restriction for APL-2" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Lift sharing temporary restriction for APL-2" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Forward APL-1 to security" })).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Lift L2 restriction for APL-1" }));
+    await userEvent.click(screen.getByRole("button", { name: "Lift sharing verification check for APL-1" }));
     let dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByLabelText(/Reason/));
     await userEvent.paste("Student verified on a call");
@@ -349,5 +386,57 @@ describe("Support unblock triage (SUP-005)", () => {
     await userEvent.paste("Needs L3 review");
     await userEvent.click(within(dialog).getByRole("button", { name: "Forward" }));
     await waitFor(() => expect(api.calls.find((c) => c.path === "support/unblock-requests/r2/forward")?.body).toEqual({ reason: "Needs L3 review" }));
+  });
+});
+
+describe("Desk Phase 2 presentation (audit 1.7/1.11)", () => {
+  const agent = "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0";
+
+  it("ticket detail: breadcrumbs back to the queue, the subject as h1, status in the header and readable references", async () => {
+    const api = mockApi({
+      "GET support/tickets/t1": { body: { ...ticket, assigned_to: agent, related_case_id: agent, viewer: "agent", messages: [] } },
+      "GET support/macros": { body: { data: [] } },
+    });
+    cleanups.push(api.restore);
+    renderWithProviders(<TicketDetail ticketId="t1" />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Cannot sign in" })).toBeInTheDocument();
+    const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(crumbs).getByRole("link", { name: "Ticket queue" })).toHaveAttribute("href", "/desk");
+    expect(screen.getByText("Agent #C7D8E9F0")).toBeInTheDocument();
+    expect(screen.getByText("Case #C7D8E9F0")).toBeInTheDocument();
+    expect(screen.queryByText(agent)).not.toBeInTheDocument();
+  });
+
+  it("merge: a ticket number is resolved to its id; an unknown number says so", async () => {
+    const api = mockApi({ "GET support/queue": { body: { data: [{ ...ticket, ticket_id: "t9", ticket_number: "TD-T-2026-000009" }], page } } });
+    cleanups.push(api.restore);
+    await expect(resolveTicketId(" td-t-2026-000009 ")).resolves.toBe("t9");
+    await expect(resolveTicketId("TD-T-2026-000777")).rejects.toMatchObject({ detail: expect.stringContaining("No open ticket is numbered TD-T-2026-000777") });
+    await expect(resolveTicketId(agent)).resolves.toBe(agent);
+  });
+
+  it("user lookup: the person's name is the title (not the id) and resets are disabled when none are left", async () => {
+    const api = mockApi({
+      "GET support/users/u1": { body: { user_id: "u1", display_name: "Asha", email_masked: "a***@example.com", status: "active", devices: { trusted_count: 1, total: 1 }, entitlements: [], recent_orders: [], notes: [], tickets: [] } },
+      "GET users/u1/devices": { body: { ...devices, limits: { support_resets_used_30d: 1 } } },
+      "GET users/u1/sessions": { body: { data: [], page } },
+    });
+    cleanups.push(api.restore);
+    renderWithProviders(<UserLookup userId="u1" ticketId="TD-T-1" />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Asha" })).toBeInTheDocument();
+    expect(await screen.findByText(/No support resets are left/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reset Chrome on Windows" })).toBeDisabled();
+    expect(screen.getByText("Not signed in anywhere")).toBeInTheDocument();
+  });
+
+  it("queue: search waits for typing to pause, and the empty status option says what it shows", async () => {
+    const api = mockApi({ "GET support/queue": { body: { data: [ticket], page, counts: { open: 1, breached: 0, unassigned: 0 } } } });
+    cleanups.push(api.restore);
+    renderWithProviders(<TicketQueue />);
+    expect(await screen.findByText("TD-T-2026-000001")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "All open tickets" })).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText(/^Search/), "sign");
+    await waitFor(() => expect(api.calls.some((c) => c.url.includes("q=sign"))).toBe(true));
+    expect(api.calls.some((c) => c.url.includes("q=s&") || c.url.endsWith("q=s"))).toBe(false);
   });
 });

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from datetime import datetime, timedelta
+from typing import Any
 
 from celery import shared_task
 from sqlalchemy import func, select, text
@@ -23,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_sessionmaker, system_context
 from app.core.jobs import register_periodic, run_async
 from app.core.time import utcnow
+from app.modules.assessments import datastore as adb
 from app.modules.assessments.attempts import advance_sections, finalize
 from app.modules.assessments.models import AttemptSection, Test, TestAttempt
 
@@ -35,9 +37,12 @@ async def sweep_expired_attempts(
     """Close overdue attempts in the caller's transaction (sets the system RLS context)."""
     await system_context(session, JOB)
     now = now or utcnow()
+    if adb.on_firestore():
+        return await _sweep_store(session, now, limit)
     grace = func.make_interval(0, 0, 0, 0, 0, 0, Test.grace_seconds)
     rows = (
-        await session.execute(
+        await adb.execute(
+            session,
             select(TestAttempt, Test)
             .join(Test, Test.id == TestAttempt.test_id)
             .where(
@@ -47,7 +52,7 @@ async def sweep_expired_attempts(
             )
             .order_by(TestAttempt.deadline_at)
             .limit(limit)
-            .with_for_update(of=TestAttempt, skip_locked=True)
+            .with_for_update(of=TestAttempt, skip_locked=True),
         )
     ).all()
     n = 0
@@ -58,7 +63,8 @@ async def sweep_expired_attempts(
         n += 1
     # BE-10: sequential tests whose active section timed out (the last one -> auto-submit).
     sec_rows = (
-        await session.execute(
+        await adb.execute(
+            session,
             select(TestAttempt, Test)
             .join(Test, Test.id == TestAttempt.test_id)
             .where(
@@ -74,7 +80,7 @@ async def sweep_expired_attempts(
                 .exists(),
             )
             .limit(limit)
-            .with_for_update(of=TestAttempt, skip_locked=True)
+            .with_for_update(of=TestAttempt, skip_locked=True),
         )
     ).all()
     for attempt, test in sec_rows:
@@ -86,9 +92,115 @@ async def sweep_expired_attempts(
     return n
 
 
+async def _sweep_store(session: AsyncSession, now: datetime, limit: int) -> int:
+    """The same sweep on the Firestore store: ``deadline + grace_seconds < now`` evaluated in Python
+    (the engine has no interval arithmetic). One job instance runs at a time, so no SKIP LOCKED."""
+    from datetime import timedelta
+
+    live = list(
+        (
+            await adb.execute(
+                session,
+                select(TestAttempt)
+                .where(TestAttempt.status == "in_progress", TestAttempt.deadline_at.is_not(None))
+                .with_for_update(),
+            )
+        ).scalars()
+    )
+    tests = (
+        {
+            t.id: t
+            for t in (
+                await adb.execute(session, select(Test).where(Test.id.in_({a.test_id for a in live})))
+            ).scalars()
+        }
+        if live
+        else {}
+    )
+    due = sorted(
+        (
+            a
+            for a in live
+            if a.test_id in tests and a.deadline_at + timedelta(seconds=tests[a.test_id].grace_seconds) < now
+        ),
+        key=lambda a: a.deadline_at,
+    )[:limit]
+    n = 0
+    for attempt in due:
+        if attempt.status != "in_progress":
+            continue
+        await finalize(session, attempt, tests[attempt.test_id], "deadline")
+        n += 1
+    seq = [
+        a
+        for a in live
+        if a.status == "in_progress" and a.test_id in tests and tests[a.test_id].navigation_mode != "free"
+    ]
+    secs: list[Any] = []
+    if seq:
+        secs = list(
+            (
+                await adb.execute(
+                    session,
+                    select(AttemptSection).where(
+                        AttemptSection.attempt_id.in_([a.id for a in seq]),
+                        AttemptSection.status == "active",
+                        AttemptSection.deadline_at.is_not(None),
+                    ),
+                )
+            ).scalars()
+        )
+        overdue = {
+            s.attempt_id
+            for s in secs
+            if s.deadline_at
+            + timedelta(seconds=tests[next(a.test_id for a in seq if a.id == s.attempt_id)].grace_seconds)
+            < now
+        }
+        for attempt in seq[:limit]:
+            if attempt.id not in overdue or attempt.status != "in_progress":
+                continue
+            await advance_sections(session, attempt, tests[attempt.test_id], now)
+            if attempt.status != "in_progress":
+                n += 1
+    await _schedule_next(live, secs, tests, now)
+    return n
+
+
+async def _schedule_next(
+    live: list[TestAttempt], secs: list[Any], tests: dict[Any, Test], now: datetime
+) -> None:
+    """Firebase event mode (``app.core.jobhints``): schedule the next sweep at the earliest
+    ``deadline + grace`` still ahead (a Cloud Task at that second + 1), instead of polling every 5 s.
+    No-op elsewhere. Sections advanced in this run get their own kick when their new deadline is
+    committed; the dispatcher's minute backstop runs this sweep while any attempt is in progress."""
+    from app.core import jobhints
+
+    if not jobhints.active():
+        return
+    by_id = {a.id: a for a in live}
+    dues: list[datetime] = []
+    for a in live:
+        if a.status == "in_progress" and a.test_id in tests and a.deadline_at is not None:
+            dues.append(a.deadline_at + timedelta(seconds=tests[a.test_id].grace_seconds))
+    for sec in secs:
+        owner = by_id.get(sec.attempt_id)
+        if owner is None or owner.status != "in_progress" or sec.deadline_at is None:
+            continue
+        if sec.status == "active":
+            dues.append(sec.deadline_at + timedelta(seconds=tests[owner.test_id].grace_seconds))
+    if dues:
+        await jobhints.kick_at(JOB, min(dues) + timedelta(seconds=1))
+
+
 async def run_once(limit: int = 200) -> int:
+    if adb.on_firestore():
+        from app.core.firestore.sqlstore import store_session
+
+        async with store_session() as fs_session:
+            return await sweep_expired_attempts(fs_session, limit=limit)
     async with get_sessionmaker()() as session, session.begin():
-        await session.execute(text("SELECT 1"))
+        await adb.execute(session, text("SELECT 1"))
         return await sweep_expired_attempts(session, limit=limit)
 
 

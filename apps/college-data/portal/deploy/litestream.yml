@@ -1,0 +1,10 @@
+# Litestream: continuous replication of the portal database to gs://$LITESTREAM_BUCKET/db (env var set on Cloud Run).
+dbs:
+  - path: /data/techdrona.db
+    replicas:
+      - type: gcs
+        bucket: ${LITESTREAM_BUCKET}
+        path: db
+        sync-interval: 1s
+        snapshot-interval: 24h
+        retention: 168h

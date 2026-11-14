@@ -18,7 +18,7 @@ const PERIODS = [
   { value: "56", label: "Last 8 weeks" },
 ];
 
-function MeasurementNote({ version }: { version: string }) {
+function MeasurementNote() {
   return (
     <details className="mt-3 rounded-md border border-line bg-surface-subtle p-3 text-sm">
       <summary className="cursor-pointer font-medium text-fg-link">How we measure time</summary>
@@ -31,7 +31,7 @@ function MeasurementNote({ version }: { version: string }) {
         ))}
       </ul>
       <p className="mt-2 text-xs text-fg-muted">
-        Measurement version {version}. Numbers are only comparable within the same version, and not with other platforms.{" "}
+        Compare these numbers with your own earlier numbers here, not with other platforms.{" "}
         <Link className="underline" href="/help/how-we-measure-time">
           Read more
         </Link>
@@ -140,7 +140,6 @@ export function ProgressDashboard() {
               hint={`${s.coding.accepted} of ${s.coding.submissions} submissions accepted`}
             />
           </div>
-          <p className="mt-2 text-xs text-fg-muted">Measurement {s.how_we_measure.measurement_version}</p>
         </>
       )}
 
@@ -155,11 +154,11 @@ export function ProgressDashboard() {
               <LearningTimeChart
                 points={series.data.points.map((b) => ({ date: b.period_start, m5_s: b.learning_s }))}
                 title={`How much learning time did you log ${grain === "week" ? "per week" : "per day"}?`}
-                caption={`Learning time (M5), minutes, ${periodLabel.toLowerCase()} · browser-measured estimate · ${series.data.measurement_version}`}
+                caption={`Learning time in minutes, ${periodLabel.toLowerCase()} · an estimate from your browser`}
               />
             </>
           )}
-          <MeasurementNote version={s?.how_we_measure.measurement_version ?? series.data?.measurement_version ?? "tm-1.0"} />
+          <MeasurementNote />
         </Card>
         {series.data ? <TimeMetricsTable totals={totals} periodLabel={periodLabel} /> : <Skeleton className="h-72 w-full" />}
       </div>
@@ -180,7 +179,7 @@ export function ProgressDashboard() {
         />
         <p className="mt-2 text-xs text-fg-muted">
           Bands: beginner (below 40%), developing (40–60%), proficient (60–80%), mastered (80%+); fewer than 5 answers is insufficient data.{" "}
-          {mastery.data?.method_note ?? ""} Time is not an input to mastery.
+          Recent answers count more than older ones. Time spent does not affect mastery.
         </p>
       </section>
 

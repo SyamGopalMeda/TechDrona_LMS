@@ -465,7 +465,7 @@ async def test_k_floor_suppression_and_scoped_batch_reports(db, client, scoped_a
     trainer = principal_for(
         await make_user(db), org_ids=(org,), grants=(RoleGrant("trainer", "batch", batch_a),)
     )
-    scoped_auth.grant(trainer, "analytics.read", "batch", batch_a)
+    scoped_auth.grant(trainer, "progress.read", "batch", batch_a)
     evaluator = principal_for(
         await make_user(db), org_ids=(org,), grants=(RoleGrant("evaluator", "batch", batch_a),)
     )
@@ -477,7 +477,7 @@ async def test_k_floor_suppression_and_scoped_batch_reports(db, client, scoped_a
     admin = principal_for(
         await make_user(db), is_platform=True, grants=(RoleGrant("super_admin", "platform"),)
     )
-    scoped_auth.grant(admin, "analytics.read")
+    scoped_auth.grant(admin, "progress.read")
 
     for who in (trainer, evaluator, evaluator_p, admin):
         rb = await client.get(f"/api/v1/analytics/reports/batches/{batch_a}", headers=scoped_auth.login(who))
@@ -517,6 +517,14 @@ async def test_k_floor_suppression_and_scoped_batch_reports(db, client, scoped_a
         ).status_code == 403
         assert (await client.get("/api/v1/analytics/reports/platform", headers=hh)).status_code == 403
     assert (await client.get("/api/v1/analytics/ingest-health", headers=h)).status_code == 403
+    # D3: a content manager's platform-wide analytics.read (course reports) never opens batch rows
+    cm = principal_for(
+        await make_user(db), is_platform=True, grants=(RoleGrant("content_manager", "platform"),)
+    )
+    scoped_auth.grant(cm, "analytics.read")
+    assert (
+        await client.get(f"/api/v1/analytics/reports/batches/{batch_a}", headers=scoped_auth.login(cm))
+    ).status_code == 403
     student_h = scoped_auth.login(principal_for(students[0], org_ids=(org,)))
     assert (
         await client.get(f"/api/v1/analytics/reports/batches/{batch_a}", headers=student_h)

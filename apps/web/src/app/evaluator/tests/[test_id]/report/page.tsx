@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
-import { PageHeader } from "@/components/ui";
 import { TestReportView } from "@/features/trainer/components/TestOps";
+import { TestPageHeader } from "@/features/trainer/components/TestPageHeader";
 
 export const metadata: Metadata = { title: "Test report" };
 
-/** Test report (reuses TRN-011). */
+/** Test report (TRN-011): score distribution, item analysis and result release. */
 export default async function Page({ params }: { params: Promise<{ test_id: string }> }) {
   const { test_id } = await params;
   return (
     <div>
-      <PageHeader title="Test report" eyebrow="Evaluator" />
+      <TestPageHeader testId={test_id} page="report" description="How the batch scored, and releasing results to students." />
       <TestReportView testId={test_id} />
     </div>
   );

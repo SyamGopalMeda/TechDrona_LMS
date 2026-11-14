@@ -37,6 +37,24 @@ def classify_identifier(raw: str) -> tuple[str, str] | None:
     return ("phone", p) if p else None
 
 
+USERNAME_RE = re.compile(r"^[a-z0-9._-]{3,32}$")
+
+
+def normalize_username(raw: str) -> str | None:
+    """A sign-in username (identity_0006): lower case ``[a-z0-9._-]{3,32}``, or None."""
+    v = (raw or "").strip().lower()
+    return v if USERNAME_RE.fullmatch(v) else None
+
+
+def classify_login_identifier(raw: str) -> tuple[str, str] | None:
+    """Like :func:`classify_identifier`, plus ``("username", value)`` (sign-in only)."""
+    ident = classify_identifier(raw)
+    if ident is not None:
+        return ident
+    u = normalize_username(raw)
+    return ("username", u) if u else None
+
+
 def mask_email(email: str | None) -> str | None:
     if not email or "@" not in email:
         return None

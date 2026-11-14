@@ -19,10 +19,18 @@ from typing import Any
 import structlog
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core import request_commit, request_locks
 from app.core.config import get_settings
 from app.core.errors import ProblemError, problem_response
+from app.core.firestore import request_memo
 from app.core.ids import new_request_id
-from app.core.request_context import REQUEST_ID_RE, reset_request_id, set_request_id
+from app.core.request_context import (
+    REQUEST_ID_RE,
+    bind_request_state,
+    reset_request_id,
+    reset_request_state,
+    set_request_id,
+)
 from app.core.security import constant_time_equals
 
 log = structlog.get_logger("app.request")
@@ -62,6 +70,11 @@ class RequestContextMiddleware:
         async def send_wrapper(message: Message) -> None:
             if message["type"] == "http.response.start":
                 status_holder["status"] = message["status"]
+                # No-Postgres buffers (audit rows, outbox events): the request's commit point.
+                try:
+                    await request_commit.on_response_start(message["status"])
+                except Exception as e:  # never break the response
+                    log.error("request_commit_failed", error=type(e).__name__)
                 headers = [(k, v) for k, v in message.get("headers", []) if k.lower() != b"x-request-id"]
                 headers.append((b"x-request-id", rid.encode()))
                 if _state(scope).get("principal") is not None and not any(
@@ -71,9 +84,18 @@ class RequestContextMiddleware:
                 message["headers"] = headers
             await send(message)
 
+        lock_token = request_locks.begin_scope()  # Firestore per-request locks (no cost if unused)
+        # Firestore read memo for this request only (app.core.firestore.request_memo).
+        _state(scope)[request_memo.STATE_KEY] = request_memo.begin()
+        state_token = bind_request_state(_state(scope))  # current_principal() / current_rls_context()
+        buffers = request_commit.Buffers()
         try:
             await self.app(scope, receive, send_wrapper)
         finally:
+            buffers.close()  # anything not committed by now belongs to a failed request
+            _state(scope).pop(request_memo.STATE_KEY, None)  # never outlives the request
+            reset_request_state(state_token)
+            await request_locks.release_scope(lock_token)
             log.info(
                 "request",
                 method=scope.get("method"),
@@ -169,6 +191,18 @@ class MaintenanceMiddleware:
         await self.app(scope, receive, send)
 
 
+# Exact API paths allowed a larger body than TD_MAX_BODY_BYTES (e.g. the public admissions forms,
+# which carry base64 payment proofs). Registered by the owning module at import time.
+_PATH_BODY_LIMITS: dict[str, int] = {}
+
+
+def register_body_limit(path: str, max_bytes: int) -> None:
+    """Allow ``max_bytes`` (<= 8 MiB) for requests to exactly ``path``."""
+    if not path.startswith("/") or not 0 < max_bytes <= 8 * 1024 * 1024:
+        raise ValueError("body limit override must be an absolute path and at most 8 MiB")
+    _PATH_BODY_LIMITS[path] = max_bytes
+
+
 class BodyLimitMiddleware:
     def __init__(self, app: ASGIApp, max_bytes: int | None = None) -> None:
         self.app = app
@@ -178,7 +212,8 @@ class BodyLimitMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        limit = self.max_bytes or get_settings().TD_MAX_BODY_BYTES
+        override = _PATH_BODY_LIMITS.get(scope.get("path", ""))
+        limit = self.max_bytes or override or get_settings().TD_MAX_BODY_BYTES
         declared = _header(scope, b"content-length")
         if declared and declared.isdigit() and int(declared) > limit:
             await problem_response(ProblemError("payload_too_large", max_bytes=limit))(scope, receive, send)

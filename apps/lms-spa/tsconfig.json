@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "es2023"],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "types": ["vite/client", "node", "vitest/globals", "@testing-library/jest-dom"],
+    "paths": {
+      "@/*": ["./src/*"],
+      "next": ["./src/spa/shims/next.ts"],
+      "next/link": ["./src/spa/shims/link.tsx"],
+      "next/navigation": ["./src/spa/shims/navigation.ts"],
+      "next/dynamic": ["./src/spa/shims/dynamic.tsx"],
+      "next/headers": ["./src/spa/shims/headers.ts"],
+      "server-only": ["./src/spa/shims/server-only.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "next.config.ts", "vite.config.ts", "vitest.config.ts", "vitest.setup.ts", "tailwind.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

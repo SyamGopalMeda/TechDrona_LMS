@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button, Card, Dialog, EmptyState, FormField, Input, Select, useToast } from "@/components/ui";
+import { Badge, Button, Card, Dialog, EmptyState, FormField, Input, PageHeader, Select, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import type { Body } from "@/lib/api-types";
 import { useApiAll, useApi, seg, type SendBody } from "@/features/trainer/shared/use-api";
@@ -113,7 +113,7 @@ function newId(): string {
  * CMS-009 companies and company paths (audit ADM-50 / INV-13): PLC-16 list, PLC-17 create,
  * PLC-18 put a role path (exam pattern by topic + ordered prep steps). Platform paths only.
  */
-export function CompaniesManager() {
+export function CompaniesManager({ header }: { header?: { title: string; description?: string } } = {}) {
   const toast = useToast();
   const fail = useFailToast();
   const companies = useApi<{ items: CompanyOut[] }>("studio/companies");
@@ -201,16 +201,19 @@ export function CompaniesManager() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button
-          onClick={() => {
-            setErrors({});
-            setCompanyOpen(true);
-          }}
-        >
-          New company
-        </Button>
-      </div>
+      {(() => {
+        const newCompany = (
+          <Button
+            onClick={() => {
+              setErrors({});
+              setCompanyOpen(true);
+            }}
+          >
+            New company
+          </Button>
+        );
+        return header ? <PageHeader title={header.title} description={header.description} actions={newCompany} /> : <div className="flex justify-end">{newCompany}</div>;
+      })()}
       <Boundary state={companies}>
         {(data) =>
           data.items.length === 0 ? (

@@ -20,7 +20,7 @@ const linkCls = "font-medium text-fg-link underline hover:text-fg-link-hover";
 export function FreeResourceList({ resources, signedIn }: { resources: FreeResourceDto[]; signedIn: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
-  if (resources.length === 0) return <EmptyState title="No free resources yet" description="Free PDFs and cheat sheets will appear here when they are published." />;
+  if (resources.length === 0) return <EmptyState icon="document" title="No free resources yet" description="Free PDFs and cheat sheets will appear here when they are published." />;
 
   async function download(r: FreeResourceDto) {
     setBusy(r.id);

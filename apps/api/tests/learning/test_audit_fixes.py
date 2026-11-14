@@ -19,7 +19,7 @@ from app.core.time import utcnow
 from app.modules.catalog.models import Course, CourseModule, CourseVersion, Lesson
 from app.modules.learning import service as ls
 from app.modules.learning.models import Assignment, AssignmentSubmission, Certificate, Enrolment
-from tests.catalog.factory import idem, make_published_course, student
+from tests.catalog.factory import idem, make_published_course, student, sync_catalog
 from tests.identity.factory import add_member, company_org, grant, make_batch, make_user, staff_login
 
 
@@ -39,6 +39,7 @@ def fake_video():
 # --------------------------------------------------------------------------- BE-05
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_be05_private_free_platform_course_lessons_are_404(browser, db) -> None:
     author = await make_user(db)
     pc = await make_published_course(db, author.id, is_free=True, visibility="private")
@@ -51,6 +52,7 @@ async def test_be05_private_free_platform_course_lessons_are_404(browser, db) ->
     assert r.status_code == 404
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_be05_existing_enrolment_keeps_access_when_course_becomes_private(browser, db) -> None:
     author = await make_user(db)
     pc = await make_published_course(db, author.id, is_free=True)
@@ -66,6 +68,7 @@ async def test_be05_existing_enrolment_keeps_access_when_course_becomes_private(
 # --------------------------------------------------------------------------- BE-06
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_be06_minor_publish_recomputes_and_reopens(browser, db) -> None:
     author = await make_user(db)
     pc = await make_published_course(db, author.id, is_free=True)
@@ -124,6 +127,7 @@ async def test_be06_minor_publish_recomputes_and_reopens(browser, db) -> None:
     )
     await db.flush()
     await db.execute(update(Course).where(Course.id == pc.course_id).values(current_version_id=v2))
+    await sync_catalog(db)  # direct-DB catalog rows -> Firestore (store matrix)
     course = await db.get(Course, pc.course_id)
     version = await db.get(CourseVersion, v2)
     assert course is not None and version is not None
@@ -140,6 +144,7 @@ async def test_be06_minor_publish_recomputes_and_reopens(browser, db) -> None:
 # --------------------------------------------------------------------------- DB-03
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_db03_duplicate_enrolment_insert_is_409_not_500(browser, db) -> None:
     author = await make_user(db)
     pc = await make_published_course(db, author.id, is_free=True)
@@ -162,6 +167,7 @@ async def test_db03_duplicate_enrolment_insert_is_409_not_500(browser, db) -> No
 # --------------------------------------------------------------------------- BE-34
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_be34_limits_validated_and_learner_lists_paginate(browser, db) -> None:
     author = await make_user(db)
     a = await make_published_course(db, author.id, is_free=True, title="A")
@@ -186,6 +192,7 @@ async def test_be34_limits_validated_and_learner_lists_paginate(browser, db) -> 
 # --------------------------------------------------------------------------- COM-12
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_com12_revoke_certificates_for_entitlement(browser, db) -> None:
     author = await make_user(db)
     pc = await make_published_course(db, author.id, is_free=True)
@@ -223,6 +230,7 @@ async def _trainer_batch_student(db, browser):
     return tr, batch, s
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_be07_code_assignment_rejects_unknown_code_submission(browser, db) -> None:
     tr, batch, _s = await _trainer_batch_student(db, browser)
     r = await tr.post(
@@ -246,6 +254,7 @@ async def test_be07_code_assignment_rejects_unknown_code_submission(browser, db)
     assert r.json()["errors"][0]["field"] == "code_submission_id"
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_be08_late_penalty_applied_and_adm57_grading_audited(browser, db, audited) -> None:
     tr, batch, _s = await _trainer_batch_student(db, browser)
     r = await tr.post(
@@ -280,6 +289,7 @@ async def test_be08_late_penalty_applied_and_adm57_grading_audited(browser, db, 
     assert "assignment.grade" in audited and "assignment.grades_release" in audited
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_on_time_submission_has_no_penalty(browser, db) -> None:
     tr, batch, _s = await _trainer_batch_student(db, browser)
     r = await tr.post(
@@ -300,6 +310,7 @@ async def test_on_time_submission_has_no_penalty(browser, db) -> None:
     assert g.status_code == 200 and g.json()["score"] == 8.0 and g.json()["late_penalty_pct"] is None
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_adm47_submission_file_download_staff_and_owner_only(browser, db) -> None:
     tr, batch, s = await _trainer_batch_student(db, browser)
     r = await tr.post(
@@ -336,6 +347,7 @@ async def test_adm47_submission_file_download_staff_and_owner_only(browser, db) 
 # --------------------------------------------------------------------------- ADM-41
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_adm41_batch_trainer_studio_course_list_is_not_403(browser, db) -> None:
     tr, _batch, _s = await _trainer_batch_student(db, browser)
     r = await tr.get("/studio/courses", params={"limit": 100})
@@ -343,6 +355,7 @@ async def test_adm41_batch_trainer_studio_course_list_is_not_403(browser, db) ->
     assert r.json()["data"] == []
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_be19_style_access_decision_unchanged_for_free_preview(browser, db) -> None:
     """Guard for BE-05: a free-preview lesson of a public paid course stays open to any
     signed-in user (the visibility check does not over-block)."""
@@ -361,6 +374,7 @@ async def test_be19_style_access_decision_unchanged_for_free_preview(browser, db
     assert r.status_code == 403
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_com12_revoke_certificates_for_courses(browser, db) -> None:
     author = await make_user(db)
     pc = await make_published_course(db, author.id, is_free=True)

@@ -11,8 +11,13 @@ export const SETTINGS_TABS = [
 /** Sub-navigation shared by the student settings pages (links, aria-current on the active one). */
 export function SettingsNav({ current }: { current: (typeof SETTINGS_TABS)[number]["href"] }) {
   return (
-    <nav aria-label="Settings" className="mb-6 overflow-x-auto border-b border-line">
-      <ul className="flex gap-1">
+    // Same look as the kit Tabs (Jakarta semibold, navy active underline). On phones the row scrolls
+    // sideways; the right-edge fade shows there is more to scroll to.
+    <nav
+      aria-label="Settings"
+      className="mb-6 overflow-x-auto border-b border-line [mask-image:linear-gradient(to_right,black_85%,transparent)] sm:[mask-image:none]"
+    >
+      <ul className="flex gap-1 pr-6 sm:pr-0">
         {SETTINGS_TABS.map((t) => {
           const active = t.href === current;
           return (
@@ -21,8 +26,8 @@ export function SettingsNav({ current }: { current: (typeof SETTINGS_TABS)[numbe
                 href={t.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "inline-flex min-h-touch items-center whitespace-nowrap border-b-2 px-3 text-sm font-medium focus-visible:shadow-focus focus-visible:outline-none",
-                  active ? "border-brand text-fg" : "border-transparent text-fg-secondary hover:text-fg",
+                  "-mb-px inline-flex min-h-touch items-center whitespace-nowrap border-b-2 px-3 font-display text-sm font-semibold transition-colors focus-visible:shadow-focus focus-visible:outline-none",
+                  active ? "border-brand text-brand" : "border-transparent text-fg-secondary hover:border-line-strong hover:text-fg",
                 )}
               >
                 {t.label}

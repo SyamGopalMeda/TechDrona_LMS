@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button, Card, Dialog, ErrorState, FormField, Input, useToast } from "@/components/ui";
+import { Badge, Button, Card, Dialog, EmptyState, ErrorState, FormField, Input, useToast } from "@/components/ui";
 import { AIErrorState, aiProblemCode, useEnabledApps } from "@/features/ai";
 import { Boundary, useFailToast } from "@/features/trainer/shared/ui";
 import { seg, useApi } from "@/features/trainer/shared/use-api";
@@ -10,6 +10,7 @@ import { ApiError } from "@/lib/api/errors";
 import { uuid7 } from "@/lib/ids/uuid7";
 import type { ExamProtocol, IntegritySummary } from "../lib/types";
 import { RichHtml } from "./RichHtml";
+import { AiNotIntegratedNotice } from "@/features/studio/components/NotIntegrated";
 
 /* ------------------------------------------------------------------ types (evaluation.py) */
 
@@ -174,9 +175,21 @@ export function ExamEvaluation({ testId }: { testId: string }) {
     }
   };
 
+  // A refusal is final for this user (retrying cannot help): explain it instead of an error box.
+  if (list.error instanceof ApiError && list.error.status === 403) {
+    return (
+      <EmptyState
+        title="You can't evaluate this test"
+        description="Evaluation is open to trainers and evaluators of a batch this test is assigned to. Ask an admin to assign the test to your batch or to grant you access."
+      />
+    );
+  }
+
   return (
     <Boundary state={list}>
-      {(data) => (
+      {(data) => {
+        const unfinalized = data.totals.ai_pending + data.totals.manual_pending;
+        return (
         <div className="space-y-4">
           <Card
             title={data.test.title}
@@ -185,7 +198,13 @@ export function ExamEvaluation({ testId }: { testId: string }) {
                 <Button variant="secondary" onClick={() => void runAi()} loading={busy === "ai"} disabled={aiOff} title={aiOff ? "AI grading is turned off" : undefined}>
                   Run AI grading
                 </Button>
-                <Button onClick={() => setConfirmPublish(true)} disabled={!data.assignments.length}>
+                {/* Primary only once every submitted answer is finalized (WS-UI 0.7). */}
+                <Button
+                  variant={unfinalized > 0 ? "secondary" : "primary"}
+                  onClick={() => setConfirmPublish(true)}
+                  disabled={!data.assignments.length}
+                  aria-describedby={unfinalized > 0 || !data.assignments.length ? "publish-hint" : undefined}
+                >
                   Publish results
                 </Button>
               </div>
@@ -196,6 +215,16 @@ export function ExamEvaluation({ testId }: { testId: string }) {
               {data.totals.manual_pending} to grade · {data.totals.flagged} flagged
             </p>
             <p className="mt-1 text-xs text-fg-muted">AI marks are suggestions until you finalize them. Integrity events are evidence; decisions are made in integrity review.</p>
+            <AiNotIntegratedNotice className="mt-2" />
+            {!data.assignments.length ? (
+              <p id="publish-hint" className="mt-1 text-xs text-fg-muted">
+                Publishing becomes available once learners have submitted attempts.
+              </p>
+            ) : unfinalized > 0 ? (
+              <p id="publish-hint" className="mt-1 text-xs text-fg-muted">
+                {unfinalized} answer{unfinalized === 1 ? " is" : "s are"} not finalized yet. Finalize them before publishing.
+              </p>
+            ) : null}
             {aiError ? (
               <div className="mt-3">
                 <AIErrorState code={aiProblemCode(aiError) ?? "ai_unavailable"} detail={aiError instanceof ApiError ? aiError.detail : null} onRetry={() => void runAi()} />
@@ -265,7 +294,8 @@ export function ExamEvaluation({ testId }: { testId: string }) {
             )}
           </Dialog>
         </div>
-      )}
+        );
+      }}
     </Boundary>
   );
 }

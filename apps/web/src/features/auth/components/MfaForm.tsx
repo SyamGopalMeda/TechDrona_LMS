@@ -10,7 +10,7 @@ import { toFormError, type FormErrorInfo } from "../lib/errors";
 import { routeForLoginResult, routeForSessionCap } from "../lib/login-flow";
 import { readPendingLogin, writePendingLogin } from "../lib/pending-login";
 import type { LoginResponse } from "../lib/types";
-import { FormAlert, OtpInput } from "./shared";
+import { ExpiredNotice, FormAlert, OtpInput } from "./shared";
 
 type Method = "totp" | "recovery_code";
 
@@ -19,6 +19,7 @@ export function MfaForm() {
   const router = useRouter();
   const [next, setNext] = useState<string | undefined>();
   const [methods, setMethods] = useState<string[] | null>(null);
+  const [expired, setExpired] = useState(false);
   const [method, setMethod] = useState<Method>("totp");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -28,6 +29,12 @@ export function MfaForm() {
 
   useEffect(() => {
     const p = readPendingLogin();
+    if (!p) {
+      // Opened without a sign-in in progress (or it timed out): say so before showing a form that can't succeed.
+      setExpired(true);
+      setMethods([]);
+      return;
+    }
     setNext(p?.next);
     const m = p?.mfaMethods ?? ["totp", "recovery_code"];
     setMethods(m);
@@ -67,7 +74,7 @@ export function MfaForm() {
         return;
       }
       if (err instanceof ApiError && (err.code === "unauthenticated" || err.code === "session_expired")) {
-        setError({ title: "Your sign-in timed out", detail: "Please sign in again.", requestId: err.requestId, code: err.code });
+        setError({ title: "Your sign-in timed out", detail: "Please log in again.", requestId: err.requestId, code: err.code });
       } else if (err instanceof ApiError && err.code === "otp_invalid") {
         setError({ title: "That code didn't work. Check the time on your phone and try again.", requestId: err.requestId, code: err.code });
       } else {
@@ -80,6 +87,13 @@ export function MfaForm() {
   };
 
   if (methods === null) return <p aria-busy="true" className="text-sm text-fg-muted">Loading…</p>;
+  if (expired) {
+    return (
+      <ExpiredNotice title="This log-in has expired" href="/login" linkLabel="Log in again">
+        For your security, two-step verification has to follow a log-in within 10 minutes. Log in again to get a new prompt.
+      </ExpiredNotice>
+    );
+  }
   const canRecovery = methods.includes("recovery_code");
   const hasTotp = methods.includes("totp");
 
@@ -89,7 +103,7 @@ export function MfaForm() {
         {error?.code === "unauthenticated" || error?.code === "session_expired" ? (
           <p className="mt-2">
             <Link href="/login" className="text-fg-link underline">
-              Sign in again
+              Log in again
             </Link>
           </p>
         ) : null}
@@ -114,13 +128,14 @@ export function MfaForm() {
               )
             }
           </FormField>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button type="submit" loading={busy}>
+          <div className="space-y-3">
+            <Button type="submit" size="lg" className="w-full" loading={busy}>
               Verify
             </Button>
             {canRecovery && hasTotp ? (
               <Button
                 variant="ghost"
+                className="w-full"
                 onClick={() => {
                   setMethod((m) => (m === "totp" ? "recovery_code" : "totp"));
                   setCode("");

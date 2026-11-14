@@ -12,22 +12,25 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import AuditActor, audit
 from app.core.errors import ProblemError
+from app.core.firestore.backend import uses_firestore
 from app.core.ids import uuid7
 from app.core.principal import Principal
 from app.core.time import to_rfc3339
 from app.modules.admin import approvals as apr
 from app.modules.admin import policy as pol
 from app.modules.identity import clock
-from app.modules.identity.models import User
+from app.modules.identity import public as identity_public
+from app.modules.identity.public import User
+from app.modules.rbac import public as rbac_public
 from app.modules.rbac import service as rs
 from app.modules.rbac.catalogue import ADMIN_ROLE
-from app.modules.rbac.models import ApprovalRequest
+from app.modules.rbac.public import ApprovalRequest
 from app.modules.security import engine
 from app.modules.security import restrictions as rx
 from app.modules.security.catalogue import RULES_BY_KEY
@@ -40,10 +43,14 @@ from app.modules.security.models import (
     SecurityUserState,
     UnblockRequest,
 )
-from app.modules.sessions.models import UserDevice
+from app.modules.security.repo_fs_cases import track_foreign
+from app.modules.sessions import public as sessions_public
 
 LIFT_OUTCOMES = frozenset({"lift_false_positive", "lift_with_warning", "lift_conditions"})
-OUTCOMES = LIFT_OUTCOMES | {"uphold", "convert_L4", "reduce_level"}
+# close_no_action: finish a case that has no restriction (manual / support escalation) without
+# touching the account (security_0004).
+CLOSE_NO_ACTION = "close_no_action"
+OUTCOMES = LIFT_OUTCOMES | {"uphold", "convert_L4", "reduce_level", CLOSE_NO_ACTION}
 OPEN_UR = ("submitted", "under_review", "info_requested", "escalated")
 APPEAL_DAYS = 14
 
@@ -63,6 +70,18 @@ async def get_case(session: AsyncSession, case_id: uuid.UUID, *, lock: bool = Fa
 
 
 async def case_restriction(session: AsyncSession, case: SecurityCase) -> AccountRestriction | None:
+    if uses_firestore("security"):
+        from app.modules.security.repo_firestore import find_repo
+        from app.modules.security.store_specs import RestrictionRow
+
+        found: Any = await find_repo().find(
+            "account_restrictions",
+            RestrictionRow,
+            filters=(("case_id", "==", str(case.id)), ("ended_at", "==", None)),
+            order=("created_at", True),
+            limit=1,
+        )
+        return found[0] if found else None
     return (
         await session.execute(
             select(AccountRestriction)
@@ -148,19 +167,15 @@ async def conflict_reasons(
         out.append("own_account")
     if r is not None and r.applied_by == reviewer:
         out.append("applied_restriction")
-    shared = (
-        await session.execute(
-            select(func.count())
-            .select_from(UserDevice)
-            .where(
-                UserDevice.user_id == reviewer,
-                UserDevice.trust_status != "removed",
-                UserDevice.device_id.in_(
-                    select(UserDevice.device_id).where(UserDevice.user_id == case.user_id)
-                ),
-            )
-        )
-    ).scalar_one()
+    # reviewer's live devices (trust_status <> 'removed') that the subject also has (any status)
+    subject_devices = {
+        d.device_id for d in await sessions_public.list_user_devices(session, user_id=case.user_id)
+    }
+    shared = sum(
+        1
+        for d in await sessions_public.list_user_devices(session, user_id=reviewer, live_only=True)
+        if d.device_id in subject_devices
+    )
     if shared:
         out.append("shared_device")
     return out
@@ -205,12 +220,20 @@ def _validate_decision(body: dict[str, Any]) -> None:
     if outcome not in OUTCOMES:
         raise vf("outcome", "invalid", "Unknown outcome")
     summary = (body.get("student_summary") or "").strip()
-    if len(summary) < 50:
+    # Closing without action: the learner may never have known about the case, so the summary
+    # is optional; when one is written it follows the same rule as every other outcome.
+    if outcome == CLOSE_NO_ACTION and not summary:
+        pass
+    elif len(summary) < 50:
         raise vf("student_summary", "too_short", "The student summary must be at least 50 characters")
     if not (body.get("rationale") or "").strip():
         raise vf("rationale", "required", "A rationale is required")
     if body.get("extension_days") and outcome != "lift_false_positive":
         raise vf("extension_days", "lift_only", "Extension days only apply to a false-positive lift")
+    if outcome == CLOSE_NO_ACTION and (
+        body.get("resulting_level") is not None or any((body.get("conditions") or {}).values())
+    ):
+        raise vf("outcome", "no_action", "Closing without action takes no level or conditions")
     if outcome == "reduce_level" and body.get("resulting_level") not in (1, 2):
         raise vf("resulting_level", "invalid", "reduce_level needs resulting_level 1 or 2")
     exc = (body.get("conditions") or {}).get("user_exception")
@@ -287,20 +310,31 @@ async def propose_decision(
     if outcome == "convert_L4" and not await has_perm(session, principal, "security.restriction.apply_l3l4"):
         raise ProblemError("permission_denied", permission="security.restriction.apply_l3l4")
     if outcome in LIFT_OUTCOMES | {"reduce_level", "uphold"} and r is None:
-        raise ProblemError("invalid_state_transition", current_state="no_active_restriction", allowed=[])
+        raise ProblemError(
+            "invalid_state_transition", current_state="no_active_restriction", allowed=[CLOSE_NO_ACTION]
+        )
+    if outcome == CLOSE_NO_ACTION and r is not None:
+        raise ProblemError(
+            "invalid_state_transition",
+            current_state="active_restriction",
+            allowed=sorted(LIFT_OUTCOMES | {"uphold", "reduce_level", "convert_L4"}),
+            detail="This account is restricted: lift, uphold or change the restriction instead.",
+        )
     ur = await _decision_request(session, case, body)
+    if outcome == CLOSE_NO_ACTION and ur is not None:
+        raise ProblemError(
+            "invalid_state_transition",
+            current_state="open_unblock_request",
+            allowed=[],
+            detail="Answer the open unblock request instead of closing the case.",
+        )
     await require_no_conflict(session, principal.user_id, case, r)
     if ur is not None and ur.is_second_level_appeal and ur.rejected_by == principal.user_id:
         raise ProblemError("conflict_of_interest", reasons=["decided_original_request"])
-    pending = (
-        await session.execute(
-            select(ApprovalRequest).where(
-                ApprovalRequest.action_type == "security.case.decision",
-                ApprovalRequest.target_id == case.id,
-                ApprovalRequest.status == "pending",
-            )
-        )
-    ).scalar_one_or_none()
+    open_props = await rbac_public.find_approvals(
+        session, action_type="security.case.decision", target_id=case.id, status="pending"
+    )
+    pending = open_props[0] if open_props else None
     if pending is not None:
         raise ProblemError("second_approval_required", approval_request_id=str(pending.id))
     reasons = await second_approval_reasons(session, principal.user_id, case, r, body)
@@ -311,7 +345,7 @@ async def propose_decision(
         "outcome": outcome,
         "resulting_level": body.get("resulting_level"),
         "rationale": body["rationale"].strip(),
-        "student_summary": body["student_summary"].strip(),
+        "student_summary": (body.get("student_summary") or "").strip(),
         "conditions": body.get("conditions") or {},
         "extension_days": int(body.get("extension_days") or 0),
         "false_positive_rule_keys": list(body.get("false_positive_rule_keys") or []),
@@ -429,7 +463,7 @@ async def finalize_decision(
         outcome=outcome,
         resulting_level=payload.get("resulting_level"),
         rationale=payload["rationale"],
-        student_summary=payload["student_summary"],
+        student_summary=payload["student_summary"] or None,
         conditions=payload.get("conditions") or {},
         extension_days=int(payload.get("extension_days") or 0),
         false_positive_rule_keys=list(payload.get("false_positive_rule_keys") or []),
@@ -454,7 +488,7 @@ async def finalize_decision(
             else:
                 r.lift_pending_at = now
                 restriction_state = "lift_pending"
-                subject = await session.get(User, case.user_id)
+                subject = await identity_public.get_user(session, case.user_id)
                 if not has_eligible_contact(subject, r.starts_at):
                     # UNB §4.2 / §6.3a: no contact that predates the restriction by 7 days, so OTP
                     # re-verification is impossible; a senior reviewer verifies manually.
@@ -524,11 +558,21 @@ async def finalize_decision(
             await set_ur_state(session, ur, "approved")
             await set_ur_state(session, ur, "closed", closure="completed")
         restriction_state = "reduced"
+    elif outcome == CLOSE_NO_ACTION:
+        # No restriction and no open unblock request (checked in propose_decision): nothing on
+        # the account changes; the case leaves the queue.
+        case.status = "closed"
+        case.closed_at = now
     case.version += 1
     if case.first_response_at is None:
         case.first_response_at = now
     await session.flush()
-    await case_note(session, case.id, None, "student", payload["student_summary"])
+    if case.status == "closed":
+        from app.modules.security.repo_fs_cases import evidence_released
+
+        await evidence_released(session, [case.user_id])
+    if payload["student_summary"]:
+        await case_note(session, case.id, None, "student", payload["student_summary"])
     await audit(
         session,
         actor,
@@ -656,7 +700,9 @@ async def approve_proposal(
 ) -> dict[str, Any]:
     """SEC-10: the second reviewer approves → the final ``case_decisions`` row."""
     req = await _proposal(session, case, approval_id)
-    if req.requested_by == principal.user_id:
+    from app.modules.rbac.service import is_sole_admin
+
+    if req.requested_by == principal.user_id and not await is_sole_admin(session, principal.user_id):
         raise ProblemError(
             "sod_violation", rule="SoD-06", detail="The second approver must be a different person."
         )
@@ -682,6 +728,7 @@ async def approve_proposal(
     now = clock.now()
     req.status = "approved"
     req.decided_by = principal.user_id
+    req.sole_admin_decision = req.requested_by == principal.user_id  # sole Admin only (rbac_0006)
     req.decided_at = now
     req.decision_note = note
     await session.flush()
@@ -727,18 +774,10 @@ async def pending_proposal(
 ) -> dict[str, Any] | None:
     """SEC-04 ``pending_approval``: the open ``security.case.decision`` proposal (pending, or
     pending past its 72 h expiry → ``expired``) with what the caller may do with it."""
-    req = (
-        await session.execute(
-            select(ApprovalRequest)
-            .where(
-                ApprovalRequest.action_type == "security.case.decision",
-                ApprovalRequest.target_id == case.id,
-                ApprovalRequest.status.in_(("pending", "expired")),
-            )
-            .order_by(ApprovalRequest.created_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    props = await rbac_public.find_approvals(
+        session, action_type="security.case.decision", target_id=case.id, status=("pending", "expired")
+    )  # newest first
+    req = track_foreign(session, props[0]) if props else None
     if req is None:
         return None
     now = clock.now()
@@ -747,7 +786,9 @@ async def pending_proposal(
         return None
     is_requester = req.requested_by == principal.user_id
     can_decide = False
-    if status == "pending" and not is_requester:
+    from app.modules.rbac.service import is_sole_admin
+
+    if status == "pending" and (not is_requester or await is_sole_admin(session, principal.user_id)):
         r = (
             await session.get(AccountRestriction, uuid.UUID(req.payload["restriction_id"]))
             if req.payload.get("restriction_id")
@@ -779,11 +820,7 @@ async def pending_proposal(
 
 
 async def _proposal(session: AsyncSession, case: SecurityCase, approval_id: uuid.UUID) -> ApprovalRequest:
-    req = (
-        await session.execute(
-            select(ApprovalRequest).where(ApprovalRequest.id == approval_id).with_for_update()
-        )
-    ).scalar_one_or_none()
+    req = track_foreign(session, await rbac_public.get_approval(session, approval_id, for_update=True))
     if req is None or req.action_type != "security.case.decision" or req.target_id != case.id:
         raise ProblemError("not_found")
     if req.status != "pending":
@@ -801,6 +838,7 @@ async def send_back(
         raise ProblemError("sod_violation", rule="SoD-06")
     req.status = "rejected"
     req.decided_by = principal.user_id
+    req.sole_admin_decision = req.requested_by == principal.user_id  # sole Admin only (rbac_0006)
     req.decided_at = clock.now()
     req.decision_note = note
     case.status = "under_review"
@@ -864,6 +902,25 @@ async def mark_viewed(session: AsyncSession, case: SecurityCase, reviewer: uuid.
 
 
 async def student_projection(session: AsyncSession, case: SecurityCase) -> dict[str, Any]:
+    if uses_firestore("security"):
+        from app.modules.security.repo_firestore import find_repo
+        from app.modules.security.store_specs import CaseDecisionRow, CaseNoteRow
+
+        repo = find_repo()
+        fs_notes: Any = await repo.find(
+            "case_notes",
+            CaseNoteRow,
+            filters=(("case_id", "==", str(case.id)), ("visibility", "==", "student")),
+            order=("created_at", False),
+        )
+        fs_d: Any = await repo.find(
+            "case_decisions",
+            CaseDecisionRow,
+            filters=(("case_id", "==", str(case.id)),),
+            order=("created_at", True),
+            limit=1,
+        )
+        return _student_view(case, await case_restriction(session, case), fs_notes, fs_d[0] if fs_d else None)
     notes = (
         (
             await session.execute(
@@ -883,7 +940,10 @@ async def student_projection(session: AsyncSession, case: SecurityCase) -> dict[
             .limit(1)
         )
     ).scalar_one_or_none()
-    r = await case_restriction(session, case)
+    return _student_view(case, await case_restriction(session, case), list(notes), d)
+
+
+def _student_view(case: Any, r: Any, notes: list[Any], d: Any) -> dict[str, Any]:
     return {
         "case_ref": case.case_ref,
         "family": case.family,
@@ -908,7 +968,7 @@ async def student_projection(session: AsyncSession, case: SecurityCase) -> dict[
 
 
 async def subject_user(session: AsyncSession, user_id: uuid.UUID) -> User:
-    u = await session.get(User, user_id)
+    u = await identity_public.get_user(session, user_id)
     if u is None:
         raise ProblemError("not_found")
     return u

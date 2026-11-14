@@ -44,23 +44,8 @@ export function KindTiles({ value, onChange, label = "Question type", kinds = KI
   );
 }
 
-/** Toggle chip used for filters (type, subject). */
-export function Chip({ active, onClick, children, count }: { active: boolean; onClick: () => void; children: ReactNode; count?: number }) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm focus-visible:shadow-focus focus-visible:outline-none",
-        active ? "border-brand bg-brand-subtle font-medium text-brand-on-subtle" : "border-line bg-surface text-fg-secondary hover:bg-surface-hover",
-      )}
-    >
-      {children}
-      {count !== undefined ? <span className="tabular-nums text-xs opacity-80">{count}</span> : null}
-    </button>
-  );
-}
+/** Toggle chip used for filters (type, subject): the kit Chip. */
+export { Chip } from "@/components/ui";
 
 export function TagChips({ tags, max = 6 }: { tags: string[]; max?: number }) {
   if (!tags.length) return null;

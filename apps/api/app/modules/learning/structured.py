@@ -16,6 +16,11 @@ Grading engines (chosen per section on each allocation):
 * ``adaptive`` — rules wherever they apply (objective + judged code), AI for the rest; AI
   suggestions with confidence < 0.6 are flagged for review.
 * ``pure_manual`` — no automatic marks except 0 for unanswered items.
+
+Store: ``TD_STORE_LEARNING=firestore`` routes every learning-table read/write through
+``fs_store`` / ``fs_assign`` (the Postgres statements below are unchanged). The SQL filter
+builders (``allocated_to_*_filter`` / ``evaluator_filter``) have Firestore twins in
+``fs_assign`` that return assignment-id sets.
 """
 
 from __future__ import annotations
@@ -34,6 +39,8 @@ from app.core.auth import ScopeRef
 from app.core.errors import ProblemError
 from app.core.ids import uuid7
 from app.core.time import to_rfc3339, utcnow
+from app.modules.learning import fs_assign as fsa
+from app.modules.learning import fs_store as fss
 from app.modules.learning.models import (
     Assignment,
     AssignmentAllocation,
@@ -136,6 +143,8 @@ def evaluator_filter(user_id: uuid.UUID) -> Any:
 
 
 async def is_named_evaluator(session: AsyncSession, assignment_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+    if fss.fs():
+        return any(user_id in al.evaluator_ids for al in await fsa.allocations_of(session, assignment_id))
     row = await session.execute(
         select(AssignmentAllocation.id)
         .where(
@@ -148,6 +157,10 @@ async def is_named_evaluator(session: AsyncSession, assignment_id: uuid.UUID, us
 
 
 async def allocation_batches(session: AsyncSession, assignment_id: uuid.UUID) -> list[uuid.UUID]:
+    if fss.fs():
+        return [
+            al.batch_id for al in await fsa.allocations_of(session, assignment_id) if al.batch_id is not None
+        ]
     rows = await session.execute(
         select(AssignmentAllocation.batch_id).where(
             AssignmentAllocation.assignment_id == assignment_id, AssignmentAllocation.batch_id.is_not(None)
@@ -159,6 +172,13 @@ async def allocation_batches(session: AsyncSession, assignment_id: uuid.UUID) ->
 async def structure_counts(
     session: AsyncSession, assignment_ids: list[uuid.UUID]
 ) -> dict[uuid.UUID, tuple[int, int]]:
+    if fss.fs():
+        out: dict[uuid.UUID, tuple[int, int]] = {}
+        for aid in assignment_ids:
+            n_secs = await fss.count(AssignmentSection, (("assignment_id", "==", aid),))
+            n_items = await fss.count(AssignmentItem, (("assignment_id", "==", aid),))
+            out[aid] = (n_secs, n_items)
+        return out
     secs = dict(
         (
             await session.execute(
@@ -181,6 +201,11 @@ async def structure_counts(
 
 
 async def unfinalized_count(session: AsyncSession, assignment_id: uuid.UUID) -> int:
+    if fss.fs():
+        return await fss.count(
+            AssignmentSubmission,
+            (("assignment_id", "==", assignment_id), ("status", "in", ["submitted", "late"])),
+        )
     return int(
         (
             await session.execute(
@@ -194,6 +219,8 @@ async def unfinalized_count(session: AsyncSession, assignment_id: uuid.UUID) -> 
 
 
 async def is_locked(session: AsyncSession, assignment_id: uuid.UUID) -> bool:
+    if fss.fs():
+        return await fss.count(AssignmentSubmission, (("assignment_id", "==", assignment_id),)) > 0
     return (
         await session.execute(
             select(AssignmentSubmission.id)
@@ -223,6 +250,12 @@ async def check_patch(session: AsyncSession, a: Assignment, data: dict[str, Any]
 async def load_structure(
     session: AsyncSession, assignment_id: uuid.UUID
 ) -> list[tuple[AssignmentSection, list[AssignmentItem]]]:
+    if fss.fs():
+        fs_secs = await fsa.sections_of(session, assignment_id)
+        fs_by: dict[uuid.UUID, list[AssignmentItem]] = defaultdict(list)
+        for fit in await fsa.items_of(session, assignment_id):
+            fs_by[fit.section_id].append(fit)
+        return [(s, fs_by.get(s.id, [])) for s in fs_secs]
     secs = list(
         (
             await session.execute(
@@ -316,19 +349,23 @@ async def _resolve_bank_item(
     session: AsyncSession, spec: ItemSpec, field: str
 ) -> tuple[uuid.UUID, uuid.UUID, str, uuid.UUID | None]:
     """(question_id, pinned published version id, item_type, coding_problem_id) through the
-    placement bank (RLS hides other organizations' private questions -> not_found)."""
-    from app.modules.placement.models import Question, QuestionVersion
+    placement bank (RLS hides other organizations' private questions -> not_found). Reads go
+    through ``placement.bank`` (``get_question`` / ``versions_of``), which follow its own store."""
+    from app.modules.placement import public as bank
 
     assert spec.question_id is not None
-    q = await session.get(Question, spec.question_id)
-    if q is None or q.deleted_at is not None:
+    from app.modules.placement import public as placement_public
+
+    q = await placement_public.get_question(session, spec.question_id)
+    if q is None or q.deleted_at is not None:  # as placement.bank.get_question: not_found
         raise _vf(f"{field}.question_id", "not_found", "Unknown question")
+    versions = {v.id: v for v in await bank.versions_of(session, q.id)}
     if spec.question_version_id is not None:
-        qv = await session.get(QuestionVersion, spec.question_version_id)
+        qv = versions.get(spec.question_version_id)
         if qv is None or qv.question_id != q.id:
             raise _vf(f"{field}.question_version_id", "invalid", "Version does not belong to the question")
     else:
-        qv = await session.get(QuestionVersion, q.current_version_id) if q.current_version_id else None
+        qv = versions.get(q.current_version_id) if q.current_version_id else None
         if qv is None or q.status != "active":
             raise _vf(f"{field}.question_id", "not_published", "Publish the question before using it")
     if qv.status not in ("published", "retired") or qv.published_at is None:
@@ -361,7 +398,7 @@ async def put_structure(session: AsyncSession, a: Assignment, sections: list[Sec
                 if itype == "coding":
                     if pid is None:
                         raise _vf(f"{field}.coding_problem_id", "required", "Pick a coding problem")
-                    from app.modules.coding.service import published_problem
+                    from app.modules.coding.public import published_problem
 
                     try:
                         await published_problem(session, pid)
@@ -371,9 +408,12 @@ async def put_structure(session: AsyncSession, a: Assignment, sections: list[Sec
                     raise _vf(f"{field}.coding_problem_id", "invalid", "Only coding items take a problem")
                 row.append((it, None, None, itype, pid))
         resolved.append(row)
-    for s, _items in await load_structure(session, a.id):
-        await session.delete(s)
-    await session.flush()
+    for s, old_items in await load_structure(session, a.id):
+        if fss.fs():  # Postgres: ON DELETE CASCADE removes the items
+            for old in old_items:
+                await fss.delete(session, old)
+        await fss.delete(session, s)
+    await fss.flush(session)
     for i, sec in enumerate(sections):
         s = AssignmentSection(
             id=uuid7(),
@@ -383,10 +423,11 @@ async def put_structure(session: AsyncSession, a: Assignment, sections: list[Sec
             title=sec.title,
             max_score=sec.max_score,
         )
-        session.add(s)
-        await session.flush()
+        fss.add(session, s)
+        await fss.flush(session)
         for j, (it, qid, qvid, itype, pid) in enumerate(resolved[i]):
-            session.add(
+            fss.add(
+                session,
                 AssignmentItem(
                     id=uuid7(),
                     section_id=s.id,
@@ -402,10 +443,12 @@ async def put_structure(session: AsyncSession, a: Assignment, sections: list[Sec
                     marks=it.marks,
                     rubric=it.rubric,
                     reference_answer_md=it.reference_answer_md,
-                )
+                ),
             )
     a.updated_at = utcnow()
-    await session.flush()
+    await fss.flush(session)
+    if fss.fs():
+        await fsa.touch(a)
 
 
 async def clone_structure(session: AsyncSession, src: Assignment, dst: Assignment) -> None:
@@ -418,10 +461,11 @@ async def clone_structure(session: AsyncSession, src: Assignment, dst: Assignmen
             title=s.title,
             max_score=s.max_score,
         )
-        session.add(ns)
-        await session.flush()
+        fss.add(session, ns)
+        await fss.flush(session)
         for it in items:
-            session.add(
+            fss.add(
+                session,
                 AssignmentItem(
                     id=uuid7(),
                     section_id=ns.id,
@@ -437,13 +481,13 @@ async def clone_structure(session: AsyncSession, src: Assignment, dst: Assignmen
                     marks=it.marks,
                     rubric=it.rubric,
                     reference_answer_md=it.reference_answer_md,
-                )
+                ),
             )
-    await session.flush()
+    await fss.flush(session)
 
 
 async def bundles_for(session: AsyncSession, items: list[AssignmentItem]) -> dict[uuid.UUID, Any]:
-    from app.modules.placement import bank
+    from app.modules.placement import public as bank
 
     ids = [it.question_version_id for it in items if it.question_version_id is not None]
     return await bank.load_bundles(session, ids)
@@ -451,7 +495,7 @@ async def bundles_for(session: AsyncSession, items: list[AssignmentItem]) -> dic
 
 def item_content(it: AssignmentItem, bundles: dict[uuid.UUID, Any], *, staff: bool) -> dict[str, Any]:
     """Learner-safe item payload (no keys); ``staff`` adds the key, rubric and reference answer."""
-    from app.modules.placement import bank
+    from app.modules.placement import public as bank
 
     out: dict[str, Any] = {
         "id": str(it.id),
@@ -490,7 +534,7 @@ def question_text(it: AssignmentItem, bundles: dict[uuid.UUID, Any]) -> str:
 
     b = bundles.get(it.question_version_id) if it.question_version_id else None
     if b is not None:
-        from app.modules.placement import bank
+        from app.modules.placement import public as bank
 
         html = bank.delivery(b).get("stem_html") or ""
         return re.sub(r"<[^>]+>", " ", html).strip()
@@ -546,18 +590,13 @@ def check_engines(engines: dict[str, str], section_ids: list[uuid.UUID]) -> dict
 
 async def active_batch_ids(session: AsyncSession, user_id: uuid.UUID) -> set[uuid.UUID]:
     """Batches the user is an ACTIVE member of (SEC-03: removed / transferred members are
-    excluded). The single helper for every learner-side batch lookup in this module."""
-    from app.modules.orgs.models import BatchMember
+    excluded). The single helper for every learner-side batch lookup in this module.
+    ``batch_members`` is an orgs table: isolated here until orgs exposes a store-neutral
+    lookup (see the data-learning report)."""
+    from app.modules.orgs import public as orgs_public
 
-    return set(
-        (
-            await session.execute(
-                select(BatchMember.batch_id).where(
-                    BatchMember.user_id == user_id, BatchMember.status == "active"
-                )
-            )
-        ).scalars()
-    )
+    rows = await orgs_public.batch_members(session, user_ids=[user_id], active_only=False)
+    return {m.batch_id for m in rows if m.status == "active"}
 
 
 async def graders(session: AsyncSession, user_ids: list[uuid.UUID]) -> set[uuid.UUID]:
@@ -565,61 +604,46 @@ async def graders(session: AsyncSession, user_ids: list[uuid.UUID]) -> set[uuid.
     holding ``assignment.grade`` (any scope), or an active company *staff* membership. Listing
     alone never grants anything: at grading time the caller must still hold
     ``assignment.grade`` somewhere (``structured_api._ensure_grade``). System context."""
-    from app.modules.orgs.models import OrgMembership
-    from app.modules.rbac.models import Permission, Role, RoleGrant, RolePermission
+    from app.modules.orgs import public as orgs_public
+    from app.modules.rbac import public as rbac_public
 
     if not user_ids:
         return set()
-    now = utcnow()
-    staff = set(
-        (
-            await session.execute(
-                select(OrgMembership.user_id).where(
-                    OrgMembership.user_id.in_(user_ids),
-                    OrgMembership.status == "active",
-                    OrgMembership.member_type == "staff",
-                )
-            )
-        ).scalars()
-    )
-    return staff | set(
-        (
-            await session.execute(
-                select(RoleGrant.user_id)
-                .join(RolePermission, RolePermission.role_id == RoleGrant.role_id)
-                .join(Permission, Permission.id == RolePermission.permission_id)
-                .join(Role, Role.id == RoleGrant.role_id)
-                .where(
-                    RoleGrant.user_id.in_(user_ids),
-                    RoleGrant.revoked_at.is_(None),
-                    or_(RoleGrant.expires_at.is_(None), RoleGrant.expires_at > now),
-                    Permission.permission_key == "assignment.grade",
-                )
-            )
-        ).scalars()
-    )
+    staff = {
+        m.user_id for m in await orgs_public.org_memberships(session, user_ids=user_ids, member_type="staff")
+    }
+    # live grant (unrevoked, unexpired) of a role holding assignment.grade: rbac's public API
+    return staff | await rbac_public.user_ids_with_permission(session, "assignment.grade", user_ids)
 
 
 def targets_learner(al: AssignmentAllocation, user_id: uuid.UUID, batches: set[uuid.UUID]) -> bool:
     return (al.batch_id is not None and al.batch_id in batches) or user_id in al.user_ids
 
 
-async def org_members(session: AsyncSession, org_id: uuid.UUID, user_ids: list[uuid.UUID]) -> set[uuid.UUID]:
-    from app.modules.orgs.models import OrgMembership
+async def org_members(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    user_ids: list[uuid.UUID],
+    batch_ids: set[uuid.UUID] | None = None,
+) -> set[uuid.UUID]:
+    """Of ``user_ids``, the active members of ``org_id``. With ``batch_ids`` (a batch-scoped
+    caller), only active members of one of those batches of the org count (SEC: a trainer may
+    allocate only to learners of the batches they manage)."""
+    from app.modules.orgs import public as orgs_public
 
     if not user_ids:
         return set()
-    return set(
-        (
-            await session.execute(
-                select(OrgMembership.user_id).where(
-                    OrgMembership.organization_id == org_id,
-                    OrgMembership.user_id.in_(user_ids),
-                    OrgMembership.status == "active",
-                )
-            )
-        ).scalars()
-    )
+    if batch_ids is not None:
+        if not batch_ids:
+            return set()
+        rows = await orgs_public.batch_members(
+            session, batch_ids=batch_ids, user_ids=user_ids, organization_id=org_id
+        )
+        return {m.user_id for m in rows}
+    return {
+        m.user_id
+        for m in await orgs_public.org_memberships(session, user_ids=user_ids, organization_id=org_id)
+    }
 
 
 def effective_due(al: AssignmentAllocation, user_id: uuid.UUID) -> datetime:
@@ -638,9 +662,17 @@ async def learner_allocation(
     sub: AssignmentSubmission | None = None,
 ) -> AssignmentAllocation | None:
     if sub is not None and sub.allocation_id is not None:
-        al = await session.get(AssignmentAllocation, sub.allocation_id)
+        al = await fss.get(session, AssignmentAllocation, sub.allocation_id)
         if al is not None:
             return al
+    if fss.fs():
+        cands = [
+            x
+            for x in await fsa.allocations_of(session, a.id)
+            if x.status == "active" and targets_learner(x, user_id, batches)
+        ]
+        cands.sort(key=lambda x: (x.created_at, str(x.id)))
+        return cands[0] if cands else None
     return (
         await session.execute(
             select(AssignmentAllocation)
@@ -716,7 +748,7 @@ def normalise_response(
         raise _vf("response", "invalid", "must be an object")
     t = it.item_type
     if t in OBJECTIVE_TYPES:
-        from app.modules.placement import grading
+        from app.modules.placement import public as grading
 
         if bundle is None:
             raise ProblemError("not_found")
@@ -778,7 +810,7 @@ async def verify_code_submission(
 ) -> None:
     if resp is None or "submission_id" not in resp:
         return
-    from app.modules.coding.service import verify_submission_owner
+    from app.modules.coding.public import verify_submission_owner
 
     if not await verify_submission_owner(
         session, uuid.UUID(resp["submission_id"]), user_id, it.coding_problem_id
@@ -789,6 +821,8 @@ async def verify_code_submission(
 async def responses_of(
     session: AsyncSession, submission_id: uuid.UUID
 ) -> dict[uuid.UUID, AssignmentItemResponse]:
+    if fss.fs():
+        return {r.item_id: r for r in await fsa.responses_of(session, [submission_id])}
     rows = (
         await session.execute(
             select(AssignmentItemResponse).where(AssignmentItemResponse.submission_id == submission_id)
@@ -800,6 +834,8 @@ async def responses_of(
 async def upsert_response(
     session: AsyncSession, sub: AssignmentSubmission, it: AssignmentItem, resp: dict[str, Any] | None
 ) -> AssignmentItemResponse:
+    if fss.fs():
+        return await _upsert_response_fs(session, sub, it, resp)
     row = (
         await session.execute(
             select(AssignmentItemResponse)
@@ -816,11 +852,48 @@ async def upsert_response(
             user_id=sub.user_id,
             organization_id=sub.organization_id,
         )
-        session.add(row)
+        fss.add(session, row)
     row.response = resp
     row.saved_at = now
-    await session.flush()
+    await fss.flush(session)
     return row
+
+
+async def _upsert_response_fs(
+    session: AsyncSession, sub: AssignmentSubmission, it: AssignmentItem, resp: dict[str, Any] | None
+) -> AssignmentItemResponse:
+    """Firestore autosave, as Postgres: the first save inserts the (submission, item) row (a
+    concurrent first save of the same item gets 409 ``conflict`` from ``item_response_keys``,
+    like the unique-index violation); later saves set the answer in one transaction on the
+    fresh row (``FOR UPDATE``: they serialise, the last one wins, nothing else is overwritten)."""
+    now = utcnow()
+    row = await fsa.response_for(session, sub.id, it.id)
+    if row is None:
+        row = AssignmentItemResponse(
+            id=uuid7(),
+            submission_id=sub.id,
+            item_id=it.id,
+            user_id=sub.user_id,
+            organization_id=sub.organization_id,
+            response=resp,
+            saved_at=now,
+        )
+        fss.add(session, row)
+        # create-only: ``item_response_keys`` rejects a concurrent first save of the same item
+        # with the same 409 Postgres gives (both INSERT; the unique index fails the second)
+        await fss.flush(session)
+        return row
+    rid = row.id
+
+    def step(rows: dict[uuid.UUID, AssignmentItemResponse]) -> None:
+        cur = rows.get(rid)
+        if cur is None:
+            raise ProblemError("not_found")
+        cur.response = resp
+        cur.saved_at = now
+
+    _, rows = await fss.locked(session, AssignmentItemResponse, [rid], step)
+    return fss.copy_into(row, rows[rid])
 
 
 # --------------------------------------------------------------------------- scoring
@@ -843,7 +916,7 @@ def uses_ai(engine: str, it: AssignmentItem, judged: bool) -> bool:
 async def judge_of(session: AsyncSession, resp: dict[str, Any] | None) -> Any:
     if not resp or "submission_id" not in resp:
         return None
-    from app.modules.coding.service import get_attempt_judgement
+    from app.modules.coding.public import get_attempt_judgement
 
     return await get_attempt_judgement(session, uuid.UUID(resp["submission_id"]))
 
@@ -865,7 +938,7 @@ async def rule_marks(
     if engine == "pure_manual":
         return None
     if it.item_type in OBJECTIVE_TYPES and bundle is not None:
-        from app.modules.placement import grading
+        from app.modules.placement import public as grading
 
         ok = grading.is_correct(it.item_type, resp, bundle.correct_option_ids, bundle.version.answer_key)
         return it.marks if ok else Decimal(0)
@@ -879,7 +952,7 @@ async def refresh_auto_marks(
 ) -> int:
     """(Re)compute deterministic marks for every item of a handed-in submission; creates empty
     response rows for unanswered items so the evaluation view has one row per item."""
-    a = await session.get(Assignment, sub.assignment_id)
+    a = await fss.get(session, Assignment, sub.assignment_id)
     assert a is not None
     structure = await load_structure(session, a.id)
     items = [it for _s, its in structure for it in its]
@@ -898,13 +971,13 @@ async def refresh_auto_marks(
                     user_id=sub.user_id,
                     organization_id=sub.organization_id,
                 )
-                session.add(row)
+                fss.add(session, row)
             bundle = bundles.get(it.question_version_id) if it.question_version_id else None
             marks = await rule_marks(session, it, bundle, row, engine)
             if marks != row.auto_marks:
                 row.auto_marks = marks
                 n += 1
-    await session.flush()
+    await fss.flush(session)
     return n
 
 
@@ -940,7 +1013,7 @@ async def queue_ai(
                 row.ai_status = "queued"
                 row.ai_error = None
                 queued += 1
-    await session.flush()
+    await fss.flush(session)
     return queued, auto
 
 
@@ -952,23 +1025,51 @@ async def run_queued_ai(
 ) -> int:
     """Outbox handler body: ask ``ai.grade_response`` for every queued item of the given
     submissions. Results are stored as pending suggestions (never final)."""
-    from app.modules.ai import service as ai
+    from app.modules.ai import public as ai
 
     done = 0
-    rows = list(
-        (
-            await session.execute(
-                select(AssignmentItemResponse, AssignmentItem, AssignmentSubmission)
-                .join(AssignmentItem, AssignmentItem.id == AssignmentItemResponse.item_id)
-                .join(AssignmentSubmission, AssignmentSubmission.id == AssignmentItemResponse.submission_id)
-                .where(
-                    AssignmentItemResponse.submission_id.in_(submission_ids),
-                    AssignmentItemResponse.ai_status == "queued",
+    rows: list[Any]
+    held: list[tuple[str, str]] = []
+    if fss.fs():
+        # The Postgres row lock held during the AI calls is a per-response lease: a concurrent
+        # handler skips responses another one is grading, and the "still queued" check is made
+        # on the row re-read after the lease is taken (each item is sent to AI once).
+        queued = []
+        for r in await fsa.responses_of(session, submission_ids):
+            if r.ai_status != "queued":
+                continue
+            holder = await fss.lease(f"ai.{r.id}")
+            if holder is None:
+                continue
+            held.append((f"ai.{r.id}", holder))
+            _, fresh = await fss.locked(session, AssignmentItemResponse, [r.id], lambda rows: None)
+            cur = fresh.get(r.id)
+            if cur is not None and cur.ai_status == "queued":
+                queued.append(fss.copy_into(r, cur))
+        fs_items = await fss.get_many(session, AssignmentItem, {r.item_id for r in queued})
+        fs_subs = await fss.get_many(session, AssignmentSubmission, {r.submission_id for r in queued})
+        rows = [
+            (r, fs_items[r.item_id], fs_subs[r.submission_id])
+            for r in queued
+            if r.item_id in fs_items and r.submission_id in fs_subs
+        ]
+    else:
+        rows = list(
+            (
+                await session.execute(
+                    select(AssignmentItemResponse, AssignmentItem, AssignmentSubmission)
+                    .join(AssignmentItem, AssignmentItem.id == AssignmentItemResponse.item_id)
+                    .join(
+                        AssignmentSubmission, AssignmentSubmission.id == AssignmentItemResponse.submission_id
+                    )
+                    .where(
+                        AssignmentItemResponse.submission_id.in_(submission_ids),
+                        AssignmentItemResponse.ai_status == "queued",
+                    )
+                    .with_for_update(of=AssignmentItemResponse)
                 )
-                .with_for_update(of=AssignmentItemResponse)
-            )
-        ).all()
-    )
+            ).all()
+        )
     bundles = await bundles_for(session, [it for _r, it, _s in rows])
     for row, it, _sub in rows:
         resp = row.response or {}
@@ -998,7 +1099,11 @@ async def run_queued_ai(
         row.ai_status = "pending"
         row.ai_error = None
         done += 1
-    await session.flush()
+    try:
+        await fss.flush(session)
+    finally:
+        for key, holder in held:
+            await fss.release(key, holder)
     return done
 
 
@@ -1092,17 +1197,14 @@ def regrade_out(r: AssignmentRegradeRequest, learner_name: str | None = None) ->
 
 
 async def learner_names(session: AsyncSession, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str | None]:
-    from sqlalchemy import text
+    """Display names from ``user_profiles`` (identity table; isolated here until identity
+    exposes a store-neutral lookup — see the data-learning report)."""
+    from app.modules.identity import public as identity_public
 
     if not user_ids:
         return {}
-    rows = await session.execute(
-        text(
-            "SELECT user_id, coalesce(display_name, full_name) FROM user_profiles WHERE user_id = ANY(:ids)"
-        ),
-        {"ids": list(user_ids)},
-    )
-    return {r[0]: r[1] for r in rows.all()}
+    profs = await identity_public.get_profiles(session, user_ids)
+    return {uid: p.display_name or p.full_name for uid, p in profs.items()}
 
 
 # --------------------------------------------------------------------------- coding access
@@ -1114,7 +1216,8 @@ async def coding_access_grant(session: AsyncSession, principal: Any, problem_id:
     are working on (started, not yet handed in) a structured assignment that contains it,
     under an active allocation that still targets them (active batch membership, SEC-03) and
     whose window is open now."""
-
+    if fss.fs():
+        return await _coding_access_grant_fs(session, principal, problem_id)
     rows = (
         await session.execute(
             select(AssignmentAllocation)
@@ -1141,6 +1244,46 @@ async def coding_access_grant(session: AsyncSession, principal: Any, problem_id:
     batches = await active_batch_ids(session, principal.user_id)
     now = utcnow()
     for al in allocs:
+        targeted = targets_learner(al, principal.user_id, batches)
+        started = al.start_at is None or now >= al.start_at
+        if targeted and started and now <= effective_due(al, principal.user_id):
+            return True
+    return False
+
+
+async def _coding_access_grant_fs(session: AsyncSession, principal: Any, problem_id: uuid.UUID) -> bool:
+    drafts = await fss.find(
+        session,
+        AssignmentSubmission,
+        filters=(("user_id", "==", principal.user_id), ("status", "==", "draft")),
+        where=lambda s: s.allocation_id is not None,
+    )
+    if not drafts:
+        return False
+    assignments = await fss.get_many(session, Assignment, {s.assignment_id for s in drafts})
+    allocs = await fss.get_many(session, AssignmentAllocation, {s.allocation_id for s in drafts})
+    with_problem = {
+        it.assignment_id
+        for it in await fss.find(session, AssignmentItem, filters=(("coding_problem_id", "==", problem_id),))
+    }
+    cands = []
+    for s in drafts:
+        a = assignments.get(s.assignment_id)
+        al = allocs.get(s.allocation_id) if s.allocation_id else None
+        if (
+            a is not None
+            and al is not None
+            and a.submission_type == "structured"
+            and a.status == "active"
+            and al.status == "active"
+            and a.id in with_problem
+        ):
+            cands.append(al)
+    if not cands:
+        return False
+    batches = await active_batch_ids(session, principal.user_id)
+    now = utcnow()
+    for al in cands:
         targeted = targets_learner(al, principal.user_id, batches)
         started = al.start_at is None or now >= al.start_at
         if targeted and started and now <= effective_due(al, principal.user_id):

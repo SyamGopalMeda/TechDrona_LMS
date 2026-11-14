@@ -16,7 +16,7 @@ from app.core.ids import uuid7
 from app.core.time import utcnow
 from app.modules.assessments import studio
 from app.modules.assessments.models import TestAssignment
-from app.modules.assessments.schemas import RuleIn, SectionIn, SectionsPut, TestCreate
+from app.modules.assessments.schemas import IntegritySettings, RuleIn, SectionIn, SectionsPut, TestCreate
 from app.modules.placement.schemas import OptionDelivery, QuestionDelivery
 from tests.placement.world import (
     FORBIDDEN_KEYS,
@@ -224,7 +224,9 @@ async def test_start_rules(client, world: World, db, no_access) -> None:
     assert r2.status_code == 409 and r2.json()["code"] == "active_attempt_exists"
     assert r2.json()["attempt_id"] == r.json()["attempt_id"]
     await client.post(
-        f"{API}/attempts/{r.json()['attempt_id']}/submit", json={}, headers={**student.headers, **idem()}
+        f"{API}/attempts/{r.json()['attempt_id']}/submit",
+        json={"confirm_unanswered": 999},
+        headers={**student.headers, **idem()},
     )
     r3 = await start(client, student, test3)
     assert r3.status_code == 409 and r3.json()["code"] == "attempt_limit_reached"
@@ -292,6 +294,68 @@ async def test_autosave_batch_same_question_twice_keeps_newest_seq(client, world
     assert [(str(q), seq) for q, seq in events] == [(str(qs[1].qv_id), 6), (str(qs[0].qv_id), 7)]
 
 
+async def test_one_invalid_answer_does_not_block_the_batch_or_the_submit(client, world: World, db) -> None:
+    """Regression (owner report 2026-11-11): an answer that is invalid for its question used to fail
+    the whole autosave with 400, so every later answer and the final submit were refused. Now the
+    valid answers are saved, the invalid one is reported in ``rejected`` and the submit succeeds."""
+    _, qs, body = await standard(db, world, client)
+    aid, student = body["attempt_id"], world.personas["student"]
+    bad = {
+        "question_version_id": str(qs[0].qv_id),
+        "response": {"option_ids": ["not-an-id"]},
+        "client_seq": 8,
+    }
+    r = await client.post(
+        f"{API}/attempts/{aid}/autosave", json={"items": [bad, item(qs[1], 9)]}, headers=student.headers
+    )
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["acked_seq"] == 9  # the invalid item is acknowledged too, so the client stops resending it
+    assert [x["question_version_id"] for x in out["rejected"]] == [str(qs[0].qv_id)]
+    rows = await sql(db, "SELECT question_version_id FROM attempt_responses WHERE attempt_id = :a", a=aid)
+    assert {str(q) for (q,) in rows} == {str(qs[1].qv_id)}
+    r = await client.post(
+        f"{API}/attempts/{aid}/submit",
+        json={"final_items": [bad], "confirm_unanswered": len(qs)},
+        headers={**student.headers, **idem()},
+    )
+    assert r.status_code == 200, r.text
+
+
+async def test_wrong_shape_rejected_and_unanswered_submit_needs_confirmation(
+    client, world: World, db
+) -> None:
+    """QA 2026-11: option_ids for a numeric question is rejected (``wrong_response_type``), not
+    stored as "unanswered"; submitting with blanks needs ``confirm_unanswered`` (422 otherwise)."""
+    _, qs, body = await standard(db, world, client)
+    aid, student = body["attempt_id"], world.personas["student"]
+    numeric = qs[2]
+    wrong = {"question_version_id": str(numeric.qv_id), "response": {"option_ids": []}, "client_seq": 3}
+    r = await client.post(f"{API}/attempts/{aid}/autosave", json={"items": [wrong]}, headers=student.headers)
+    assert r.status_code == 200, r.text
+    assert [(x["question_version_id"], x["code"]) for x in r.json()["rejected"]] == [
+        (str(numeric.qv_id), "wrong_response_type")
+    ]
+    r = await client.post(
+        f"{API}/attempts/{aid}/submit",
+        json={"final_items": [item(qs[0], 4)]},
+        headers={**student.headers, **idem()},
+    )
+    assert r.status_code == 422 and r.json()["code"] == "confirm_required", r.text
+    assert r.json()["unanswered"] == len(qs) - 1
+    assert r.json()["errors"][0]["field"] == "confirm_unanswered"
+    r = await client.post(
+        f"{API}/attempts/{aid}/submit", json={"confirm_unanswered": 1}, headers={**student.headers, **idem()}
+    )
+    assert r.status_code == 422  # fewer than the server's count
+    r = await client.post(
+        f"{API}/attempts/{aid}/submit",
+        json={"confirm_unanswered": len(qs)},
+        headers={**student.headers, **idem()},
+    )
+    assert r.status_code == 200, r.text
+
+
 async def test_autosave_idempotent_and_order_safe(client, world: World, db) -> None:
     _, qs, body = await standard(db, world, client)
     aid, student = body["attempt_id"], world.personas["student"]
@@ -336,7 +400,12 @@ async def test_autosave_idempotent_and_order_safe(client, world: World, db) -> N
             }
         ]
     }
-    assert (await client.post(url, json=bad, headers=student.headers)).status_code == 400
+    # an invalid answer is no longer fatal for the whole save: it is reported in "rejected" and not
+    # stored (owner report 2026-11-11), while a question outside the attempt is still refused (400)
+    r = await client.post(url, json=bad, headers=student.headers)
+    assert r.status_code == 200 and [x["question_version_id"] for x in r.json()["rejected"]] == [
+        str(qs[0].qv_id)
+    ]
     foreign = {"items": [{"question_version_id": str(uuid7()), "response": None, "client_seq": 11}]}
     assert (await client.post(url, json=foreign, headers=student.headers)).status_code == 400
     # other users cannot touch the attempt
@@ -364,13 +433,37 @@ async def test_integrity_events_are_advisory_and_consent_gated(client, world: Wo
         db, "SELECT count(*) FROM attempt_events WHERE attempt_id = :a AND event_type LIKE 'focus%'", a=aid
     )
     assert n[0][0] == 2  # duplicates dropped
-    await client.post(f"{API}/attempts/{aid}/submit", json={}, headers={**student.headers, **idem()})
+    await client.post(
+        f"{API}/attempts/{aid}/submit",
+        json={"confirm_unanswered": 999},
+        headers={**student.headers, **idem()},
+    )
     r = await start(client, student, test_id, integrity_consent=False)
     aid2 = r.json()["attempt_id"]
     r = await client.post(f"{API}/attempts/{aid2}/autosave", json={"events": events}, headers=student.headers)
     assert r.json()["ignored_events"] == 2
     res = (await client.get(f"{API}/attempts/{aid}/result", headers=student.headers)).json()
     assert res["integrity_status"] == "none"  # never auto-penalised
+
+
+async def test_mandatory_integrity_consent_is_enforced_by_the_api(client, world: World, db) -> None:
+    """QA 2026-11: consent_mandatory is checked server-side (not only in the UI): 422 with a
+    field error on ``integrity_consent``; with consent the attempt starts."""
+    _, qs = await make_bank(db, world)
+    test_id = await make_test(
+        db,
+        world,
+        [("S", None, [fixed(qs[0])])],
+        duration_seconds=600,
+        integrity_settings=IntegritySettings(consent_mandatory=True),
+    )
+    await assign(db, world, test_id)
+    student = world.personas["student"]
+    r = await start(client, student, test_id)
+    assert r.status_code == 422 and r.json()["code"] == "consent_required", r.text
+    assert r.json()["errors"][0]["field"] == "integrity_consent"
+    r = await start(client, student, test_id, integrity_consent=True)
+    assert r.status_code == 201, r.text
 
 
 # --------------------------------------------------------------------------- timer / expiry
@@ -410,7 +503,7 @@ async def test_late_autosave_rejected_and_attempt_auto_submitted(client, world: 
     # submit after the fact returns the terminal state (no error, no re-scoring)
     r = await client.post(
         f"{API}/attempts/{aid}/submit",
-        json={"final_items": [item(qs[3], 9)]},
+        json={"confirm_unanswered": 999, "final_items": [item(qs[3], 9)]},
         headers={**student.headers, **idem()},
     )
     assert r.status_code == 200 and r.json()["submit_reason"] == "deadline"
@@ -535,17 +628,23 @@ async def test_scoring_with_negative_marking_and_review_phases(client, world: Wo
     r = await client.get(f"{API}/attempts/{aid}/review", headers=student.headers)
     assert r.status_code == 409 and r.json()["code"] == "results_not_released"
     r = await client.post(
-        f"{API}/attempts/{aid}/submit", json={"final_items": [fill]}, headers=student.headers
+        f"{API}/attempts/{aid}/submit",
+        json={"confirm_unanswered": 999, "final_items": [fill]},
+        headers=student.headers,
     )
     assert r.status_code == 400 and r.json()["code"] == "idempotency_key_required"
     key = idem()
     r = await client.post(
-        f"{API}/attempts/{aid}/submit", json={"final_items": [fill]}, headers={**student.headers, **key}
+        f"{API}/attempts/{aid}/submit",
+        json={"confirm_unanswered": 999, "final_items": [fill]},
+        headers={**student.headers, **key},
     )
     assert r.status_code == 200, r.text
     assert r.json()["submit_reason"] == "user" and r.json()["result_release"]["mode"] == "immediate"
     replay = await client.post(
-        f"{API}/attempts/{aid}/submit", json={"final_items": [fill]}, headers={**student.headers, **key}
+        f"{API}/attempts/{aid}/submit",
+        json={"confirm_unanswered": 999, "final_items": [fill]},
+        headers={**student.headers, **key},
     )
     assert replay.headers.get("Idempotency-Replayed") == "true"
 
@@ -609,7 +708,7 @@ async def test_manual_release(client, world: World, db) -> None:
     aid = (await start(client, student, test_id)).json()["attempt_id"]
     r = await client.post(
         f"{API}/attempts/{aid}/submit",
-        json={"final_items": [item(qs[0], 1)]},
+        json={"confirm_unanswered": 999, "final_items": [item(qs[0], 1)]},
         headers={**student.headers, **idem()},
     )
     assert r.json()["result_release"]["mode"] == "manual"
@@ -877,8 +976,9 @@ async def test_trainer_scoping_and_cross_tenant_assignment(client, world: World,
     assert v["feasible"] is True and v["rules"][0]["pool_size"] == 1
     r = await client.post(f"{API}/studio/tests/{tid}/publish", headers=ta.headers)
     assert r.status_code == 200 and r.json()["status"] == "published"
-    # other tenant's trainer cannot even see it
-    assert (await client.get(f"{API}/studio/tests/{tid}", headers=tb.headers)).status_code == 404
+    # a trainer of another company batch is refused (single company: same org, so the row is
+    # not RLS-hidden any more and the batch-scope check answers 403) and never lists it
+    assert (await client.get(f"{API}/studio/tests/{tid}", headers=tb.headers)).status_code == 403
     assert tid not in {
         t["id"] for t in (await client.get(f"{API}/studio/tests", headers=tb.headers)).json()["items"]
     }
@@ -907,7 +1007,7 @@ async def test_trainer_scoping_and_cross_tenant_assignment(client, world: World,
         headers=coord.headers,
     )
     assert r.status_code == 201
-    # cross-tenant: legacy org B's trainer cannot assign college A's test to their batch
+    # cross-batch: batch B's trainer cannot assign batch A's test to their own batch (404)
     r = await client.post(
         f"{API}/tests/{tid}/assignments", json={**window, "batch_id": str(world.batch_b)}, headers=tb.headers
     )
@@ -943,9 +1043,11 @@ async def test_trainer_scoping_and_cross_tenant_assignment(client, world: World,
         and d.json()["eligibility"]["via"] == "assignment"
         and find_keys(d.json()) == set()
     )
-    assert (
-        await client.get(f"{API}/tests/{tid}", headers=world.personas["student_b"].headers)
-    ).status_code == 404
+    # a student of another company batch: not assigned and not entitled (same org now, so 403
+    # entitlement_required instead of the old cross-org 404; no test content is returned)
+    other = await client.get(f"{API}/tests/{tid}", headers=world.personas["student_b"].headers)
+    assert other.status_code == 403 and other.json()["code"] == "entitlement_required"
+    assert "sections" not in other.json() and "test_kind" not in other.json()
     # students cannot author
     r = await client.post(f"{API}/studio/tests", json=base, headers=world.personas["student"].headers)
     assert r.status_code == 403

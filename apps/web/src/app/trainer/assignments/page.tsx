@@ -9,7 +9,11 @@ export const metadata: Metadata = { title: "Assignments" };
 export default function Page() {
   return (
     <div>
-      <PageHeader title="Assignments" eyebrow="TRN-012" />
+      <PageHeader
+        title="Assignments"
+        eyebrow="TRN-012"
+        description="Build assignments from sections and bank questions, set marks, then allocate them to a batch with a schedule."
+      />
       <Tabs
         label="Assignment kinds"
         items={[

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Badge, Button, Card, Table, useToast, type Column } from "@/components/ui";
 import { ApiError } from "@/lib/api/errors";
 import { StateBadge } from "@/features/admin/components/console-ui";
-import { formatDateTime } from "@/features/admin/lib/console";
+import { formatDateTime, shortRef } from "@/features/admin/lib/console";
 import { useResource } from "@/features/account/lib/use-resource";
 import { reportByKey } from "../lib/catalogue";
 import { downloadCsv } from "../lib/download";
@@ -93,15 +93,15 @@ export function MyExports({ tracked, reportKey }: { tracked: TrackedExport[]; re
   };
 
   const cols: Column<Row>[] = [
-    { key: "report", header: "Report", cell: (j) => `${reportByKey(j.report_key)?.code ?? ""} ${reportByKey(j.report_key)?.title ?? j.report_key}`.trim() },
-    { key: "job", header: "Job", cell: (j) => <span className="font-mono text-xs">{j.export_job_id}</span> },
+    { key: "report", header: "Report", cell: (j) => reportByKey(j.report_key)?.title ?? j.report_key },
+    { key: "job", header: "Reference", priority: "secondary", cell: (j) => shortRef(j.export_job_id) },
     {
       key: "status",
       header: "Status",
       cell: (j) => (
         <span className="flex flex-wrap items-center gap-1">
           {j.status === "unknown" ? <span className="text-fg-muted">Not checked</span> : <StateBadge state={j.status} />}
-          {j.contains_pii ? <Badge tone="warning">Per-user</Badge> : null}
+          {j.contains_pii ? <Badge tone="warning">Personal data</Badge> : null}
         </span>
       ),
     },
@@ -112,7 +112,7 @@ export function MyExports({ tracked, reportKey }: { tracked: TrackedExport[]; re
       header: <span className="sr-only">Download</span>,
       cell: (j) =>
         j.tracked_only || j.download_path || (j.status === "completed" && j.download_path === undefined) ? (
-          <Button size="sm" variant="secondary" loading={busy === j.export_job_id} onClick={() => void download(j)} aria-label={`Download export ${j.export_job_id}`}>
+          <Button size="sm" variant="secondary" loading={busy === j.export_job_id} onClick={() => void download(j)} aria-label={`Download export ${shortRef(j.export_job_id)}`}>
             {j.tracked_only && j.status !== "completed" ? "Check and download" : "Download CSV"}
           </Button>
         ) : null,
@@ -142,7 +142,7 @@ export function MyExports({ tracked, reportKey }: { tracked: TrackedExport[]; re
         loading={list.loading}
         error={listUnavailable ? null : list.error}
         onRetry={() => void list.reload()}
-        empty={{ title: "No exports yet", description: "Exports you request appear here." }}
+        empty={{ title: "No exports yet", description: "Open a report and use “Request export” to create a CSV." }}
       />
     </Card>
   );

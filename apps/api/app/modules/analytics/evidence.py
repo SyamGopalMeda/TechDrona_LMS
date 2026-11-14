@@ -16,6 +16,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,9 +47,36 @@ class LessonTimeEvidence:
     measurement_version: str = MEASUREMENT_VERSION
 
 
+def _fs() -> bool:
+    from app.core.firestore.backend import uses_firestore
+
+    return uses_firestore("analytics")
+
+
+async def _fs_coverage(user_id: uuid.UUID, **eq: Any) -> list[tuple[Any, ...]]:
+    """``video_watch_coverage`` rows of the user as the SQL selects them
+    ``(lesson_asset_id, coverage_pct, covered_s, duration_s, last_position_s, updated_at)``."""
+    from app.modules.analytics import fs_raw
+    from app.modules.analytics.store_specs import VideoRow
+
+    f = [(k, "==", str(v)) for k, v in eq.items()]
+    rows = [VideoRow.of(d) for d in await fs_raw.all_docs("video_watch_coverage", user_id=user_id, filters=f)]
+    rows.sort(key=lambda r: r.lesson_asset_id)
+    return [
+        (r.lesson_asset_id, r.coverage_pct, r.covered_s, r.duration_s, r.last_position_s, r.updated_at)
+        for r in rows
+    ]
+
+
 async def video_coverage(
     session: AsyncSession, user_id: uuid.UUID, lesson_asset_id: uuid.UUID
 ) -> VideoCoverage | None:
+    if _fs():
+        got = await _fs_coverage(user_id, lesson_asset_id=lesson_asset_id)
+        if not got:
+            return None
+        r = got[0]
+        return VideoCoverage(r[0], float(r[1]) / 100.0, float(r[2]), r[3], r[4], r[5])
     row = (
         await session.execute(
             text(
@@ -63,9 +91,7 @@ async def video_coverage(
     return VideoCoverage(row[0], float(row[1]) / 100.0, float(row[2]), row[3], row[4], row[5])
 
 
-async def lesson_time_evidence(
-    session: AsyncSession, user_id: uuid.UUID, lesson_id: uuid.UUID
-) -> LessonTimeEvidence:
+async def _lesson_evidence_pg(session: AsyncSession, user_id: uuid.UUID, lesson_id: uuid.UUID) -> Any:
     agg = (
         await session.execute(
             text(
@@ -89,6 +115,40 @@ async def lesson_time_evidence(
             {"u": user_id, "l": lesson_id},
         )
     ).all()
+    return agg, cov_rows
+
+
+async def lesson_time_evidence(
+    session: AsyncSession, user_id: uuid.UUID, lesson_id: uuid.UUID
+) -> LessonTimeEvidence:
+    if _fs():
+        from app.modules.analytics import fs_raw
+        from app.modules.analytics.store_specs import DailyRow
+
+        days = [
+            r
+            for r in (
+                DailyRow.of(d)
+                for d in await fs_raw.all_docs(
+                    fs_raw.DAILY,
+                    user_id=user_id,
+                    filters=[("entity_kind", "==", "lesson"), ("entity_id", "==", str(lesson_id))],
+                )
+            )
+            if r.measurement_version == MEASUREMENT_VERSION
+        ]
+        dates = [r.activity_date for r in days]
+        agg: Any = (
+            sum(r.m5_learning_s or 0 for r in days),
+            sum(r.m2_active_s or 0 for r in days),
+            sum(r.m3_video_playback_s or 0 for r in days),
+            sum(1 for r in days if (r.m5_learning_s or 0) > 0),
+            min(dates) if dates else None,
+            max(dates) if dates else None,
+        )
+        cov_rows: Any = await _fs_coverage(user_id, lesson_id=lesson_id)
+    else:
+        agg, cov_rows = await _lesson_evidence_pg(session, user_id, lesson_id)
     return LessonTimeEvidence(
         lesson_id=lesson_id,
         learning_s=int(agg[0]),
@@ -107,6 +167,9 @@ async def watched_seconds_for_lesson(
     """Adapter matching ``learning.service.register_video_coverage_lookup`` (``fn(session,
     user_id, lesson_key) -> watched_seconds | None``). Not registered automatically: learning
     decides when to switch its completion rule to the analytics coverage feed."""
+    if _fs():
+        got = await _fs_coverage(user_id, lesson_id=lesson_key)
+        return int(sum(float(r[2]) for r in got)) if got else None
     row = (
         await session.execute(
             text("SELECT sum(covered_s) FROM video_watch_coverage WHERE user_id = :u AND lesson_id = :l"),
@@ -114,3 +177,45 @@ async def watched_seconds_for_lesson(
         )
     ).first()
     return int(row[0]) if row and row[0] is not None else None
+
+
+async def coverage_groups(
+    session: AsyncSession, user_id: uuid.UUID, lesson_ids: list[uuid.UUID]
+) -> list[tuple[Any, Any, Any]]:
+    """``(lesson_asset_id, sum(covered_s), max(duration_s))`` of the user's coverage rows on these
+    lessons, grouped by asset (NULLs ignored by the aggregates, as in SQL)."""
+    if _fs():
+        from app.modules.analytics import fs_raw
+        from app.modules.analytics.store_specs import VideoRow
+
+        want = set(lesson_ids)
+        g: dict[Any, list[Any]] = {}
+        # cost-media: filter by lesson in the query (30 ids per ``in``) instead of reading every
+        # coverage document of the user (one per video ever watched) on each MED-05 heartbeat.
+        docs: dict[str, Any] = {}
+        for chunk in fs_raw._chunks(sorted({str(x) for x in want})):
+            for d in await fs_raw.all_docs(
+                "video_watch_coverage", user_id=user_id, filters=[("lesson_id", "in", chunk)]
+            ):
+                docs[d.id] = d
+        for _id, d in sorted(docs.items()):  # document-id order, as the full scan returned them
+            r = VideoRow.of(d)
+            if r.lesson_id in want:
+                g.setdefault(r.lesson_asset_id, []).append(r)
+        out = []
+        for a, rs in g.items():
+            cov = [x.covered_s for x in rs if x.covered_s is not None]
+            dur = [x.duration_s for x in rs if x.duration_s is not None]
+            out.append((a, sum(cov) if cov else None, max(dur) if dur else None))
+        return out
+    rows = (
+        await session.execute(
+            text(
+                "SELECT c.lesson_asset_id, sum(c.covered_s), max(c.duration_s) "
+                "FROM video_watch_coverage c "
+                "WHERE c.user_id = :u AND c.lesson_id = ANY(:l) GROUP BY c.lesson_asset_id"
+            ),
+            {"u": user_id, "l": lesson_ids},
+        )
+    ).all()
+    return [(r[0], r[1], r[2]) for r in rows]

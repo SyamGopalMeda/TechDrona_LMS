@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://techdrona-lms-app.web.app", "https://techdrona-lms-app.firebaseapp.com"],
+    "method": ["GET", "HEAD", "POST", "PUT"],
+    "responseHeader": ["Content-Type", "ETag", "x-goog-meta-*"],
+    "maxAgeSeconds": 600
+  }
+]

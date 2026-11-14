@@ -28,6 +28,12 @@ def _n(result: Any) -> int:
 
 
 async def erase_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]:
+    from app.core.firestore.backend import uses_firestore
+
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.erase_user(user_id)
     reviews = await session.execute(delete(ResumeReview).where(ResumeReview.user_id == user_id))
     resumes = await session.execute(delete(Resume).where(Resume.user_id == user_id))
     feedback = await session.execute(
@@ -59,6 +65,6 @@ async def erase_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, Any
 
 
 def register() -> None:
-    from app.modules.admin.privacy import register_erasure_provider
+    from app.modules.admin.public import register_erasure_provider
 
     register_erasure_provider("mentoring", erase_user)

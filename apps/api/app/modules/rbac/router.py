@@ -29,6 +29,7 @@ from app.core.auth import (
     require_active_principal,
     require_permission,
 )
+from app.core.config import get_settings
 from app.core.db import PrincipalDbSession
 from app.core.errors import ProblemError, problem_response
 from app.core.idempotency import IdemResult, idempotent
@@ -37,14 +38,22 @@ from app.core.routing import authenticated_router
 from app.core.time import to_rfc3339
 from app.modules.admin import approvals as apr
 from app.modules.identity import clock
+from app.modules.identity import public as identity_public
+from app.modules.identity.fs_uow import discard, unit_of_work
+from app.modules.rbac import public as rbac_public
 from app.modules.rbac import service as rs
 from app.modules.rbac.catalogue import PERMISSIONS, ROLES
 from app.modules.rbac.models import ApprovalRequest, Role, RoleGrant
 
 register_permission_checker(rs.RbacPermissionChecker())
 
-r = authenticated_router(prefix="/rbac", tags=["rbac"])
-me_r = authenticated_router(prefix="/me", tags=["rbac"], route_tag="account_status", idle="neutral")
+# Firestore (TD_STORE_RBAC=firestore): loaded rows are transient; the unit of work writes changed
+# ones at the end of a successful request (fs_uow), like the Postgres commit.
+_UOW = [Depends(unit_of_work, scope="function")]
+r = authenticated_router(prefix="/rbac", tags=["rbac"], dependencies=_UOW)
+me_r = authenticated_router(
+    prefix="/me", tags=["rbac"], route_tag="account_status", idle="neutral", dependencies=_UOW
+)
 
 
 class GrantIn(BaseModel):
@@ -105,13 +114,23 @@ async def _authorize_grant_change(
     raise ProblemError("permission_denied", permission="rbac.grant.manage")
 
 
+def _self_grant_allowed(role_key: str, scope_type: str) -> bool:
+    """ADM-20 forbids self-grants, with ONE exception (owner decision 2026-11-12, "Be a
+    Teacher"): an Admin may make themselves the trainer of a batch. Only callers holding
+    ``rbac.grant.manage`` @P (Admin) reach this check, and an Admin already holds every
+    permission a batch trainer has, so the grant adds no privilege: it only marks the batch as
+    one they teach (their Teacher portal lists it). It is audited like any grant. Every other
+    self-grant (Admin, Evaluator, Content manager, a course-scoped trainer) stays blocked."""
+    return role_key == "trainer" and scope_type == "batch"
+
+
 @r.get("/roles", openapi_extra={"x-td-idle": "neutral"})
 async def list_roles(
     session: PrincipalDbSession, principal: Principal = Depends(require_active_principal)
 ) -> dict[str, Any]:
     if not await rs.check_permission(session, principal, "rbac.grant.read", PLATFORM_SCOPE):
         raise ProblemError("permission_denied", permission="rbac.grant.read")
-    roles = (await session.execute(select(Role).order_by(Role.role_key))).scalars().all()
+    roles = await rbac_public.roles(session)
     return {
         "data": [
             {
@@ -181,14 +200,14 @@ async def create_grant(
     _p5(principal)
 
     async def op() -> IdemResult:
-        from app.modules.identity.models import User
-
-        if await session.get(User, body.user_id) is None:
+        if await identity_public.get_user(session, body.user_id) is None:
             raise ProblemError("not_found")
-        if body.user_id == principal.user_id:  # ADM-20: no self-grants at any scope
-            raise ProblemError("sod_violation", rule="SoD-05")
-        if rs.is_dual_role(body.role_key):
-            role = (await session.execute(select(Role).where(Role.role_key == body.role_key))).scalar_one()
+        if body.user_id == principal.user_id and not _self_grant_allowed(body.role_key, body.scope_type):
+            raise ProblemError("sod_violation", rule="SoD-05")  # ADM-20: no self-grants
+        # TD_SIMPLE_AUTH (owner decision): an Admin's grant of any role applies at once.
+        if rs.is_dual_role(body.role_key) and not get_settings().simple_auth:
+            role = await rbac_public.role_by_key(session, body.role_key)
+            assert role is not None
             org_id = await rs.resolve_grant_scope(session, role, body.scope_type, body.scope_id)
             await rs.check_sod(session, body.user_id, body.role_key)
             req = await rs.create_approval_request(
@@ -230,7 +249,14 @@ async def create_grant(
             body={"grant_id": str(gid), "session_effect": "grantee_sessions_rotated"},
         )
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op)
+    # ``session or None``: on a stack without Postgres the request session is the falsy
+    # NO_POSTGRES sentinel; the Firestore idempotency store expects None there.
+    return await idempotent(
+        request,
+        session or None,  # type: ignore[arg-type]
+        user_id=principal.user_id,
+        operation=op,
+    )
 
 
 @r.post("/grants/{grant_id}/revoke")
@@ -241,13 +267,16 @@ async def revoke_grant(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> Any:
-    row = (
-        await session.execute(
-            select(RoleGrant, Role.role_key)
-            .join(Role, Role.id == RoleGrant.role_id)
-            .where(RoleGrant.id == grant_id)
-        )
-    ).one_or_none()
+    if rs._fs():
+        row = await rs._repo().get_grant(grant_id)
+    else:
+        row = (
+            await session.execute(
+                select(RoleGrant, Role.role_key)
+                .join(Role, Role.id == RoleGrant.role_id)
+                .where(RoleGrant.id == grant_id)
+            )
+        ).one_or_none()
     if row is None:
         raise ProblemError("not_found")
     grant, role_key = row
@@ -286,7 +315,13 @@ async def revoke_grant(
             body={"grant_id": str(grant.id), "revoked": True, "session_effect": "grantee_sessions_rotated"},
         )
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
+    return await idempotent(
+        request,
+        session or None,  # type: ignore[arg-type]
+        user_id=principal.user_id,
+        operation=op,
+        required=False,
+    )
 
 
 PRIVILEGED_ACTIONS = ("rbac.grant.privileged", "rbac.revoke.privileged")
@@ -296,7 +331,7 @@ async def _grantee(session: Any, req: ApprovalRequest) -> uuid.UUID | None:
     p = req.payload
     if req.action_type == "rbac.grant.privileged":
         return uuid.UUID(p["user_id"])
-    g = await session.get(RoleGrant, uuid.UUID(p["grant_id"]))
+    g = await rbac_public.get_grant(session, uuid.UUID(p["grant_id"]))
     return g.user_id if g is not None else None
 
 
@@ -346,19 +381,19 @@ async def _decide(
     approval_id: uuid.UUID, approve: bool, note: str | None, session: Any, principal: Principal
 ) -> Any:
     _p5(principal)
-    req = (
-        await session.execute(
-            select(ApprovalRequest).where(ApprovalRequest.id == approval_id).with_for_update()
-        )
-    ).scalar_one_or_none()
+    req = await rbac_public.get_approval(session, approval_id, for_update=True)
     if req is None or req.action_type not in PRIVILEGED_ACTIONS:
         raise ProblemError("not_found")
-    if await apr.expire_if_due(session, req):
+    if rs._fs():
+        # Firestore: every write of this decision is explicit (decide_approval / save_approval),
+        # so a request that loses the race never writes its stale copy back (fs_uow).
+        discard(req)
+    if await _expire_if_due(session, req):
         # ADM-23: return (not raise) so the "expired" status commits.
         return problem_response(ProblemError("invalid_state_transition", current_state="expired", allowed=[]))
     if req.status != "pending":
         raise ProblemError("invalid_state_transition", current_state=req.status, allowed=[])
-    if req.requested_by == principal.user_id:
+    if req.requested_by == principal.user_id and not await rs.is_sole_admin(session, principal.user_id):
         raise ProblemError("sod_violation", rule="SoD-05")
     if not principal.has_role(req.required_approver_role, "platform"):
         raise ProblemError("permission_denied", permission="approval.decide")
@@ -366,27 +401,48 @@ async def _decide(
         await _check_not_grantee(session, principal, req)
     if rs.payload_hash(req.payload) != req.payload_hash:
         raise ProblemError("invalid_state_transition", current_state="payload_tampered", allowed=[])
-    req.decided_by = principal.user_id
-    req.decided_at = clock.now()
-    req.decision_note = note
-    if not approve:
-        req.status = "rejected"
-        await audit(session, principal, "approval.rejected", "approval_request", req.id, reason=note)
-        return {"approval_request_id": str(req.id), "status": "rejected"}
-    req.status = "approved"
-    result = await _execute_privileged(session, principal, req)
-    req.status = "executed"
-    req.executed_at = clock.now()
-    await audit(
+    # One claim per decision on either store (Postgres: the locked row; Firestore: a pending ->
+    # decided transaction only the first request wins). If executing the privileged change fails,
+    # the claim is undone, so the request is pending again -- the state a Postgres rollback leaves.
+    async with rbac_public.decision(
         session,
-        principal,
-        "approval.executed",
-        "approval_request",
-        req.id,
-        reason=note,
-        after={"action_type": req.action_type, **result},
-    )
+        req,
+        status="approved" if approve else "rejected",
+        decided_by=principal.user_id,
+        note=note,
+        sole_admin=req.requested_by == principal.user_id,  # sole Admin only (rbac_0006)
+    ):
+        if not approve:
+            await audit(session, principal, "approval.rejected", "approval_request", req.id, reason=note)
+            return {"approval_request_id": str(req.id), "status": "rejected"}
+        result = await _execute_privileged(session, principal, req)
+        await rbac_public.mark_executed(session, req)
+        await audit(
+            session,
+            principal,
+            "approval.executed",
+            "approval_request",
+            req.id,
+            reason=note,
+            after={"action_type": req.action_type, **result},
+        )
     return {"approval_request_id": str(req.id), "status": "executed", **result}
+
+
+async def _expire_if_due(session: Any, req: ApprovalRequest) -> bool:
+    """``admin.approvals.expire_if_due`` on either store (Firestore: the pending -> expired
+    transition is written now, so the 409 that follows keeps it, ADM-23)."""
+    if not rs._fs():
+        return await apr.expire_if_due(session, req)
+    if req.status == "pending" and req.expires_at <= clock.now():
+        try:
+            await rs._repo().decide_approval(req.id, status="expired")
+        except ProblemError:
+            pass  # decided meanwhile
+        req.status = "expired"
+        discard(req)
+        return True
+    return False
 
 
 @r.post("/approval-requests/{approval_request_id}/approve")

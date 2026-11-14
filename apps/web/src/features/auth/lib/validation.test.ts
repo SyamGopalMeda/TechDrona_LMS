@@ -60,8 +60,9 @@ describe("contact and password rules", () => {
     expect(normaliseIndianMobile("+91-9876543221")).toBe("+919876543221");
     expect(normaliseIndianMobile("12345")).toBeNull();
   });
-  it("applies the 15/128 password rule", () => {
-    expect(validatePassword("short")).toMatch(/15/);
+  it("applies the client 6/128 pre-check (the api enforces the real policy)", () => {
+    expect(validatePassword("short")).toMatch(/6/);
+    expect(validatePassword("admin123")).toBeNull();
     expect(validatePassword("x".repeat(129))).toMatch(/128/);
     expect(validatePassword("correct-horse-battery")).toBeNull();
   });

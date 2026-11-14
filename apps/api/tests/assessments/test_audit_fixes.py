@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections import Counter
+from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -119,7 +120,7 @@ async def test_be04_no_keys_while_another_batch_window_is_open(client, world: Wo
     aid = (await start(client, student, test_id)).json()["attempt_id"]
     r = await client.post(
         f"{API}/attempts/{aid}/submit",
-        json={"final_items": [item(qs[0], 1)]},
+        json={"confirm_unanswered": 999, "final_items": [item(qs[0], 1)]},
         headers={**student.headers, **idem()},
     )
     assert r.status_code == 200, r.text
@@ -153,7 +154,11 @@ async def test_be04_window_extension_and_running_attempt_keep_keys_hidden(client
     assert r.status_code == 201, r.text
     student = world.personas["student"]
     aid = (await start(client, student, test_id)).json()["attempt_id"]
-    await client.post(f"{API}/attempts/{aid}/submit", json={}, headers={**student.headers, **idem()})
+    await client.post(
+        f"{API}/attempts/{aid}/submit",
+        json={"confirm_unanswered": 999},
+        headers={**student.headers, **idem()},
+    )
     await _close(db, a1)
     rev = (await client.get(f"{API}/attempts/{aid}/review", headers=student.headers)).json()
     assert rev["phase"] == "after_submit" and not find_keys(rev)
@@ -456,7 +461,9 @@ async def test_be23_review_shows_own_coding_submission(client, db, world, allow_
     await system_context(db, "test")
     await judge_submission(db, uuid.UUID(sub.json()["submission_id"]), fake_judge, budget_s=1)
     done = await client.post(
-        f"{API}/attempts/{attempt_id}/submit", json={}, headers={**student.headers, **idem()}
+        f"{API}/attempts/{attempt_id}/submit",
+        json={"confirm_unanswered": 999},
+        headers={**student.headers, **idem()},
     )
     assert done.status_code == 200, done.text
     rev = await client.get(f"{API}/attempts/{attempt_id}/review", headers=student.headers)
@@ -486,7 +493,7 @@ async def test_db01_assessments_erasure_provider(client, world: World, db) -> No
     await sql(db, "UPDATE test_attempts SET start_ip = '203.0.113.9' WHERE id = :a", a=aid)
     r = await client.post(
         f"{API}/attempts/{aid}/submit",
-        json={"final_items": [item(qs[0], 1)]},
+        json={"confirm_unanswered": 999, "final_items": [item(qs[0], 1)]},
         headers={**student.headers, **idem()},
     )
     assert r.status_code == 200, r.text
@@ -503,3 +510,64 @@ async def test_db01_assessments_erasure_provider(client, world: World, db) -> No
     assert (await sql(db, "SELECT count(*) FROM attempt_results WHERE attempt_id = :a", a=aid))[0][0] == 1
     again = await privacy.erase_user(db, student.id)  # idempotent
     assert again["test_attempts_anonymised"] == 0 and again["attempt_responses_cleared"] == 0
+
+
+# --------------------------------------------------------------------------- QA 2026-11 F11
+
+
+async def test_archive_retires_a_test_and_closes_its_windows(client, world: World, db) -> None:
+    """POST studio/tests/{id}/archive (test.edit): open and future windows end now, learners
+    can't start it or see it in /me/tests any more, attempts already made stay readable."""
+    author, student = world.personas["author"], world.personas["student"]
+    test_id, _qs, att = await standard(db, world, client)
+    _, qs2 = await make_bank(db, world)
+    future_id = await make_test(db, world, [("S", None, [fixed(qs2[0])])], duration_seconds=600)
+    future_a = await assign(db, world, future_id, start=timedelta(hours=1), end=timedelta(hours=3))
+
+    denied = await client.post(
+        f"{API}/studio/tests/{future_id}/archive", json={}, headers={**student.headers, **idem()}
+    )
+    assert denied.status_code in (403, 404)
+    r = await client.post(
+        f"{API}/studio/tests/{future_id}/archive", json={}, headers={**author.headers, **idem()}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "archived" and r.json()["closed_assignments"] == 1
+    row = (
+        await sql(
+            db,
+            "SELECT available_from < available_until AND available_until <= clock_timestamp() FROM test_assignments "
+            "WHERE id = :a",
+            a=future_a,
+        )
+    )[0]
+    assert row[0] is True
+    again = await client.post(
+        f"{API}/studio/tests/{future_id}/archive", json={}, headers={**author.headers, **idem()}
+    )
+    assert again.status_code == 409
+    assert (await start(client, student, future_id)).status_code == 404
+    mine = (await client.get(f"{API}/me/tests", headers=student.headers)).json()["items"]
+    assert str(future_id) not in {x["test_id"] for x in mine}
+
+    # a test the learner already attempted: archived, its attempt stays readable
+    r = await client.post(
+        f"{API}/studio/tests/{test_id}/archive", json={}, headers={**author.headers, **idem()}
+    )
+    assert r.status_code == 200, r.text
+    state = await client.get(f"{API}/attempts/{att['attempt_id']}/state", headers=student.headers)
+    assert state.status_code == 200, state.text
+
+
+async def test_practice_holds_back_questions_of_published_graded_tests(world: World, db) -> None:
+    """QA 2026-11: practice reveals keys, so fixed questions of a published graded test (here a
+    mock) are not served in practice; a practice_set test does not hold anything back."""
+    from app.modules.placement.practice import _in_graded_tests
+
+    _, qs = await make_bank(db, world)
+    pool = [q.qv_id for q in qs]
+    assert await _in_graded_tests(db, pool) == set()
+    await make_test(db, world, [("S", None, [fixed(qs[1])])], kind="practice_set", duration_seconds=600)
+    assert await _in_graded_tests(db, pool) == set()
+    await make_test(db, world, [("S", None, [fixed(qs[0])])], duration_seconds=600)
+    assert await _in_graded_tests(db, pool) == {qs[0].qv_id}

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Badge, Button, Card, ErrorState, Tabs, useToast } from "@/components/ui";
+import { Badge, Button, Card, ErrorState, PageHeader, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import type { Body } from "@/lib/api-types";
 import { useScrollDepth } from "@/lib/analytics/scroll-depth";
@@ -168,7 +168,7 @@ function Completion({
       ) : lesson.lesson_type === "video" ? (
         <p className="text-sm text-fg-secondary" role="status">
           {lesson.progress?.status === "in_progress" ? `Watched ${formatPercent(lesson.progress.progress_pct)} so far. ` : ""}
-          This lesson completes when you’ve watched at least 90% of the video. Progress is recorded by the server and may take a minute to update.
+          This lesson completes when you’ve watched at least 90% of the video. Your progress may take a minute to update.
         </p>
       ) : lesson.lesson_type === "practice_set" ? (
         <p className="text-sm text-fg-secondary" role="status">
@@ -378,17 +378,30 @@ export function LessonView({ slug, lessonId }: { slug: string; lessonId: string 
   const nextId = idx >= 0 ? (ordered[idx + 1]?.id ?? null) : null;
   const position = idx >= 0 ? `Lesson ${idx + 1} of ${ordered.length}` : null;
 
+  const resources = l.resources ?? [];
+
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <Link href={`/app/courses/${encodeURIComponent(slug)}`} className="text-sm font-medium text-fg-link hover:text-fg-link-hover">
-          ← {title || "Course"}
-        </Link>
-        {position ? <span className="text-sm text-fg-muted">{position}</span> : null}
-      </header>
-      <h1 className="font-display text-2xl font-bold text-fg">{l.title}</h1>
+      <PageHeader
+        breadcrumbs={[
+          { label: "My learning", href: "/app/learning" },
+          { label: title || "Course", href: `/app/courses/${encodeURIComponent(slug)}` },
+          { label: l.title },
+        ]}
+        title={l.title}
+        meta={position ? <span className="text-sm text-fg-muted">{position}</span> : undefined}
+      />
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_18rem]">
+      {/* Phones/tablets: the lesson list comes before the lesson, so changing lessons needs no scrolling past it. */}
+      <nav aria-label="Course contents" className="lg:hidden">
+        <details className="rounded-xl border border-line bg-surface p-3">
+          <summary className="flex min-h-touch cursor-pointer items-center font-display text-sm font-semibold text-fg">Contents{position ? ` · ${position}` : ""}</summary>
+          <div className="pt-3">{course.data ? <Contents course={course.data} slug={slug} currentId={lessonId} landmark={false} /> : null}</div>
+        </details>
+      </nav>
+
+      {/* The shell drops its sidebar on lesson routes, so the player takes the full width beside the contents. */}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] 2xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="min-w-0 space-y-4">
           <LessonBody lesson={l} onPlayingChange={setPlaying} tracker={tracker} onPdfOpened={() => setPdfOpenedFor(l.id)} />
           <Completion
@@ -398,17 +411,11 @@ export function LessonView({ slug, lessonId }: { slug: string; lessonId: string 
               await Promise.all([lesson.reload(), course.reload()]);
             }}
           />
-          <Tabs
-            label="Lesson details"
-            items={[
-              { id: "resources", label: "Resources", content: <Resources resources={l.resources ?? []} /> },
-              {
-                id: "transcript",
-                label: "Transcript",
-                content: <p className="text-sm text-fg-muted">Transcripts are not available yet.</p>,
-              },
-            ]}
-          />
+          {resources.length ? (
+            <Card title="Resources" titleAs="h2">
+              <Resources resources={resources} />
+            </Card>
+          ) : null}
           <nav aria-label="Lesson navigation" className="flex flex-wrap justify-between gap-2 border-t border-line pt-4">
             {prevId ? (
               <LinkButton href={lessonHref(slug, prevId)} variant="secondary">
@@ -420,14 +427,8 @@ export function LessonView({ slug, lessonId }: { slug: string; lessonId: string 
             {nextId ? <LinkButton href={lessonHref(slug, nextId)}>Next →</LinkButton> : null}
           </nav>
         </div>
-        <aside className="lg:sticky lg:top-20 lg:self-start">
-          <nav aria-label="Course contents" className="lg:hidden">
-            <details className="rounded-xl border border-line bg-surface p-3">
-              <summary className="cursor-pointer text-sm font-medium text-fg">Contents</summary>
-              <div className="pt-3">{course.data ? <Contents course={course.data} slug={slug} currentId={lessonId} landmark={false} /> : null}</div>
-            </details>
-          </nav>
-          <div className="hidden rounded-xl border border-line bg-surface p-3 lg:block">
+        <aside className="hidden lg:sticky lg:top-20 lg:block lg:self-start">
+          <div className="rounded-xl border border-line bg-surface p-3">
             {course.data ? <Contents course={course.data} slug={slug} currentId={lessonId} /> : course.error ? <p className="text-sm text-fg-muted">Contents unavailable.</p> : <LoadingBlock label="Loading contents" rows={3} />}
           </div>
         </aside>

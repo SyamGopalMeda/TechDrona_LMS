@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Button, Card, ErrorState, FormField, Input, Select, useToast } from "@/components/ui";
+import { Badge, Button, Card, ErrorState, FormField, Input, PageHeader, Select, useToast, type Crumb } from "@/components/ui";
+import { SectionNav, StickyActionBar } from "@/features/studio/components/EditorChrome";
 import { api } from "@/lib/api/client";
 import { isApiError } from "@/lib/api/errors";
 import { cn } from "@/lib/ui/cn";
@@ -71,14 +71,14 @@ function QuestionEditor({
     <li className="rounded-xl border border-line bg-surface p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-display text-sm font-semibold text-fg">Question {n}</h3>
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1">
           <Button size="sm" variant="ghost" onClick={() => onMove(-1)} disabled={index === 0} aria-label={`Move question ${n} up`}>
-            ↑
+            <span aria-hidden="true">↑</span> Up
           </Button>
           <Button size="sm" variant="ghost" onClick={() => onMove(1)} disabled={index === count - 1} aria-label={`Move question ${n} down`}>
-            ↓
+            <span aria-hidden="true">↓</span> Down
           </Button>
-          <Button size="sm" variant="ghost" onClick={onRemove} disabled={count === 1} aria-label={`Remove question ${n}`}>
+          <Button size="sm" variant="ghost" onClick={onRemove} disabled={count === 1} aria-label={`Remove question ${n}`} className="text-danger-fg hover:bg-danger-subtle">
             Remove
           </Button>
         </div>
@@ -138,14 +138,17 @@ function QuestionEditor({
               {q.options.map((o, oi) => (
                 <li key={o.key} className="flex items-center gap-2">
                   {quiz ? (
-                    <input
-                      type={q.kind === "single_choice" ? "radio" : "checkbox"}
-                      name={`correct-${q.key}`}
-                      checked={o.is_correct}
-                      onChange={() => onChange({ ...toggleCorrect(q, o.key), key_missing: false })}
-                      aria-label={`Option ${oi + 1} is correct`}
-                      className="h-5 w-5 shrink-0 accent-[var(--td-brand)]"
-                    />
+                    // The whole 44 px box is the hit target, not just the 20 px control.
+                    <label className="grid min-h-touch min-w-touch shrink-0 cursor-pointer place-items-center rounded-md focus-within:shadow-focus hover:bg-surface-hover">
+                      <input
+                        type={q.kind === "single_choice" ? "radio" : "checkbox"}
+                        name={`correct-${q.key}`}
+                        checked={o.is_correct}
+                        onChange={() => onChange({ ...toggleCorrect(q, o.key), key_missing: false })}
+                        aria-label={`Option ${oi + 1} is correct`}
+                        className="h-5 w-5 accent-[var(--td-brand)] focus-visible:outline-none"
+                      />
+                    </label>
                   ) : null}
                   <Input
                     aria-label={`Question ${n} option ${oi + 1}`}
@@ -160,8 +163,9 @@ function QuestionEditor({
                     disabled={q.options.length <= 2}
                     onClick={() => onChange({ ...q, options: q.options.filter((x) => x.key !== o.key) })}
                     aria-label={`Remove option ${oi + 1}`}
+                    className="shrink-0"
                   >
-                    ✕
+                    <span aria-hidden="true">✕</span>
                   </Button>
                 </li>
               ))}
@@ -183,13 +187,54 @@ function QuestionEditor({
 
 /** TRN-020 Engage builder: new (`type`) or edit (`activityId`). */
 export function ActivityBuilder({ type, activityId }: { type?: ActivityType; activityId?: string }) {
+  const { base } = useEngageScope();
   const existing = useApi<Activity>(activityId ? `engage/activities/${seg(activityId)}` : null);
   if (activityId) {
-    if (existing.loading && !existing.data) return <Loading label="Loading activity" />;
-    if (existing.error || !existing.data) return <ErrorState error={existing.error} onRetry={() => void existing.reload()} />;
-    return <BuilderForm key={existing.data.id} initial={fromActivity(existing.data)} activityId={activityId} />;
+    const title = existing.data?.title?.trim() || "Edit activity";
+    const crumbs: Crumb[] = [{ label: "Engage", href: base }];
+    if (existing.data) crumbs.push({ label: title, href: `${base}/${seg(activityId)}` });
+    crumbs.push({ label: "Edit" });
+    const header = (
+      <PageHeader
+        breadcrumbs={crumbs}
+        title={title}
+        meta={existing.data ? <Badge tone="brand">{TYPE_LABEL[existing.data.activity_type]}</Badge> : null}
+        description="Change the questions and settings. Finished runs keep their results."
+      />
+    );
+    if (existing.loading && !existing.data)
+      return (
+        <>
+          {header}
+          <Loading label="Loading activity" />
+        </>
+      );
+    if (existing.error || !existing.data)
+      return (
+        <>
+          {header}
+          <ErrorState error={existing.error} onRetry={() => void existing.reload()} />
+        </>
+      );
+    return (
+      <>
+        {header}
+        <BuilderForm key={existing.data.id} initial={fromActivity(existing.data)} activityId={activityId} />
+      </>
+    );
   }
-  return <BuilderForm initial={initialState(type ?? "poll")} />;
+  const t = type ?? "poll";
+  return (
+    <>
+      <PageHeader
+        breadcrumbs={[{ label: "Engage", href: base }, { label: "New activity" }]}
+        title="New activity"
+        meta={<Badge tone="brand">{TYPE_LABEL[t]}</Badge>}
+        description={`Set up a ${TYPE_LABEL[t].toLowerCase()}, then launch it live from its control room.`}
+      />
+      <BuilderForm initial={initialState(t)} />
+    </>
+  );
 }
 
 function BuilderForm({ initial, activityId }: { initial: BuilderState; activityId?: string }) {
@@ -284,9 +329,13 @@ function BuilderForm({ initial, activityId }: { initial: BuilderState; activityI
 
   return (
     <form onSubmit={(e) => void submit(e)} noValidate className="space-y-6">
-      <Link href={base} className="text-sm text-fg-link hover:text-fg-link-hover">
-        ← Engage
-      </Link>
+      <SectionNav
+        sections={[
+          { id: "activity-details", label: "Details" },
+          { id: "activity-settings", label: "Settings" },
+          { id: "activity-questions", label: `Questions (${s.questions.length})` },
+        ]}
+      />
       {errorCount ? (
         <p role="alert" className="rounded-md border border-danger-border bg-danger-subtle px-3 py-2 text-sm text-danger-fg">
           {errorCount === 1 ? "1 field needs attention." : `${errorCount} fields need attention.`}
@@ -294,7 +343,7 @@ function BuilderForm({ initial, activityId }: { initial: BuilderState; activityI
         </p>
       ) : null}
 
-      <Card title="Details">
+      <Card id="activity-details" title="Details" className="scroll-mt-20">
         <div className="grid gap-4 md:grid-cols-2">
           <FormField label="Title" error={errors.title} required>
             {(p) => <Input {...p} maxLength={200} value={s.title} onChange={(e) => set("title", e.target.value)} />}
@@ -322,7 +371,7 @@ function BuilderForm({ initial, activityId }: { initial: BuilderState; activityI
         </div>
       </Card>
 
-      <Card title="Settings">
+      <Card id="activity-settings" title="Settings" className="scroll-mt-20">
         <div className="grid gap-5 lg:grid-cols-2">
           <Segmented
             legend="How it runs"
@@ -415,6 +464,8 @@ function BuilderForm({ initial, activityId }: { initial: BuilderState; activityI
       </Card>
 
       <Card
+        id="activity-questions"
+        className="scroll-mt-20"
         title="Questions"
         actions={
           type === "quiz" || type === "poll" || type === "survey" ? (
@@ -444,14 +495,24 @@ function BuilderForm({ initial, activityId }: { initial: BuilderState; activityI
         </Button>
       </Card>
 
-      <div className="flex flex-wrap justify-end gap-2">
+      <StickyActionBar
+        status={
+          errorCount ? (
+            <span className="font-medium text-danger-fg">{errorCount === 1 ? "1 field needs attention." : `${errorCount} fields need attention.`}</span>
+          ) : (
+            <span className="text-fg-muted">
+              {TYPE_LABEL[type]} · {s.questions.length} {s.questions.length === 1 ? "question" : "questions"}
+            </span>
+          )
+        }
+      >
         <Button variant="secondary" onClick={() => router.push(activityId ? `${base}/${seg(activityId)}` : base)}>
           Cancel
         </Button>
         <Button type="submit" loading={saving}>
           Save {TYPE_LABEL[type].toLowerCase()}
         </Button>
-      </div>
+      </StickyActionBar>
 
       <QuestionBankPicker
         open={picker}

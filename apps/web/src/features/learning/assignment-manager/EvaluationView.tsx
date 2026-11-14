@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button, Card, Checkbox, Dialog, ErrorState, FormField, PageHeader, StatTile, Table, useToast } from "@/components/ui";
+import { Badge, Button, Card, Checkbox, Dialog, ErrorState, FormField, LinkButton, PageHeader, StatGrid, StatTile, StatusBadge, Table, useToast } from "@/components/ui";
 import { formatDateTime } from "@/features/catalog/lib/format";
-import { LinkButton } from "@/features/catalog/components/LinkButton";
 import { useApi } from "@/features/trainer/shared/use-api";
 import { useGradingBase } from "@/features/trainer/shared/portal-base";
 import { LoadingBlock, TextArea, useFailToast } from "@/features/trainer/shared/ui";
 import { fmtMarks, staffApi } from "./api";
 import { ReviewModal } from "./ReviewModal";
+import { AiNotIntegratedNotice } from "@/features/studio/components/NotIntegrated";
 import type { EvaluationOut, EvaluationRow, RegradeOut } from "./types";
 
 /** Flag badges for one learner row (late, extension, regrade, AI help). */
@@ -69,6 +69,7 @@ function RegradePanel({ assignmentId, onChanged }: { assignmentId: string; onCha
               <div className="mt-2 flex flex-wrap gap-2">
                 <Button
                   size="sm"
+                  variant="secondary"
                   onClick={() => {
                     setActive({ r, action: "resolve" });
                     setNote("");
@@ -131,7 +132,7 @@ function RegradePanel({ assignmentId, onChanged }: { assignmentId: string; onCha
 
 /** Evaluation of one structured assignment: AI grading, review, publish, regrade requests. */
 export function EvaluationView({ assignmentId }: { assignmentId: string }) {
-  const { isEvaluator } = useGradingBase();
+  const { isEvaluator, gradingHome } = useGradingBase();
   const toast = useToast();
   const fail = useFailToast();
   const ev = useApi<EvaluationOut>(`assignments/${encodeURIComponent(assignmentId)}/evaluation`);
@@ -139,8 +140,21 @@ export function EvaluationView({ assignmentId }: { assignmentId: string }) {
   const [confirm, setConfirm] = useState(false);
   const [review, setReview] = useState<string | null>(null);
 
-  if (ev.error) return <ErrorState error={ev.error} onRetry={() => void ev.reload()} />;
-  if (!ev.data) return <LoadingBlock rows={4} />;
+  const crumbs = [{ label: "Grading", href: gradingHome }];
+  if (ev.error)
+    return (
+      <>
+        <PageHeader title="Evaluate assignment" breadcrumbs={[...crumbs, { label: "Evaluate assignment" }]} />
+        <ErrorState error={ev.error} onRetry={() => void ev.reload()} />
+      </>
+    );
+  if (!ev.data)
+    return (
+      <>
+        <PageHeader title="Evaluate assignment" breadcrumbs={[...crumbs, { label: "Evaluate assignment" }]} />
+        <LoadingBlock rows={4} />
+      </>
+    );
   const d = ev.data;
   const unfinalized = d.rows.filter((r) => !r.finalized).length;
 
@@ -179,7 +193,9 @@ export function EvaluationView({ assignmentId }: { assignmentId: string }) {
     <div className="space-y-6">
       <PageHeader
         title={d.assignment.title}
-        description={`${d.submission_count} submission${d.submission_count === 1 ? "" : "s"} · ${fmtMarks(d.max_score)} marks${d.published ? " · results published" : ""}`}
+        breadcrumbs={[...crumbs, { label: d.assignment.title }]}
+        meta={d.published ? <StatusBadge status="published" label="Results published" /> : null}
+        description={`${d.submission_count} submission${d.submission_count === 1 ? "" : "s"} · ${fmtMarks(d.max_score)} marks`}
         actions={
           <>
             {isEvaluator ? null : (
@@ -190,21 +206,35 @@ export function EvaluationView({ assignmentId }: { assignmentId: string }) {
             <Button variant="secondary" onClick={() => void runAI()} loading={busy === "ai"} disabled={busy !== null || d.submission_count === 0}>
               Run AI grading
             </Button>
-            <Button onClick={() => setConfirm(true)} disabled={busy !== null || d.submission_count === 0}>
+            {/* Primary only once every submission is finalized; publishing earlier is allowed
+                (unfinalized marks stay hidden) but is not the suggested next step. */}
+            <Button
+              variant={unfinalized > 0 ? "secondary" : "primary"}
+              onClick={() => setConfirm(true)}
+              disabled={busy !== null || d.submission_count === 0}
+              aria-describedby={unfinalized > 0 ? "publish-hint" : undefined}
+            >
               Publish results
             </Button>
           </>
         }
       />
+      <AiNotIntegratedNotice className="-mt-3 mb-4" />
+      {unfinalized > 0 ? (
+        <p id="publish-hint" className="-mt-3 text-sm text-fg-muted">
+          {d.rows.length - unfinalized} of {d.rows.length} submission{d.rows.length === 1 ? "" : "s"} finalized. Review and finalize the rest before
+          publishing; learners don&apos;t see unfinalized marks.
+        </p>
+      ) : null}
 
       {d.sections.length ? (
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Section averages">
-          {d.sections.map((s) => (
-            <li key={s.id}>
-              <StatTile label={s.title} value={s.avg_marks === null ? null : `${fmtMarks(s.avg_marks)} / ${fmtMarks(s.max_marks)}`} hint="Average" />
-            </li>
-          ))}
-        </ul>
+        <section aria-label="Section averages">
+          <StatGrid>
+            {d.sections.map((s) => (
+              <StatTile key={s.id} size="compact" label={s.title} value={s.avg_marks === null ? null : `${fmtMarks(s.avg_marks)} / ${fmtMarks(s.max_marks)}`} hint="Average" />
+            ))}
+          </StatGrid>
+        </section>
       ) : null}
 
       <Table<EvaluationRow>
@@ -242,7 +272,11 @@ export function EvaluationView({ assignmentId }: { assignmentId: string }) {
           {
             key: "f",
             header: "Flags",
-            cell: (r) => (
+            // No flags → "—", which the stacked phone card drops instead of showing an empty row.
+            cell: (r) =>
+              rowFlags(r).length === 0 ? (
+                "—"
+              ) : (
               <div className="flex flex-wrap gap-1">
                 {rowFlags(r).map((f) => (
                   <Badge key={f} tone={f === "Late" || f === "Regrade requested" ? "warning" : "neutral"}>
@@ -250,14 +284,14 @@ export function EvaluationView({ assignmentId }: { assignmentId: string }) {
                   </Badge>
                 ))}
               </div>
-            ),
+              ),
           },
           {
             key: "a",
             header: <span className="sr-only">Actions</span>,
             align: "right",
             cell: (r) => (
-              <Button size="sm" onClick={() => setReview(r.submission_id)} aria-label={`Review ${r.learner_name ?? "learner"}`}>
+              <Button size="sm" variant={r.finalized ? "ghost" : "secondary"} onClick={() => setReview(r.submission_id)} aria-label={`Review ${r.learner_name ?? "learner"}`}>
                 Review
               </Button>
             ),

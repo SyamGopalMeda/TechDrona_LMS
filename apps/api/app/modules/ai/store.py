@@ -28,15 +28,19 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import apply_db_role, as_system, get_sessionmaker
+from app.core.firestore.backend import uses_firestore
 from app.core.ids import uuid7
 from app.modules.ai.adapters import cost_estimate
 from app.modules.ai.models import AISettings, AIUsage, AppSetting, TutorTurn
+
+if TYPE_CHECKING:
+    from app.core.principal import Principal
 
 APPS: dict[str, tuple[str, str]] = {
     "assignments": ("Assignments", "learning"),
@@ -95,7 +99,30 @@ def month_bounds(d: date | None = None) -> tuple[datetime, datetime]:
 # --------------------------------------------------------------------------- settings
 
 
+# ``TD_STORE_AI=firestore``: settings and app toggles live in ``ai_settings/platform`` and
+# ``app_settings/platform`` (``repo_firestore``); ``session`` is then unused.
+
+
+async def _fs_settings() -> PlatformAI:
+    from app.modules.ai.repo_firestore import repo
+
+    d = await repo().settings()
+    if d is None:
+        return PlatformAI()
+    return PlatformAI(**{f: d[f] for f in SETTING_FIELDS if f in d}, updated_at=d.get("updated_at"))
+
+
+async def _fs_apps() -> dict[str, bool]:
+    from app.modules.ai.repo_firestore import repo
+
+    out = dict.fromkeys(APPS, True)
+    out.update({k: v for k, v in (await repo().apps()).items() if k in APPS})
+    return out
+
+
 async def read_settings(session: AsyncSession) -> PlatformAI:
+    if uses_firestore("ai"):
+        return await _fs_settings()
     row = await session.get(AISettings, 1, populate_existing=True)
     if row is None:
         return PlatformAI()
@@ -106,6 +133,8 @@ async def read_settings(session: AsyncSession) -> PlatformAI:
 
 
 async def read_apps(session: AsyncSession) -> dict[str, bool]:
+    if uses_firestore("ai"):
+        return await _fs_apps()
     rows = (await session.execute(select(AppSetting.app_key, AppSetting.enabled))).all()
     out = dict.fromkeys(APPS, True)
     out.update({k: bool(v) for k, v in rows if k in APPS})
@@ -113,17 +142,28 @@ async def read_apps(session: AsyncSession) -> dict[str, bool]:
 
 
 async def system_settings(session: AsyncSession) -> PlatformAI:
+    if uses_firestore("ai"):
+        return await _fs_settings()
     async with as_system(session, "ai.settings"):
         return await read_settings(session)
 
 
 async def system_apps(session: AsyncSession) -> dict[str, bool]:
+    if uses_firestore("ai"):
+        return await _fs_apps()
     async with as_system(session, "ai.settings"):
         return await read_apps(session)
 
 
-async def write_settings(session: AsyncSession, changes: dict[str, Any], by: uuid.UUID) -> None:
+async def write_settings(
+    session: AsyncSession, changes: dict[str, Any], by: uuid.UUID, *, principal: Principal | None = None
+) -> None:
     """Caller holds platform RLS scope (admin route)."""
+    if uses_firestore("ai"):
+        from app.modules.ai.repo_firestore import repo
+
+        await repo(principal).write_settings(changes, by)
+        return
     row = await session.get(AISettings, 1)
     if row is None:
         row = AISettings(id=1)
@@ -134,7 +174,14 @@ async def write_settings(session: AsyncSession, changes: dict[str, Any], by: uui
     await session.flush()
 
 
-async def write_apps(session: AsyncSession, apps: dict[str, bool], by: uuid.UUID) -> None:
+async def write_apps(
+    session: AsyncSession, apps: dict[str, bool], by: uuid.UUID, *, principal: Principal | None = None
+) -> None:
+    if uses_firestore("ai"):
+        from app.modules.ai.repo_firestore import repo
+
+        await repo(principal).write_apps(apps, by)
+        return
     for key, enabled in apps.items():
         res = await session.execute(
             update(AppSetting).where(AppSetting.app_key == key).values(enabled=enabled, updated_by=by)
@@ -199,6 +246,10 @@ async def _tutor_used(
 
 async def tutor_used(session: AsyncSession, user_id: uuid.UUID, ctx: str, ctx_id: uuid.UUID) -> int:
     """Valid tutor replies (plus in-flight reservations) for one learner and activity."""
+    if uses_firestore("ai"):
+        from app.modules.ai.repo_firestore_usage import metering
+
+        return await metering().tutor_used(user_id, ctx, ctx_id, RESERVATION_TTL)
     async with as_system(session, "ai.metering"):
         now = (await session.execute(select(func.now()))).scalar_one()
         return await _tutor_used(session, user_id, ctx, ctx_id, now)
@@ -232,6 +283,24 @@ async def reserve(
     tutor_limit: int | None = None,
 ) -> Reservation:
     """Check caps and insert a ``reserved`` row in one short, committed transaction."""
+    if uses_firestore("ai"):
+        return await _fs_reserve(
+            settings=settings,
+            row={
+                "user_id": user_id,
+                "feature": feature,
+                "context_type": context_type,
+                "context_id": context_id,
+                "provider": provider,
+                "model": model,
+                "tokens_in": est_tokens_in,
+                "tokens_out": max_tokens,
+                "cost_estimate": cost_estimate(provider, model, est_tokens_in, max_tokens),
+            },
+            tutor_limit=tutor_limit
+            if (tutor_limit is not None and user_id is not None and context_type and context_id)
+            else None,
+        )
     async with ledger_tx("ai.metering") as s:
         used = 0
         if tutor_limit is not None and user_id is not None and context_type and context_id:
@@ -268,9 +337,38 @@ async def reserve(
     return Reservation(rid, used)
 
 
+async def _fs_reserve(*, settings: PlatformAI, row: dict[str, Any], tutor_limit: int | None) -> Reservation:
+    from app.modules.ai.repo_firestore_usage import CapHit, metering
+
+    try:
+        rid, used = await metering().reserve(
+            caps=(settings.monthly_call_cap, settings.monthly_token_cap),
+            row=row,
+            tutor_limit=tutor_limit,
+            reservation_ttl=RESERVATION_TTL,
+        )
+    except CapHit as e:
+        raise CapExceeded(e.kind, e.used, e.limit) from None
+    return Reservation(rid, used)
+
+
 async def finalize(
     reservation_id: uuid.UUID, *, provider: str, model: str, tokens_in: int, tokens_out: int, outcome: str
 ) -> None:
+    if uses_firestore("ai"):
+        from app.modules.ai.repo_firestore_usage import metering
+
+        await metering().finalize(
+            reservation_id,
+            {
+                "outcome": outcome,
+                "model": model,
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+                "cost_estimate": cost_estimate(provider, model, tokens_in, tokens_out),
+            },
+        )
+        return
     async with ledger_tx("ai.metering") as s:
         await s.execute(
             update(AIUsage)
@@ -285,7 +383,43 @@ async def finalize(
         )
 
 
+async def _fs_usage_summary(d: date) -> dict[str, Any]:
+    from app.core.firestore.collation import sort_key
+    from app.modules.ai.repo_firestore_usage import metering
+    from app.modules.ai.store_specs_usage import from_micros, month_key
+
+    start, end = month_bounds(d)
+    m = await metering().month_rollup(month_key(start))
+    return {
+        "period_start": start.date().isoformat(),
+        "period_end": end.date().isoformat(),
+        "totals": {
+            "calls": m["calls"],
+            "tokens_in": m["tokens_in"],
+            "tokens_out": m["tokens_out"],
+            "cost_estimate": str(from_micros(m["cost_micros"]) if m["calls"] else Decimal(0)),
+        },
+        "by_feature": [
+            {
+                "feature": f,
+                "calls": int(v["calls"]),
+                "tokens_in": int(v["tokens_in"]),
+                "tokens_out": int(v["tokens_out"]),
+                "cost_estimate": str(from_micros(v["cost_micros"])),
+            }
+            # ORDER BY feature (text): the VM collation
+            for f, v in sorted(m["by_feature"].items(), key=lambda kv: sort_key(kv[0]))
+        ],
+        "by_day": [
+            {"date": k, "calls": int(v["calls"]), "tokens": int(v["tokens"])}
+            for k, v in sorted(m["by_day"].items())
+        ],
+    }
+
+
 async def usage_summary(session: AsyncSession, d: date) -> dict[str, Any]:
+    if uses_firestore("ai"):
+        return await _fs_usage_summary(d)
     start, end = month_bounds(d)
     calls, tin, tout, cost = await month_totals(session, start, end)
     window = (AIUsage.created_at >= start, AIUsage.created_at < end)
@@ -357,6 +491,11 @@ async def history(
     limit: int,
 ) -> list[TutorTurn]:
     """The last ``limit`` turns, oldest first (caller's RLS context: own rows or platform)."""
+    if uses_firestore("ai"):
+        from app.modules.ai.repo_firestore_usage import tutor_history_repo
+
+        docs = await tutor_history_repo().history(user_id, ctx, ctx_id, item_id, limit)
+        return [_turn(d) for d in docs]
     rows = (
         (
             await session.execute(
@@ -380,6 +519,13 @@ async def append_turns(
     item_id: uuid.UUID | None,
     turns: list[tuple[str, str]],
 ) -> None:
+    if uses_firestore("ai"):
+        from app.modules.ai.repo_firestore_usage import tutor_history_repo
+
+        clean = [(role, (c or "").replace("\x00", "").strip()[:TUTOR_TURN_MAX]) for role, c in turns]
+        bodies = [(role, b) for role, b in clean if b]
+        await tutor_history_repo().append_turns(user_id, ctx, ctx_id, item_id, bodies)
+        return
     async with as_system(session, "ai.tutor_history"):
         for role, content in turns:
             body = (content or "").replace("\x00", "").strip()[:TUTOR_TURN_MAX]
@@ -395,3 +541,17 @@ async def append_turns(
                     )
                 )
                 await session.flush()  # one at a time: ``seq`` keeps the order
+
+
+def _turn(d: dict[str, Any]) -> TutorTurn:
+    """A transient ``TutorTurn`` (same attributes as the ORM row) from a Firestore document."""
+    return TutorTurn(
+        seq=d["seq"],
+        user_id=uuid.UUID(d["user_id"]),
+        context_type=d["context_type"],
+        context_id=uuid.UUID(d["context_id"]),
+        item_id=uuid.UUID(d["item_id"]) if d.get("item_id") else None,
+        role=d["role"],
+        content=d["content"],
+        created_at=d["created_at"],
+    )

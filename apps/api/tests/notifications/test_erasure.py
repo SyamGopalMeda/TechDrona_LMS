@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from sqlalchemy import func, select
+import pytest
 
 from app.core.db import system_context
 from app.modules.notifications.erasure import erase_user
-from app.modules.notifications.models import Notification
-from app.modules.notifications.service import notify
+from app.modules.notifications.service import notifications_for_user, notify
 from tests.identity.factory import make_user
 
 
+@pytest.mark.usefixtures("notifications_backend")
 async def test_db01_notifications_erasure_deletes_user_rows_only(db) -> None:
     u = await make_user(db)
     other = await make_user(db)
@@ -20,5 +20,4 @@ async def test_db01_notifications_erasure_deletes_user_rows_only(db) -> None:
 
     assert await erase_user(db, u.id) == {"notifications_deleted": 2}
     assert await erase_user(db, u.id) == {"notifications_deleted": 0}
-    left = (await db.execute(select(func.count()).where(Notification.user_id == other.id))).scalar_one()
-    assert left == 1
+    assert len(await notifications_for_user(db, other.id)) == 1

@@ -200,14 +200,15 @@ export function formatDate(iso: string | null | undefined): string {
   return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: TZ }).format(d);
 }
 
-/** "in 52 h", "3 h ago", relative to now. */
+/** "in 52 h", "3 h ago", "in 12 days", relative to now. */
 export function formatCountdown(iso: string | null | undefined, now: number = Date.now()): string {
   if (!iso) return "—";
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "—";
   const diffH = (t - now) / 3_600_000;
   const abs = Math.abs(diffH);
-  const text = abs < 1 ? `${Math.max(1, Math.round(abs * 60))} min` : abs < 48 ? `${Math.round(abs)} h` : `${Math.round(abs / 24)} d`;
+  const days = Math.round(abs / 24);
+  const text = abs < 1 ? `${Math.max(1, Math.round(abs * 60))} min` : abs < 48 ? `${Math.round(abs)} h` : `${days} ${days === 1 ? "day" : "days"}`;
   return diffH >= 0 ? `in ${text}` : `${text} ago`;
 }
 
@@ -231,4 +232,26 @@ export function cellText(v: unknown): string {
   if (Array.isArray(v)) return v.map(cellText).join(", ");
   if (typeof v === "object") return JSON.stringify(v);
   return String(v);
+}
+
+/* ---------------------------------------------------------------- identity */
+
+/**
+ * Readable short reference for a record that has no human number (audit 1.11): the last 8
+ * characters of its id, uppercased, e.g. `#9F3C21AB`. Staff can read it out on a call; the full
+ * id stays available for copy (select-all) where needed.
+ */
+export function shortRef(id: string | null | undefined, prefix = "#"): string {
+  if (!id) return "—";
+  const clean = id.replace(/[^a-zA-Z0-9]/g, "");
+  return `${prefix}${(clean.length > 8 ? clean.slice(-8) : clean).toUpperCase()}`;
+}
+
+/** Best readable name for a person: name, then email, then a short reference ("User #9F3C21AB"). */
+export function personLabel(p: { name?: string | null; full_name?: string | null; display_name?: string | null; email?: string | null; id?: string | null } | null | undefined): string {
+  if (!p) return "—";
+  const name = p.full_name ?? p.display_name ?? p.name;
+  if (name && name.trim()) return name.trim();
+  if (p.email && p.email.trim()) return p.email.trim();
+  return p.id ? `User ${shortRef(p.id)}` : "—";
 }

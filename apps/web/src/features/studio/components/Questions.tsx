@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Badge, Button, Card, Checkbox, Dialog, FormField, Input, Select, Table, useToast } from "@/components/ui";
+import { Button, Card, Checkbox, Dialog, FormField, Input, Select, Table, useToast } from "@/components/ui";
 import { api, type Page } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import type { Body } from "@/lib/api-types";
@@ -105,9 +105,6 @@ export function QuestionBank() {
         <Button type="submit" variant="secondary">
           Search
         </Button>
-        <Link href="/studio/questions/new" className="inline-flex h-10 items-center text-sm text-fg-link underline">
-          New question
-        </Link>
       </form>
       <Table
         caption="Questions"
@@ -121,7 +118,7 @@ export function QuestionBank() {
               </Link>
             ),
           },
-          { key: "t", header: "Type", cell: (x) => TYPES.find((t) => t.value === x.question_type)?.label ?? x.question_type.replace(/_/g, " ") },
+          { key: "t", header: "Type", cell: (x) => questionTypeLabel(x.question_type) },
           { key: "d", header: "Difficulty", cell: (x) => x.latest_version?.difficulty ?? "—" },
           {
             key: "st",
@@ -161,6 +158,28 @@ const TYPES: { value: QuestionType; label: string }[] = [
   { value: "mcq_multi", label: "Multiple choice — several answers" },
   { value: "numeric", label: "Numeric answer" },
 ];
+
+/** Every question type the api can return, in words (list views show legacy/imported types too). */
+const TYPE_LABELS: Record<string, string> = {
+  mcq_single: "Multiple choice — one answer",
+  mcq_multi: "Multiple choice — several answers",
+  numeric: "Numeric answer",
+  fill_blank: "Fill in the blank",
+  coding: "Coding",
+  essay: "Essay",
+  short_text: "Short answer",
+  file: "File upload",
+  true_false: "True or false",
+};
+
+/** "fill_blank" → "Fill in the blank"; unknown types become sentence case, never a raw enum. */
+export function questionTypeLabel(t: string | null | undefined): string {
+  if (!t) return "—";
+  const known = TYPE_LABELS[t];
+  if (known) return known;
+  const words = t.replace(/_/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 interface DraftOption {
   text: string;
@@ -387,6 +406,7 @@ export function QuestionEditor({ questionId }: { questionId: string }) {
               <legend className="text-sm font-medium text-fg">Options (mark the correct answer{d.type === "mcq_multi" ? "s" : ""})</legend>
               {d.options.map((o, i) => (
                 <div key={i} className="flex flex-wrap items-center gap-2">
+                  <label className="inline-flex min-h-touch min-w-touch shrink-0 cursor-pointer items-center justify-center rounded-md hover:bg-surface-hover">
                   <input
                     type={d.type === "mcq_single" ? "radio" : "checkbox"}
                     name="correct"
@@ -398,6 +418,7 @@ export function QuestionEditor({ questionId }: { questionId: string }) {
                     }
                     className="h-5 w-5 accent-[var(--td-brand)]"
                   />
+                  </label>
                   <Input
                     aria-label={`Option ${i + 1}`}
                     className="min-w-48 flex-1"
@@ -472,7 +493,7 @@ export function QuestionEditor({ questionId }: { questionId: string }) {
         ) : null}
         {!isNew && approved && isAuthor ? <span className="self-center text-sm text-fg-muted">Approved. Another content manager must publish a question you wrote.</span> : null}
         {!isNew && q?.status === "active" ? (
-          <Button variant="danger" onClick={() => setRetireOpen(true)}>
+          <Button variant="danger-secondary" onClick={() => setRetireOpen(true)}>
             Retire
           </Button>
         ) : null}
@@ -525,11 +546,13 @@ export function QuestionEditor({ questionId }: { questionId: string }) {
  * version is in review and not yet reviewed (audit ADM-54); approved ones never show "Review".
  * Courses come from CAT-08 (editable draft in review). Reviewer ≠ author is enforced by the api.
  */
-export function ReviewQueue() {
+export function ReviewQueue({ mode = "studio" }: { mode?: "studio" | "admin" }) {
   const toast = useToast();
   const fail = useFailToast();
+  // Admin reviews and may publish questions (question.review + question.publish; no authoring or course review).
+  const admin = mode === "admin";
   const questions = useApi<{ items: QuestionSummary[] }>("studio/questions", { version_status: "awaiting_review", limit: 200 });
-  const courses = useApi<Page<CourseSummary>>("studio/courses", { limit: 100 });
+  const courses = useApi<Page<CourseSummary>>(!admin ? "studio/courses" : null, { limit: 100 });
   const [reviewing, setReviewing] = useState<QuestionSummary | null>(null);
   const [decision, setDecision] = useState<"approve" | "request_changes">("approve");
   const [comment, setComment] = useState("");
@@ -567,11 +590,14 @@ export function ReviewQueue() {
           {
             key: "s",
             header: "Question",
-            cell: (x: QuestionSummary) => (
-              <Link className="text-fg-link underline" href={`/studio/questions/${seg(x.question_id)}`}>
-                {textOf(x.latest_version?.stem_html).slice(0, 140) || "Untitled"}
-              </Link>
-            ),
+            cell: (x: QuestionSummary) =>
+              admin ? (
+                textOf(x.latest_version?.stem_html).slice(0, 140) || "Untitled"
+              ) : (
+                <Link className="text-fg-link underline" href={`/studio/questions/${seg(x.question_id)}`}>
+                  {textOf(x.latest_version?.stem_html).slice(0, 140) || "Untitled"}
+                </Link>
+              ),
           },
           { key: "v", header: "Version", cell: (x) => x.latest_version?.version_no ?? "—" },
           {
@@ -592,6 +618,7 @@ export function ReviewQueue() {
         onRetry={() => void questions.reload()}
         empty={{ title: "No questions waiting" }}
       />
+      {admin ? null : (
       <Table
         caption="Courses waiting for review"
         showCaption
@@ -605,7 +632,7 @@ export function ReviewQueue() {
               </Link>
             ),
           },
-          { key: "s", header: "Status", cell: () => <Badge tone="info">In review</Badge> },
+          { key: "s", header: "Status", cell: () => <StatusBadge status="in_review" /> },
         ]}
         rows={waitingCourses}
         rowKey={(c) => c.id}
@@ -614,6 +641,7 @@ export function ReviewQueue() {
         onRetry={() => void courses.reload()}
         empty={{ title: "No courses waiting" }}
       />
+      )}
       <Dialog
         open={reviewing !== null}
         onClose={() => setReviewing(null)}
@@ -632,6 +660,7 @@ export function ReviewQueue() {
         }
       >
         <div className="space-y-3">
+          {admin && reviewing ? <QuestionPreview questionId={reviewing.question_id} /> : null}
           <FormField label="Decision">
             {(p) => (
               <Select
@@ -652,5 +681,40 @@ export function ReviewQueue() {
         </div>
       </Dialog>
     </div>
+  );
+}
+
+/** Read-only question (stem, options with the key, explanation) for reviewers who don't author (Admin). */
+function QuestionPreview({ questionId }: { questionId: string }) {
+  const detail = useApi<QuestionDetail>(`studio/questions/${seg(questionId)}`);
+  return (
+    <Boundary state={detail} rows={3}>
+      {(q) => {
+        const v = q.versions[0];
+        if (!v) return null;
+        return (
+          <div className="space-y-2 rounded-lg border border-line p-3 text-sm">
+            <p className="whitespace-pre-wrap text-fg">{textOf(v.stem_html)}</p>
+            {v.options.length ? (
+              <ul className="space-y-1" aria-label="Options">
+                {v.options.map((o) => {
+                  const correct = o.is_correct ?? v.correct_option_ids?.includes(o.option_id) ?? false;
+                  return (
+                    <li key={o.option_id} className={correct ? "font-semibold text-success-fg" : "text-fg-secondary"}>
+                      {correct ? "✓ " : "• "}
+                      {textOf(o.html)}
+                      {correct ? <span className="sr-only"> (correct)</span> : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : v.answer_key ? (
+              <p className="text-fg-secondary">Answer key: {JSON.stringify(v.answer_key)}</p>
+            ) : null}
+            {v.explanation_html ? <p className="text-fg-muted">Explanation: {textOf(v.explanation_html)}</p> : null}
+          </div>
+        );
+      }}
+    </Boundary>
   );
 }

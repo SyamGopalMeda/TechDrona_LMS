@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from fastapi import Request
-from sqlalchemy import func, or_, select, text, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import auth as core_auth
@@ -34,12 +34,13 @@ from app.core.auth import PLATFORM_SCOPE, ScopeRef
 from app.core.company import COMPANY_ORG_ID
 from app.core.db import system_context, tenant_context
 from app.core.errors import ProblemError
+from app.core.firestore.backend import uses_firestore
 from app.core.ids import uuid7
 from app.core.outbox import emit_event
 from app.core.principal import Principal
 from app.core.time import utcnow
-from app.modules.entitlements import service as ent_svc
-from app.modules.entitlements.models import Entitlement
+from app.modules.entitlements import public as ent_svc
+from app.modules.entitlements.public import Entitlement
 from app.modules.mentoring.models import (
     InterviewFeedback,
     MentorBooking,
@@ -78,7 +79,11 @@ def _ends(slot: MentorSlot) -> datetime:
 
 @asynccontextmanager
 async def as_system(session: AsyncSession, principal: Principal, job: str) -> AsyncIterator[None]:
-    """Run a block under a named system context, flush, then restore the principal's."""
+    """Run a block under a named system context, flush, then restore the principal's. Without a
+    Postgres session (Firebase stack) there is no RLS context to switch: the block just runs."""
+    if not session:
+        yield
+        return
     await system_context(session, job)
     try:
         yield
@@ -131,20 +136,17 @@ async def assigned_batches(
 ) -> dict[uuid.UUID, tuple[str, uuid.UUID]]:
     """batch_id -> (name, organization_id) for every active batch where the caller holds
     ``perm`` through a batch grant (single company: no organization grants exist)."""
-    from app.modules.orgs.models import Batch
+    from app.modules.orgs import public as orgs_public
 
     batch_ids = {g.scope_id for g in principal.grants if g.scope_type == "batch" and g.scope_id}
     if not batch_ids:
         return {}
-    conds = [Batch.id.in_(batch_ids)]
     async with as_system(session, principal, "mentoring.scope"):
-        rows = (
-            await session.execute(
-                select(Batch.id, Batch.name, Batch.organization_id)
-                .where(or_(*conds), Batch.status == "active")
-                .order_by(Batch.id)
-            )
-        ).all()
+        found = await orgs_public.get_batches(session, batch_ids)
+    rows = sorted(
+        ((b.id, b.name, b.organization_id) for b in found.values() if b.status == "active"),
+        key=lambda r: r[0],
+    )
     out: dict[uuid.UUID, tuple[str, uuid.UUID]] = {}
     for bid, name, org in rows:
         if await core_auth.check_permission(principal, perm, ScopeRef("batch", bid), request):
@@ -161,25 +163,41 @@ async def batch_students(
     """(student_id, name, batch_id) rows for active student members of ``batches``."""
     if not batches:
         return []
-    sql = (
-        "SELECT bm.user_id, coalesce(up.display_name, up.full_name), bm.batch_id FROM batch_members bm "
-        "JOIN users u ON u.id = bm.user_id LEFT JOIN user_profiles up ON up.user_id = bm.user_id "
-        "WHERE bm.batch_id = ANY(:b) AND bm.member_role = 'student' AND bm.status = 'active' "
-        "AND u.deleted_at IS NULL"
-    )
-    params: dict[str, Any] = {"b": list(batches)}
-    if user_id is not None:
-        sql += " AND bm.user_id = :u"
-        params["u"] = user_id
+    from app.modules.identity import public as identity_public
+    from app.modules.orgs import public as orgs_public
+
     async with as_system(session, principal, "mentoring.students"):
-        rows = (await session.execute(text(sql + " ORDER BY bm.user_id, bm.batch_id"), params)).all()
-    return [(r[0], r[1], r[2]) for r in rows]
+        members = [
+            m
+            for m in await orgs_public.batch_members(
+                session,
+                batch_ids=list(batches),
+                user_ids=[user_id] if user_id is not None else None,
+                member_role="student",
+                active_only=False,
+            )
+            if m.status == "active"
+        ]
+        users = await identity_public.get_users(session, {m.user_id for m in members})
+        profs = await identity_public.get_profiles(session, users)
+    rows = []
+    for m in members:
+        u = users.get(m.user_id)
+        if u is None or u.deleted_at is not None:
+            continue
+        p = profs.get(m.user_id)
+        rows.append((m.user_id, (p.display_name or p.full_name) if p else None, m.batch_id))
+    return sorted(set(rows), key=lambda r: (str(r[0]), str(r[2])))
 
 
 async def booked_students(
     session: AsyncSession, principal: Principal, user_id: uuid.UUID | None = None
 ) -> set[uuid.UUID]:
     """Students who booked a session with the caller (booking-based assignment, SoD-11)."""
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.booked_students(session, principal, user_id)
     q = (
         select(MentorBooking.user_id)
         .join(MentorSlot, MentorSlot.id == MentorBooking.mentor_slot_id)
@@ -209,17 +227,11 @@ async def names(
     wanted = list({i for i in ids if i})
     if not wanted:
         return {}
+    from app.modules.identity import public as identity_public
+
     async with as_system(session, principal, "mentoring.names"):
-        rows = (
-            await session.execute(
-                text(
-                    "SELECT u.id, coalesce(up.display_name, up.full_name) FROM users u "
-                    "LEFT JOIN user_profiles up ON up.user_id = u.id WHERE u.id = ANY(:ids)"
-                ),
-                {"ids": wanted},
-            )
-        ).all()
-    return {r[0]: r[1] for r in rows}
+        cards = await identity_public.user_cards(session, wanted)
+    return {uid: c.display_name or c.full_name for uid, c in cards.items()}
 
 
 # --------------------------------------------------------------------------- entitlements
@@ -234,14 +246,7 @@ def _usable(now: datetime) -> list[Any]:
 
 
 async def quota_summary(session: AsyncSession, principal: Principal) -> dict[str, Any]:
-    now = utcnow()
-    ents = list(
-        (
-            await session.execute(
-                select(Entitlement).where(Entitlement.user_id == principal.user_id, *_usable(now))
-            )
-        ).scalars()
-    )
+    ents = await ent_svc.usable_entitlements(session, principal.user_id, utcnow())
     pkg = [
         e for e in ents if e.mentor_sessions_remaining is not None or e.resume_reviews_remaining is not None
     ]
@@ -266,16 +271,12 @@ async def require_package(session: AsyncSession, principal: Principal, quota: Qu
     (BR-ENT-04); product-backed entitlements are confirmed through ``app.core.access``."""
     if principal.restriction_level >= 3 or RESTRICTION_LOCKS & set(principal.restrictions):
         raise _entitlement_required("restricted")
-    col = getattr(Entitlement, ent_svc.QUOTA_FEATURES[quota])
-    ents = list(
-        (
-            await session.execute(
-                select(Entitlement).where(
-                    Entitlement.user_id == principal.user_id, col.is_not(None), *_usable(utcnow())
-                )
-            )
-        ).scalars()
-    )
+    field_name = ent_svc.QUOTA_FEATURES[quota]
+    ents = [
+        e
+        for e in await ent_svc.usable_entitlements(session, principal.user_id, utcnow())
+        if getattr(e, field_name) is not None
+    ]
     if not ents:
         raise _entitlement_required("no_entitlement")
     reason = "no_entitlement"
@@ -308,20 +309,14 @@ async def credit_back(
         return False
     async with as_system(session, principal, "mentoring.credit_back"):
         if booking.entitlement_id is not None:
-            ent = await ent_svc.lock(session, booking.entitlement_id)
-            if ent is not None:
-                before = ent.mentor_sessions_remaining or 0
-                ent.mentor_sessions_remaining = before + 1
-                await session.flush()
-                await ent_svc.record_event(
-                    session,
-                    ent,
-                    "quota_credited",
-                    ent_svc.Actor.user(principal),
-                    delta={"mentor_sessions": {"from": before, "to": before + 1}},
-                    reason=reason,
-                    source_ref=booking.id,
-                )
+            await ent_svc.credit_quota(
+                session,
+                booking.entitlement_id,
+                "mentor_sessions",
+                ent_svc.Actor.user(principal),
+                reason=reason,
+                source_ref=booking.id,
+            )
         booking.quota_consumed = False
     return True
 
@@ -377,9 +372,12 @@ async def bookings_json(
     *,
     mentor_view: bool = False,
 ) -> list[dict[str, Any]]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.bookings_json(session, principal, bookings, mentor_view=mentor_view)
     if not bookings:
         return []
-    now = utcnow()
     ids = [b.id for b in bookings]
     async with as_system(session, principal, "mentoring.bookings_read"):
         slots = {
@@ -398,6 +396,20 @@ async def bookings_json(
                 )
             ).scalars()
         }
+    return await _render_bookings(session, principal, bookings, slots, fbs, mentor_view=mentor_view)
+
+
+async def _render_bookings(
+    session: AsyncSession,
+    principal: Principal,
+    bookings: Sequence[MentorBooking],
+    slots: dict[uuid.UUID, MentorSlot],
+    fbs: dict[uuid.UUID, InterviewFeedback],
+    *,
+    mentor_view: bool,
+) -> list[dict[str, Any]]:
+    """Booking JSON from already-loaded slots and feedback (shared by both stores)."""
+    now = utcnow()
     nm = await names(
         session, principal, [s.mentor_id for s in slots.values()] + [b.user_id for b in bookings]
     )
@@ -471,6 +483,12 @@ async def list_open_slots(
     cursor: str | None,
     limit: int,
 ) -> dict[str, Any]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.list_open_slots(
+            session, principal, session_kind=session_kind, after=after, cursor=cursor, limit=limit
+        )
     await require_package(session, principal, "mentor_sessions")
     now = utcnow()
     start = max(after or now, now)
@@ -534,6 +552,10 @@ async def _check_student_overlap(
 async def book(
     session: AsyncSession, principal: Principal, slot_id: uuid.UUID, idem_key: str
 ) -> dict[str, Any]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.book(session, principal, slot_id, idem_key)
     await require_package(session, principal, "mentor_sessions")
     slot = await _visible_open_slot(session, principal, slot_id)
     await _check_student_overlap(session, principal, slot)
@@ -598,6 +620,10 @@ async def _own_live_booking(
 async def reschedule(
     session: AsyncSession, principal: Principal, booking_id: uuid.UUID, new_slot_id: uuid.UUID
 ) -> dict[str, Any]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.reschedule(session, principal, booking_id, new_slot_id)
     b, old = await _own_live_booking(session, principal, booking_id)
     if new_slot_id == old.id:
         raise _unavailable("Pick a different slot.")
@@ -636,6 +662,10 @@ async def reschedule(
 
 
 async def cancel(session: AsyncSession, principal: Principal, booking_id: uuid.UUID) -> dict[str, Any]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.cancel(session, principal, booking_id)
     b, slot = await _own_live_booking(session, principal, booking_id)
     now = utcnow()
     b.status = "cancelled_by_student"
@@ -661,6 +691,10 @@ async def cancel(session: AsyncSession, principal: Principal, booking_id: uuid.U
 async def my_bookings(
     session: AsyncSession, principal: Principal, *, cursor: str | None, limit: int
 ) -> dict[str, Any]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.my_bookings(session, principal, cursor=cursor, limit=limit)
     off = _offset(cursor)
     rows = list(
         (
@@ -691,6 +725,10 @@ def _overlaps(a_start: datetime, a_min: int, b_start: datetime, b_min: int) -> b
 async def mentor_slots_json(
     session: AsyncSession, principal: Principal, slots: Sequence[MentorSlot]
 ) -> list[dict[str, Any]]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.mentor_slots_json(session, principal, slots)
     if not slots:
         return []
     async with as_system(session, principal, "mentoring.mentor_slots"):
@@ -705,6 +743,15 @@ async def mentor_slots_json(
                 )
             ).scalars()
         }
+    return await _render_mentor_slots(session, principal, slots, live)
+
+
+async def _render_mentor_slots(
+    session: AsyncSession,
+    principal: Principal,
+    slots: Sequence[MentorSlot],
+    live: dict[uuid.UUID, MentorBooking],
+) -> list[dict[str, Any]]:
     nm = await names(session, principal, [s.mentor_id for s in slots] + [b.user_id for b in live.values()])
     out = []
     for s in slots:
@@ -723,35 +770,21 @@ async def mentor_slots_json(
 async def create_slots(
     session: AsyncSession, request: Request | None, principal: Principal, body: SlotsIn
 ) -> list[dict[str, Any]]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.create_slots(session, request, principal, body)
     scopes = await require_anywhere(request, principal, PERM_SLOTS)
     # Single company: an Admin (platform grant) publishes platform slots open to every learner;
     # a batch-scoped mentor's slots belong to the company (its batch learners).
     org: uuid.UUID | None = None if PLATFORM_SCOPE in scopes else COMPANY_ORG_ID
-    now = utcnow()
-    errors = []
-    for i, s in enumerate(body.slots):
-        if s.starts_at <= now:
-            errors.append(
-                {
-                    "field": f"slots.{i}.starts_at",
-                    "code": "in_past",
-                    "message": "Slot must start in the future",
-                }
-            )
-        elif s.starts_at - now > MAX_AHEAD:
-            errors.append(
-                {"field": f"slots.{i}.starts_at", "code": "too_far", "message": "At most 180 days ahead"}
-            )
-    if errors:
-        raise ProblemError("validation_failed", errors=errors)
+    _validate_slot_times(body, utcnow())
     company_ids = {s.company_id for s in body.slots if s.company_id}
     async with as_system(session, principal, "mentoring.create_slots"):
         if company_ids:
-            from app.modules.placement.models import Company
+            from app.modules.placement import public as placement_public
 
-            found = set(
-                (await session.execute(select(Company.id).where(Company.id.in_(company_ids)))).scalars()
-            )
+            found = await placement_public.existing_company_ids(session, company_ids)
             missing = company_ids - found
             if missing:
                 raise _field_error("company_id", "Unknown company")
@@ -771,32 +804,7 @@ async def create_slots(
                 )
             ).scalars()
         )
-        conflicts = []
-        for i, s in enumerate(body.slots):
-            clash = any(
-                _overlaps(s.starts_at, s.duration_minutes, e.starts_at, e.duration_minutes) for e in existing
-            )
-            clash = clash or any(
-                _overlaps(s.starts_at, s.duration_minutes, o.starts_at, o.duration_minutes)
-                for j, o in enumerate(body.slots)
-                if j != i
-            )
-            if clash:
-                conflicts.append(
-                    {
-                        "index": i,
-                        "starts_at": s.starts_at.isoformat(),
-                        "ends_at": (s.starts_at + timedelta(minutes=s.duration_minutes)).isoformat(),
-                    }
-                )
-        if conflicts:
-            raise ProblemError(
-                "slot_overlap",
-                409,
-                "Slots overlap",
-                "One or more slots overlap your existing availability.",
-                conflicts=conflicts,
-            )
+        _raise_slot_conflicts(body, existing)
         created = []
         for s in body.slots:
             row = MentorSlot(
@@ -817,6 +825,54 @@ async def create_slots(
     return await mentor_slots_json(session, principal, created)
 
 
+def _validate_slot_times(body: SlotsIn, now: datetime) -> None:
+    errors = []
+    for i, s in enumerate(body.slots):
+        if s.starts_at <= now:
+            errors.append(
+                {
+                    "field": f"slots.{i}.starts_at",
+                    "code": "in_past",
+                    "message": "Slot must start in the future",
+                }
+            )
+        elif s.starts_at - now > MAX_AHEAD:
+            errors.append(
+                {"field": f"slots.{i}.starts_at", "code": "too_far", "message": "At most 180 days ahead"}
+            )
+    if errors:
+        raise ProblemError("validation_failed", errors=errors)
+
+
+def _raise_slot_conflicts(body: SlotsIn, existing: Sequence[MentorSlot]) -> None:
+    conflicts = []
+    for i, s in enumerate(body.slots):
+        clash = any(
+            _overlaps(s.starts_at, s.duration_minutes, e.starts_at, e.duration_minutes) for e in existing
+        )
+        clash = clash or any(
+            _overlaps(s.starts_at, s.duration_minutes, o.starts_at, o.duration_minutes)
+            for j, o in enumerate(body.slots)
+            if j != i
+        )
+        if clash:
+            conflicts.append(
+                {
+                    "index": i,
+                    "starts_at": s.starts_at.isoformat(),
+                    "ends_at": (s.starts_at + timedelta(minutes=s.duration_minutes)).isoformat(),
+                }
+            )
+    if conflicts:
+        raise ProblemError(
+            "slot_overlap",
+            409,
+            "Slots overlap",
+            "One or more slots overlap your existing availability.",
+            conflicts=conflicts,
+        )
+
+
 async def list_mentor_slots(
     session: AsyncSession,
     request: Request | None,
@@ -826,6 +882,12 @@ async def list_mentor_slots(
     before: datetime | None,
     include_cancelled: bool = False,
 ) -> list[dict[str, Any]]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.list_mentor_slots(
+            session, request, principal, after=after, before=before, include_cancelled=include_cancelled
+        )
     await require_anywhere(request, principal, PERM_SLOTS)
     now = utcnow()
     lo = after or now - timedelta(days=7)
@@ -843,6 +905,10 @@ async def list_mentor_slots(
 async def delete_slot(
     session: AsyncSession, request: Request | None, principal: Principal, slot_id: uuid.UUID
 ) -> dict[str, Any]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.delete_slot(session, request, principal, slot_id)
     await require_anywhere(request, principal, PERM_SLOTS)
     now = utcnow()
     cancelled_booking: MentorBooking | None = None
@@ -925,6 +991,12 @@ async def mentor_sessions(
     cursor: str | None,
     limit: int,
 ) -> dict[str, Any]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.mentor_sessions(
+            session, request, principal, view=view, cursor=cursor, limit=limit
+        )
     await require_anywhere(request, principal, PERM_SLOTS)
     now = utcnow()
     off = _offset(cursor)
@@ -969,6 +1041,10 @@ async def _mentor_booking(
     session: AsyncSession, principal: Principal, booking_id: uuid.UUID
 ) -> tuple[MentorBooking, MentorSlot]:
     """The caller's own booking (slot owner) under a system context, locked; else 404."""
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.mentor_booking(session, principal, booking_id)
     async with as_system(session, principal, "mentoring.mentor_booking"):
         row = (
             await session.execute(
@@ -984,17 +1060,12 @@ async def _mentor_booking(
 
 
 async def weak_topics(session: AsyncSession, principal: Principal, student_id: uuid.UUID) -> list[str]:
-    from app.modules.analytics.mastery import get_topic_mastery
-    from app.modules.placement.models import Topic
+    from app.modules.analytics.public import get_topic_mastery
+    from app.modules.placement import public as placement_public
 
     async with as_system(session, principal, "mentoring.readiness"):
         views = [v for v in await get_topic_mastery(session, student_id) if v.band == "weak"]
-        nm = {
-            t.id: t.name
-            for t in (
-                await session.execute(select(Topic).where(Topic.id.in_([v.topic_id for v in views])))
-            ).scalars()
-        }
+        nm = await placement_public.topic_names(session, [v.topic_id for v in views])
     return [nm.get(v.topic_id) or str(v.topic_id) for v in views]
 
 
@@ -1019,6 +1090,10 @@ async def set_meeting_link(
     booking_id: uuid.UUID,
     url: str | None,
 ) -> dict[str, Any]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.set_meeting_link(session, request, principal, booking_id, url)
     await require_anywhere(request, principal, PERM_SLOTS)
     b, _slot = await _mentor_booking(session, principal, booking_id)
     if b.status not in LIVE:
@@ -1035,6 +1110,10 @@ async def submit_feedback(
     booking_id: uuid.UUID,
     body: FeedbackIn,
 ) -> dict[str, Any]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.submit_feedback(session, request, principal, booking_id, body)
     await require_anywhere(request, principal, PERM_FEEDBACK)
     b, slot = await _mentor_booking(session, principal, booking_id)
     now = utcnow()
@@ -1093,6 +1172,10 @@ async def mark_no_show(
     booking_id: uuid.UUID,
     party: Literal["student", "mentor"],
 ) -> dict[str, Any]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.mark_no_show(session, request, principal, booking_id, party)
     await require_anywhere(request, principal, PERM_FEEDBACK)
     b, slot = await _mentor_booking(session, principal, booking_id)
     now = utcnow()
@@ -1138,6 +1221,10 @@ async def read_notes(
     session: AsyncSession, principal: Principal, student_id: uuid.UUID
 ) -> list[dict[str, Any]]:
     """Notes on an (already authorised) student, limited to the caller's tenants."""
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.read_notes(session, principal, student_id)
     async with as_system(session, principal, "mentoring.notes_read"):
         rows = list(
             (
@@ -1207,6 +1294,12 @@ async def add_note(
         mentor_booking_id=booking_id,
         body=body,
     )
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        note = await service_fs.insert_note(session, principal, note)
+        nm = await names(session, principal, [principal.user_id])
+        return note_json(note, nm)
     async with as_system(session, principal, "mentoring.note_write"):
         session.add(note)
         await session.flush()
@@ -1228,6 +1321,10 @@ async def student_summaries(
     session: AsyncSession, principal: Principal, student_ids: Sequence[uuid.UUID]
 ) -> dict[uuid.UUID, datetime | None]:
     """next upcoming live session start per student (any mentor)."""
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.student_summaries(session, principal, student_ids)
     if not student_ids:
         return {}
     now = utcnow()
@@ -1250,6 +1347,10 @@ async def student_summaries(
 async def feedback_history(
     session: AsyncSession, principal: Principal, student_id: uuid.UUID
 ) -> list[dict[str, Any]]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.feedback_history(session, principal, student_id)
     async with as_system(session, principal, "mentoring.feedback_history"):
         rows = (
             await session.execute(
@@ -1328,6 +1429,10 @@ def resume_json(r: Resume, reviews: Sequence[ResumeReview] = ()) -> dict[str, An
 async def _reviews_by_resume(
     session: AsyncSession, ids: Sequence[uuid.UUID]
 ) -> dict[uuid.UUID, list[ResumeReview]]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.reviews_by_resume(ids)
     out: dict[uuid.UUID, list[ResumeReview]] = {i: [] for i in ids}
     if ids:
         for rv in (
@@ -1343,17 +1448,17 @@ async def _reviews_by_resume(
 
 async def _suggested_certifications(session: AsyncSession, principal: Principal) -> list[dict[str, Any]]:
     """Tech Drona certificates of the caller (FR-PLC-015 auto-fill)."""
+    from app.modules.catalog import public as catalog_api
+    from app.modules.learning import public as learning_public
+
     async with as_system(session, principal, "mentoring.certificates"):
-        rows = (
-            await session.execute(
-                text(
-                    "SELECT c.title, ce.issued_at, ce.public_code FROM certificates ce "
-                    "JOIN courses c ON c.id = ce.course_id "
-                    "WHERE ce.user_id = :u AND ce.revoked_at IS NULL ORDER BY ce.issued_at DESC LIMIT 30"
-                ),
-                {"u": principal.user_id},
-            )
-        ).all()
+        certs = [
+            (c.course_id, c.issued_at, c.public_code)
+            for c in await learning_public.certificates_of_user(session, principal.user_id)
+        ]
+        courses = await catalog_api.get_courses(session, {r[0] for r in certs})
+    # inner join on courses, then the old LIMIT 30
+    rows = [(courses[cid].title, issued, code) for cid, issued, code in certs if cid in courses][:30]
     return [
         {"title": t, "issuer": "Tech Drona", "issued_on": issued.date().isoformat(), "credential_id": code}
         for t, issued, code in rows
@@ -1361,6 +1466,10 @@ async def _suggested_certifications(session: AsyncSession, principal: Principal)
 
 
 async def list_resumes(session: AsyncSession, principal: Principal) -> dict[str, Any]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.list_resumes(session, principal)
     rows = list(
         (
             await session.execute(
@@ -1382,6 +1491,10 @@ async def list_resumes(session: AsyncSession, principal: Principal) -> dict[str,
 async def _new_version(
     session: AsyncSession, principal: Principal, body: ResumeIn, rid: uuid.UUID | None = None
 ) -> Resume:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.new_version(principal, body, rid)
     content = body.content.model_dump(mode="json")
     score, _ = checklist(content)
     last = (
@@ -1412,6 +1525,10 @@ async def create_resume(session: AsyncSession, principal: Principal, body: Resum
 async def _own_resume(
     session: AsyncSession, principal: Principal, rid: uuid.UUID, *, lock: bool = False
 ) -> Resume:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.own_resume(principal, rid)
     q = select(Resume).where(Resume.id == rid, Resume.user_id == principal.user_id)
     r = (await session.execute(q.with_for_update() if lock else q)).scalar_one_or_none()
     if r is None:
@@ -1423,6 +1540,10 @@ async def save_resume(
     session: AsyncSession, principal: Principal, rid: uuid.UUID, body: ResumeIn
 ) -> tuple[dict[str, Any], bool]:
     """PLC-48 PUT: update an own résumé in place, or create it with the client-chosen id."""
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.save_resume(session, principal, rid, body)
     r = (
         await session.execute(
             select(Resume).where(Resume.id == rid, Resume.user_id == principal.user_id).with_for_update()
@@ -1447,7 +1568,7 @@ async def save_resume(
 async def pdf_upload(
     session: AsyncSession, principal: Principal, rid: uuid.UUID, filename: str, size_bytes: int
 ) -> dict[str, Any]:
-    from app.modules.media.storage import presign_post, safe_filename, storage_settings
+    from app.modules.media.public import presign_post, safe_filename, storage_settings
 
     r = await _own_resume(session, principal, rid, lock=True)
     base = safe_filename(filename)
@@ -1457,8 +1578,13 @@ async def pdf_upload(
     post = presign_post(
         storage_settings().S3_BUCKET_UPLOADS, key, content_type="application/pdf", max_bytes=PDF_MAX_BYTES
     )
-    r.pdf_pending_key = key
-    await session.flush()
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        await service_fs.set_pdf_pending(principal, r.id, key)
+    else:
+        r.pdf_pending_key = key
+        await session.flush()
     return {
         "url": post.url,
         "fields": post.fields,
@@ -1471,6 +1597,10 @@ async def pdf_upload(
 async def pdf_complete(
     session: AsyncSession, principal: Principal, rid: uuid.UUID, key: str
 ) -> dict[str, Any]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.pdf_complete(session, principal, rid, key)
     r = await _own_resume(session, principal, rid, lock=True)
     if not r.pdf_pending_key or key != r.pdf_pending_key:
         raise _field_error("key", "This upload was not started for this résumé.")
@@ -1484,7 +1614,7 @@ async def pdf_complete(
 
 
 async def pdf_download(session: AsyncSession, principal: Principal, rid: uuid.UUID) -> dict[str, Any]:
-    from app.modules.media.storage import presign_get, storage_settings
+    from app.modules.media.public import presign_get, storage_settings
 
     r = await _own_resume(session, principal, rid)
     if not r.pdf_s3_key:
@@ -1498,6 +1628,10 @@ async def pdf_download(session: AsyncSession, principal: Principal, rid: uuid.UU
 async def request_review(
     session: AsyncSession, principal: Principal, rid: uuid.UUID, note: str | None
 ) -> dict[str, Any]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.request_review(session, principal, rid, note)
     r = await _own_resume(session, principal, rid, lock=True)
     open_ = (
         await session.execute(
@@ -1578,6 +1712,10 @@ async def _queue_items(
 async def review_queue(
     session: AsyncSession, request: Request | None, principal: Principal, status: Literal["open", "completed"]
 ) -> list[dict[str, Any]]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.review_queue(session, request, principal, status)
     allowed = await _review_scope(session, request, principal)
     q = select(ResumeReview, Resume).join(Resume, Resume.id == ResumeReview.resume_id)
     if status == "open":
@@ -1605,6 +1743,10 @@ async def review_feedback(
     review_id: uuid.UUID,
     body: ReviewFeedbackIn,
 ) -> dict[str, Any]:
+    if uses_firestore("mentoring"):
+        from app.modules.mentoring import service_fs
+
+        return await service_fs.review_feedback(session, request, principal, review_id, body)
     allowed = await _review_scope(session, request, principal)
     async with as_system(session, principal, "mentoring.review_feedback"):
         row = (

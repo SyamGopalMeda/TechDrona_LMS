@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, FormField, Input, PageHeader, Select, Skeleton, StatTile, Table, Tabs, useToast, type Column } from "@/components/ui";
+import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, FormField, Input, PageHeader, Select, LoadingBlock, StatTile, Table, Tabs, useToast, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { useResource } from "@/features/account/lib/use-resource";
 import { InlineProblem } from "@/features/admin/components/console-ui";
@@ -107,7 +107,7 @@ export function AISettingsSection() {
   }, [res.data]);
 
   if (res.error && !current) return <ErrorState error={res.error} onRetry={() => void res.reload()} />;
-  if (!current || !form) return <Skeleton className="h-64 w-full" />;
+  if (!current || !form) return <LoadingBlock label="Loading AI settings…" size="row" rows={5} />;
 
   const serverErrors = problemFieldErrors(error);
   const fieldError = (k: string) => clientErrors[k] ?? serverErrors[k] ?? serverErrors[`body.${k}`];
@@ -195,7 +195,7 @@ export function AuthorizedAppsSection() {
   }, [res.data]);
 
   if (res.error && !apps) return <ErrorState error={res.error} onRetry={() => void res.reload()} />;
-  if (!apps) return <Skeleton className="h-64 w-full" />;
+  if (!apps) return <LoadingBlock label="Loading apps…" size="card" rows={3} />;
   if (!apps.length) return <EmptyState title="No apps available" description="No apps can be authorized yet." />;
 
   const groups = Array.from(new Set(apps.map((a) => a.category)));
@@ -305,7 +305,7 @@ export function AIUsageSection() {
       {res.error ? (
         <ErrorState error={res.error} onRetry={() => void res.reload()} />
       ) : !u || res.loading ? (
-        <Skeleton className="h-40 w-full" />
+        <LoadingBlock label="Loading AI usage…" size="row" rows={4} />
       ) : (
         <>
           <p className="text-sm text-fg-muted">

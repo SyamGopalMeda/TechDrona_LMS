@@ -23,7 +23,9 @@ import time as _time
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 import structlog
@@ -31,7 +33,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import ARRAY, INT4RANGE
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_sessionmaker, system_context
+from app.core.db import system_context
 from app.core.ids import uuid7
 from app.core.time import ist_date, utcnow
 from app.modules.analytics import hooks
@@ -78,9 +80,20 @@ def _ts(t: float) -> datetime:
     return datetime.fromtimestamp(t, UTC)
 
 
+def _fs() -> bool:
+    from app.core.firestore.backend import uses_firestore
+
+    return uses_firestore("analytics")
+
+
 async def _set_state(
     session: AsyncSession, job: str, watermark: datetime | None, result: dict[str, Any]
 ) -> None:
+    if _fs():
+        from app.modules.analytics import fs_raw
+
+        await fs_raw.set_state(job, watermark, json.loads(json.dumps(result, default=str)))
+        return
     await session.execute(
         text(
             "INSERT INTO analytics_job_state (job, watermark, last_run_at, last_result) "
@@ -93,6 +106,10 @@ async def _set_state(
 
 
 async def _get_watermark(session: AsyncSession, job: str) -> datetime | None:
+    if _fs():
+        from app.modules.analytics import fs_raw
+
+        return await fs_raw.get_watermark(job)
     row = (
         await session.execute(text("SELECT watermark FROM analytics_job_state WHERE job = :j"), {"j": job})
     ).first()
@@ -102,10 +119,7 @@ async def _get_watermark(session: AsyncSession, job: str) -> datetime | None:
 # =========================================================================== interval builder
 
 
-async def rebuild_page_instance(
-    session: AsyncSession, user_id: uuid.UUID, page_id: uuid.UUID, *, now: datetime
-) -> list[BuiltInterval]:
-    """Rebuild every interval of one page instance from raw rows (§3.4, §3.7)."""
+async def _page_rows_pg(session: AsyncSession, user_id: uuid.UUID, page_id: uuid.UUID) -> tuple[Any, Any]:
     hbs = (
         await session.execute(
             text(
@@ -132,6 +146,23 @@ async def rebuild_page_instance(
             {"p": page_id, "u": user_id},
         )
     ).all()
+    return hbs, evs
+
+
+async def rebuild_page_instance(
+    session: AsyncSession, user_id: uuid.UUID, page_id: uuid.UUID, *, now: datetime
+) -> list[BuiltInterval]:
+    """Rebuild every interval of one page instance from raw rows (§3.4, §3.7)."""
+    if _fs():
+        from app.modules.analytics import fs_raw
+
+        f_hbs, f_evs = await fs_raw.rows_for_page(user_id, page_id)
+        hbs: Any = sorted(f_hbs, key=lambda h: (h.seq, h.effective_at))
+        evs: Any = sorted(
+            (e for e in f_evs if e.event_type.startswith("page.")), key=lambda e: (e.seq is None, e.seq or 0)
+        )
+    else:
+        hbs, evs = await _page_rows_pg(session, user_id, page_id)
     samples = []
     for h in hbs:
         visible, focused, input_recent, media = bits_to_state(h.state_bits)
@@ -162,7 +193,17 @@ async def rebuild_page_instance(
         e.auth_session_id for e in evs if e.auth_session_id
     }
     session_end: float | None = None
-    if sessions:
+    if sessions and _fs():
+        from app.modules.analytics import fs_raw
+
+        ends = [
+            e.effective_at
+            for e in await fs_raw.rows_for_sessions(user_id, sessions)
+            if e.event_type == "session.ended" and e.auth_session_id in sessions
+        ]
+        if ends:
+            session_end = min(ends).timestamp()
+    elif sessions:
         row = (
             await session.execute(
                 text(
@@ -176,19 +217,27 @@ async def rebuild_page_instance(
             session_end = row[0].timestamp()
     built = build_intervals(samples, events, now=now.timestamp(), session_end=session_end)
 
-    old = (
+    if _fs():
+        from app.modules.analytics import fs_raw
+
+        old: Any = [
+            (o.started_at, o.ended_at if o.ended_at is not None else o.provisional_end)
+            for o in await fs_raw.intervals(user_id=user_id, page_id=page_id)
+        ]
+    else:
+        old = (
+            await session.execute(
+                text(
+                    "SELECT started_at, coalesce(ended_at, provisional_end) FROM engagement_intervals "
+                    "WHERE page_instance_id = :p AND user_id = :u"
+                ),
+                {"p": page_id, "u": user_id},
+            )
+        ).all()
         await session.execute(
-            text(
-                "SELECT started_at, coalesce(ended_at, provisional_end) FROM engagement_intervals "
-                "WHERE page_instance_id = :p AND user_id = :u"
-            ),
+            text("DELETE FROM engagement_intervals WHERE page_instance_id = :p AND user_id = :u"),
             {"p": page_id, "u": user_id},
         )
-    ).all()
-    await session.execute(
-        text("DELETE FROM engagement_intervals WHERE page_instance_id = :p AND user_id = :u"),
-        {"p": page_id, "u": user_id},
-    )
     first = hbs[0] if hbs else None
     topic = next((e.topic_id for e in evs if e.topic_id), None) or next(
         (h.topic_id for h in hbs if h.topic_id), None
@@ -202,8 +251,39 @@ async def rebuild_page_instance(
     dates: set[date] = set()
     for s, e in old:
         dates |= {ist_date(s), ist_date(e)}
+    fs_rows: list[dict[str, Any]] = []
     for iv in built:
         ent = dict(zip(ENTITY_FIELDS, iv.entity, strict=True))
+        if _fs():
+            fs_rows.append(
+                {
+                    "id": uuid7(),
+                    "started_at": _ts(iv.started_at),
+                    "ended_at": None if iv.is_open else _ts(iv.ended_at),
+                    "last_sample_at": _ts(iv.last_sample_at),
+                    "provisional_end": _ts(iv.ended_at),
+                    "user_id": user_id,
+                    "organization_id": org,
+                    "auth_session_id": first.auth_session_id if first else None,
+                    "device_id": first.device_id if first else None,
+                    "tab_id": tab,
+                    "page_instance_id": page_id,
+                    "surface": surface,
+                    "mode": iv.mode,
+                    **ent,
+                    "topic_id": topic,
+                    "active_s": Decimal(str(round(iv.active_s, 3))),
+                    "heartbeat_count": iv.heartbeat_count,
+                    "close_reason": iv.close_reason,
+                    "flags": sorted(iv.flags),
+                    "is_open": iv.is_open,
+                    "privacy_tier": tier,
+                    "measurement_version": MEASUREMENT_VERSION,
+                    "created_at": now,
+                }
+            )
+            dates |= {ist_date(_ts(iv.started_at)), ist_date(_ts(iv.ended_at))}
+            continue
         await session.execute(
             text(
                 """
@@ -247,18 +327,16 @@ async def rebuild_page_instance(
             },
         )
         dates |= {ist_date(_ts(iv.started_at)), ist_date(_ts(iv.ended_at))}
+    if _fs():
+        from app.modules.analytics import fs_raw
+
+        await fs_raw.replace_page_intervals(user_id, page_id, fs_rows)
     for d in dates:
         await mark_dirty(session, user_id, d, "interval_rebuild")
     return built
 
 
-async def run_interval_builder(
-    session: AsyncSession, *, now: datetime | None = None, limit: int = 5000
-) -> dict[str, Any]:
-    now = now or utcnow()
-    await system_context(session, "analytics.interval_builder")
-    wm = await _get_watermark(session, "interval_builder") or datetime(1970, 1, 1, tzinfo=UTC)
-    since = wm - timedelta(minutes=2)  # overlap for in-flight transactions
+async def _discover_pages_pg(session: AsyncSession, since: datetime, limit: int) -> Any:
     rows = (
         await session.execute(
             text(
@@ -281,6 +359,60 @@ async def run_interval_builder(
             {"since": since, "n": limit},
         )
     ).all()
+    return rows
+
+
+@dataclass(frozen=True)
+class _PageKey:
+    user_id: uuid.UUID
+    page_instance_id: uuid.UUID
+    r: datetime | None
+
+
+async def _discover_pages_fs(since: datetime, limit: int) -> list[_PageKey]:
+    """The union of ``_discover_pages_pg``: pages with rows received after ``since``, pages of
+    open intervals whose auth session ended after ``since``, and every open interval; ``r`` is
+    the newest ``received_at`` (``NULL`` only from open intervals, as ``max`` ignores NULL)."""
+    from app.modules.analytics import fs_raw
+
+    newest: dict[tuple[uuid.UUID, uuid.UUID], datetime | None] = {}
+
+    def bump(u: uuid.UUID, p: uuid.UUID, r: datetime | None) -> None:
+        cur = newest.get((u, p))
+        if cur is None or (r is not None and r > cur):
+            newest[(u, p)] = r if r is not None else cur
+        elif (u, p) not in newest:
+            newest[(u, p)] = r
+
+    hbs, evs = await fs_raw.rows_received_after(since)
+    for h in hbs:
+        if h.received_at > since:
+            bump(h.user_id, h.page_instance_id, h.received_at)
+    for e in evs:
+        if e.received_at > since and e.page_instance_id is not None:
+            bump(e.user_id, e.page_instance_id, e.received_at)
+    open_ivs = await fs_raw.intervals(is_open=True)
+    for e in evs:
+        if e.event_type == "session.ended" and e.received_at > since:
+            for i in open_ivs:
+                if i.auth_session_id == e.auth_session_id:
+                    bump(e.user_id, i.page_instance_id, e.received_at)
+    for i in open_ivs:
+        bump(i.user_id, i.page_instance_id, None)
+    return [_PageKey(u, p, r) for (u, p), r in list(newest.items())[:limit]]
+
+
+async def run_interval_builder(
+    session: AsyncSession, *, now: datetime | None = None, limit: int = 5000
+) -> dict[str, Any]:
+    now = now or utcnow()
+    await system_context(session, "analytics.interval_builder")
+    wm = await _get_watermark(session, "interval_builder") or datetime(1970, 1, 1, tzinfo=UTC)
+    since = wm - timedelta(minutes=2)  # overlap for in-flight transactions
+    if _fs():
+        rows: Any = await _discover_pages_fs(since, limit)
+    else:
+        rows = await _discover_pages_pg(session, since, limit)
     newest = max((r.r for r in rows if r.r is not None), default=None)
     built = 0
     for r in rows:
@@ -311,20 +443,14 @@ class _Caps:
 
 
 async def _user_flags(session: AsyncSession, user_id: uuid.UUID) -> tuple[str, bool] | None:
-    row = (
-        await session.execute(
-            text("SELECT privacy_tier, is_synthetic FROM users WHERE id = :u"), {"u": user_id}
-        )
-    ).first()
-    return (row[0], bool(row[1])) if row else None
+
+    from app.modules.identity import public as idp
+
+    u = await idp.get_user(session, user_id)
+    return (u.privacy_tier, bool(u.is_synthetic)) if u is not None else None
 
 
-async def load_day_inputs(
-    session: AsyncSession, user_id: uuid.UUID, day: date, *, now: datetime
-) -> tuple[DayResult, dict[str, Any]]:
-    """Load intervals/evidence/presence/attempts for one user-day and compute M1..M5."""
-    d0f, d1f = ist_day_bounds(day)
-    d0, d1 = _ts(d0f), _ts(d1f)
+async def _day_intervals_pg(session: AsyncSession, user_id: uuid.UUID, d0: datetime, d1: datetime) -> Any:
     ivs = (
         await session.execute(
             text(
@@ -342,6 +468,28 @@ async def load_day_inputs(
             {"u": user_id, "lo": d0 - timedelta(days=1), "d0": d0, "d1": d1},
         )
     ).all()
+    return ivs
+
+
+async def load_day_inputs(
+    session: AsyncSession, user_id: uuid.UUID, day: date, *, now: datetime
+) -> tuple[DayResult, dict[str, Any]]:
+    """Load intervals/evidence/presence/attempts for one user-day and compute M1..M5."""
+    d0f, d1f = ist_day_bounds(day)
+    d0, d1 = _ts(d0f), _ts(d1f)
+    ivs: Any
+    if _fs():
+        from app.modules.analytics import fs_raw
+
+        ivs = []
+        for r in await fs_raw.intervals(
+            user_id=user_id, started_from=d0 - timedelta(days=1), started_before=d1
+        ):
+            r.e = r.ended_at if r.ended_at is not None else r.provisional_end
+            if r.e > d0:
+                ivs.append(r)
+    else:
+        ivs = await _day_intervals_pg(session, user_id, d0, d1)
     intervals = [
         IntervalRec(
             page_instance_id=str(r.page_instance_id),
@@ -364,20 +512,33 @@ async def load_day_inputs(
         for r in ivs
     ]
     margin = timedelta(seconds=TM.evidence_window_s + 3600)
-    hbs = (
-        await session.execute(
-            text(
-                """
+    hbs: Any
+    evs: Any
+    if _fs():
+        from app.modules.analytics import fs_raw
+
+        f_hbs = (await fs_raw.rows_for_window(user_id, d0 - timedelta(hours=12), d1 + timedelta(hours=12)))[0]
+        hbs = sorted(f_hbs, key=lambda h: (h.page_instance_id, h.seq))
+        evs = (await fs_raw.rows_for_window(user_id, d0 - timedelta(days=2), d1 + timedelta(hours=12)))[1]
+    else:
+        hbs = None
+    if hbs is None:
+        hbs = (
+            await session.execute(
+                text(
+                    """
                 SELECT page_instance_id, effective_at, kind, state_bits, scroll_depth_pct, edit_ops,
                     editor_focused,
                        ingest_flags
                 FROM activity_heartbeats WHERE user_id = :u AND effective_at >= :lo AND effective_at < :hi
                 ORDER BY page_instance_id, seq
                 """
-            ),
-            {"u": user_id, "lo": d0 - timedelta(hours=12), "hi": d1 + timedelta(hours=12)},
-        )
-    ).all()
+                ),
+                {"u": user_id, "lo": d0 - timedelta(hours=12), "hi": d1 + timedelta(hours=12)},
+            )
+        ).all()
+    if not _fs():
+        evs = None
     client_evidence: dict[str, list[float]] = defaultdict(list)
     max_scroll: dict[str, int] = {}
     presence: list[float] = []
@@ -399,19 +560,20 @@ async def load_day_inputs(
             max_scroll[pid] = scroll
         if evidence:
             client_evidence[pid].append(t)
-    evs = (
-        await session.execute(
-            text(
-                """
+    if evs is None:
+        evs = (
+            await session.execute(
+                text(
+                    """
                 SELECT event_type, effective_at, source, payload, topic_id, course_id, lesson_id,
                     test_attempt_id,
                        organization_id, ingest_flags
                 FROM analytics_events WHERE user_id = :u AND effective_at >= :lo AND effective_at < :hi
                 """
-            ),
-            {"u": user_id, "lo": d0 - timedelta(days=2), "hi": d1 + timedelta(hours=12)},
-        )
-    ).all()
+                ),
+                {"u": user_id, "lo": d0 - timedelta(days=2), "hi": d1 + timedelta(hours=12)},
+            )
+        ).all()
     server_evidence: dict[str, list[float]] = defaultdict(list)
     attempts: dict[uuid.UUID, dict[str, Any]] = {}
     counters: dict[tuple[str, uuid.UUID | None], dict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -509,25 +671,56 @@ async def _category_of(session: AsyncSession, topic_ids: set[uuid.UUID]) -> dict
     """Root ``subject`` of each topic (placement taxonomy) when the table exists."""
     if not topic_ids:
         return {}
-    exists = (await session.execute(text("SELECT to_regclass('public.topics') IS NOT NULL"))).scalar()
-    if not exists:
-        return {}
-    rows = (
-        await session.execute(
-            text(
-                """
-                WITH RECURSIVE up(start_id, id, parent_id) AS (
-                    SELECT t.id, t.id, t.parent_id FROM topics t WHERE t.id = ANY(:ids)
-                    UNION ALL
-                    SELECT up.start_id, p.id, p.parent_id FROM topics p JOIN up ON p.id = up.parent_id
-                )
-                SELECT start_id, id FROM up WHERE parent_id IS NULL
-                """
-            ),
-            {"ids": list(topic_ids)},
-        )
-    ).all()
-    return {r[0]: r[1] for r in rows}
+    from app.modules.placement import public as placement
+
+    return dict(await placement.topic_roots(session, topic_ids))
+
+
+def _daily_values(
+    params: dict[str, Any],
+    kind: str,
+    eid: Any,
+    user_id: uuid.UUID,
+    em: Any,
+    c: dict[str, int],
+    cats: dict[uuid.UUID, uuid.UUID],
+    topic: Any,
+    res: Any,
+    m2: int,
+    m5: int,
+    tier: str,
+    is_frozen: bool,
+) -> dict[str, Any]:
+    """The ``daily_learning_aggregates`` row the INSERT below writes, by column name (Firestore)."""
+    return {
+        "user_id": params["u"],
+        "activity_date": params["d"],
+        "entity_kind": kind,
+        "entity_id": eid if eid is not None else user_id,
+        "organization_id": em.organization_id if em else None,
+        "course_id": eid if kind == "course" else (em.course_id if em else None),
+        "topic_id": topic,
+        "category_topic_id": cats.get(topic) if topic else None,
+        "m1_session_elapsed_s": round(max(res.m1, res.m2)) if kind == "_total" else None,
+        "m2_active_s": m2,
+        "m3_video_playback_s": round(em.m3) if em else 0,
+        "m4_assessment_s": round(em.m4) if em else 0,
+        "m5_learning_s": m5,
+        "assessment_active_s": (
+            round(res.assessment_active_s.get(eid, 0.0)) if kind == "test_attempt" and eid else 0
+        ),
+        "questions_attempted": c.get("questions_attempted", 0),
+        "questions_correct": c.get("questions_correct", 0),
+        "first_attempt_correct": c.get("first_attempt_correct", 0),
+        "code_runs": c.get("code_runs", 0),
+        "code_submissions": c.get("code_submissions", 0),
+        "code_accepted": c.get("code_accepted", 0),
+        "lessons_completed": c.get("lessons_completed", 0),
+        "implausible_day": res.implausible,
+        "privacy_tier": tier,
+        "measurement_version": MEASUREMENT_VERSION,
+        "is_frozen": is_frozen,
+    }
 
 
 async def compute_user_day(
@@ -539,6 +732,11 @@ async def compute_user_day(
     now = now or utcnow()
     flags = await _user_flags(session, user_id)
     params = {"u": user_id, "d": day}
+    if _fs():
+        from app.modules.analytics import fs_raw
+    if (flags is None or flags[1]) and _fs():
+        await fs_raw.replace_daily(user_id, day, [])
+        return None
     if flags is None or flags[1]:
         await session.execute(
             text("DELETE FROM daily_learning_aggregates WHERE user_id = :u AND activity_date = :d"), params
@@ -548,15 +746,26 @@ async def compute_user_day(
         )
         return None
     tier = flags[0]
-    frozen = (
-        await session.execute(
-            text(
-                "SELECT is_frozen FROM daily_learning_aggregates WHERE user_id = :u AND activity_date = :d "
-                "AND entity_kind = '_total'"
-            ),
-            params,
+    if _fs():
+        frozen: Any = any(
+            r.is_frozen for r in await fs_raw.daily_rows(user_id, day) if r.entity_kind == "_total"
         )
-    ).scalar()
+        if frozen and not force:
+            await fs_raw.clear_dirty(user_id, day)
+            return None
+    frozen = (
+        False
+        if _fs()
+        else (
+            await session.execute(
+                text(
+                    "SELECT is_frozen FROM daily_learning_aggregates "
+                    "WHERE user_id = :u AND activity_date = :d AND entity_kind = '_total'"
+                ),
+                params,
+            )
+        ).scalar()
+    )
     if frozen and not force:
         await session.execute(
             text("DELETE FROM analytics_dirty_days WHERE user_id = :u AND activity_date = :d"), params
@@ -564,9 +773,11 @@ async def compute_user_day(
         return None
     res, extra = await load_day_inputs(session, user_id, day, now=now)
     counters = extra["counters"]
-    await session.execute(
-        text("DELETE FROM daily_learning_aggregates WHERE user_id = :u AND activity_date = :d"), params
-    )
+    if not _fs():
+        await session.execute(
+            text("DELETE FROM daily_learning_aggregates WHERE user_id = :u AND activity_date = :d"), params
+        )
+    fs_daily: list[dict[str, Any]] = []
     is_frozen = day <= ist_date(now) - timedelta(days=TM.freeze_after_days)
     keys = set(res.entities) | set(counters)
     has_activity = res.m1 > 0 or res.m2 > 0 or res.m3 > 0 or res.m4 > 0 or bool(counters)
@@ -579,6 +790,10 @@ async def compute_user_day(
         m2 = round(em.m2) if em else 0
         m5 = min(round(em.m5), m2) if em else 0
         topic = eid if kind == "topic" else (em.topic_id if em else None)
+        vals = _daily_values(params, kind, eid, user_id, em, c, cats, topic, res, m2, m5, tier, is_frozen)
+        if _fs():
+            fs_daily.append(vals)
+            continue
         await session.execute(
             text(
                 """
@@ -622,9 +837,12 @@ async def compute_user_day(
                 "fz": is_frozen,
             },
         )
-    await session.execute(
-        text("DELETE FROM analytics_dirty_days WHERE user_id = :u AND activity_date = :d"), params
-    )
+    if _fs():
+        await fs_raw.replace_daily(user_id, day, fs_daily)  # also clears the dirty mark
+    else:
+        await session.execute(
+            text("DELETE FROM analytics_dirty_days WHERE user_id = :u AND activity_date = :d"), params
+        )
     if res.implausible:
         log.warning("analytics_implausible_day", user_id=str(user_id), day=str(day))
     return res
@@ -633,6 +851,17 @@ async def compute_user_day(
 async def users_active_on(session: AsyncSession, day: date) -> list[uuid.UUID]:
     d0f, d1f = ist_day_bounds(day)
     d0, d1 = _ts(d0f), _ts(d1f)
+    if _fs():
+        from app.modules.analytics import fs_raw
+
+        users: set[uuid.UUID] = set()
+        for i in await fs_raw.intervals(started_from=d0 - timedelta(days=1), started_before=d1):
+            if (i.ended_at if i.ended_at is not None else i.provisional_end) > d0:
+                users.add(i.user_id)
+        hbs, evs = await fs_raw.rows_for_days(fs_raw.ist_days(d0, d1))
+        users |= {h.user_id for h in hbs if d0 <= h.effective_at < d1}
+        users |= {e.user_id for e in evs if d0 <= e.effective_at < d1}
+        return list(users)
     rows = (
         await session.execute(
             text(
@@ -664,7 +893,11 @@ async def run_daily_aggregation(
     for d in days or [today]:
         for u in await users_active_on(session, d):
             todo.add((u, d))
-    if include_dirty:
+    if include_dirty and _fs():
+        from app.modules.analytics import fs_raw
+
+        todo |= set(await fs_raw.dirty_days())
+    elif include_dirty:
         rows = (await session.execute(text("SELECT user_id, activity_date FROM analytics_dirty_days"))).all()
         todo |= {(r[0], r[1]) for r in rows}
     for u, d in sorted(todo, key=lambda x: (x[1], str(x[0]))):
@@ -684,6 +917,10 @@ def week_start(d: date) -> date:
 async def rollup_week(session: AsyncSession, monday: date) -> int:
     await system_context(session, "analytics.rollups")
     sunday = monday + timedelta(days=6)
+    if _fs():
+        from app.modules.analytics import fs_jobs
+
+        return await fs_jobs.rollup_week(session, monday, sunday, MEASUREMENT_VERSION)
     await session.execute(
         text("DELETE FROM weekly_learning_aggregates WHERE iso_week_start = :w"), {"w": monday}
     )
@@ -699,14 +936,14 @@ async def rollup_week(session: AsyncSession, monday: date) -> int:
                        sum(d.m5_learning_s),
                    count(*) FILTER (WHERE d.m5_learning_s >= 600),
                    CASE WHEN bool_or(d.privacy_tier = 'minor') THEN 'minor' ELSE 'adult' END, :mv
-            FROM daily_learning_aggregates d JOIN users u ON u.id = d.user_id AND NOT u.is_synthetic
+            FROM daily_learning_aggregates d
             WHERE d.activity_date BETWEEN :w AND :s
                 AND d.entity_kind IN ('_total','course','topic')
-              AND d.measurement_version = :mv
+              AND d.measurement_version = :mv AND NOT (d.user_id = ANY(:syn))
             GROUP BY d.user_id, d.entity_kind, d.entity_id
             """
         ),
-        {"w": monday, "s": sunday, "mv": MEASUREMENT_VERSION},
+        {"w": monday, "s": sunday, "mv": MEASUREMENT_VERSION, "syn": await hooks.synthetic_user_ids(session)},
     )
     return int(getattr(res, "rowcount", 0) or 0)
 
@@ -751,6 +988,11 @@ async def _upsert_cohort(
         "sup": suppressed,
         "mv": MEASUREMENT_VERSION,
     }
+    if _fs():
+        from app.modules.analytics import fs_jobs
+
+        await fs_jobs.upsert_cohort(vals)
+        return
     await session.execute(
         text(
             """
@@ -778,6 +1020,10 @@ async def _per_user(
 ) -> dict[uuid.UUID, dict[str, int]]:
     if not users:
         return {}
+    if _fs():
+        from app.modules.analytics import fs_jobs
+
+        return await fs_jobs.per_user(kind, entity, lo, hi, users, MEASUREMENT_VERSION)
     sql = (
         "SELECT user_id, sum(m5_learning_s), sum(questions_attempted), sum(questions_correct), "
         "sum(lessons_completed), bool_or(implausible_day) FROM daily_learning_aggregates "
@@ -808,21 +1054,29 @@ async def rollup_cohorts(session: AsyncSession, period_kind: str, start: date) -
     await system_context(session, "analytics.rollups")
     end = start + timedelta(days=6 if period_kind == "week" else 0)
     n = 0
-    batches = (await session.execute(text("SELECT id, organization_id FROM batches"))).all()
-    for batch, org in batches:
-        bm = [
+    # Batches and their active student members come from orgs.public, synthetic flags from
+    # identity.public (both stores); the platform users from this module's daily rows.
+    from app.modules.analytics import fs_jobs
+
+    if _fs():
+        fs_batches, users = await fs_jobs.cohort_inputs(session, start, end)
+    else:
+        fs_batches = await fs_jobs.batch_cohorts(session)
+        syn = set(await hooks.synthetic_user_ids(session))
+        users = [
             r[0]
             for r in (
                 await session.execute(
                     text(
-                        "SELECT DISTINCT b.user_id FROM batch_members b JOIN users u ON u.id = b.user_id "
-                        "WHERE b.batch_id = :b AND b.status = 'active' AND b.member_role = 'student' "
-                        "AND NOT u.is_synthetic"
+                        "SELECT DISTINCT d.user_id FROM daily_learning_aggregates d "
+                        "WHERE d.entity_kind = '_total' AND d.activity_date BETWEEN :lo AND :hi"
                     ),
-                    {"b": batch},
+                    {"lo": start, "hi": end},
                 )
             ).all()
+            if r[0] not in syn
         ]
+    for batch, org, bm in fs_batches:
         per_b = await _per_user(session, "_total", None, start, end, bm)
         await _upsert_cohort(
             session,
@@ -834,20 +1088,6 @@ async def rollup_cohorts(session: AsyncSession, period_kind: str, start: date) -
             per_user=per_b,
         )
         n += 1
-    users = [
-        r[0]
-        for r in (
-            await session.execute(
-                text(
-                    "SELECT DISTINCT d.user_id FROM daily_learning_aggregates d JOIN users u ON u.id = "
-                    "d.user_id "
-                    "WHERE d.entity_kind = '_total' AND d.activity_date BETWEEN :lo AND :hi AND NOT "
-                    "u.is_synthetic"
-                ),
-                {"lo": start, "hi": end},
-            )
-        ).all()
-    ]
     per_all = await _per_user(session, "_total", None, start, end, users)
     await _upsert_cohort(
         session,
@@ -884,10 +1124,17 @@ async def run_video_coverage(session: AsyncSession, *, now: datetime | None = No
     now = now or utcnow()
     await system_context(session, "analytics.video_coverage")
     wm = await _get_watermark(session, "video_coverage") or datetime(1970, 1, 1, tzinfo=UTC)
-    rows = (
-        await session.execute(
-            text(
-                """
+    if _fs():
+        from app.modules.analytics import fs_jobs
+
+        rows: Any = await fs_jobs.coverage_inputs(wm - timedelta(minutes=2))
+    else:
+        rows = None
+    if rows is None:
+        rows = (
+            await session.execute(
+                text(
+                    """
                 SELECT user_id, lesson_asset_id, max(organization_id::text)::uuid AS org,
                     max(lesson_id::text)::uuid AS lesson,
                        array_agg(r) AS ranges, max(received_at) AS rec,
@@ -896,10 +1143,10 @@ async def run_video_coverage(session: AsyncSession, *, now: datetime | None = No
                 WHERE received_at > :since AND lesson_asset_id IS NOT NULL AND played_ranges IS NOT NULL
                 GROUP BY user_id, lesson_asset_id
                 """
-            ),
-            {"since": wm - timedelta(minutes=2)},
-        )
-    ).all()
+                ),
+                {"since": wm - timedelta(minutes=2)},
+            )
+        ).all()
     if not rows:
         await _set_state(session, "video_coverage", wm, {"assets": 0})
         return {"assets": 0}
@@ -908,14 +1155,19 @@ async def run_video_coverage(session: AsyncSession, *, now: datetime | None = No
     missing = [r.lesson_asset_id for r in rows if r.lesson_asset_id not in durations]
     if missing:
         # Server-side duration (catalog row) before any client-reported ``video.ended`` value.
-        for aid, dur in (
-            await session.execute(
-                text("SELECT id, duration_seconds FROM lesson_assets WHERE id = ANY(:a)"), {"a": missing}
-            )
-        ).all():
-            if dur:
-                durations[aid] = float(dur)
+        from app.modules.catalog import api as catalog_api
+
+        for aid, a in (await catalog_api.get_assets(session, missing)).items():
+            if a.duration_seconds:
+                durations[aid] = float(a.duration_seconds)
         missing = [a for a in missing if a not in durations]
+    if missing and _fs():
+        from app.modules.analytics import fs_jobs
+
+        for aid, fdur in (await fs_jobs.video_ended_durations(missing)).items():
+            if fdur:
+                durations[aid] = float(fdur)
+        missing = []
     if missing:
         for aid, dur in (
             await session.execute(
@@ -930,15 +1182,22 @@ async def run_video_coverage(session: AsyncSession, *, now: datetime | None = No
                 durations[aid] = float(dur)
     newest = wm
     for r in rows:
-        existing = (
-            await session.execute(
-                text(
-                    "SELECT covered_ranges FROM video_watch_coverage WHERE user_id = :u AND "
-                    "lesson_asset_id = :a"
-                ),
-                {"u": r.user_id, "a": r.lesson_asset_id},
-            )
-        ).scalar()
+        if _fs():
+            from app.modules.analytics import fs_jobs
+
+            existing: Any = await fs_jobs.coverage_existing(r.user_id, r.lesson_asset_id)
+        else:
+            existing = None
+        if not _fs():
+            existing = (
+                await session.execute(
+                    text(
+                        "SELECT covered_ranges FROM video_watch_coverage WHERE user_id = :u AND "
+                        "lesson_asset_id = :a"
+                    ),
+                    {"u": r.user_id, "a": r.lesson_asset_id},
+                )
+            ).scalar()
         pairs = [(x.lower / 10.0, x.upper / 10.0) for x in (existing or []) if x.lower is not None]
         pairs += [(x.lower / 10.0, x.upper / 10.0) for x in r.ranges if x is not None and x.lower is not None]
         dur = durations.get(r.lesson_asset_id)
@@ -950,6 +1209,23 @@ async def run_video_coverage(session: AsyncSession, *, now: datetime | None = No
         pct = round(coverage_fraction(merged, dur) * 100, 2) if dur else 0.0
         from sqlalchemy.dialects.postgresql import Range
 
+        cov_vals = {
+            "u": r.user_id,
+            "a": r.lesson_asset_id,
+            "o": r.org,
+            "l": r.lesson,
+            "cr": [Range(round(a * 10), round(b * 10), bounds="[)") for a, b in merged],
+            "cs": round(covered, 1),
+            "pct": min(100.0, pct),
+            "dur": round(dur) if dur else None,
+            "pos": int(r.pos) if r.pos is not None else None,
+        }
+        if _fs():
+            from app.modules.analytics import fs_jobs
+
+            await fs_jobs.coverage_upsert(cov_vals)
+            newest = max(newest, r.rec)
+            continue
         await session.execute(
             text(
                 """
@@ -1000,15 +1276,25 @@ async def run_security_feed(
     d = day or (ist_date(now) - timedelta(days=1))
     await system_context(session, "analytics.security_feed")
     # Withdrawn consent / minors / synthetic: delete any rows (<= 24 h after withdrawal).
-    existing = (
-        await session.execute(text("SELECT DISTINCT user_id FROM security_activity_feed_daily"))
-    ).all()
+    if _fs():
+        from app.modules.analytics import fs_jobs
+
+        existing: Any = [(u,) for u in await fs_jobs.feed_users()]
+    else:
+        existing = (
+            await session.execute(text("SELECT DISTINCT user_id FROM security_activity_feed_daily"))
+        ).all()
     removed = 0
     for (u,) in existing:
         if not await security_feed_eligible(session, u):
-            await session.execute(
-                text("DELETE FROM security_activity_feed_daily WHERE user_id = :u"), {"u": u}
-            )
+            if _fs():
+                from app.modules.analytics import fs_raw
+
+                await fs_raw.delete_user_docs(fs_raw.SECURITY_FEED, u)
+            else:
+                await session.execute(
+                    text("DELETE FROM security_activity_feed_daily WHERE user_id = :u"), {"u": u}
+                )
             removed += 1
     built = 0
     for u in await users_active_on(session, d):
@@ -1016,6 +1302,27 @@ async def run_security_feed(
             continue
         res, extra = await load_day_inputs(session, u, d, now=now)
         flags = extra["flags"]
+        if _fs():
+            from app.modules.analytics import fs_jobs
+
+            await fs_jobs.feed_upsert(
+                {
+                    "user_id": u,
+                    "activity_date": d,
+                    "privacy_tier": "adult",
+                    "active_devices": min(res.active_devices, 32767),
+                    "multi_device_overlap_s": round(res.multi_device_overlap_s),
+                    "max_concurrent_active_page_instances": min(res.max_concurrent_page_instances, 32767),
+                    "active_hours_bitmap": res.active_hours_bitmap,
+                    "implausible_day": res.implausible,
+                    "plausibility_violations": {"implausible_day": 1} if res.implausible else {},
+                    "clock_jump_count": flags.get("clock_jump", 0),
+                    "large_skew_count": flags.get("large_skew", 0),
+                    "feed_version": FEED_VERSION,
+                }
+            )
+            built += 1
+            continue
         await session.execute(
             text(
                 """
@@ -1109,6 +1416,8 @@ async def run_retention_purge(
     current state, since only DEFAULT partitions exist — batched ``DELETE`` by key."""
     now = now or utcnow()
     await system_context(session, "analytics.retention_purge")
+    if _fs():
+        return await _retention_purge_fs(session, now)
     can_drop = False
     # to_regprocedure() itself fails without USAGE on schema maint, so check that first.
     if (await session.execute(text("SELECT has_schema_privilege('maint', 'USAGE')"))).scalar():
@@ -1152,10 +1461,35 @@ async def run_retention_purge(
     return out
 
 
+async def _retention_purge_fs(session: AsyncSession, now: datetime) -> dict[str, int]:
+    """``run_retention_purge`` on Firestore: same tables, cut-offs and result keys (raw rows live in
+    batch documents; the batch TTL is the backstop)."""
+    from app.modules.analytics import fs_jobs
+
+    out: dict[str, int] = {}
+    hb, ev = await fs_jobs.purge_batches(
+        now - RETENTION["analytics_events"], now - RETENTION["activity_heartbeats"]
+    )
+    out["activity_heartbeats"], out["analytics_events"] = hb, ev
+    for table, _col, _keys, rkey in _PURGE:
+        if table in ("activity_heartbeats", "analytics_events"):
+            continue
+        out[table] = await fs_jobs.purge_older(table, now - RETENTION[rkey])
+    out["analytics_dirty_days"] = await fs_jobs.purge_dirty_before(
+        ist_date(now) - timedelta(days=TM.freeze_after_days)
+    )
+    await _set_state(session, "retention_purge", now, out)
+    return out
+
+
 async def erase_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, int]:
     """Privacy provider (DM-12, s.8(7)): delete the user's rows from every identifiable
     analytics table (cohort rows are already non-identifying)."""
     await system_context(session, "analytics.privacy_erase")
+    if _fs():
+        from app.modules.analytics import fs_jobs
+
+        return await fs_jobs.erase_user(user_id)
     out: dict[str, int] = {}
     for table in (
         "activity_heartbeats",
@@ -1190,8 +1524,12 @@ _JOBS = {
 
 
 async def run_job(name: str) -> dict[str, Any]:
+    from app.core.firestore.sqlstore import store_session
+
     started = _time.monotonic()
-    async with get_sessionmaker()() as session, session.begin():
+    # A Postgres transaction when the stack has Postgres; otherwise an in-memory transaction
+    # (RLS settings only) committed on success: Firestore modules never touch Postgres.
+    async with store_session() as session:
         if name == "outbox_consumer":
             from app.modules.analytics.consumer import consume_outbox
 

@@ -15,10 +15,14 @@
   worker or beat refuses to start with fake adapters or placeholder keys in production.
 * Beat takes a Redis leader lock before scheduling (COM-14); workers touch a liveness file for
   the container healthcheck (E2E-06). See ``app.core.celery_ops``.
+* ``TD_TASKS_BACKEND=cloudtasks`` (Firebase runtime): the same app is the task registry, sends
+  go to Cloud Tasks and the beat entries run as scheduled functions (``app.core.cloudtasks``).
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import structlog
@@ -40,7 +44,7 @@ OUTBOX_RELAY_TASK = "td.core.outbox_relay"
 AUDIT_SEAL_TASK = "td.core.audit_seal"
 
 
-async def _relay_once() -> RelayResult:
+async def _relay_postgres() -> RelayResult:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     engine = make_engine(get_settings().DATABASE_URL)
@@ -55,6 +59,34 @@ async def _relay_once() -> RelayResult:
         await engine.dispose()
 
 
+@asynccontextmanager
+async def _pg_handler_session() -> AsyncIterator[Any]:
+    """Handler session for Firestore-sourced events while handler modules are on Postgres."""
+    from app.core.db import get_sessionmaker, system_context
+
+    async with get_sessionmaker()() as session, session.begin():
+        await system_context(session, "outbox_relay")
+        yield session
+
+
+async def _relay_once() -> RelayResult:
+    """Postgres outbox (unless every module is on Firestore) + the Firestore outbox (only when
+    some module is on Firestore, MIGRATION-PLAN §3.6). Default: Postgres only, as before."""
+    from app.core.firestore.backend import MODULES, firestore_modules
+
+    on_fs = firestore_modules()
+    all_fs = set(on_fs) >= MODULES
+    result = RelayResult() if all_fs else await _relay_postgres()
+    if on_fs:
+        from app.core.firestore.core_store import relay_pending_firestore
+
+        r = await relay_pending_firestore(session_scope=None if all_fs else _pg_handler_session)
+        result.dispatched += r.dispatched
+        result.failed += r.failed
+        result.skipped_no_handler += r.skipped_no_handler
+    return result
+
+
 @shared_task(name=OUTBOX_RELAY_TASK, ignore_result=True)
 def outbox_relay() -> dict[str, int]:
     r = run_async(_relay_once())
@@ -64,8 +96,15 @@ def outbox_relay() -> dict[str, int]:
 
 
 async def _seal_once() -> int:
+    from app.core.runtime import postgres_enabled
     from app.modules.audit.sealer import seal_once
 
+    if not postgres_enabled():
+        # Firebase stack without Postgres: only the Firestore outbox exists. (Building an engine
+        # here made every run fail on the Postgres connect after sealing Firestore.)
+        from app.modules.audit.repo_firestore import MAX_SEAL_BATCH, sealer_repo
+
+        return await sealer_repo().seal_pending(min(get_settings().TD_AUDIT_SEALER_BATCH, MAX_SEAL_BATCH))
     engine = make_engine(get_settings().sealer_url)
     try:
         return await seal_once(engine)
@@ -139,6 +178,15 @@ def create_celery() -> Celery:
     run_startup_checks(s)  # COM-08: after discovery, so module-registered fakes are checked
     register_core_jobs()
     capp.conf.beat_schedule = beat_schedule()
+    from app.core.runtime import tasks_backend
+
+    if tasks_backend() == "cloudtasks":
+        # Firebase: no broker, no beat. Sends go to Cloud Tasks; scheduled functions run the
+        # beat entries (app.core.cloudtasks, functions-lms/main.py).
+        from app.core import cloudtasks
+
+        cloudtasks.install(capp)
+        return capp
     install_worker_health(capp)
     install_beat_leader_lock()
     return capp

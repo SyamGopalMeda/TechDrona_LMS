@@ -1,5 +1,8 @@
 """Health endpoints (public): liveness and readiness (DB + Redis cache).
 
+Without Postgres (``runtime.postgres_enabled()`` False, the Firebase stack) the ``database``
+check pings Firestore and ``redis_cache`` pings the Firestore cache facade; same response shape.
+
 ``/healthz`` (root, outside ``/api/v1``) is a liveness alias for docker/ECS/ALB healthchecks."""
 
 from __future__ import annotations
@@ -31,6 +34,15 @@ async def healthz() -> JSONResponse:
 
 
 async def _check_db() -> bool:
+    from app.core.runtime import postgres_enabled
+
+    if not postgres_enabled():  # Firebase stack: the database is Firestore
+        try:
+            from app.core.firestore.kv import FirestoreRedis
+
+            return bool(await asyncio.wait_for(FirestoreRedis().ping(), timeout=2))
+        except Exception:
+            return False
     try:
         async with get_sessionmaker()() as s:
             await asyncio.wait_for(s.execute(text("SELECT 1")), timeout=2)

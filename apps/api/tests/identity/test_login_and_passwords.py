@@ -146,6 +146,31 @@ async def test_password_reset_single_use_expiry_and_revokes_sessions(browser, db
     assert r.status_code == 400
 
 
+async def test_password_reset_refuses_the_current_password(browser, db, mail) -> None:
+    """F11: a reset must set a different password; the link stays usable for another try."""
+    u = await make_user(db)
+    assert (await browser.post("/auth/password/forgot", {"identifier": u.email})).status_code == 202
+    token = last_link_token(mail)
+    r = await browser.post("/auth/password/reset", {"token": token, "new_password": GOOD_PASSWORD})
+    assert r.status_code == 400
+    err = r.json()["errors"][0]
+    assert err["field"] == "new_password" and err["code"] == "password_reuse_not_allowed"
+    assert "different from your current one" in err["message"]
+    r = await browser.post("/auth/password/reset", {"token": token, "new_password": "fresh-garnet-window-61"})
+    assert r.status_code == 200, r.text
+
+
+async def test_step_up_hint_lists_the_accounts_real_methods(browser, db) -> None:
+    """F10: a student without TOTP is told to use email OTP (what AUTH-19 offers), not TOTP."""
+    u = await make_user(db)
+    assert (await browser.login(u.email)).status_code == 200
+    r = await browser.post("/me/mfa/totp", {})
+    assert r.status_code == 401 and r.json()["code"] == "step_up_required"
+    hint = r.json()["step_up"]["allowed_methods"]
+    opts = (await browser.post("/auth/step-up/options", {})).json()["allowed_methods"]
+    assert hint == opts and "totp" not in hint
+
+
 async def test_password_change_revokes_other_sessions_and_rotates_current(browser, db) -> None:
     u = await make_user(db)
     other = browser.fork(ua="Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0")

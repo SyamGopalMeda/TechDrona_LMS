@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.audit import audit
 from app.core.errors import ProblemError
 from app.core.principal import Principal
+from app.modules.commerce import datastore as ds
 from app.modules.commerce.models import GstExport
 from app.modules.rbac.catalogue import admin_roles
 
@@ -29,8 +30,11 @@ GST_EXPORT_ACTION = "commerce.gst_export"
 
 async def _job(session: AsyncSession, req: Any) -> GstExport:
     job = (
-        await session.execute(
-            select(GstExport).where(GstExport.id == uuid.UUID(req.payload["gst_export_id"])).with_for_update()
+        await ds.execute(
+            session,
+            select(GstExport)
+            .where(GstExport.id == uuid.UUID(req.payload["gst_export_id"]))
+            .with_for_update(),
         )
     ).scalar_one_or_none()
     if job is None:
@@ -38,6 +42,7 @@ async def _job(session: AsyncSession, req: Any) -> GstExport:
     return job
 
 
+@ds.journaled_executor("commerce.approval")
 async def _execute(session: AsyncSession, principal: Principal, req: Any) -> dict[str, Any]:
     from app.modules.commerce.billing import gst_export_json, render_gst_export
 
@@ -46,7 +51,9 @@ async def _execute(session: AsyncSession, principal: Principal, req: Any) -> dic
         raise ProblemError(
             "invalid_state_transition", current_state=job.status, allowed=["awaiting_approval"]
         )
-    if job.requested_by == principal.user_id:
+    from app.modules.rbac.service import is_sole_admin
+
+    if job.requested_by == principal.user_id and not await is_sole_admin(session, principal.user_id):
         raise ProblemError("sod_violation", rule="SoD-dual-control")
     job.approved_by = principal.user_id
     await render_gst_export(session, job)
@@ -54,11 +61,12 @@ async def _execute(session: AsyncSession, principal: Principal, req: Any) -> dic
     return gst_export_json(job)
 
 
+@ds.journaled_executor("commerce.approval")
 async def _on_reject(session: AsyncSession, principal: Principal, req: Any) -> None:
     job = await _job(session, req)
     if job.status == "awaiting_approval":
         job.status = "rejected"
-        await session.flush()
+        await ds.flush(session)
 
 
 # action type -> approver roles (role matrix §5; must match ``required_approver_role`` used
@@ -74,6 +82,7 @@ COMMERCE_APPROVER_ROLES: dict[str, frozenset[str]] = {
 APPROVER_PERMISSION = "approval.decide"
 
 
+@ds.journaled_executor("commerce.approval")
 async def _execute_commerce(session: AsyncSession, principal: Principal, req: Any) -> dict[str, Any]:
     from app.modules.commerce import admin
     from app.modules.commerce.gateway import get_gateway
@@ -85,6 +94,7 @@ async def _execute_commerce(session: AsyncSession, principal: Principal, req: An
         )
 
 
+@ds.journaled_executor("commerce.approval")
 async def _reject_commerce(session: AsyncSession, principal: Principal, req: Any) -> None:
     """A rejected/cancelled refund approval rejects the refund (it stays ``requested``
     otherwise and blocks new requests on the order). Coupons stay ``paused``."""
@@ -95,11 +105,11 @@ async def _reject_commerce(session: AsyncSession, principal: Principal, req: Any
 
     async with as_system(session, "commerce.approval_reject", principal):
         rf = (
-            await session.execute(select(Refund).where(Refund.id == req.target_id).with_for_update())
+            await ds.execute(session, select(Refund).where(Refund.id == req.target_id).with_for_update())
         ).scalar_one_or_none()
         if rf is not None and rf.status == "requested":
             rf.status = "rejected"
-            await session.flush()
+            await ds.flush(session)
 
 
 def register() -> None:

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Badge, Button, Card, Dialog, EmptyState, ErrorState, Skeleton, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
+import { setAnalyticsConsent } from "@/lib/firebase/analytics";
 import { NOTICE_VERSION, PURPOSE_LABELS } from "@/features/auth/lib/consents";
 import { toFormError } from "@/features/auth/lib/errors";
 import { formatDate } from "@/features/auth/lib/format";
@@ -30,6 +31,8 @@ export function PrivacySettings() {
     try {
       const body: ConsentChangeBody = { purpose: purpose as ConsentChangeBody["purpose"], action, notice_version: notice };
       await api.post("me/consents", body, { idempotencyKey: true });
+      // Firebase Analytics follows the "Product analytics" choice immediately in this browser.
+      if (purpose === "analytics_product") setAnalyticsConsent(action === "granted");
       toast.show({ tone: "success", title: action === "granted" ? "Turned on." : "Turned off. This takes effect within 24 hours." });
       setConfirmWithdraw(null);
       await consents.reload();
@@ -53,7 +56,7 @@ export function PrivacySettings() {
             <Skeleton className="h-12 w-full" />
           </div>
         ) : rows.length === 0 ? (
-          <EmptyState title="No optional choices for your account" description="Under-18 accounts don't have optional tracking or marketing." />
+          <EmptyState icon="shield" title="No optional choices for your account" description="Under-18 accounts don't have optional tracking or marketing." />
         ) : (
           <ul className="divide-y divide-line-subtle" aria-label="Consent choices">
             {rows.map((c) => {

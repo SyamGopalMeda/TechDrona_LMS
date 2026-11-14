@@ -8,17 +8,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select, text, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.errors import ProblemError
+from app.core.firestore.backend import uses_firestore
+from app.core.firestore.collation import sort_key
 from app.core.ids import uuid7
 from app.core.principal import Principal
 from app.core.time import to_rfc3339, utcnow
@@ -70,7 +73,23 @@ def topic_out(t: Topic) -> dict[str, Any]:
     }
 
 
+def _fs() -> bool:
+    """``TD_STORE_PLACEMENT=firestore``: dispatch to ``repo_firestore`` (same results)."""
+    return uses_firestore("placement")
+
+
+async def _repo(session: AsyncSession | None) -> Any:
+    from app.modules.placement import repo_firestore
+
+    return await repo_firestore.repo(session)
+
+
 async def get_topic(session: AsyncSession, topic_id: uuid.UUID) -> Topic:
+    if _fs():
+        ft = await (await _repo(session)).get_topic(topic_id)
+        if ft is None:
+            raise ProblemError("not_found")
+        return ft
     t = await session.get(Topic, topic_id)
     if t is None:
         raise ProblemError("not_found")
@@ -78,6 +97,8 @@ async def get_topic(session: AsyncSession, topic_id: uuid.UUID) -> Topic:
 
 
 async def subtree_ids(session: AsyncSession, topic: Topic) -> list[uuid.UUID]:
+    if _fs():
+        return [t.id for t in await (await _repo(session)).subtree(topic.path)]
     rows = await session.execute(
         select(Topic.id).where(or_(Topic.id == topic.id, Topic.path.like(topic.path + "/%")))
     )
@@ -89,16 +110,24 @@ async def subject_tree(session: AsyncSession, *, include_inactive: bool = False)
 
     ``include_inactive`` (studio taxonomy list, staff only) also returns deactivated nodes so
     they can be reactivated through PLC-03."""
-    stmt = select(Topic).order_by(Topic.depth, Topic.position, Topic.name)
-    if not include_inactive:
-        stmt = stmt.where(Topic.is_active.is_(True))
-    topics = list((await session.execute(stmt)).scalars())
-    counts_rows = await session.execute(
-        select(Question.primary_topic_id, func.count())
-        .where(Question.status == "active", Question.deleted_at.is_(None))
-        .group_by(Question.primary_topic_id)
-    )
-    direct = {r[0]: int(r[1]) for r in counts_rows}
+    if _fs():
+        r = await _repo(session)
+        topics = sorted(
+            (t for t in await r.all_topics() if include_inactive or t.is_active),
+            key=lambda t: (t.depth, t.position, sort_key(t.name)),  # ORDER BY depth, position, name
+        )
+        direct = dict(await r.active_counts_by_topic())
+    else:
+        stmt = select(Topic).order_by(Topic.depth, Topic.position, Topic.name)
+        if not include_inactive:
+            stmt = stmt.where(Topic.is_active.is_(True))
+        topics = list((await session.execute(stmt)).scalars())
+        counts_rows = await session.execute(
+            select(Question.primary_topic_id, func.count())
+            .where(Question.status == "active", Question.deleted_at.is_(None))
+            .group_by(Question.primary_topic_id)
+        )
+        direct = {r[0]: int(r[1]) for r in counts_rows}
     by_path = {t.path: t for t in topics}
     total: dict[uuid.UUID, int] = defaultdict(int)
     for t in topics:
@@ -134,6 +163,22 @@ async def create_topic(session: AsyncSession, body: TopicCreate) -> Topic:
             )
         depth = parent.depth + 1
         kind, path = KINDS[depth], f"{parent.path}/{body.slug}"
+    if _fs():
+        now = utcnow()
+        ft = Topic(
+            id=uuid7(),
+            parent_id=body.parent_id,
+            kind=kind,
+            slug=body.slug,
+            name=body.name,
+            path=path,
+            depth=depth,
+            position=body.position,
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+        return await (await _repo(session)).create_topic(ft)
     if (await session.execute(select(Topic.id).where(Topic.path == path))).first():
         raise ProblemError("invalid_state_transition", detail="A topic with this slug already exists here.")
     t = Topic(
@@ -176,6 +221,19 @@ async def patch_topic(session: AsyncSession, topic_id: uuid.UUID, body: TopicPat
         new_path = slug
     else:
         new_path = f"{(await get_topic(session, new_parent)).path}/{slug}"
+    if _fs():
+        t.path, t.slug, t.parent_id = new_path, slug, new_parent
+        if "name" in fields and body.name:
+            t.name = body.name
+        if "position" in fields and body.position is not None:
+            t.position = body.position
+        if "is_active" in fields and body.is_active is not None:
+            t.is_active = body.is_active
+        t.updated_at = utcnow()
+        r = await _repo(session)
+        await r.save_topic(t, old_path)
+        sub = {x.id for x in await r.subtree(t.path)}
+        return t, sum(1 for q in await r.all_questions() if q.primary_topic_id in sub)
     if new_path != old_path:
         if (await session.execute(select(Topic.id).where(Topic.path == new_path))).first():
             raise ProblemError(
@@ -296,7 +354,7 @@ async def _check_media(session: AsyncSession, qv: QuestionVersion, body: Questio
         (f"options.{i}.image_id", o.image_id) for i, o in enumerate(body.options) if o.image_id
     ]
     for field, mid in refs:
-        m = await session.get(QuestionMedia, mid)
+        m = await (await _repo(session)).get_media(mid) if _fs() else await session.get(QuestionMedia, mid)
         if (
             m is None
             or m.scan_status == "infected"
@@ -308,6 +366,18 @@ async def _check_media(session: AsyncSession, qv: QuestionVersion, body: Questio
 async def _write_content(
     session: AsyncSession, qv: QuestionVersion, qtype: str, body: QuestionContent
 ) -> None:
+    if _fs():
+        opts = await _apply_content(session, qv, qtype, body)
+        await (await _repo(session)).save_version(qv, opts)
+        return
+    await _apply_content(session, qv, qtype, body)
+
+
+async def _apply_content(
+    session: AsyncSession, qv: QuestionVersion, qtype: str, body: QuestionContent
+) -> list[QuestionOption]:
+    """Set the content columns of ``qv``. Postgres: also replace its option rows (flushes);
+    Firestore: return the new options (the caller writes version + options in one document)."""
     content, key = _content_dict(qtype, body)
     await _check_media(session, qv, body)
     if qtype == grading.CODING_TYPE:
@@ -339,18 +409,12 @@ async def _write_content(
     qv.default_negative = body.default_negative
     qv.expected_seconds = body.expected_seconds
     qv.content_hash = content_hash(qtype, content)
-    await session.flush()
-    existing = (
-        await session.execute(select(QuestionOption).where(QuestionOption.question_version_id == qv.id))
-    ).scalars()
-    for old in existing:
-        await session.delete(old)
-    await session.flush()
+    new_options: list[QuestionOption] = []
     for i, o in enumerate(_option_inputs(qtype, body)):
         obody = rich(o["html"]) or {"html": ""}
         if o.get("image_id"):
             obody["image"] = str(o["image_id"])
-        session.add(
+        new_options.append(
             QuestionOption(
                 id=uuid7(),
                 question_version_id=qv.id,
@@ -362,11 +426,24 @@ async def _write_content(
                 feedback=rich(o["feedback_html"]),
             )
         )
+    if _fs():
+        qv.updated_at = utcnow()
+        return new_options
     await session.flush()
+    existing = (
+        await session.execute(select(QuestionOption).where(QuestionOption.question_version_id == qv.id))
+    ).scalars()
+    for old in existing:
+        await session.delete(old)
+    await session.flush()
+    for opt in new_options:
+        session.add(opt)
+    await session.flush()
+    return new_options
 
 
 async def _validate_topic(session: AsyncSession, topic_id: uuid.UUID, field: str) -> Topic:
-    t = await session.get(Topic, topic_id)
+    t = await (await _repo(session)).get_topic(topic_id) if _fs() else await session.get(Topic, topic_id)
     if t is None:
         raise ProblemError(
             "validation_failed", errors=[{"field": field, "code": "not_found", "message": "unknown topic"}]
@@ -375,6 +452,19 @@ async def _validate_topic(session: AsyncSession, topic_id: uuid.UUID, field: str
 
 
 async def _write_tags(session: AsyncSession, q: Question, tags: list[TagIn]) -> None:
+    for t in await _build_tags(session, q, tags):
+        session.add(t)
+    await session.flush()
+
+
+async def _company_exists(session: AsyncSession, company_id: uuid.UUID) -> bool:
+    if _fs():
+        return await (await _repo(session)).get_company(company_id) is not None
+    return await session.get(Company, company_id) is not None
+
+
+async def _build_tags(session: AsyncSession, q: Question, tags: list[TagIn]) -> list[QuestionTag]:
+    out: list[QuestionTag] = []
     seen: set[tuple[str, str]] = set()
     for i, tag in enumerate(tags):
         if tag.tag_type == "topic":
@@ -386,7 +476,7 @@ async def _write_tags(session: AsyncSession, q: Question, tags: list[TagIn]) -> 
             await _validate_topic(session, tag.topic_id, f"tags.{i}.topic_id")
             ref = str(tag.topic_id)
         elif tag.tag_type == "company":
-            if tag.company_id is None or await session.get(Company, tag.company_id) is None:
+            if tag.company_id is None or not await _company_exists(session, tag.company_id):
                 raise ProblemError(
                     "validation_failed",
                     errors=[
@@ -404,7 +494,7 @@ async def _write_tags(session: AsyncSession, q: Question, tags: list[TagIn]) -> 
         if (tag.tag_type, ref) in seen:
             continue
         seen.add((tag.tag_type, ref))
-        session.add(
+        out.append(
             QuestionTag(
                 id=uuid7(),
                 question_id=q.id,
@@ -415,7 +505,7 @@ async def _write_tags(session: AsyncSession, q: Question, tags: list[TagIn]) -> 
                 tag_value=tag.value if tag.tag_type not in ("topic", "company") else None,
             )
         )
-    await session.flush()
+    return out
 
 
 UNCATEGORISED_SLUG = "uncategorised"
@@ -424,6 +514,33 @@ UNCATEGORISED_SLUG = "uncategorised"
 async def uncategorised_topic(session: AsyncSession) -> uuid.UUID:
     """The global "Uncategorised" subject (created on first use) for questions imported or
     authored in a bank without a taxonomy topic (polls, surveys, free-text subjects)."""
+    if _fs():
+        r = await _repo(session)
+        fid = await r.topic_id_by_path(UNCATEGORISED_SLUG)
+        if fid is not None:
+            return fid
+        now = utcnow()
+        ft = Topic(
+            id=uuid7(),
+            parent_id=None,
+            kind="subject",
+            slug=UNCATEGORISED_SLUG,
+            name="Uncategorised",
+            path=UNCATEGORISED_SLUG,
+            depth=0,
+            position=10_000,
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+        try:
+            await r.create_topic(ft)
+        except ProblemError:  # created concurrently
+            fid = await r.topic_id_by_path(UNCATEGORISED_SLUG)
+            if fid is None:
+                raise
+            return fid
+        return ft.id
     found = (
         await session.execute(select(Topic.id).where(Topic.path == UNCATEGORISED_SLUG))
     ).scalar_one_or_none()
@@ -453,6 +570,8 @@ async def create_question(
 ) -> tuple[Question, QuestionVersion]:
     topic_id = body.primary_topic_id or default_topic_id or await uncategorised_topic(session)
     await _validate_topic(session, topic_id, "primary_topic_id")
+    if _fs():
+        return await _fs_create_question(session, principal, body, topic_id)
     q = Question(
         id=uuid7(),
         organization_id=body.organization_id,
@@ -482,14 +601,85 @@ async def create_question(
     return q, qv
 
 
+def _new_version(q: Question, version_no: int, difficulty: int, author: uuid.UUID) -> QuestionVersion:
+    """A draft version with the Postgres column defaults filled in (Firestore path)."""
+    now = utcnow()
+    return QuestionVersion(
+        id=uuid7(),
+        question_id=q.id,
+        organization_id=q.organization_id,
+        version_no=version_no,
+        stem={},
+        difficulty=difficulty,
+        item_rating=1000,
+        default_marks=Decimal("1.00"),
+        default_negative=Decimal("0.00"),
+        settings={},
+        status="draft",
+        content_hash=b"\0" * 32,
+        authored_by=author,
+        edited_by=[],
+        created_at=now,
+        updated_at=now,
+    )
+
+
+async def _fs_create_question(
+    session: AsyncSession, principal: Principal, body: QuestionCreate, topic_id: uuid.UUID
+) -> tuple[Question, QuestionVersion]:
+    q, qv, opts, tags = await fs_build_question(session, principal, body, topic_id)
+    await (await _repo(session)).create_question(q, qv, opts, tags)
+    return q, qv
+
+
+async def fs_build_question(
+    session: AsyncSession, principal: Principal, body: QuestionCreate, topic_id: uuid.UUID
+) -> tuple[Question, QuestionVersion, list[QuestionOption], list[QuestionTag]]:
+    """Validate and build a new draft question in memory (Firestore path; nothing written)."""
+    now = utcnow()
+    q = Question(
+        id=uuid7(),
+        organization_id=body.organization_id,
+        question_type=body.question_type,
+        primary_topic_id=topic_id,
+        status="draft",
+        external_ref=body.external_ref,
+        created_by=principal.user_id,
+        created_at=now,
+        updated_at=now,
+    )
+    qv = _new_version(q, 1, body.difficulty, principal.user_id)
+    opts = await _apply_content(session, qv, q.question_type, body)
+    tags = await _build_tags(session, q, body.tags)
+    for t in tags:
+        t.created_at = now
+    return q, qv, opts, tags
+
+
 async def get_question(session: AsyncSession, question_id: uuid.UUID) -> Question:
+    if _fs():
+        fq = await (await _repo(session)).get_question(question_id)
+        if fq is None or fq.deleted_at is not None:
+            raise ProblemError("not_found")
+        return fq
     q = await session.get(Question, question_id)
     if q is None or q.deleted_at is not None:
         raise ProblemError("not_found")
     return q
 
 
+async def _save_version(session: AsyncSession, qv: QuestionVersion) -> None:
+    """Persist column changes of ``qv`` (Postgres: flush; Firestore: rewrite, options kept)."""
+    if _fs():
+        qv.updated_at = utcnow()
+        await (await _repo(session)).save_version(qv)
+        return
+    await session.flush()
+
+
 async def versions_of(session: AsyncSession, question_id: uuid.UUID) -> list[QuestionVersion]:
+    if _fs():
+        return [v for v, _ in await (await _repo(session)).versions_of([question_id])]
     return list(
         (
             await session.execute(
@@ -525,6 +715,8 @@ async def edit_question(
         # no longer review or publish this version.
         if principal.user_id != qv.authored_by and principal.user_id not in (qv.edited_by or []):
             qv.edited_by = [*(qv.edited_by or []), principal.user_id]
+    elif _fs():
+        qv = _new_version(q, latest.version_no + 1, body.difficulty, principal.user_id)
     else:
         qv = QuestionVersion(
             id=uuid7(),
@@ -549,9 +741,13 @@ async def submit_review(session: AsyncSession, question_id: uuid.UUID) -> Questi
     if qv.status != "draft":
         raise ProblemError("invalid_state_transition", detail="Only a draft can be submitted for review.")
     if q.question_type == grading.CODING_TYPE and qv.coding_problem_id is not None:
-        from app.modules.coding.models import CodingProblem
+        from app.modules.coding import public as coding_public
 
-        problem = await session.get(CodingProblem, qv.coding_problem_id)
+        # coding's store-neutral lookup (Postgres: the same ``session.get`` under RLS)
+        try:
+            problem = await coding_public.get_problem(session, qv.coding_problem_id)
+        except ProblemError:
+            problem = None
         if problem is None or problem.status != "published":
             raise ProblemError(
                 "invalid_state_transition",
@@ -566,7 +762,7 @@ async def submit_review(session: AsyncSession, question_id: uuid.UUID) -> Questi
             ],
         )
     qv.status = "in_review"
-    await session.flush()
+    await _save_version(session, qv)
     return qv
 
 
@@ -597,7 +793,7 @@ async def review(
         qv.status = "draft"
         qv.reviewed_by = None
     qv.review_comment = comment.strip() if comment and comment.strip() else None
-    await session.flush()
+    await _save_version(session, qv)
     return qv
 
 
@@ -615,6 +811,11 @@ async def publish(
             "sod_violation", detail="The publisher must be a different person from the author."
         )
     now = utcnow()
+    if _fs():
+        qv.status, qv.published_at, qv.updated_at = "published", now, now
+        q.current_version_id, q.status, q.updated_at = qv.id, "active", now
+        await (await _repo(session)).publish(q, qv)
+        return qv
     # Supersede the previously published version (attempts keep referencing it).
     await session.execute(
         update(QuestionVersion)
@@ -634,6 +835,17 @@ async def retire(session: AsyncSession, question_id: uuid.UUID, reason: str | No
     q = await get_question(session, question_id)
     if q.status != "active" or q.current_version_id is None:
         raise ProblemError("invalid_state_transition", detail="Only an active question can be retired.")
+    if _fs():
+        r = await _repo(session)
+        fcur = (await r.get_versions([q.current_version_id])).get(q.current_version_id)
+        fv = fcur[0] if fcur is not None and fcur[0].status == "published" else None
+        if fv is not None:
+            fv.status = "retired"
+        q.status = "retired"
+        q.retired_reason = reason.strip() if reason and reason.strip() else None
+        q.updated_at = utcnow()
+        await r.retire(q, fv)
+        return q
     cur = await session.get(QuestionVersion, q.current_version_id)
     if cur is not None and cur.status == "published":
         cur.status = "retired"
@@ -646,6 +858,11 @@ async def retire(session: AsyncSession, question_id: uuid.UUID, reason: str | No
 async def options_of(session: AsyncSession, qv_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[QuestionOption]]:
     out: dict[uuid.UUID, list[QuestionOption]] = defaultdict(list)
     if not qv_ids:
+        return out
+    if _fs():
+        for k, (_v, fopts) in (await (await _repo(session)).get_versions(qv_ids)).items():
+            if fopts:
+                out[k] = fopts
         return out
     rows = await session.execute(
         select(QuestionOption)
@@ -707,6 +924,16 @@ def version_out(qv: QuestionVersion, options: list[QuestionOption], *, include_k
 async def question_detail(session: AsyncSession, q: Question, *, include_keys: bool) -> dict[str, Any]:
     versions = await versions_of(session, q.id)
     opts = await options_of(session, [v.id for v in versions])
+    if _fs():
+        r = await _repo(session)
+        tags: Any = await r.tags_of([q.id])
+        banks: Any = await r.banks_of_question(q.id)
+    else:
+        tags, banks = await _pg_tags_banks(session, q)
+    return _detail(q, versions, opts, tags, banks, include_keys=include_keys)
+
+
+async def _pg_tags_banks(session: AsyncSession, q: Question) -> tuple[Any, Any]:
     tags = (await session.execute(select(QuestionTag).where(QuestionTag.question_id == q.id))).scalars()
     banks = (
         await session.execute(
@@ -716,6 +943,18 @@ async def question_detail(session: AsyncSession, q: Question, *, include_keys: b
             .order_by(QuestionBank.name)
         )
     ).all()
+    return tags, banks
+
+
+def _detail(
+    q: Question,
+    versions: list[QuestionVersion],
+    opts: dict[uuid.UUID, list[QuestionOption]],
+    tags: Any,
+    banks: Any,
+    *,
+    include_keys: bool,
+) -> dict[str, Any]:
     return {
         "banks": [{"id": str(b[0]), "name": b[1]} for b in banks],
         "question_id": str(q.id),
@@ -755,6 +994,21 @@ async def search_questions(
     version_status: str | None = None,
     text_query: str | None = None,
 ) -> list[dict[str, Any]]:
+    if _fs():
+        return await _fs_search(
+            session,
+            topic_id=topic_id,
+            difficulty=difficulty,
+            status=status,
+            company_id=company_id,
+            tag=tag,
+            author=author,
+            organization_ids=organization_ids,
+            limit=limit,
+            offset=offset,
+            version_status=version_status,
+            text_query=text_query,
+        )
     q = select(Question).where(Question.deleted_at.is_(None))
     if text_query:
         # Stem search on the latest version's text (markup stripped, LIKE wildcards literal).
@@ -828,6 +1082,10 @@ async def search_questions(
         )
         for ver in vrows.scalars():
             latest.setdefault(ver.question_id, ver)
+    return _search_rows(rows, latest)
+
+
+def _search_rows(rows: list[Question], latest: dict[uuid.UUID, QuestionVersion]) -> list[dict[str, Any]]:
     out = []
     for r in rows:
         v = latest.get(r.id)
@@ -854,12 +1112,91 @@ async def search_questions(
     return out
 
 
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+async def _fs_search(
+    session: AsyncSession,
+    *,
+    topic_id: uuid.UUID | None,
+    difficulty: int | None,
+    status: str | None,
+    company_id: uuid.UUID | None,
+    tag: str | None,
+    author: uuid.UUID | None,
+    organization_ids: list[uuid.UUID | None] | None,
+    limit: int,
+    offset: int,
+    version_status: str | None,
+    text_query: str | None,
+) -> list[dict[str, Any]]:
+    """``search_questions`` on Firestore: the same predicates evaluated in memory (plan §1.6:
+    the bank is a small corpus). ILIKE = case-insensitive substring of the markup-free stem."""
+    r = await _repo(session)
+    rows = await r.all_questions()
+    if topic_id is not None:
+        t = await get_topic(session, topic_id)
+        sub = {x.id for x in await r.subtree(t.path)}
+        rows = [x for x in rows if x.primary_topic_id in sub]
+    if status:
+        rows = [x for x in rows if x.status == status]
+    if author:
+        rows = [x for x in rows if x.created_by == author]
+    if company_id:
+        tagged = await r.question_ids_tagged(company_id=company_id)
+        rows = [x for x in rows if x.id in tagged]
+    if tag:
+        tagged = await r.question_ids_tagged(value=tag)
+        rows = [x for x in rows if x.id in tagged]
+    if organization_ids is not None:
+        allowed = set(organization_ids)
+        rows = [x for x in rows if x.organization_id in allowed]
+    versions = await r.versions_of([x.id for x in rows]) if rows else []
+    by_q: dict[uuid.UUID, list[QuestionVersion]] = defaultdict(list)
+    for v, _o in versions:
+        by_q[v.question_id].append(v)  # version_no descending
+    if difficulty is not None:
+        rows = [x for x in rows if any(v.difficulty == difficulty for v in by_q.get(x.id, []))]
+
+    def newest(x: Question) -> QuestionVersion | None:
+        vs = by_q.get(x.id)
+        return vs[0] if vs else None
+
+    def stem_text(v: QuestionVersion) -> str:
+        return _TAG_RE.sub("", str((v.stem or {}).get("html") or "")).lower()
+
+    if text_query:
+        needle = text_query.lower()
+        rows = [x for x in rows if (nv := newest(x)) is not None and needle in stem_text(nv)]
+    if version_status:
+
+        def ok(v: QuestionVersion | None) -> bool:
+            if v is None:
+                return False
+            if version_status == "awaiting_review":
+                return v.status == "in_review" and v.reviewed_by is None
+            if version_status == "approved":
+                return v.status == "in_review" and v.reviewed_by is not None
+            return v.status == version_status
+
+        rows = [x for x in rows if ok(newest(x))]
+    rows.sort(key=lambda x: x.created_at, reverse=True)
+    rows = rows[offset : offset + limit]
+    latest = {x.id: nv for x in rows if (nv := newest(x)) is not None}
+    return _search_rows(rows, latest)
+
+
 # --------------------------------------------------------------------------- delivery
 
 
 async def load_bundles(session: AsyncSession, qv_ids: list[uuid.UUID]) -> dict[uuid.UUID, Bundle]:
     if not qv_ids:
         return {}
+    if _fs():
+        r = await _repo(session)
+        vs = await r.get_versions(qv_ids)
+        qs = await r.get_questions({v.question_id for v, _o in vs.values()})
+        return {k: Bundle(qs[v.question_id], v, tuple(o)) for k, (v, o) in vs.items() if v.question_id in qs}
     rows = await session.execute(
         select(QuestionVersion, Question)
         .join(Question, Question.id == QuestionVersion.question_id)
@@ -882,6 +1219,11 @@ async def load_answer_shapes(session: AsyncSession, qv_ids: list[uuid.UUID]) -> 
     """One light query for the autosave hot path (instead of ``load_bundles``' full rows)."""
     if not qv_ids:
         return {}
+    if _fs():
+        return {
+            k: AnswerShape(b.qtype, frozenset(b.option_ids), b.version.coding_problem_id)
+            for k, b in (await load_bundles(session, list(set(qv_ids)))).items()
+        }
     rows = await session.execute(
         select(
             QuestionVersion.id,
@@ -972,6 +1314,8 @@ async def published_pool(
 ) -> list[uuid.UUID]:
     """Current published versions of active questions in the topic subtree (visible bank)."""
     t = await get_topic(session, topic_id)
+    if _fs():
+        return await _fs_pool(session, t, difficulty_min, difficulty_max, question_types, company_id)
     q = (
         select(QuestionVersion.id)
         .join(Question, Question.current_version_id == QuestionVersion.id)
@@ -1001,6 +1345,40 @@ async def published_pool(
     return list((await session.execute(q.order_by(QuestionVersion.id))).scalars())
 
 
+async def _fs_pool(
+    session: AsyncSession,
+    t: Topic,
+    difficulty_min: int | None,
+    difficulty_max: int | None,
+    question_types: list[str] | None,
+    company_id: uuid.UUID | None,
+) -> list[uuid.UUID]:
+    r = await _repo(session)
+    sub = {x.id for x in await r.subtree(t.path)}
+    types = set(grading.OBJECTIVE_TYPES)
+    if question_types:
+        types &= set(question_types)
+    cands = [
+        x
+        for x in await r.all_questions()
+        if x.status == "active"
+        and x.primary_topic_id in sub
+        and x.question_type in types
+        and x.current_version_id is not None
+    ]
+    if company_id is not None:
+        tagged = await r.question_ids_tagged(company_id=company_id)
+        cands = [x for x in cands if x.id in tagged]
+    vs = await r.get_versions([x.current_version_id for x in cands])
+    return sorted(
+        k
+        for k, (v, _o) in vs.items()
+        if v.status == "published"
+        and (difficulty_min is None or v.difficulty >= difficulty_min)
+        and (difficulty_max is None or v.difficulty <= difficulty_max)
+    )
+
+
 # --------------------------------------------------------------------------- companies & paths
 
 
@@ -1016,6 +1394,19 @@ def company_out(c: Company) -> dict[str, Any]:
 
 
 async def create_company(session: AsyncSession, body: CompanyCreate) -> Company:
+    if _fs():
+        now = utcnow()
+        fc = Company(
+            id=uuid7(),
+            slug=body.slug,
+            name=body.name,
+            industry=body.industry,
+            description_md=body.description_md,
+            hub_status=body.hub_status,
+            created_at=now,
+            updated_at=now,
+        )
+        return await (await _repo(session)).create_company(fc)
     if (await session.execute(select(Company.id).where(Company.slug == body.slug))).first():
         raise ProblemError("invalid_state_transition", detail="A company with this slug already exists.")
     c = Company(
@@ -1032,6 +1423,8 @@ async def create_company(session: AsyncSession, body: CompanyCreate) -> Company:
 
 
 async def path_steps(session: AsyncSession, path_id: uuid.UUID) -> list[CompanyPathStep]:
+    if _fs():
+        return (await (await _repo(session)).path_steps([path_id]))[path_id]
     return list(
         (
             await session.execute(
@@ -1070,6 +1463,14 @@ def path_out(p: CompanyPath, steps: list[CompanyPathStep]) -> dict[str, Any]:
 
 
 async def list_companies(session: AsyncSession) -> list[dict[str, Any]]:
+    if _fs():
+        r = await _repo(session)
+        fps = await r.paths()
+        steps = await r.path_steps([p.id for p in fps])
+        grouped: dict[uuid.UUID, list[dict[str, Any]]] = defaultdict(list)
+        for p in fps:
+            grouped[p.company_id].append(path_out(p, steps.get(p.id, [])))
+        return [{**company_out(c), "paths": grouped.get(c.id, [])} for c in await r.companies()]
     companies = list((await session.execute(select(Company).order_by(Company.name))).scalars())
     paths = list((await session.execute(select(CompanyPath).order_by(CompanyPath.role_name))).scalars())
     by_company: dict[uuid.UUID, list[dict[str, Any]]] = defaultdict(list)
@@ -1081,7 +1482,7 @@ async def list_companies(session: AsyncSession) -> list[dict[str, Any]]:
 async def put_company_path(
     session: AsyncSession, principal: Principal, path_id: uuid.UUID, body: CompanyPathPut
 ) -> CompanyPath:
-    if await session.get(Company, body.company_id) is None:
+    if not await _company_exists(session, body.company_id):
         raise ProblemError(
             "validation_failed",
             errors=[{"field": "company_id", "code": "not_found", "message": "unknown company"}],
@@ -1091,17 +1492,14 @@ async def put_company_path(
     for i, st in enumerate(body.steps):
         if st.topic_id is not None:
             await _validate_topic(session, st.topic_id, f"steps.{i}.topic_id")
-        if (
-            st.test_id is not None
-            and not (
-                await session.execute(text("SELECT 1 FROM tests WHERE id = :id"), {"id": st.test_id})
-            ).first()
-        ):
+        if st.test_id is not None and not await _test_exists(session, st.test_id):
             raise ProblemError(
                 "validation_failed",
                 errors=[{"field": f"steps.{i}.test_id", "code": "not_found", "message": "unknown test"}],
             )
     pattern = [s.model_dump(mode="json") for s in body.pattern]
+    if _fs():
+        return await _fs_put_company_path(session, principal, path_id, body, pattern)
     p = await session.get(CompanyPath, path_id)
     now = utcnow()
     if p is None:
@@ -1157,3 +1555,61 @@ async def put_company_path(
         )
     await session.flush()
     return p
+
+
+async def _test_exists(session: AsyncSession, test_id: uuid.UUID) -> bool:
+    from app.modules.assessments import public as assessments_public
+
+    return await assessments_public.test_exists(session, test_id)
+
+
+async def _fs_put_company_path(
+    session: AsyncSession, principal: Principal, path_id: uuid.UUID, body: CompanyPathPut, pattern: list[Any]
+) -> CompanyPath:
+    r = await _repo(session)
+    p = await r.get_path(path_id)
+    now = utcnow()
+    new = p is None
+    if p is None:
+        p = CompanyPath(
+            id=path_id,
+            company_id=body.company_id,
+            organization_id=body.organization_id,
+            role_name=body.role_name,
+            version_no=1,  # max + 1 inside the repository transaction
+            pattern=pattern,
+            status=body.status,
+            published_at=now if body.status == "published" else None,
+            created_by=principal.user_id,
+            created_at=now,
+            updated_at=now,
+        )
+    else:
+        if p.organization_id != body.organization_id or p.company_id != body.company_id:
+            raise ProblemError(
+                "invalid_state_transition", detail="Owner and company of a path cannot change."
+            )
+        if p.role_name != body.role_name:
+            raise ProblemError("invalid_state_transition", detail="Create a new path for a different role.")
+        p.version_no += 1
+        p.pattern = pattern
+        if body.status == "published" and p.status != "published":
+            p.published_at = now
+        p.status = body.status
+        p.updated_at = now
+    steps = [
+        CompanyPathStep(
+            id=uuid7(),
+            company_path_id=p.id,
+            organization_id=p.organization_id,
+            position=i + 1,
+            step_type=st.step_type,
+            lesson_key=st.lesson_key,
+            test_id=st.test_id,
+            topic_id=st.topic_id,
+            title=st.title,
+            is_required=st.is_required,
+        )
+        for i, st in enumerate(body.steps)
+    ]
+    return await r.put_path(p, steps, new=new)

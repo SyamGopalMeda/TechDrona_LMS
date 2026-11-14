@@ -27,8 +27,9 @@ const l3Status = {
   level: 3,
   family: "sharing",
   scope: "learning_access",
-  starts_at: "2026-11-03T04:45:00.000Z",
-  until: "2026-11-04T04:45:00.000Z",
+  // Far future: an L3 whose end has passed renders different copy (see "pause period ended").
+  starts_at: "2099-11-03T04:45:00.000Z",
+  until: "2099-11-04T04:45:00.000Z",
   case_ref: "SEC-2611-7KQ4MZ",
   reasons: [{ explanation_key: "sh01.overlap_two_devices", text: "Video and tests were used at the same time on 2 devices on 4 different days." }],
   available_actions: ["request_review", "manage_devices", "contact_support"],
@@ -88,6 +89,78 @@ describe("RestrictedStatus (PUB-021 / L3 / L4)", () => {
       const done = api.calls.find((c) => c.path === "auth/reverify/complete")!;
       expect(done.body).toEqual({ otp_code: "582014" });
       expect(done.headers["idempotency-key"]).toBeTruthy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not claim 'paused until <past date>' once the L3 end has passed (still enforced until re-verified)", async () => {
+    restore = mockApi({
+      "GET me/security/status": { body: { ...l3Status, starts_at: "2026-01-01T04:45:00.000Z", until: "2026-01-02T04:45:00.000Z", available_actions: ["reverify", "request_review", "manage_devices", "contact_support"] } },
+    }).restore;
+    renderWithProviders(<RestrictedStatus />);
+    expect(await screen.findByRole("heading", { name: "Learning access is still paused" })).toBeInTheDocument();
+    expect(screen.getByText(/The pause period ended on .*Confirm it.s you above to get your access back\./)).toBeInTheDocument();
+  });
+
+  it("offers SMS only with a verified mobile and sends the reviewed device list", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    const api = mockApi({
+      "GET me/security/status": { body: { ...l3Status, lift_pending: true, available_actions: ["reverify", "request_review", "manage_devices", "contact_support"] } },
+      "GET me": { body: me },
+      "GET me/devices": { body: { data: [{ ...devices.data[0], is_current: true }, devices.data[1]] } },
+      "POST auth/reverify/start": { body: { sent_to: "an****@example.com", expires_in_seconds: 300 } },
+      "POST auth/reverify/complete": { body: { result: "reverified", restriction_ended: true, sessions_revoked: 1, next: "login" } },
+    });
+    restore = api.restore;
+    try {
+      renderWithProviders(<RestrictedStatus />);
+      await userEvent.click(await screen.findByRole("button", { name: "Email me a code" }));
+      // me.user.mobile_verified is false: no SMS option.
+      expect(screen.queryByRole("button", { name: "Text me a code" })).not.toBeInTheDocument();
+      await userEvent.type(await screen.findByLabelText(/6-digit code/), "582014");
+      expect(await screen.findByRole("checkbox", { name: "Chrome on Windows (this device)" })).toBeChecked();
+      const other = screen.getByRole("checkbox", { name: "Android · Redmi 12" });
+      expect(other).not.toBeChecked();
+      await userEvent.click(screen.getByRole("button", { name: "Confirm and restore access" }));
+      await waitFor(() => expect(assign).toHaveBeenCalledWith("/login?reason=reverified"));
+      expect(api.calls.find((c) => c.path === "auth/reverify/complete")!.body).toEqual({
+        otp_code: "582014",
+        devices: [
+          { user_device_id: "d1", keep: true },
+          { user_device_id: "d2", keep: false },
+        ],
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("asks for a new password when re-verification requires one (422 password_reset_required)", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    let n = 0;
+    const api = mockApi({
+      "GET me/security/status": { body: { ...l3Status, lift_pending: true, available_actions: ["reverify", "request_review", "manage_devices", "contact_support"] } },
+      "POST auth/reverify/start": { body: { sent_to: "an****@example.com", expires_in_seconds: 300 } },
+      "POST auth/reverify/complete": () =>
+        ++n === 1
+          ? problem(422, "validation_failed", "Some fields need attention", { errors: [{ field: "new_password", code: "password_reset_required", message: "Choose a new password" }] })
+          : { body: { result: "reverified", restriction_ended: true, sessions_revoked: 1, next: "login" } },
+    });
+    restore = api.restore;
+    try {
+      renderWithProviders(<RestrictedStatus />);
+      await userEvent.click(await screen.findByRole("button", { name: "Email me a code" }));
+      await userEvent.type(await screen.findByLabelText(/6-digit code/), "582014");
+      await userEvent.click(screen.getByRole("button", { name: "Confirm and restore access" }));
+      expect(await screen.findByText(/needs a new password before access returns/)).toBeInTheDocument();
+      await userEvent.type(screen.getByLabelText(/New password/), "a-much-longer-passphrase");
+      await userEvent.click(screen.getByRole("button", { name: "Confirm and restore access" }));
+      await waitFor(() => expect(assign).toHaveBeenCalledWith("/login?reason=reverified"));
+      const calls = api.calls.filter((c) => c.path === "auth/reverify/complete");
+      expect(calls[1]!.body).toEqual({ otp_code: "582014", new_password: "a-much-longer-passphrase" });
     } finally {
       vi.unstubAllGlobals();
     }

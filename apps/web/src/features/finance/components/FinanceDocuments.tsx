@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Badge, Button, Card, FormField, Input, Table, useToast, type BadgeTone, type Column } from "@/components/ui";
+import { StatusBadge, Button, Card, FormField, Input, Table, useToast, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { DownloadButton } from "@/features/commerce/components/DownloadButton";
 import { InlineProblem, TextArea } from "@/features/admin/components/console-ui";
-import { formatDate, formatDateTime, humanize, useCursorList } from "@/features/admin/lib/console";
+import { formatDate, formatDateTime, humanize, personLabel, useCursorList } from "@/features/admin/lib/console";
 import { GST_EXPORT_APPROVAL_ROWS, GST_EXPORT_MAX_DAYS, type GstExport, type GstExportBody, type InvoiceRow } from "../lib/types";
 
 /** Per-row invoice / credit-note PDF (fresh signed URL per click). */
@@ -15,17 +15,17 @@ export function InvoicePdfButton({ invoice }: { invoice: Pick<InvoiceRow, "invoi
 
 /* --------------------------------------------------------- GST register export */
 
-const GST_STATUS: Record<string, { tone: BadgeTone; label: string }> = {
-  ready: { tone: "success", label: "Ready" },
-  awaiting_approval: { tone: "warning", label: "Awaiting approval" },
-  rejected: { tone: "danger", label: "Rejected" },
-  expired: { tone: "neutral", label: "Expired" },
-  failed: { tone: "danger", label: "Failed" },
+/* Export-specific wording; tones come from the kit status vocabulary. */
+const GST_LABEL: Record<string, string> = {
+  ready: "Ready",
+  awaiting_approval: "Awaiting approval",
+  rejected: "Rejected",
+  expired: "Expired",
+  failed: "Failed",
 };
 
 function GstStatusBadge({ status }: { status: string }) {
-  const s = GST_STATUS[status];
-  return <Badge tone={s?.tone ?? "neutral"}>{s?.label ?? humanize(status)}</Badge>;
+  return <StatusBadge status={status} label={GST_LABEL[status] ?? humanize(status)} />;
 }
 
 const DAY_MS = 86_400_000;
@@ -93,7 +93,7 @@ export function GstExports() {
       ),
     },
     { key: "rows", header: "Rows", align: "right", cell: (x) => (typeof x.row_count === "number" ? x.row_count.toLocaleString("en-IN") : "—") },
-    { key: "by", header: "Requested by", cell: (x) => <span className="font-mono text-xs">{x.requested_by}</span> },
+    { key: "by", header: "Requested by", cell: (x) => <span title={x.requested_by}>{personLabel({ id: x.requested_by })}</span> },
     { key: "at", header: "Requested", cell: (x) => formatDateTime(x.created_at) },
     { key: "done", header: "Completed", cell: (x) => formatDateTime(x.completed_at) },
     {
@@ -145,7 +145,7 @@ export function GstExports() {
           </Button>
         </div>
       </form>
-      <Table caption="GST register exports" columns={cols} rows={list.rows} rowKey={(x) => x.gst_export_id} loading={list.loading} error={list.error} onRetry={() => void list.reload()} empty={{ title: "No GST exports yet" }} />
+      <Table caption="GST register exports" columns={cols} rows={list.rows} rowKey={(x) => x.gst_export_id} loading={list.loading} error={list.error} onRetry={() => void list.reload()} empty={{ title: "No GST exports yet", description: "Choose a period above and request an export.", icon: "document" }} />
     </Card>
   );
 }

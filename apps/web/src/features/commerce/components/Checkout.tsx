@@ -2,11 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Button, Card, EmptyState, ErrorState, FormField, Input, PageHeader, Select, fieldErrors } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorState, FormField, Input, PageHeader, Select, fieldErrors, buttonClasses } from "@/components/ui";
+import { PLANS_HREF } from "@/lib/site/website";
 import { api } from "@/lib/api/client";
 import { isApiError } from "@/lib/api/errors";
 import { formatDate, formatMoney } from "@/features/catalog/lib/format";
 import { NOTICE_VERSION } from "@/features/auth/lib/consents";
+import type { Paged, PlanDto, PriceDto, ProductDto } from "@/features/catalog/lib/types";
+import { useResource } from "@/features/learning/lib/use-resource";
 import type { PayableOrder } from "../lib/payment-provider";
 import { GST_STATES, GSTIN_PATTERN } from "../lib/states";
 import type { OrderBody, OrderDto, OwnershipNotice, QuoteBody, QuoteDto, SubscriptionBody, SubscriptionCheckoutDto } from "../lib/types";
@@ -72,6 +75,47 @@ function QuoteSummary({ quote }: { quote: QuoteDto }) {
   );
 }
 
+export interface CheckoutItem {
+  productName: string;
+  plan: PlanDto;
+  price: PriceDto;
+}
+
+/** The product/plan/price behind `price_id` in the public catalogue (COM-01), if it is listed there. */
+export function checkoutItem(products: ProductDto[] | undefined, priceId: string | null): CheckoutItem | null {
+  if (!products || !priceId) return null;
+  for (const product of products) {
+    for (const plan of product.plans) {
+      const price = plan.prices.find((p) => p.price_id === priceId);
+      if (price) return { productName: product.name, plan, price };
+    }
+  }
+  return null;
+}
+
+/** "per month", "every 3 months", "for 180 days" or "one-time payment". */
+export function cadenceLabel(plan: PlanDto): string {
+  if (plan.billing_type === "recurring") {
+    const unit = plan.interval_unit === "year" ? "year" : "month";
+    return plan.interval_count && plan.interval_count > 1 ? `every ${plan.interval_count} ${unit}s` : `per ${unit}`;
+  }
+  return plan.access_duration_days ? `one-time payment · ${plan.access_duration_days} days of access` : "one-time payment";
+}
+
+/** What is being bought, shown before any billing detail is entered (UI audit: checkout). */
+function BuyingSummary({ item }: { item: CheckoutItem }) {
+  return (
+    <div className="mb-4 rounded-lg bg-brand-subtle p-3">
+      <p className="text-[0.8125rem] font-semibold text-fg-secondary">You&apos;re buying</p>
+      <p className="font-display text-base font-bold text-fg-heading">{item.productName}</p>
+      <p className="mt-1 text-sm text-fg-secondary">
+        <span className="font-display text-xl font-extrabold tabular-nums text-fg-heading">{formatMoney(item.price.amount_paise)}</span> {cadenceLabel(item.plan)}
+        {item.price.tax_inclusive ? " · includes GST" : ""}
+      </p>
+    </div>
+  );
+}
+
 /** Same-document URL change; Next.js syncs `history.replaceState` with its router. */
 function replaceUrl(href: string) {
   try {
@@ -122,6 +166,9 @@ export function Checkout({ priceId, returnTo }: { priceId: string | null; return
   const [localErrors, setLocalErrors] = useState<Record<string, string>>({});
   const [order, setOrder] = useState<OrderDto | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionCheckoutDto | null>(null);
+  // Public catalogue: names the product and price up front. A failure here only hides that block.
+  const catalogue = useResource<Paged<ProductDto>>(priceId ? "commerce/products" : null);
+  const item = checkoutItem(catalogue.data?.data, priceId);
 
   const requestQuote = useCallback(async () => {
     if (!priceId || !stateCode) return;
@@ -150,11 +197,15 @@ export function Checkout({ priceId, returnTo }: { priceId: string | null; return
 
   if (!priceId) {
     return (
-      <EmptyState
-        title="Choose a plan first"
-        description="Pick a course access option or a plan, then come back to checkout."
-        action={<Link href="/pricing" className="font-medium text-fg-link">See plans</Link>}
-      />
+      <div>
+        <PageHeader title="Checkout" />
+        <EmptyState
+          icon="card"
+          title="Choose a plan first"
+          description="Pick a course access option or a plan, then come back to checkout."
+          action={<a href={PLANS_HREF} className={buttonClasses()}>See plans</a>}
+        />
+      </div>
     );
   }
 
@@ -248,9 +299,50 @@ export function Checkout({ priceId, returnTo }: { priceId: string | null; return
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Checkout" description="The total below is the final price, including GST." />
-      <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
-        <Card title="Billing details">
+      <PageHeader
+        title="Checkout"
+        description="The total in the order summary is the final price, including GST."
+        back={returnTo ? { href: returnTo, label: "Back" } : undefined}
+      />
+      {/* The summary comes first in reading order (phones see what they're buying before the form);
+          from lg it sits in the right column. */}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <aside aria-label="Order summary" className="lg:col-start-2 lg:row-start-1">
+          <Card title="Order summary">
+            {item ? <BuyingSummary item={item} /> : null}
+            {recurring ? (
+              <p className="text-sm text-fg-secondary">
+                This plan renews automatically. The amount per renewal, including GST, is shown in the payment window, and you can cancel any time from Billing.
+              </p>
+            ) : !stateCode ? (
+              <p className="text-sm text-fg-muted">Choose your state to see the GST breakdown and total.</p>
+            ) : quoting && !quote ? (
+              <p role="status" className="text-sm text-fg-muted">
+                Calculating…
+              </p>
+            ) : quoteError ? (
+              <ErrorState error={quoteError} onRetry={() => void requestQuote()} />
+            ) : quote ? (
+              <div className="space-y-3" aria-busy={quoting || undefined}>
+                <QuoteSummary quote={quote} />
+                {quote.access_ends_at ? <p className="text-xs text-fg-muted">Access until {formatDate(quote.access_ends_at)}.</p> : null}
+                {quote.warnings.map((w, i) => (
+                  <p key={`${w.code}-${i}`} className="rounded-md border border-info-border bg-info-subtle p-2 text-xs text-info-fg">
+                    {warningMessage(w)}
+                  </p>
+                ))}
+                {blocking.map((b, i) => (
+                  <p key={i} role="alert" className="rounded-md border border-warning-border bg-warning-subtle p-2 text-xs text-warning-fg">
+                    {blockingMessage(b)}
+                  </p>
+                ))}
+                {quote.refund_rule ? <p className="text-xs text-fg-muted">{quote.refund_rule}</p> : null}
+              </div>
+            ) : null}
+          </Card>
+        </aside>
+
+        <Card title="Billing details" className="lg:col-start-1 lg:row-start-1">
           {subscription ? (
             <SubscriptionPaymentStep subscription={subscription} />
           ) : order && order.checkout ? (
@@ -300,7 +392,7 @@ export function Checkout({ priceId, returnTo }: { priceId: string | null; return
                   {COUPON_COPY[quote.coupon.status] ?? "This coupon can't be used."}
                 </p>
               ) : null}
-              <Button type="submit" size="lg" loading={ordering} disabled={recurring ? !stateCode : !quote || quoting || blocking.length > 0}>
+              <Button type="submit" size="lg" className="w-full sm:w-auto" loading={ordering} disabled={recurring ? !stateCode : !quote || quoting || blocking.length > 0}>
                 {recurring ? "Continue to autopay set-up" : "Continue to payment"}
               </Button>
               {grant ? (
@@ -324,47 +416,6 @@ export function Checkout({ priceId, returnTo }: { priceId: string | null; return
             </form>
           )}
         </Card>
-
-        <aside aria-label="Order summary">
-          <Card title="Order summary">
-            {recurring ? (
-              <p className="text-sm text-fg-secondary">
-                This plan renews automatically. The amount per renewal, including GST, is shown in the payment window, and you can cancel any time from Billing.
-              </p>
-            ) : !stateCode ? (
-              <p className="text-sm text-fg-muted">Choose your state to see the GST breakdown and total.</p>
-            ) : quoting && !quote ? (
-              <p role="status" className="text-sm text-fg-muted">
-                Calculating…
-              </p>
-            ) : quoteError ? (
-              <ErrorState error={quoteError} onRetry={() => void requestQuote()} />
-            ) : quote ? (
-              <div className="space-y-3" aria-busy={quoting || undefined}>
-                <QuoteSummary quote={quote} />
-                {quote.access_ends_at ? <p className="text-xs text-fg-muted">Access until {formatDate(quote.access_ends_at)}.</p> : null}
-                {quote.warnings.map((w, i) => (
-                  <p key={`${w.code}-${i}`} className="rounded-md border border-info-border bg-info-subtle p-2 text-xs text-info-fg">
-                    {warningMessage(w)}
-                  </p>
-                ))}
-                {blocking.map((b, i) => (
-                  <p key={i} role="alert" className="rounded-md border border-warning-border bg-warning-subtle p-2 text-xs text-warning-fg">
-                    {blockingMessage(b)}
-                  </p>
-                ))}
-                {quote.refund_rule ? <p className="text-xs text-fg-muted">{quote.refund_rule}</p> : null}
-              </div>
-            ) : null}
-          </Card>
-          {returnTo ? (
-            <p className="mt-3 text-sm">
-              <Link href={returnTo} className="text-fg-link">
-                ← Back
-              </Link>
-            </p>
-          ) : null}
-        </aside>
       </div>
     </div>
   );

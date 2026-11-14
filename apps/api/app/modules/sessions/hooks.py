@@ -97,7 +97,7 @@ async def missing_consents(session: AsyncSession, user_id: uuid.UUID) -> tuple[l
         return await _consent_requirement(session, user_id)
     from app.modules.identity.service import current_consents
 
-    state = await current_consents(session, user_id)
+    state = await current_consents(session, user_id, REQUIRED_PURPOSES)  # only these rows are read
     missing = [p for p in REQUIRED_PURPOSES if state.get(p, {}).get("state") != "granted"]
     return (missing, "current") if missing else None
 

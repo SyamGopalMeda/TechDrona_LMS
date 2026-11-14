@@ -4,6 +4,11 @@ Modules register ``ApprovalHandler``s at import time. ADM-14 re-verifies the pay
 enforces approver ≠ requester (``sod_violation``), the approver permission and approver role
 for that action type, and runs ``execute`` in the same transaction (status ``executed``).
 ``security.case.decision`` is decided through SEC-10/11 instead (never ADM-14).
+
+Store-neutral (``TD_STORE_RBAC``): rows are read and decided through ``rbac.public``. On
+Firestore the pending -> decided claim is a transaction only the first request wins, and a
+failing executor / reject hook undoes the claim (back to ``pending``), the state a Postgres
+rollback leaves.
 """
 
 from __future__ import annotations
@@ -14,7 +19,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import audit
@@ -23,8 +27,9 @@ from app.core.errors import ProblemError
 from app.core.principal import Principal
 from app.core.time import to_rfc3339
 from app.modules.identity import clock
+from app.modules.rbac import public as rbac_public
 from app.modules.rbac import service as rs
-from app.modules.rbac.models import ApprovalRequest
+from app.modules.rbac.public import ApprovalRequest
 
 Executor = Callable[[AsyncSession, Principal, ApprovalRequest], Awaitable[dict[str, Any]]]
 Hook = Callable[[AsyncSession, Principal, ApprovalRequest], Awaitable[None]]
@@ -50,6 +55,10 @@ async def new_request(session: AsyncSession, principal: Principal, **kw: Any) ->
     req = await rs.create_approval_request(session, principal, **kw)
     req.created_at = clock.now()
     req.expires_at = clock.now() + APPROVAL_TTL
+    if rbac_public._fs():
+        from app.modules.rbac.repo_firestore import system_repo
+
+        return await system_repo().save_approval(req)
     await session.flush()
     return req
 
@@ -107,11 +116,7 @@ async def can_approve(
 
 
 async def load_for_update(session: AsyncSession, approval_id: uuid.UUID) -> ApprovalRequest:
-    req = (
-        await session.execute(
-            select(ApprovalRequest).where(ApprovalRequest.id == approval_id).with_for_update()
-        )
-    ).scalar_one_or_none()
+    req = await rbac_public.get_approval(session, approval_id, for_update=True)
     if req is None:
         raise ProblemError("not_found")
     return req
@@ -130,11 +135,7 @@ def ensure_pending(req: ApprovalRequest) -> None:
 async def expire_if_due(session: AsyncSession, req: ApprovalRequest) -> bool:
     """Mark a pending, past-due request ``expired`` and flush. The caller then returns a 409
     without raising so the status change commits (ADM-23)."""
-    if req.status == "pending" and req.expires_at <= clock.now():
-        req.status = "expired"
-        await session.flush()
-        return True
-    return False
+    return await rbac_public.expire_if_due(session, req)
 
 
 def expired_body(req: ApprovalRequest) -> dict[str, Any]:
@@ -151,7 +152,8 @@ async def decide(
     if await expire_if_due(session, req):
         return expired_body(req)
     ensure_pending(req)
-    if req.requested_by == principal.user_id:
+    if req.requested_by == principal.user_id and not await rs.is_sole_admin(session, principal.user_id):
+        # a sole Admin may decide their own request (owner decision 2026-11-11, rs.is_sole_admin)
         raise ProblemError("sod_violation", rule="SoD-05", detail="You cannot decide your own request.")
     if not await can_approve(session, principal, req):
         raise ProblemError("permission_denied", permission=h.approver_permission)
@@ -159,40 +161,38 @@ async def decide(
         await h.check(session, principal, req)
     if rs.payload_hash(req.payload) != req.payload_hash:
         raise ProblemError("invalid_state_transition", current_state="payload_tampered", allowed=[])
-    now = clock.now()
-    req.decided_by = principal.user_id
-    req.decided_at = now
-    req.decision_note = note
-    if not approve:
-        req.status = "rejected"
-        await session.flush()
-        if h.on_reject is not None:
-            await h.on_reject(session, principal, req)
+    async with rbac_public.decision(
+        session,
+        req,
+        status="approved" if approve else "rejected",
+        decided_by=principal.user_id,
+        note=note,
+        sole_admin=req.requested_by == principal.user_id,  # sole Admin only (rbac_0006)
+    ):
+        if not approve:
+            if h.on_reject is not None:
+                await h.on_reject(session, principal, req)
+            await audit(
+                session,
+                principal,
+                "approval.rejected",
+                "approval_request",
+                req.id,
+                reason=note,
+                after={"action_type": req.action_type},
+            )
+            return {"approval_request_id": str(req.id), "status": "rejected"}
+        result = await h.execute(session, principal, req)
+        await rbac_public.mark_executed(session, req)
         await audit(
             session,
             principal,
-            "approval.rejected",
+            "approval.executed",
             "approval_request",
             req.id,
             reason=note,
-            after={"action_type": req.action_type},
+            after={"action_type": req.action_type, **{k: v for k, v in result.items() if k != "rows"}},
         )
-        return {"approval_request_id": str(req.id), "status": "rejected"}
-    req.status = "approved"
-    await session.flush()
-    result = await h.execute(session, principal, req)
-    req.status = "executed"
-    req.executed_at = clock.now()
-    await session.flush()
-    await audit(
-        session,
-        principal,
-        "approval.executed",
-        "approval_request",
-        req.id,
-        reason=note,
-        after={"action_type": req.action_type, **{k: v for k, v in result.items() if k != "rows"}},
-    )
     return {"approval_request_id": str(req.id), "status": "executed", "result": result}
 
 
@@ -203,17 +203,17 @@ async def cancel(session: AsyncSession, principal: Principal, approval_id: uuid.
     if await expire_if_due(session, req):
         return expired_body(req)
     ensure_pending(req)
-    req.status = "cancelled"
-    await session.flush()
-    h = _HANDLERS.get(req.action_type)
-    if h is not None and h.on_reject is not None:
-        await h.on_reject(session, principal, req)
-    await audit(
-        session,
-        principal,
-        "approval.cancelled",
-        "approval_request",
-        req.id,
-        after={"action_type": req.action_type},
-    )
+    # decided_by stays NULL for a cancellation (as before); the claim still guards single use
+    async with rbac_public.decision(session, req, status="cancelled", decided_by=None) as req:
+        h = _HANDLERS.get(req.action_type)
+        if h is not None and h.on_reject is not None:
+            await h.on_reject(session, principal, req)
+        await audit(
+            session,
+            principal,
+            "approval.cancelled",
+            "approval_request",
+            req.id,
+            after={"action_type": req.action_type},
+        )
     return {"approval_request_id": str(req.id), "status": "cancelled"}

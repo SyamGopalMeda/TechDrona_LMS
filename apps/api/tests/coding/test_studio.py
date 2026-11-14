@@ -154,3 +154,4 @@ async def test_languages_listing(client, db, actors) -> None:
     assert r.status_code == 200
     keys = {x["language_key"] for x in r.json()["data"]}
     assert {"c", "cpp17", "java17", "python3"} <= keys
+    assert r.json()["judge"] == {"simulated": True}  # JUDGE_PROVIDER=fake in tests

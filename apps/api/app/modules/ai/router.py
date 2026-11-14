@@ -144,7 +144,7 @@ async def patch_ai_settings(
     if changes.get("model") is not None and changes["model"] not in load_config().allowed_models:
         raise _vf("model", "not_allowed", "Choose one of the allowed models")
     before = await store.read_settings(session)
-    await store.write_settings(session, changes, principal.user_id)
+    await store.write_settings(session, changes, principal.user_id, principal=principal)
     after = await store.read_settings(session)
     await audit(
         session,
@@ -175,7 +175,7 @@ async def patch_apps(
     if unknown:
         raise _vf("apps", "unknown_app", f"Unknown app keys: {', '.join(unknown)}")
     before = await store.read_apps(session)
-    await store.write_apps(session, body.apps, principal.user_id)
+    await store.write_apps(session, body.apps, principal.user_id, principal=principal)
     after = await store.read_apps(session)
     changed = {k: after[k] for k in body.apps if before.get(k) != after[k]}
     await audit(
@@ -221,7 +221,9 @@ async def my_enabled_apps(
     ai_on = await ai.ai_enabled(session)
     if not ai_on:
         apps = {k: (v if store.APPS[k][1] != "ai" else False) for k, v in apps.items()}
-    return {"apps": apps, "ai_enabled": ai_on}
+    # The fake adapter returns canned placeholder text: screens must say AI is not integrated yet
+    # instead of presenting it as real AI output (owner rule, QA 2026-11-11).
+    return {"apps": apps, "ai_enabled": ai_on, "ai_simulated": load_config().provider == "fake"}
 
 
 @me_r.get("/ai/tutor-history")
@@ -251,6 +253,13 @@ async def my_tutor_history(
 async def erase_user(session: Any, user_id: uuid.UUID) -> dict[str, Any]:
     """DB-01: pseudonymise the usage ledger (counts/costs stay for platform reporting) and
     delete the learner's tutor history (``ai_tutor_turns``)."""
+    from app.core.firestore.backend import uses_firestore
+
+    if uses_firestore("ai"):
+        from app.modules.ai.repo_firestore_usage import metering
+
+        n_usage, n_turns = await metering().erase_user(user_id)
+        return {"ai_usage_pseudonymised": n_usage, "ai_tutor_turns_deleted": n_turns}
     res = await session.execute(update(AIUsage).where(AIUsage.user_id == user_id).values(user_id=None))
     turns = await session.execute(delete(TutorTurn).where(TutorTurn.user_id == user_id))
     await session.flush()

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { PlayerStep } from "../lib/types";
+import { stripRepeatedTitle } from "./ArticleReader";
 import { ArticleRenderer } from "./ArticleRenderer";
 import { StepRail, firstActionable, stepEmbedUrl } from "./Learner";
 import { move, toEditor, toStepIn, totals } from "./PathEditor";
@@ -144,5 +145,20 @@ describe("path editor model", () => {
       ]),
     );
     expect("embeddable" in out[0]!).toBe(false);
+  });
+});
+
+describe("ArticleView title (UI audit: path detail heading order)", () => {
+  it("drops a leading Markdown h1 that repeats the article title", () => {
+    expect(stripRepeatedTitle("# Welcome to CSE 2027\n\nHello", "Welcome to CSE 2027")).toBe("Hello");
+    expect(stripRepeatedTitle("# Another heading\n\nHello", "Welcome")).toBe("# Another heading\n\nHello");
+    expect(stripRepeatedTitle("Intro text", "Intro text")).toBe("Intro text");
+  });
+
+  it("renders body headings one size below the page title", () => {
+    render(<ArticleRenderer source={"# Big\n\ntext"} />);
+    const h = screen.getByRole("heading", { name: "Big" });
+    expect(h.tagName).toBe("H2");
+    expect(h).toHaveClass("text-xl");
   });
 });

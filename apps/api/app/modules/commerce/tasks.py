@@ -9,7 +9,9 @@
   reached the provider (outage at approval; COM-02), idempotent on ``notes.refund_id``.
 * ``commerce.order_expiry`` (beat, 5 min) — pending orders past ``expires_at``.
 * ``commerce.reconciliation`` (beat, hourly) — recovers missed captures for the last 48 h,
-  settles refunds still ``processing`` and re-syncs live subscriptions (COM-13).
+  settles refunds still ``processing`` and re-syncs live subscriptions (COM-13). Skipped, with no
+  run row written, while no real payment gateway is connected (``gateway_status``; the same
+  answer ``/public/integrations`` gives as ``payments``). An Admin can still start a run by hand.
 * ``entitlements.expiry`` (beat, 15 min) — active -> grace -> expired.
 """
 
@@ -22,7 +24,8 @@ from typing import Any
 import structlog
 from celery import shared_task
 
-from app.core.db import get_sessionmaker, system_context
+from app.core.db import system_context
+from app.core.firestore.sqlstore import store_session
 from app.core.jobs import register_periodic, run_async
 from app.core.time import utcnow
 
@@ -48,7 +51,7 @@ async def _process_one(provider: str, row_id: uuid.UUID) -> str:
     from app.modules.commerce import webhooks
     from app.modules.commerce.gateway import get_gateway
 
-    async with get_sessionmaker()() as session, session.begin():
+    async with store_session() as session:
         return await webhooks.process_event(session, get_gateway(provider), row_id)
 
 
@@ -63,7 +66,7 @@ async def webhook_retry() -> dict[str, int]:
         except Exception as e:  # provider not configured in this environment
             log.info("commerce.webhook_retry_skipped", provider=provider, error=type(e).__name__)
             continue
-        async with get_sessionmaker()() as session, session.begin():
+        async with store_session() as session:
             out[provider] = await webhooks.process_pending_events(session, gw)
     return out
 
@@ -72,7 +75,7 @@ async def refund_submit_retry() -> dict[str, int]:
     from app.modules.commerce import service as svc
     from app.modules.commerce.gateway import get_gateway
 
-    async with get_sessionmaker()() as session, session.begin():
+    async with store_session() as session:
         await system_context(session, "commerce.refund_submit_retry")
         return await svc.retry_refund_submissions(session, get_gateway())
 
@@ -81,17 +84,23 @@ async def order_expiry() -> dict[str, int]:
     from app.modules.commerce import service as svc
     from app.modules.commerce.gateway import get_gateway
 
-    async with get_sessionmaker()() as session, session.begin():
+    async with store_session() as session:
         await system_context(session, "commerce.order_expiry")
         return await svc.expire_orders(session, get_gateway())
 
 
 async def reconciliation(hours: int = 48) -> dict[str, Any]:
     from app.modules.commerce import admin
-    from app.modules.commerce.gateway import get_gateway
+    from app.modules.commerce.gateway import gateway_status, get_gateway
 
+    # Live audit 2026-11-14 (#11): with no gateway connected every hourly run compared nothing and
+    # still wrote a "0 orders · 0 payments" row to the Reconciliation page.
+    status = gateway_status()
+    if not status.get("integrated"):
+        log.info("commerce.reconciliation_skipped", provider=status.get("provider"), reason="not_integrated")
+        return {"skipped": "gateway_not_integrated", "provider": status.get("provider")}
     now = utcnow()
-    async with get_sessionmaker()() as session, session.begin():
+    async with store_session() as session:
         await system_context(session, "commerce.reconciliation")
         run = await admin.run_reconciliation(
             session,
@@ -106,7 +115,7 @@ async def reconciliation(hours: int = 48) -> dict[str, Any]:
 async def entitlement_expiry() -> dict[str, int]:
     from app.modules.entitlements.service import expire_due
 
-    async with get_sessionmaker()() as session, session.begin():
+    async with store_session() as session:
         await system_context(session, "entitlements.expiry")
         return await expire_due(session)
 

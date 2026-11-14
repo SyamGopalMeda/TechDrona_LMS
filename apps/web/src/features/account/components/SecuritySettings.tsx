@@ -1,24 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, type FormEvent } from "react";
-import { Badge, Button, Card, Checkbox, Dialog, EmptyState, ErrorState, FormField, Skeleton, useToast } from "@/components/ui";
+import { useState, type FormEvent } from "react";
+import { Badge, Button, Card, Checkbox, Dialog, ErrorState, FormField, LoadingBlock, StatusBadge, useToast, buttonClasses } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import { FormAlert, Notice, OtpInput, PasswordInput } from "@/features/auth/components/shared";
-import { problemFieldErrors, toFormError, type FormErrorInfo } from "@/features/auth/lib/errors";
+import { FormAlert, Notice, OtpInput } from "@/features/auth/components/shared";
+import { toFormError, type FormErrorInfo } from "@/features/auth/lib/errors";
 import { formatDate } from "@/features/auth/lib/format";
-import { PASSWORD_MIN_WITH_MFA, validatePassword } from "@/features/auth/lib/validation";
-import type { ChangePasswordBody, MfaFactor, TotpEnrolment } from "../lib/types";
+import { useSimpleAuth } from "@/components/shell/Integrations";
+import type { MfaFactor, TotpEnrolment } from "../lib/types";
 import { useResource } from "../lib/use-resource";
+import { ChangePasswordForm } from "./ChangePasswordForm";
 import { LoginHistoryCard } from "./SecurityActivity";
 
-/** STU-021 Security: password (AUTH-18), MFA factors (ME-07/08/09/12), recovery codes (ME-13). */
+/**
+ * STU-021 Security: password (AUTH-18), MFA factors (ME-07/08/09/12), recovery codes (ME-13).
+ * Simple authentication (owner 2026-11-12): password + sign-in history only, no 2-step section.
+ */
 export function SecuritySettings() {
+  const simple = useSimpleAuth();
   return (
     <div className="space-y-6">
       <ChangePasswordCard />
-      <MfaCard />
+      {simple ? null : <MfaCard />}
       <LoginHistoryCard />
     </div>
   );
@@ -28,66 +33,13 @@ export function SecuritySettings() {
 
 export function ChangePasswordCard() {
   const toast = useToast();
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [signOutOthers, setSignOutOthers] = useState(true);
-  const [fe, setFe] = useState<{ current?: string; next?: string; confirm?: string }>({});
-  const [error, setError] = useState<FormErrorInfo | null>(null);
-  const [busy, setBusy] = useState(false);
-  const alertRef = useRef<HTMLDivElement>(null);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    const v: typeof fe = {};
-    if (!current) v.current = "Enter your current password.";
-    const pw = validatePassword(next, PASSWORD_MIN_WITH_MFA);
-    if (pw) v.next = pw;
-    else if (next === current) v.next = "Choose a password different from your current one.";
-    if (!v.next && confirm !== next) v.confirm = "The passwords don't match.";
-    setFe(v);
-    if (Object.keys(v).length) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const body: ChangePasswordBody = { current_password: current, new_password: next, revoke_other_sessions: signOutOthers };
-      await api.post("auth/password/change", body, { idempotencyKey: true });
-      toast.show({ tone: "success", title: "Password changed", description: signOutOthers ? "Your other sessions were signed out." : undefined });
-      setFe({});
-    } catch (err) {
-      const f = problemFieldErrors(err);
-      if (f.current_password || f.new_password) setFe({ current: f.current_password, next: f.new_password });
-      else if (err instanceof ApiError && err.code === "invalid_credentials") setFe({ current: "That password isn't right." });
-      else {
-        setError(toFormError(err));
-        setTimeout(() => alertRef.current?.focus(), 0);
-      }
-    } finally {
-      setCurrent("");
-      setNext("");
-      setConfirm("");
-      setBusy(false);
-    }
-  };
-
   return (
     <Card title="Password">
-      <form onSubmit={submit} noValidate className="max-w-md space-y-4">
-        <FormAlert ref={alertRef} error={error} />
-        <FormField label="Current password" error={fe.current} required>
-          {(f) => <PasswordInput {...f} name="current_password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />}
-        </FormField>
-        <FormField label="New password" hint="15+ characters, or 8+ with 2-step verification turned on." error={fe.next} required>
-          {(f) => <PasswordInput {...f} name="new_password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />}
-        </FormField>
-        <FormField label="Confirm new password" error={fe.confirm} required>
-          {(f) => <PasswordInput {...f} name="confirm_password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />}
-        </FormField>
-        <Checkbox label="Sign out my other sessions" description="Recommended if you think someone else knows your password." checked={signOutOthers} onChange={(e) => setSignOutOthers(e.target.checked)} />
-        <Button type="submit" loading={busy}>
-          Change password
-        </Button>
-      </form>
+      <ChangePasswordForm
+        onChanged={(signedOutOthers) =>
+          toast.show({ tone: "success", title: "Password changed", description: signedOutOthers ? "Your other sessions were signed out." : undefined })
+        }
+      />
     </Card>
   );
 }
@@ -197,12 +149,13 @@ export function MfaCard() {
         {factors.error ? (
           <ErrorState error={factors.error} onRetry={factors.reload} />
         ) : factors.loading && !factors.data ? (
-          <div aria-busy="true">
-            <span className="sr-only">Loading…</span>
-            <Skeleton className="h-12 w-full" />
-          </div>
+          <LoadingBlock label="Loading your 2-step verification methods" rows={1} size="row" />
         ) : confirmed.length === 0 ? (
-          <EmptyState title="2-step verification is off" description="Add an authenticator app such as Google Authenticator or Microsoft Authenticator." />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-surface-subtle p-3 text-sm">
+            <span className="font-semibold text-fg">2-step verification</span>
+            <StatusBadge status="disabled" />
+            <span className="w-full text-fg-secondary">Add an authenticator app such as Google Authenticator or Microsoft Authenticator.</span>
+          </div>
         ) : (
           <ul className="divide-y divide-line-subtle" aria-label="Your 2-step verification methods">
             {confirmed.map((f) => (
@@ -307,6 +260,34 @@ export function MfaCard() {
   );
 }
 
+/**
+ * /app/settings/security/mfa (target of `mfa_enrolment_required`): the enrolment card with the
+ * reason first; in simple authentication 2-step verification isn't used, so just say so.
+ */
+export function MfaEnrolment() {
+  const simple = useSimpleAuth();
+  if (simple) {
+    return (
+      <Notice title="2-step verification isn't used">
+        <p>You sign in with just your email and password. There&apos;s nothing to set up here.</p>
+        <p className="mt-2">
+          <Link href="/app/settings/security" className="font-medium text-fg-link underline">
+            Back to Security
+          </Link>
+        </p>
+      </Notice>
+    );
+  }
+  return (
+    <div className="space-y-6">
+      <Notice tone="warning" title="2-step verification is required for your account">
+        Your role requires 2-step verification. Add an authenticator app below, then go back to what you were doing.
+      </Notice>
+      <MfaCard />
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------ This wasn't me */
 
 /** "This wasn't me" for a session-replay / new-sign-in notice (SEC-46, unblock §1.6a). */
@@ -363,7 +344,7 @@ export function DisownEvent({ eventRef }: { eventRef: string }) {
         <Button type="submit" variant="danger" loading={busy}>
           This wasn&apos;t me — secure my account
         </Button>
-        <Link href="/app/settings/devices" className="inline-flex h-10 items-center text-sm text-fg-link underline">
+        <Link href="/app/settings/devices" className={buttonClasses({ variant: "ghost" })}>
           This was me
         </Link>
       </div>

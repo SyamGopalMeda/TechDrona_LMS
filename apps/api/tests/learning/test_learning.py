@@ -59,6 +59,7 @@ async def _backdate_open(db, enrolment_id, minutes=5):
     await db.flush()
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_free_enrol_paid_fail_closed_and_entitlement(browser, db, no_checker) -> None:
     author = await make_user(db)
     free = await make_published_course(db, author.id, is_free=True)
@@ -90,6 +91,7 @@ async def test_free_enrol_paid_fail_closed_and_entitlement(browser, db, no_check
     assert (await browser.post("/me/enrolments", {"course_id": str(uuid.uuid4())})).status_code == 404
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_article_evidence_completion_certificate_verify_and_revoke(
     browser, db, no_checker, audited
 ) -> None:
@@ -183,6 +185,7 @@ async def test_article_evidence_completion_certificate_verify_and_revoke(
     } <= events
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_manual_certificate_requires_platform_permission(browser, db, no_checker, audited) -> None:
     author = await make_user(db)
     pc = await make_published_course(db, author.id)
@@ -206,6 +209,7 @@ async def test_manual_certificate_requires_platform_permission(browser, db, no_c
     assert c.issue_source == "manual" and len(c.content_hash) == 32
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_assignments_submission_grading_release_override(
     browser, db, no_checker, mail, audited
 ) -> None:
@@ -242,14 +246,14 @@ async def test_assignments_submission_grading_release_override(
     o = await student(db, outsider)
     await add_member(db, org, o.id, "student", batch_id=other_batch)
     assert (await outsider.get(f"/me/assignments/{aid}")).status_code == 404
-    # trainer of the other batch cannot grade / edit (404 cross-batch)
+    # trainer of the other batch cannot grade / edit (403 cross-batch: same company org)
     tb = browser.fork()
     tbu = await make_user(db, with_totp=True)
     await add_member(db, org, tbu.id, "staff")
     await grant(db, tbu.id, "trainer", "batch", other_batch)
     await staff_login(tb, tbu)
     assert (await tb.get(f"/assignments/{aid}/submissions")).status_code == 403
-    assert (await tb.patch(f"/assignments/{aid}", {"title": "x"})).status_code == 404
+    assert (await tb.patch(f"/assignments/{aid}", {"title": "x"})).status_code == 403
     # student cannot create assignments
     r = await browser.post(
         "/assignments",
@@ -322,6 +326,7 @@ async def test_assignments_submission_grading_release_override(
     assert "grade.override_released" in audited
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_batch_enrolment_progress_and_cross_batch(browser, db, no_checker, audited) -> None:
     """Single company: Admin enrols a batch and reads company-wide progress (no
     ``organization_id`` parameter any more); a trainer reads only their own batch."""
@@ -379,6 +384,7 @@ async def test_batch_enrolment_progress_and_cross_batch(browser, db, no_checker,
     assert (await db.execute(select(Enrolment))).scalars().all() == []
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_restricted_l3_keeps_read_only_learning(browser, db, no_checker) -> None:
     from app.modules.sessions import hooks
     from app.modules.sessions.hooks import RestrictionState
@@ -406,6 +412,7 @@ async def test_restricted_l3_keeps_read_only_learning(browser, db, no_checker) -
         hooks.register_restriction_lookup(None)
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_minor_version_publish_migrates_enrolments(browser, db, no_checker) -> None:
     cm1 = browser.fork()
     await staff(db, cm1, "content_manager")

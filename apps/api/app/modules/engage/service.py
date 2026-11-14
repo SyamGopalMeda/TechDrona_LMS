@@ -31,6 +31,7 @@ Anonymity: anonymous runs store no display name; every output labels participant
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import secrets
 import uuid
@@ -48,12 +49,13 @@ from app.core.audit import audit
 from app.core.auth import PLATFORM_SCOPE, ScopeRef
 from app.core.db import system_context
 from app.core.errors import ProblemError
+from app.core.firestore.backend import uses_firestore
 from app.core.ids import uuid7
 from app.core.outbox import emit_event
 from app.core.principal import Principal
 from app.core.ratelimit import MIN, Rule
 from app.core.time import to_rfc3339, utcnow
-from app.modules.ai.service import require_app_enabled
+from app.modules.ai.public import require_app_enabled
 from app.modules.engage.models import (
     EngageActivity,
     EngageParticipant,
@@ -70,7 +72,8 @@ from app.modules.engage.schemas import (
     LaunchIn,
 )
 from app.modules.engage.words import is_blocked, normalise_terms
-from app.modules.placement.policies import batch_org, can_in_org, has_permission
+from app.modules.placement.public import can_in_org, has_permission
+from app.modules.rbac.public import batch_org
 
 PERM = "engage.activity.manage"
 JOIN_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
@@ -115,6 +118,20 @@ async def require_manage(
         raise ProblemError("permission_denied", permission=PERM)
 
 
+async def require_manage_somewhere(request: Request, principal: Principal) -> None:
+    """``engage.activity.manage`` at platform scope or on at least one batch the caller holds a
+    batch-scoped grant on: for authoring helpers not yet bound to an activity (bank import)."""
+    if await has_permission(request, principal, PERM, PLATFORM_SCOPE):
+        return
+    seen: set[uuid.UUID] = set()
+    for g in principal.grants:
+        if g.scope_type == "batch" and g.scope_id is not None and g.scope_id not in seen:
+            seen.add(g.scope_id)
+            if await has_permission(request, principal, PERM, ScopeRef("batch", g.scope_id)):
+                return
+    raise ProblemError("permission_denied", permission=PERM)
+
+
 async def _create_scope(
     request: Request, session: AsyncSession, principal: Principal, body: ActivityIn
 ) -> uuid.UUID | None:
@@ -132,18 +149,17 @@ async def _create_scope(
     return None
 
 
+def _sys(session: Any, job: str) -> Any:
+    """``system_context`` on a Postgres session; nothing to scope without one (Firebase stack)."""
+    return system_context(session, job) if session else contextlib.nullcontext(session)
+
+
 async def _is_member(session: AsyncSession, principal: Principal, a: EngageActivity) -> bool:
     if a.batch_id is not None:
-        row = (
-            await session.execute(
-                text(
-                    "SELECT 1 FROM batch_members WHERE batch_id = :b AND user_id = :u AND status = 'active' "
-                    "AND removed_at IS NULL LIMIT 1"
-                ),
-                {"b": a.batch_id, "u": principal.user_id},
-            )
-        ).first()
-        return row is not None
+        from app.modules.orgs import public as orgs_public
+
+        # active member: status 'active' and not removed (orgs public API, either store)
+        return await orgs_public.is_batch_member(session, a.batch_id, principal.user_id)
     if a.organization_id is not None:
         return False  # legacy organization-wide activity: no member audience any more
     return principal.is_platform
@@ -154,7 +170,7 @@ async def _may_join(
 ) -> bool:
     if run.settings.get("audience") == "public":
         return True
-    async with system_context(session, "engage.membership"):
+    async with _sys(session, "engage.membership"):
         member = await _is_member(session, principal, a)
     return member or await can_manage(request, session, principal, a)
 
@@ -316,6 +332,10 @@ async def questions_of(session: AsyncSession, activity_id: uuid.UUID) -> list[En
 async def create_activity(
     request: Request, session: AsyncSession, principal: Principal, body: ActivityIn
 ) -> dict[str, Any]:
+    if uses_firestore("engage"):
+        from app.modules.engage import service_fs
+
+        return await service_fs.create_activity(request, session, principal, body)
     validate_activity(body)
     org = await _create_scope(request, session, principal, body)
     await require_app_enabled(session, app_key="engage")
@@ -342,6 +362,10 @@ async def create_activity(
 async def update_activity(
     request: Request, session: AsyncSession, principal: Principal, activity_id: uuid.UUID, body: ActivityIn
 ) -> dict[str, Any]:
+    if uses_firestore("engage"):
+        from app.modules.engage import service_fs
+
+        return await service_fs.update_activity(request, session, principal, activity_id, body)
     a = await get_activity(session, activity_id)
     await require_manage(request, session, principal, a)
     validate_activity(body)
@@ -373,6 +397,10 @@ async def update_activity(
 async def activity_detail(
     request: Request, session: AsyncSession, principal: Principal, activity_id: uuid.UUID
 ) -> dict[str, Any]:
+    if uses_firestore("engage"):
+        from app.modules.engage import service_fs
+
+        return await service_fs.activity_detail(request, session, principal, activity_id)
     a = await get_activity(session, activity_id)
     await require_manage(request, session, principal, a)
     out = activity_out(a, await questions_of(session, a.id))
@@ -392,6 +420,12 @@ async def list_activities(
     activity_type: str | None,
     limit: int = 200,
 ) -> dict[str, Any]:
+    if uses_firestore("engage"):
+        from app.modules.engage import service_fs
+
+        return await service_fs.list_activities(
+            request, session, principal, q=q, activity_type=activity_type, limit=limit
+        )
     stmt = select(EngageActivity).where(EngageActivity.deleted_at.is_(None))
     if activity_type:
         stmt = stmt.where(EngageActivity.activity_type == activity_type)
@@ -446,6 +480,10 @@ def _like(v: str) -> str:
 async def duplicate_activity(
     request: Request, session: AsyncSession, principal: Principal, activity_id: uuid.UUID
 ) -> dict[str, Any]:
+    if uses_firestore("engage"):
+        from app.modules.engage import service_fs
+
+        return await service_fs.duplicate_activity(request, session, principal, activity_id)
     src = await get_activity(session, activity_id)
     await require_manage(request, session, principal, src)
     a = EngageActivity(
@@ -501,6 +539,10 @@ async def duplicate_activity(
 async def delete_activity(
     request: Request, session: AsyncSession, principal: Principal, activity_id: uuid.UUID
 ) -> None:
+    if uses_firestore("engage"):
+        from app.modules.engage import service_fs
+
+        return await service_fs.delete_activity(request, session, principal, activity_id)
     a = await get_activity(session, activity_id)
     await require_manage(request, session, principal, a)
     now = utcnow()
@@ -532,15 +574,18 @@ async def bank_import(
     public functions. Nothing is persisted: the builder appends the drafts and saves the activity.
     Correct flags are copied only when the caller may read that question's answer key (author /
     reviewer, or ``question.answer_key.read`` in its organization), the same rule as the bank."""
-    from app.modules.placement import bank
-    from app.modules.placement.richtext import html_of
+    from app.modules.placement import public as bank
+    from app.modules.placement import public as placement_public
+    from app.modules.placement.public import html_of
 
+    # The import is not bound to an activity (the builder saves it afterwards, which re-checks the
+    # activity's own scope), so require the authoring permission on some scope the caller holds.
+    await require_manage_somewhere(request, principal)
     out: list[dict[str, Any]] = []
     skipped: list[dict[str, str]] = []
     for qid in dict.fromkeys(question_ids):
-        try:
-            q = await bank.get_question(session, qid)
-        except ProblemError:
+        q = await placement_public.get_question(session, qid)
+        if q is None or q.deleted_at is not None:  # as placement.bank.get_question: not_found
             skipped.append({"question_id": str(qid), "reason": "not_found"})
             continue
         if q.question_type not in ("mcq_single", "mcq_multi") or q.current_version_id is None:
@@ -586,7 +631,7 @@ async def _may_read_question(request: Request, session: AsyncSession, principal:
 
 
 async def _keys_visible(request: Request, session: AsyncSession, principal: Principal, q: Any) -> bool:
-    from app.modules.placement import bank
+    from app.modules.placement import public as bank
 
     versions = await bank.versions_of(session, q.id)
     if any(principal.user_id in (v.authored_by, v.reviewed_by) for v in versions):
@@ -688,6 +733,10 @@ async def launch_run(
 ) -> dict[str, Any]:
     """Launch (first run) or rerun: a new run with a fresh join code; any live run of the activity
     is closed first."""
+    if uses_firestore("engage"):
+        from app.modules.engage import service_fs
+
+        return await service_fs.launch_run(request, session, principal, activity_id, body)
     a = (
         await session.execute(
             select(EngageActivity).where(EngageActivity.id == activity_id).with_for_update()
@@ -774,6 +823,10 @@ async def launch_run(
 async def _manager_run(
     request: Request, session: AsyncSession, principal: Principal, run_id: uuid.UUID, *, lock: bool = False
 ) -> tuple[EngageRun, EngageActivity]:
+    if uses_firestore("engage"):
+        from app.modules.engage import service_fs
+
+        return await service_fs.manager_run(request, session, principal, run_id)
     stmt = select(EngageRun).where(EngageRun.id == run_id)
     if lock:
         stmt = stmt.with_for_update()
@@ -791,6 +844,10 @@ async def _manager_run(
 async def control_run(
     request: Request, session: AsyncSession, principal: Principal, run_id: uuid.UUID, body: ControlIn
 ) -> dict[str, Any]:
+    if uses_firestore("engage"):
+        from app.modules.engage import service_fs
+
+        return await service_fs.control_run(request, session, principal, run_id, body)
     r, a = await _manager_run(request, session, principal, run_id, lock=True)
     now = utcnow()
     n = len(r.questions)
@@ -867,7 +924,7 @@ async def invite(
     """Notify the activity's active batch members about the run: in-app notification plus email
     through the notifications module. Platform activities have no member list (share the link)."""
     from app.core.config import get_settings
-    from app.modules.notifications.service import notify
+    from app.modules.notifications.public import notify
 
     r, a = await _manager_run(request, session, principal, run_id)
     if r.status not in LIVE_STATUSES:
@@ -877,18 +934,21 @@ async def invite(
         raise _invalid([{"field": "run_id", "code": "no_audience", "message": msg}])
     # SEC-07: the budget belongs to the activity + manager, so a relaunch cannot reset it.
     await ratelimit.hit(f"engage:invite:{a.id}:{principal.user_id}", INVITE_RULES, scope="engage.invite")
-    sql = (
-        "SELECT DISTINCT u.id, u.email FROM batch_members m JOIN users u ON u.id = m.user_id "
-        "WHERE m.batch_id = :s AND m.status = 'active' AND m.removed_at IS NULL AND u.id <> :me "
-        "LIMIT :cap"
-    )
-    scope_id: Any = a.batch_id
+    from app.modules.identity import public as identity_public
+    from app.modules.orgs import public as orgs_public
+
     link = get_settings().TD_PUBLIC_BASE_URL.rstrip("/") + join_path(r.join_code)
     sent = 0
-    async with system_context(session, "engage.invite"):
-        rows = (
-            await session.execute(text(sql), {"s": scope_id, "me": principal.user_id, "cap": INVITE_CAP})
-        ).all()
+    async with _sys(session, "engage.invite"):
+        member_ids = list(
+            dict.fromkeys(
+                m.user_id
+                for m in await orgs_public.batch_members(session, batch_ids=[a.batch_id])
+                if m.user_id != principal.user_id
+            )
+        )
+        users = await identity_public.get_users(session, member_ids)
+        rows = [(uid, users[uid].email) for uid in member_ids if uid in users][:INVITE_CAP]
         for uid, email in rows:
             nid = await notify(
                 session,
@@ -912,7 +972,8 @@ async def invite(
                 ),
             )
             sent += 1 if nid else 0
-        await session.flush()
+        if session:
+            await session.flush()
     await audit(
         session,
         principal,
@@ -968,6 +1029,10 @@ def _label(p: EngageParticipant | None, anonymous: bool, seq: int | None = None)
 async def join_preview(
     request: Request, session: AsyncSession, principal: Principal, code: str
 ) -> dict[str, Any]:
+    if uses_firestore("engage"):
+        from app.modules.engage import service_fs
+
+        return await service_fs.join_preview(request, session, principal, code)
     await ratelimit.hit(f"engage:join:{principal.user_id}", JOIN_RULES, scope="engage.join")
     async with system_context(session, "engage.join"):
         r, a = await _run_by_code(session, code)
@@ -988,6 +1053,10 @@ async def join_preview(
 
 
 async def join(request: Request, session: AsyncSession, principal: Principal, code: str) -> dict[str, Any]:
+    if uses_firestore("engage"):
+        from app.modules.engage import service_fs
+
+        return await service_fs.join(request, session, principal, code)
     await ratelimit.hit(f"engage:join:{principal.user_id}", JOIN_RULES, scope="engage.join")
     async with system_context(session, "engage.join"):
         r, a = await _run_by_code(session, code, lock=True)
@@ -1016,13 +1085,11 @@ async def join(request: Request, session: AsyncSession, principal: Principal, co
             if limit is not None and count >= int(limit):
                 raise _problem("participant_limit_reached", 409, "This activity is full", limit=int(limit))
             if r.settings.get("identity_mode") != "anonymous":
-                name = (
-                    await session.execute(
-                        # §2.4: the nickname only, never a learner's full name or e-mail.
-                        text("SELECT display_name FROM user_profiles WHERE user_id = :u"),
-                        {"u": principal.user_id},
-                    )
-                ).scalar_one_or_none()
+                from app.modules.identity import public as identity_public
+
+                # §2.4: the nickname only, never a learner's full name or e-mail.
+                prof = await identity_public.get_profile(session, principal.user_id)
+                name = prof.display_name if prof else None
             seq = count + 1
     if existing is None:
         # Written under the participant's own RLS context (policy U: user_id = app.user_id()).
@@ -1077,6 +1144,10 @@ def _answerable(r: EngageRun, position: int) -> bool:
 async def answer(
     request: Request, session: AsyncSession, principal: Principal, run_id: uuid.UUID, body: AnswerIn
 ) -> dict[str, Any]:
+    if uses_firestore("engage"):
+        from app.modules.engage import service_fs
+
+        return await service_fs.answer(request, session, principal, run_id, body)
     await ratelimit.hit(f"engage:answer:{principal.user_id}", ANSWER_RULES, scope="engage.answer")
     async with system_context(session, "engage.answer"):
         r = await session.get(EngageRun, run_id)
@@ -1347,6 +1418,10 @@ async def _texts(
 async def presenter_state(
     request: Request, session: AsyncSession, principal: Principal, run_id: uuid.UUID, since: str | None
 ) -> tuple[dict[str, Any], str]:
+    if uses_firestore("engage"):
+        from app.modules.engage import service_fs
+
+        return await service_fs.presenter_state(request, session, principal, run_id, since)
     r, a = await _manager_run(request, session, principal, run_id)
     async with system_context(session, "engage.presenter"):
         counts = await _counts(session, r.id)
@@ -1393,6 +1468,10 @@ async def presenter_state(
 async def participant_state(
     request: Request, session: AsyncSession, principal: Principal, run_id: uuid.UUID, since: str | None
 ) -> tuple[dict[str, Any], str]:
+    if uses_firestore("engage"):
+        from app.modules.engage import service_fs
+
+        return await service_fs.participant_state(request, session, principal, run_id, since)
     async with system_context(session, "engage.live"):
         r = await session.get(EngageRun, run_id)
         if r is None:
@@ -1475,6 +1554,10 @@ async def participant_state(
 
 async def my_runs(session: AsyncSession, principal: Principal) -> dict[str, Any]:
     """Runs the caller joined (newest first) for the learner Engage page."""
+    if uses_firestore("engage"):
+        from app.modules.engage import service_fs
+
+        return await service_fs.my_runs(principal)
     rows = (
         await session.execute(
             select(EngageParticipant.run_id, EngageParticipant.joined_at)

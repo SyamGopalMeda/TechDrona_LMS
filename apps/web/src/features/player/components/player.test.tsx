@@ -46,6 +46,15 @@ describe("VideoPlayer (PLY-001 / PLY-005)", () => {
     expect(call.body).toEqual({ lesson_asset_id: "asset-1", tab_id: "tab-1", take_over_playback_session_id: null });
   });
 
+  it("says 'not integrated yet' instead of embedding a demo (fake adapter) token", async () => {
+    const fake = { ...token, otp: "FAKE-OTP-123", playback_info: btoa(JSON.stringify({ videoId: "demo", fake: true })) };
+    const api = mockApi({ "POST media/playback-tokens": { status: 201, body: fake } });
+    restore = api.restore;
+    renderWithProviders(<VideoPlayer lessonAssetId="asset-1" lessonTitle="Two pointers" />);
+    expect(await screen.findByText("Video hosting: not integrated yet")).toBeInTheDocument();
+    expect(screen.queryByTitle("Video: Two pointers")).not.toBeInTheDocument();
+  });
+
   it("asks before taking over a stream playing elsewhere, then retries with the takeover id", async () => {
     let n = 0;
     const api = mockApi({ "POST media/playback-tokens": () => (++n === 1 ? conflict : { status: 201, body: token }) });

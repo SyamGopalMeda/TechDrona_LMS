@@ -35,7 +35,10 @@ describe("PrivacyRequests (STU-023, FE-29/INV-08)", () => {
     });
     restore = api.restore;
     renderWithProviders(<PrivacyRequests />);
-    await userEvent.click(await screen.findByRole("button", { name: "Delete my account" }));
+    const del = await screen.findByRole("button", { name: "Delete my account" });
+    // Outline danger on the page; the filled danger button lives only inside the confirm dialog.
+    expect(del.className).toContain("border-danger-border");
+    await userEvent.click(del);
     const submit = await screen.findByRole("button", { name: "Request deletion" });
     expect(submit).toBeDisabled();
     await userEvent.click(screen.getByRole("checkbox", { name: /I understand/ }));

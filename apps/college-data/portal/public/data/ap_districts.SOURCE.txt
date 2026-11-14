@@ -1,0 +1,35 @@
+ap_districts.geojson: Andhra Pradesh district boundaries (28 districts, current as of Nov 2026)
+==========================================================================================
+
+Source
+  OpenStreetMap administrative boundary relations (boundary=administrative, admin_level=5,
+  "state_district"), downloaded 2026-11-03 via the Nominatim lookup API
+  (https://nominatim.openstreetmap.org/lookup?osm_ids=...&format=geojson&polygon_geojson=1).
+  Each feature keeps its OSM relation id in properties.osm_relation.
+
+Licence
+  Data (c) OpenStreetMap contributors, Open Database License (ODbL) 1.0.
+  https://www.openstreetmap.org/copyright  -  https://opendatacommons.org/licenses/odbl/1-0/
+  Attribution "(c) OpenStreetMap contributors" must be shown wherever the map is displayed
+  (the portal map adds it to the Leaflet attribution control). This file is a derivative
+  database and remains under ODbL.
+
+District set
+  The 26 districts formed on 4 April 2022, plus 2 districts formed effective 31 Dec 2025:
+    markapuram  - Markapuram (HQ Markapuram; carved from Prakasam: Markapuram + Kanigiri divisions)
+    polavaram   - Polavaram  (HQ Rampachodavaram; carved from Alluri Sitharama Raju: Rampachodavaram
+                  + Chinturu divisions)
+  A third proposed district (Madanapalle, Nov 2025 GoM proposal) was NOT notified; Madanapalle
+  instead became the headquarters of Annamayya district. OSM already reflects the reduced
+  Prakasam and Alluri Sitharama Raju boundaries (checked: no overlap between any two polygons).
+
+Processing
+  - Douglas-Peucker simplification, tolerance 0.0005 degrees (~50 m), per ring
+    (script written for this project; not a library).
+  - Coordinates rounded to 4 decimals. Rings with negligible area dropped.
+  - properties: id (slug from CONTRACT.md), name (display name), osm_relation.
+  - Because rings are simplified independently, shared borders can differ by up to ~50 m.
+    This is fine for district-level display, but do not use the file for point-in-district
+    assignment near borders.
+
+Size: ~0.48 MB.

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Card, EmptyState, ErrorState, Skeleton } from "@/components/ui";
+import { Card, EmptyState, ErrorState, LoadingBlock as KitLoadingBlock } from "@/components/ui";
+import { LMS_COURSES_HREF } from "@/lib/site/website";
 import { isApiError } from "@/lib/api/errors";
 import { formatDateTime, formatMoney } from "@/features/catalog/lib/format";
 import { LinkButton } from "@/features/catalog/components/LinkButton";
@@ -13,16 +14,9 @@ interface PurchaseOption {
   name?: string;
 }
 
-/** L state: skeleton matching a list/card layout; the region is aria-busy. */
+/** L state: the kit LoadingBlock with card-height rows (one polite status). */
 export function LoadingBlock({ label, rows = 3 }: { label: string; rows?: number }) {
-  return (
-    <div aria-busy="true" aria-label={label} role="status" className="space-y-3">
-      <span className="sr-only">{label}</span>
-      {Array.from({ length: rows }, (_, i) => (
-        <Skeleton key={i} className="h-16 w-full" />
-      ))}
-    </div>
-  );
+  return <KitLoadingBlock label={label} rows={rows} size="card" />;
 }
 
 /**
@@ -53,8 +47,8 @@ export function ContentErrorState({ error, onRetry }: { error: unknown; onRetry?
             </ul>
           ) : null}
           <p className="mt-3 text-sm">
-            <Link href="/pricing" className="font-medium text-fg-link hover:text-fg-link-hover">
-              See all plans
+            <Link href={LMS_COURSES_HREF} className="font-medium text-fg-link hover:text-fg-link-hover">
+              Explore all courses and plans
             </Link>
           </p>
         </Card>
@@ -85,7 +79,7 @@ export function ContentErrorState({ error, onRetry }: { error: unknown; onRetry?
     }
     if (error.status === 403) {
       return (
-        <EmptyState
+        <EmptyState icon="lock"
           title="You don't have access to this page"
           description="If you think you should, ask your trainer or contact support."
           action={<LinkButton href="/app/support" variant="secondary" size="sm">Contact support</LinkButton>}
@@ -93,7 +87,7 @@ export function ContentErrorState({ error, onRetry }: { error: unknown; onRetry?
       );
     }
     if (error.status === 404) {
-      return <EmptyState title="We couldn't find this" description="It may have been removed or the link is wrong." action={<LinkButton href="/app/learning" variant="secondary" size="sm">My learning</LinkButton>} />;
+      return <EmptyState icon="search" title="We couldn't find this" description="It may have been removed or the link is wrong." action={<LinkButton href="/app/learning" variant="secondary" size="sm">My learning</LinkButton>} />;
     }
   }
   return <ErrorState error={error} onRetry={onRetry} />;

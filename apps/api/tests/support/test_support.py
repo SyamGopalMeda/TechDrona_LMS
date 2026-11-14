@@ -5,13 +5,16 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import pytest
 from sqlalchemy import update
 
 from app.modules.identity import clock
 from app.modules.identity.models import User
-from app.modules.support.models import SupportTicket
 from tests.identity.factory import Browser
 from tests.security.helpers import adult, idem, staff, staff_browser
+from tests.support import helpers as h
+
+pytestmark = pytest.mark.usefixtures("support_backend")
 
 
 def ticket_body(category: str = "device_reset", **kw):
@@ -99,11 +102,7 @@ async def test_ticket_lifecycle_sla_internal_notes_and_csat(client, db) -> None:
 
     # SLA breach shows once the deadline passes (first response missed on a fresh ticket).
     t2 = (await sb.post("/support/tickets", ticket_body("technical"))).json()
-    await db.execute(
-        update(SupportTicket)
-        .where(SupportTicket.id == __import__("uuid").UUID(t2["ticket_id"]))
-        .values(first_response_due_at=clock.now() - timedelta(minutes=1))
-    )
+    await h.patch_ticket(db, t2["ticket_id"], first_response_due_at=clock.now() - timedelta(minutes=1))
     q2 = (await ab.get("/support/queue", params={"category": "technical"})).json()
     late = next(x for x in q2["data"] if x["ticket_id"] == t2["ticket_id"])
     assert late["sla"]["first_response_breached"] and q2["counts"]["breached"] >= 1

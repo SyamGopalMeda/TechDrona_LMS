@@ -5,6 +5,7 @@ import { mintCsrfToken, verifyCsrfToken } from "@/lib/bff/csrf";
 import { isTopLevelUserNavigation, refreshRememberedSession } from "@/lib/bff/remember";
 import { buildCsp, cspOptionsFromEnv } from "@/lib/security/csp";
 import { isPortalPath } from "@/lib/nav/portals";
+import { analyticsConfig, googleSignInConfig } from "@/lib/firebase/config";
 
 /**
  * Page middleware (not used for /api/*: the BFF route handler does its own checks).
@@ -21,6 +22,13 @@ import { isPortalPath } from "@/lib/nav/portals";
  */
 /** Env is fixed for the process lifetime; resolve CSP sources once. */
 const cspOptions = cspOptionsFromEnv();
+/** Google sign-in (Firebase Auth) hosts are allowed only on the pages that offer it. */
+const GOOGLE_SIGNIN_PATHS = new Set(["/login", "/signup"]);
+const googleAuthDomain = googleSignInConfig()?.authDomain ?? null;
+const analyticsHosts = analyticsConfig() !== null;
+/** The only LMS page allowed to frame same-origin content (`frame-src 'self'`). */
+const COLLEGE_DATA_PAGE = "/admin/college-data";
+const SIGNED_IN_PAGES = new Set(["/modules", "/continue"]);
 
 function bffConfigOrNull(): BffConfig | null {
   try {
@@ -33,7 +41,8 @@ function bffConfigOrNull(): BffConfig | null {
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname, search } = request.nextUrl;
   const session = request.cookies.get(cookieName("session"))?.value;
-  const portal = isPortalPath(pathname);
+  // The module hub and the /continue resume link need a session too (and get the remember-me refresh).
+  const portal = isPortalPath(pathname) || SIGNED_IN_PAGES.has(pathname);
 
   if (portal && !session) {
     const remember = request.cookies.get(cookieName("remember"))?.value;
@@ -66,7 +75,13 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   }
 
   const nonce = Buffer.from(globalThis.crypto.getRandomValues(new Uint8Array(16))).toString("base64");
-  const csp = buildCsp(nonce, cspOptions);
+  const csp = buildCsp(nonce, {
+    ...cspOptions,
+    firebaseAuthDomain: GOOGLE_SIGNIN_PATHS.has(pathname) ? googleAuthDomain : null,
+    analytics: analyticsHosts,
+    // The College Data Portal page frames the same-origin /college-portal/ app (route handler).
+    frameSelf: pathname === COLLEGE_DATA_PAGE,
+  });
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("content-security-policy", csp);
@@ -100,7 +115,9 @@ export const config = {
     {
       // Pages only: skip the BFF, Next internals and static files (incl. /vendor: Monaco worker
       // scripts must not get the page CSP, whose 'strict-dynamic' would block importScripts).
-      source: "/((?!api/|vendor/|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|woff2?)$).*)",
+      // /college-portal/* is the College Data Portal proxy: its route handler authenticates every
+      // request and passes through the portal's own CSP (its module scripts carry no nonce).
+      source: "/((?!api/|vendor/|college-portal(?:/|$)|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|woff2?)$).*)",
       missing: [
         { type: "header", key: "next-router-prefetch" },
         { type: "header", key: "purpose", value: "prefetch" },

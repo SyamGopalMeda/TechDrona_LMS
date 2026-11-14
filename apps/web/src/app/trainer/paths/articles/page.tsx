@@ -7,7 +7,11 @@ export const metadata: Metadata = { title: "Articles" };
 export default function Page() {
   return (
     <div>
-      <PageHeader title="Articles" description="Lessons you write once, use as path steps and share with a link." />
+      <PageHeader
+        breadcrumbs={[{ label: "Learning paths", href: "/trainer/paths" }, { label: "Articles" }]}
+        title="Articles"
+        description="Lessons you write once, use as path steps and share with a link."
+      />
       <ArticleList />
     </div>
   );

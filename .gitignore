@@ -99,3 +99,29 @@ logs/
 tmp/
 .cache/
 backups/
+
+# --- Firebase (docs/firebase/p0.md) ---------------------------------------------
+# Service-account keys live OUTSIDE the repo (FIREBASE_SERVICE_ACCOUNT_FILE); these patterns are a
+# second line of defence against an accidental copy into the tree.
+*-firebase-adminsdk-*.json
+*service-account*.json
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
+auth-debug.log
+.firebase/
+
+# --- Firebase SPA build config: public values only (VITE_/NEXT_PUBLIC_*), needed for a clean build -----
+!apps/lms-spa/.env.production
+
+# --- Local dev session state (cookies / TOTP seeds from local security tests): never commit ----------
+docs/redesign/security/.state/
+
+# --- College Data Portal: contact seeds hold personal data (names / phone numbers) ------------------
+apps/college-data/**/contacts_*
+
+# --- Overlay-deploy leftovers ----------------------------------------------------------------------
+ovfix/
+ov.txt
+changed-audit.txt

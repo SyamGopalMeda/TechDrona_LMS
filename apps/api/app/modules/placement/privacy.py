@@ -26,6 +26,18 @@ def _n(result: Any) -> int:
 
 
 async def erase_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]:
+    from app.core.firestore.backend import uses_firestore
+
+    if uses_firestore("placement"):
+        from app.modules.placement.repo_firestore import system_repo
+
+        c = await system_repo().erase_user(user_id)
+        return {
+            "practice_responses_deleted": c["responses"],
+            "practice_sessions_deleted": c["sessions"],
+            "recommendations_deleted": c["recs"],
+            "question_reports_scrubbed": c["reports"],
+        }
     responses = await session.execute(delete(PracticeResponse).where(PracticeResponse.user_id == user_id))
     sessions = await session.execute(delete(PracticeSession).where(PracticeSession.user_id == user_id))
     recs = await session.execute(delete(Recommendation).where(Recommendation.user_id == user_id))

@@ -32,6 +32,14 @@ def _n(result: Any) -> int:
 
 
 async def erase_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]:
+    from app.modules.support import service as sv
+
+    if sv.on_firestore():
+        repo = await sv.fs_repo(session, "support.erasure")
+        out: dict[str, Any] = await repo.erase_user(
+            user_id, subject=ERASED_SUBJECT, body=ERASED_BODY, now=utcnow()
+        )
+        return out | {"user_notes_retained": await repo.count_notes(user_id)}
     own_tickets = select(SupportTicket.id).where(SupportTicket.requester_id == user_id)
     msgs = await session.execute(
         update(SupportTicketMessage)

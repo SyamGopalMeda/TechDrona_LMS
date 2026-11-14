@@ -390,3 +390,21 @@ async def test_demo_seed_is_idempotent_and_labelled(api, db, client) -> None:
     listed = (await client.get("/api/v1/commerce/products")).json()["data"]
     demo = [p["sku"] for p in listed if p["sku"].startswith("DEMO-")]
     assert "DEMO-COLLEGE-SEAT" not in demo and len(demo) == 4
+
+
+async def test_revenue_report_refuses_inverted_range_and_reports_gateway(api, db) -> None:
+    """Admin audit 2026-11-11: an inverted range was answered with zeros; the gateway state is
+    exposed so the finance screens can say "not integrated yet" for the fake adapter."""
+    f = finance(api, await make_buyer(db))
+    now = utcnow()
+    bad = await f.get(
+        "/finance/reports/revenue",
+        params={"range_from": now.isoformat(), "range_to": (now - timedelta(days=3)).isoformat()},
+    )
+    assert bad.status_code == 400 and bad.json()["errors"][0]["field"] == "range_to", bad.text
+    naive = await f.get("/finance/reports/revenue", params={"range_from": "2026-01-01T00:00:00"})
+    assert naive.status_code == 200, naive.text
+    ok = await f.get("/finance/reports/revenue")
+    assert ok.status_code == 200 and set(ok.json()["gateway"]) == {"provider", "integrated"}
+    recon = await f.get("/finance/reconciliation")
+    assert recon.status_code == 200 and "gateway" in recon.json()

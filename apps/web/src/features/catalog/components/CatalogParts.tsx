@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui";
-import { formatDuration, humanize } from "../lib/format";
+import { formatDuration, humanize, languageName } from "../lib/format";
 import type { ServerResult } from "../lib/server";
 import type { CourseCardDto } from "../lib/types";
 
@@ -30,7 +30,7 @@ export function PriceLabel({ course }: { course: Pick<CourseCardDto, "price_type
 
 export function CourseCard({ course, headingLevel = 2 }: { course: CourseCardDto; headingLevel?: 2 | 3 }) {
   const H = headingLevel === 2 ? "h2" : "h3";
-  const meta = [humanize(course.level), course.language, course.lesson_count ? `${course.lesson_count} lessons` : null, formatDuration(course.duration_seconds ? course.duration_seconds / 60 : null)].filter(Boolean);
+  const meta = [humanize(course.level), languageName(course.language), course.lesson_count ? `${course.lesson_count} lessons` : null, formatDuration(course.duration_seconds ? course.duration_seconds / 60 : null)].filter(Boolean);
   return (
     <article className="flex h-full flex-col rounded-xl border border-line bg-surface p-5 shadow-xs">
       {course.category ? <p className="text-xs font-semibold uppercase tracking-wide text-fg-muted">{humanize(course.category)}</p> : null}

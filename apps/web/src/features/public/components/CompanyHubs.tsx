@@ -10,10 +10,11 @@ import { LinkButton } from "@/features/catalog/components/LinkButton";
 export function CompaniesIndex() {
   return (
     <div className="space-y-6">
-      <PageHeader title="Company hubs" description="Test patterns and preparation paths for the companies that hire on campus." />
+      <PageHeader title="Companies" description="Test patterns and preparation paths for the companies that hire on campus." />
       <EmptyState
-        title="Company hubs are not published yet"
-        description="Until they are, prepare with the placement topics and courses. Each topic shows how many questions are in the bank."
+        icon="users"
+        title="Company guides are coming soon"
+        description="We're writing a guide for each company that hires on campus: its test pattern, syllabus and a preparation path. Until then, the placement topics cover the same aptitude and coding areas."
         action={
           <div className="flex flex-wrap justify-center gap-3">
             <LinkButton href="/placement">Placement topics</LinkButton>
@@ -33,7 +34,8 @@ export function CompanyHub({ slug, signedIn }: { slug: string; signedIn: boolean
     <div className="space-y-6">
       <PageHeader title="Company hub" description="Test pattern, syllabus and a preparation path for this company." />
       <EmptyState
-        title="This company hub is not public yet"
+        icon="users"
+        title="This company guide is coming soon"
         description={
           signedIn
             ? "If your plan includes a preparation path for this company, you can open it in the app."

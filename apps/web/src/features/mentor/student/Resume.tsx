@@ -338,7 +338,7 @@ export function StudentResume() {
         const r = current === undefined ? (d.data.find((x) => x.is_current) ?? null) : current;
         if (!r && !creating)
           return (
-            <EmptyState
+            <EmptyState icon="document"
               title="Build your résumé"
               description="Two ATS-friendly templates. Your Tech Drona certificates can be added in one click."
               action={<Button onClick={() => setCreating(true)}>Start my résumé</Button>}

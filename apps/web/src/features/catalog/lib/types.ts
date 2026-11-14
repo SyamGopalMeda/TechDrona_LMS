@@ -126,14 +126,37 @@ export interface ProductDto {
 /** verified: app/modules/learning/router.py verify_certificate (LRN-13). Dates are IST days. */
 export interface CertificateVerificationDto {
   public_code?: string;
-  status: "valid" | "revoked" | string;
+  status: "valid" | "revoked" | "superseded" | string;
   name_on_certificate?: string;
   course_title?: string;
   issued_at?: string;
   identity_verified?: boolean;
   issuer?: string;
   revoked_on?: string;
+  /** issued documents (learning.documents.verify_public): letters and other certificates */
+  kind?: "certificate" | "document";
+  ref_no?: string;
+  doc_type?: string;
+  label?: string;
+  layout?: "letter" | "certificate";
+  recipient?: string;
+  program?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  details?: Record<string, string>;
+  signatory?: string | null;
+  replaces?: string | null;
+  superseded_by?: string | null;
+  superseded_on?: string | null;
+  revoked_reason?: string | null;
+  related?: { ref_no: string; label: string }[];
+  pdf_check?: boolean;
 }
+
+/** Issued-document reference: TD-AL-2026-7K3QX9 (the website printed TD/AL/2026/7K3QX9). */
+export const DOC_REF = /^TD-(OL|EO|AL|CC|IC|CA|CP|LR)-\d{4}-[A-HJ-NP-Z2-9]{6}$/;
+export const normaliseDocRef = (code: string): string =>
+  code.trim().toUpperCase().replace(/[\s/_.-]+/g, "-").replace(/^-+|-+$/g, "");
 
 /** verified: app/core/pagination.py page_meta envelope. */
 export interface Paged<T> {

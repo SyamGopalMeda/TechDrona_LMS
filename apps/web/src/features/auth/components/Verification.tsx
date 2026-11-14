@@ -8,6 +8,7 @@ import { ApiError } from "@/lib/api/errors";
 import { formatCountdown, retryAfterSeconds, toFormError, type FormErrorInfo } from "../lib/errors";
 import type { OtpSentResponse } from "../lib/types";
 import { FormAlert, Notice, OtpInput, useCountdown } from "./shared";
+import { ServiceNotIntegrated } from "@/components/shell/Integrations";
 
 /**
  * PUB-014 · AUTH-02. The link token is consumed only after an explicit click, so mail
@@ -158,6 +159,7 @@ export function VerifyMobile() {
   return (
     <form onSubmit={verify} noValidate className="space-y-4">
       <FormAlert ref={alertRef} error={error} />
+      <ServiceNotIntegrated service="email" />
       {sentTo ? (
         <p role="status" className="text-sm text-fg-secondary">
           We sent a 6-digit code to {sentTo}.

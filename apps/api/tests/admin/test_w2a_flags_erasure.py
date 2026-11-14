@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from app.modules.admin import flags
 from app.modules.admin import privacy as prv
 from tests.security.helpers import staff, staff_browser
@@ -24,6 +26,7 @@ def test_evaluate_rule() -> None:
     assert flags.evaluate(snap, org_id=uuid.uuid4()) is False  # no org allowlist any more
 
 
+@pytest.mark.usefixtures("admin_backend")
 async def test_cached_reader_caches_and_patch_invalidates(client, db) -> None:
     flags.invalidate()
     try:

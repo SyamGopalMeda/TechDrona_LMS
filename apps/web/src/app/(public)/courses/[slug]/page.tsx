@@ -10,6 +10,8 @@ type Params = Promise<{ slug: string }>;
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const { slug } = await params;
   const r = await loadCourseDetail(slug);
+  // Throwing here (before the page streams) makes an unknown slug a real HTTP 404, not a soft one.
+  if (!r.ok && r.status === 404) notFound();
   return r.ok ? { title: r.data.title, description: r.data.summary ?? undefined } : { title: "Course" };
 }
 

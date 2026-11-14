@@ -22,6 +22,7 @@ Redis clients when the coroutine finishes: task bodies may use ``get_sessionmake
 from __future__ import annotations
 
 import asyncio
+import sys
 from collections.abc import Coroutine, Mapping
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -105,5 +106,9 @@ def run_async[T](coro: Coroutine[Any, Any, T]) -> T:
 
             await dispose_engine()
             await close_redis()
+            if "app.core.firestore.client" in sys.modules:  # its gRPC channel is loop-bound too
+                from app.core.firestore import lifecycle
+
+                await lifecycle.close()
 
     return asyncio.run(_run())

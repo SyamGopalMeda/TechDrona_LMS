@@ -3,7 +3,7 @@ import { UserTimelinePage } from "@/features/security-admin/components/UserTimel
 
 export const metadata: Metadata = { title: "User security timeline" };
 
-/** SEC-007 (H12) */
+/** One user's audited security timeline. */
 export default async function Page({ params }: { params: Promise<{ user_id: string }> }) {
   const { user_id } = await params;
   return <UserTimelinePage userId={user_id} />;

@@ -266,6 +266,8 @@ def normalise_response(
     if qtype in OPTION_TYPES:
         raw = response.get("option_ids")
         if not isinstance(raw, list):
+            if raw is None and "value" in response:
+                raise _bad("response", "this question takes option_ids, not a value", "wrong_response_type")
             raise _bad("response.option_ids", "must be a list of option ids")
         try:
             ids = sorted({str(uuid.UUID(str(x))) for x in raw})
@@ -279,6 +281,9 @@ def normalise_response(
         if single and len(ids) > 1:
             raise _bad("response.option_ids", "only one option may be selected")
         return {"option_ids": ids} if ids else None
+    if "value" not in response and response.keys() & {"option_ids", "text", "words", "submission_id"}:
+        # e.g. {"option_ids": [...]} sent for a numeric question: a wrong shape, not "cleared".
+        raise _bad("response", f"a {qtype} answer is a value", "wrong_response_type")
     raw_value = response.get("value")
     if raw_value is None or (isinstance(raw_value, str) and not raw_value.strip()):
         return None

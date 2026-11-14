@@ -39,10 +39,10 @@ export function PortalSwitcher({ current }: { current: PortalKey }) {
   const here = PORTALS[current].prefix;
   return (
     <details className="relative">
-      <summary className="flex min-h-touch cursor-pointer list-none items-center rounded-md px-2.5 font-display text-sm font-semibold text-fg-secondary hover:bg-brand-subtle hover:text-brand focus-visible:shadow-focus focus-visible:outline-none [&::-webkit-details-marker]:hidden">
+      <summary className="flex min-h-touch cursor-pointer list-none items-center gap-1.5 rounded-xl px-2.5 font-display text-sm font-semibold text-brand transition-colors duration-fast hover:bg-[#f4f7fd] focus-visible:shadow-focus focus-visible:outline-none md:min-h-10 md:border md:border-[#e6eaf2] md:bg-surface md:px-3.5 md:hover:border-[#c9d4ea] [&::-webkit-details-marker]:hidden">
         Switch portal
       </summary>
-      <ul aria-label="Your portals" className="absolute right-0 z-dropdown mt-1 min-w-[13rem] rounded-xl border border-line bg-surface p-1.5 shadow-lg">
+      <ul aria-label="Your portals" className="absolute right-0 z-dropdown mt-1 min-w-[13rem] rounded-2xl border border-line bg-surface p-1.5 shadow-[0_30px_60px_-24px_rgba(5,11,36,0.35)]">
         {portals.map((p) => (
           <li key={p}>
             <Link

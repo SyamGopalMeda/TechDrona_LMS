@@ -1,21 +1,23 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { PageHeader } from "@/components/ui";
+import { LinkButton, PageHeader } from "@/components/ui";
 import { QuestionBank } from "@/features/studio/components/Questions";
 
-export const metadata: Metadata = { title: "Question bank" };
+export const metadata: Metadata = { title: "All questions" };
 
-/** CMS-004 */
+/** CMS-004: every question across banks (the nav calls it "All questions"). */
 export default function Page() {
   return (
     <div>
       <PageHeader
-        title="Question bank"
-        eyebrow="CMS-004"
+        title="All questions"
+        description="Every question you can see, across all question banks. Search, filter and open one to edit or send it for review."
         actions={
-          <Link href="/studio/question-banks" className="inline-flex h-10 items-center text-sm text-fg-link underline">
-            Browse question banks
-          </Link>
+          <>
+            <LinkButton href="/studio/question-banks" variant="secondary">
+              Browse question banks
+            </LinkButton>
+            <LinkButton href="/studio/questions/new">New question</LinkButton>
+          </>
         }
       />
       <QuestionBank />

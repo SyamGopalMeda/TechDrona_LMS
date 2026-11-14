@@ -83,6 +83,8 @@ export interface AIUsageOut {
 export interface EnabledAppsOut {
   apps: Record<string, boolean>;
   ai_enabled: boolean;
+  /** True while AI runs on the placeholder (fake) adapter: screens say "Not integrated yet". */
+  ai_simulated?: boolean;
 }
 
 export type AITutorMode = "guide" | "explain";

@@ -5,14 +5,24 @@ import { mockApi, problem, renderWithProviders } from "@/features/auth/test/mock
 import { CodingProblemEditor } from "./Coding";
 import { QuestionReportQueue } from "./QuestionReports";
 import { StudioDashboard } from "./StudioDashboard";
-import { QuestionEditor, ReviewQueue, validateQuestion } from "./Questions";
-import { TestBuilder } from "./Tests";
+import { QuestionEditor, ReviewQueue, questionTypeLabel, validateQuestion } from "./Questions";
+import { TestBuilder, testKindLabel } from "./Tests";
 
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace }) }));
 
 let restore: (() => void) | undefined;
 afterEach(() => restore?.());
+
+describe("enum labels", () => {
+  it("humanises question types and test kinds", () => {
+    expect(questionTypeLabel("fill_blank")).toBe("Fill in the blank");
+    expect(questionTypeLabel("mcq_single")).toBe("Multiple choice — one answer");
+    expect(questionTypeLabel("long_answer")).toBe("Long answer");
+    expect(testKindLabel("mock")).toBe("Mock test");
+    expect(testKindLabel("weekly_quiz")).toBe("Weekly quiz");
+  });
+});
 
 describe("validateQuestion", () => {
   const base = { type: "mcq_single", stem: "What is 2 + 2?", options: [{ text: "3" }, { text: "4", is_correct: true }], explanation: "", difficulty: "2", topic_id: "", tags: "" };
@@ -107,6 +117,33 @@ describe("QuestionEditor (CMS-005)", () => {
 });
 
 describe("ReviewQueue (CMS-007)", () => {
+  it("admin mode: questions only, read-only preview with the key, may publish", async () => {
+    const api = mockApi({
+      "GET studio/questions": {
+        body: {
+          items: [{ question_id: "q1", organization_id: null, question_type: "mcq_single", primary_topic_id: "t1", status: "draft", latest_version: { question_version_id: "v1", version_no: 1, status: "in_review", reviewed: false, difficulty: 2, stem_html: "<p>2 + 2?</p>" } }],
+          limit: 200,
+          offset: 0,
+        },
+      },
+      "GET studio/questions/q1": {
+        body: {
+          question_id: "q1", organization_id: null, question_type: "mcq_single", primary_topic_id: "t1", status: "draft", current_version_id: null, created_by: "u1", keys_visible: true, tags: [],
+          versions: [{ question_version_id: "v1", version_no: 1, status: "in_review", difficulty: 2, stem_html: "<p>2 + 2?</p>", default_marks: "1", default_negative: "0", expected_seconds: null, authored_by: "u1", reviewed_by: null, published_at: null, options: [{ option_id: "o1", label: "A", html: "3", is_correct: false }, { option_id: "o2", label: "B", html: "4", is_correct: true }] }],
+        },
+      },
+      "POST studio/questions/q1/review": { body: { question_id: "q1" } },
+    });
+    restore = api.restore;
+    renderWithProviders(<ReviewQueue mode="admin" />);
+    await userEvent.click(await screen.findByRole("button", { name: "Review" }));
+    expect(await screen.findByText("(correct)", { exact: false })).toBeInTheDocument();
+    expect(screen.getByLabelText("Publish right away")).toBeInTheDocument(); // Admin holds question.publish (≠ author)
+    expect(screen.queryByText("Courses waiting for review")).toBeNull();
+    expect(api.calls.some((c) => c.path === "studio/courses")).toBe(false);
+    expect(screen.queryByRole("link", { name: /2 \+ 2/ })).toBeNull();
+  });
+
   it("explains author ≠ reviewer", async () => {
     const api = mockApi({
       "GET studio/questions": {
@@ -182,6 +219,13 @@ describe("CodingProblemEditor (CMS-010)", () => {
     expect(screen.getByText("0 1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "View content of hidden case 2" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled();
+    // The problem title is the h1, with a trail back to the list.
+    expect(screen.getByRole("heading", { level: 1, name: "Two Sum" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("link", { name: "Coding problems" })).toHaveAttribute("href", "/studio/coding");
+    expect(screen.getByRole("navigation", { name: "Coding problem sections" })).toBeInTheDocument();
+    // No stored reference solution → no GET …/validation (it can only 404).
+    expect(api.calls.some((c) => c.path.endsWith("/validation"))).toBe(false);
+    expect(await screen.findByText("Not validated yet.")).toBeInTheDocument();
   });
 
   it("saves limits in kilobytes", async () => {
@@ -241,7 +285,8 @@ describe("CodingProblemEditor validation and hidden content (COD-17/18)", () => 
     }));
     restore = api.restore;
     renderWithProviders(<CodingProblemEditor problemId="p1" />);
-    expect(await screen.findByRole("table", { name: /Validation results \(python3\): WA, 1\/2/ })).toBeInTheDocument();
+    // The latest validation is fetched once the stored reference solutions load (sequential calls).
+    expect(await screen.findByRole("table", { name: /Validation results \(python3\): WA, 1\/2/ }, { timeout: 4000 })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Publish" }));
     expect(await screen.findByText("Validate before publishing")).toBeInTheDocument();
   });
@@ -309,7 +354,8 @@ describe("StudioDashboard", () => {
     restore = api.restore;
     renderWithProviders(<StudioDashboard />);
     expect(await screen.findByText("7")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Triage reports" })).toHaveAttribute("href", "/studio/reports/errors");
+    expect(screen.getByRole("link", { name: /Open error reports.*Triage reports/ })).toHaveAttribute("href", "/studio/reports/errors");
+    expect(screen.getByRole("link", { name: /^Template mocks/ })).toHaveAttribute("href", "/studio/tests");
   });
 });
 
@@ -353,6 +399,19 @@ describe("TestBuilder", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Check question supply" }));
     expect(await screen.findByText("Only 9 published questions match")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled();
+  });
+
+  it("uses the test title as the h1, adds section links and labels remove buttons", async () => {
+    const api = mockApi({ "GET studio/tests/t1": { body: def } });
+    restore = api.restore;
+    renderWithProviders(<TestBuilder testId="t1" crumbs={[{ label: "Template mocks", href: "/studio/tests" }]} />);
+    expect(await screen.findByRole("heading", { level: 1, name: "DSA Weekly 3" })).toBeInTheDocument();
+    expect(screen.getByText("Mock test")).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("link", { name: "Template mocks" })).toHaveAttribute("href", "/studio/tests");
+    const nav = await screen.findByRole("navigation", { name: "Test builder sections" });
+    expect(within(nav).getByRole("link", { name: "Sections" })).toHaveAttribute("href", "#test-sections");
+    expect(document.getElementById("test-sections")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Remove rule 1 from section 1" })).toBeInTheDocument();
   });
 
   it("goes read-only when settings are locked", async () => {

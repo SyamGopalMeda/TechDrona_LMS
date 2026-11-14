@@ -13,20 +13,24 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
 
 from app.core.access import require_access
 from app.core.auth import PLATFORM_SCOPE, ScopeRef, require_active_principal, require_feature
-from app.core.db import PrincipalDbSession
 from app.core.errors import PROBLEM_CONTENT_TYPE, ProblemError, problem_response
+
+# Store-backed request session (a ``MemoryTx`` on the Firebase stack, the Postgres session on the
+# VM): entitlement checks reach commerce's SQL-on-Firestore engine and the playback policies
+# read through ``begin_nested``; the ``NO_POSTGRES`` placeholder broke both (500 on paid lessons,
+# admin policies ignored). Same dependency as analytics/commerce/assessments.
+from app.core.firestore.sqlstore import StorePrincipalDbSession as PrincipalDbSession
 from app.core.idempotency import IdemResult, idempotent
 from app.core.ids import uuid7
 from app.core.principal import Principal
 from app.core.request_context import get_request_id
 from app.core.routing import authenticated_router
 from app.core.time import to_rfc3339, utcnow
+from app.modules.catalog import api as catalog_api
 from app.modules.catalog import service as catalog
-from app.modules.catalog.models import Course, LessonAsset, Resource
 from app.modules.media import service as svc
 from app.modules.media.providers import get_video_provider
 from app.modules.media.storage import presign_get, presign_post, safe_filename, storage_settings
@@ -110,7 +114,8 @@ async def video_upload(
 
     async def op() -> IdemResult:
         creds = await get_video_provider().create_upload(body.title)
-        asset = LessonAsset(
+        asset = await catalog_api.create_asset(
+            session,
             id=uuid7(),
             lesson_id=lesson.id,
             organization_id=lesson.organization_id,
@@ -120,8 +125,6 @@ async def video_upload(
             status="uploading",
             scan_status="not_required",
         )
-        session.add(asset)
-        await session.flush()
         return IdemResult(
             {
                 "lesson_asset_id": str(asset.id),
@@ -193,7 +196,8 @@ async def file_upload(
             "max_bytes": body.size_bytes,
         }
         if lesson is not None:
-            asset = LessonAsset(
+            asset = await catalog_api.create_asset(
+                session,
                 id=uuid7(),
                 lesson_id=lesson.id,
                 organization_id=lesson.organization_id,
@@ -205,8 +209,6 @@ async def file_upload(
                 status="uploading",
                 scan_status="pending",
             )
-            session.add(asset)
-            await session.flush()
             out["lesson_asset_id"] = str(asset.id)
         return IdemResult(out, 201)
 
@@ -224,19 +226,17 @@ async def asset_status(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
-    row = await catalog.system_lookup(
-        session, principal, select(LessonAsset.lesson_id).where(LessonAsset.id == lesson_asset_id)
-    )
-    if row is None:
+    asset_lesson_id = await catalog_api.asset_lesson_id_system(session, principal, lesson_asset_id)
+    if asset_lesson_id is None:
         raise ProblemError("not_found")
-    course_id, _ = await catalog.lesson_scope(session, principal, row[0])
+    course_id, _ = await catalog.lesson_scope(session, principal, asset_lesson_id)
     await catalog.ensure_permission(
         request, session, principal, "media.upload", ScopeRef("course", course_id)
     )
-    asset = await session.get(LessonAsset, lesson_asset_id)
+    asset = (await catalog_api.get_assets(session, [lesson_asset_id])).get(lesson_asset_id)
     if asset is None:
         raise ProblemError("not_found")
-    await svc.refresh_asset_status(session, asset)
+    asset = await svc.refresh_asset_status(session, asset)
     return catalog.asset_out(asset)
 
 
@@ -343,11 +343,15 @@ async def download(
 
     async def op() -> IdemResult:
         if body.resource_id is not None:
-            res = await session.get(Resource, body.resource_id)
+            res = (await catalog_api.get_resources(session, [body.resource_id])).get(body.resource_id)
             if res is None:
                 raise ProblemError("not_found")
             if res.access_level == "entitled":
-                course = await session.get(Course, res.course_id) if res.course_id else None
+                course = (
+                    (await catalog_api.get_courses(session, [res.course_id])).get(res.course_id)
+                    if res.course_id
+                    else None
+                )
                 if course is not None:
                     await require_access(session, principal, "course", course.id, is_free=course.is_free)
                 else:

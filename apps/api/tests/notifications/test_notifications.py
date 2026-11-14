@@ -9,15 +9,15 @@ import uuid
 
 import httpx
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import text
 
 from app.core.db import system_context
 from app.modules.notifications.adapters import ConsoleSmsAdapter, OutboundEmail, OutboundSms, SmtpEmailAdapter
-from app.modules.notifications.models import Notification
-from app.modules.notifications.service import notify
+from app.modules.notifications.service import notifications_for_user, notify
 from tests.identity.factory import add_member, company_org, grant, make_batch, make_user, staff_login
 
 
+@pytest.mark.usefixtures("notifications_backend")
 async def test_inbox_list_read_and_read_all(browser, db) -> None:
     u = await make_user(db)
     await system_context(db, "t")
@@ -44,6 +44,7 @@ async def test_inbox_list_read_and_read_all(browser, db) -> None:
     assert (await browser.post(f"/me/notifications/{nid}/read")).status_code == 404
 
 
+@pytest.mark.usefixtures("notifications_backend")
 async def test_marketing_suppressed_for_minors_and_dedupe(db) -> None:
     kid = await make_user(db, minor=True)
     await system_context(db, "t")
@@ -55,6 +56,7 @@ async def test_marketing_suppressed_for_minors_and_dedupe(db) -> None:
         await notify(db, kid.id, "x", category="nonsense")
 
 
+@pytest.mark.usefixtures("notifications_backend")
 async def test_batch_announcement_by_trainer_with_daily_cap(browser, db, mail) -> None:
     org = company_org()
     founder = await make_user(db)
@@ -83,7 +85,7 @@ async def test_batch_announcement_by_trainer_with_daily_cap(browser, db, mail) -
     assert r.status_code == 429
     assert sum(1 for m in mail.sent if m.subject == "T0") == 2
     await system_context(db, "t")
-    rows = (await db.execute(select(Notification).where(Notification.user_id == kids[0].id))).scalars().all()
+    rows = await notifications_for_user(db, kids[0].id)
     assert len(rows) == 3 and all(n.organization_id == org for n in rows)
     # another batch of the company is not reachable for this trainer
     assert (

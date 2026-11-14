@@ -11,7 +11,14 @@ resets it.
 Hooks for other modules:
 
 * ``register_publish_hook(fn)`` — ``await fn(session, course, version)`` runs inside the publish
-  transaction (learning uses it to auto-migrate enrolments on ``minor`` versions).
+  transaction (learning uses it to auto-migrate enrolments on ``minor`` versions). With
+  ``TD_STORE_CATALOG=firestore`` it runs on the Postgres session right **after** the Firestore
+  publish transaction committed, with transient course/version objects (cross-store ordering:
+  if the Postgres transaction then fails, the version stays published in Firestore while the
+  enrolment migration, audit and outbox rows roll back).
+
+Persistence: the loaders below dispatch on ``uses_firestore("catalog")`` to ``repo_firestore``
+(transient ORM instances, same TN visibility); the Postgres path is unchanged.
 * ``course_org_lookup`` is registered with ``rbac.service.register_course_org_lookup`` so the
   ``course:{id}`` scope chain includes the owning organization.
 """
@@ -30,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import ScopeRef, require_permission
 from app.core.db import system_context, tenant_context
 from app.core.errors import ProblemError
+from app.core.firestore.backend import uses_firestore
 from app.core.ids import uuid7
 from app.core.principal import Principal
 from app.core.time import to_rfc3339, utcnow
@@ -64,6 +72,10 @@ def vf(field: str, code: str, msg: str, status: int = 422) -> ProblemError:
 async def course_org_lookup(session: AsyncSession, course_id: uuid.UUID) -> uuid.UUID | None:
     """rbac hook: owning organization of a course (None = platform catalogue or unknown).
     Called by the permission checker inside its own system context."""
+    if uses_firestore("catalog"):
+        from app.modules.catalog.repo_firestore import system_reader
+
+        return (await system_reader().course_org(course_id))[1]
     return (
         await session.execute(select(Course.organization_id).where(Course.id == course_id))
     ).scalar_one_or_none()
@@ -78,7 +90,8 @@ async def ensure_permission(
     try:
         await require_permission(permission, scope=scope)(request, principal)
     finally:
-        await tenant_context(session, principal)
+        if session:  # falsy NO_POSTGRES session (no Postgres): nothing to restore
+            await tenant_context(session, principal)
 
 
 async def system_lookup(session: AsyncSession, principal: Principal, stmt: Any) -> Any:
@@ -95,6 +108,13 @@ async def lesson_scope(
     session: AsyncSession, principal: Principal, lesson_id: uuid.UUID
 ) -> tuple[uuid.UUID, uuid.UUID | None]:
     """(course_id, organization_id) of a lesson, or 404."""
+    if uses_firestore("catalog"):
+        from app.modules.catalog.repo_firestore import system_reader
+
+        found = await system_reader().lesson_scope(lesson_id)
+        if found is None:
+            raise ProblemError("not_found")
+        return found
     row = await system_lookup(
         session,
         principal,
@@ -111,6 +131,13 @@ async def lesson_scope(
 
 
 async def get_course(session: AsyncSession, course_id: uuid.UUID) -> Course:
+    if uses_firestore("catalog"):
+        from app.modules.catalog.repo_firestore import reader
+
+        fc = (await (await reader(session)).courses([course_id])).get(course_id)
+        if fc is None or fc.deleted_at is not None:
+            raise ProblemError("not_found")
+        return fc
     course = (
         await session.execute(select(Course).where(Course.id == course_id, Course.deleted_at.is_(None)))
     ).scalar_one_or_none()
@@ -120,6 +147,10 @@ async def get_course(session: AsyncSession, course_id: uuid.UUID) -> Course:
 
 
 async def editable_version(session: AsyncSession, course_id: uuid.UUID) -> CourseVersion | None:
+    if uses_firestore("catalog"):
+        from app.modules.catalog.repo_firestore import reader
+
+        return await (await reader(session)).editable_version(course_id)
     return (
         await session.execute(
             select(CourseVersion).where(
@@ -132,12 +163,21 @@ async def editable_version(session: AsyncSession, course_id: uuid.UUID) -> Cours
 async def get_version(session: AsyncSession, version_id: uuid.UUID | None) -> CourseVersion | None:
     if version_id is None:
         return None
+    if uses_firestore("catalog"):
+        from app.modules.catalog.repo_firestore import reader
+
+        return (await (await reader(session)).versions([version_id])).get(version_id)
     return await session.get(CourseVersion, version_id)
 
 
 async def version_tree(
     session: AsyncSession, version_id: uuid.UUID
 ) -> tuple[list[CourseModule], dict[uuid.UUID, list[Lesson]], dict[uuid.UUID, list[LessonAsset]]]:
+    if uses_firestore("catalog"):
+        from app.modules.catalog.repo_firestore import reader
+
+        fm, fl, fa, _topics = await (await reader(session)).version_tree(version_id)
+        return fm, fl, fa
     modules = list(
         (
             await session.execute(
@@ -172,6 +212,10 @@ async def version_tree(
 
 
 async def version_lessons(session: AsyncSession, version_id: uuid.UUID) -> list[Lesson]:
+    if uses_firestore("catalog"):
+        from app.modules.catalog.repo_firestore import reader
+
+        return await (await reader(session)).version_lessons(version_id)
     return list(
         (await session.execute(select(Lesson).where(Lesson.course_version_id == version_id))).scalars()
     )
@@ -205,6 +249,14 @@ async def lesson_topics_map(
     ids = list(lesson_ids)
     out: dict[uuid.UUID, list[dict[str, Any]]] = {i: [] for i in ids}
     if not ids:
+        return out
+    if uses_firestore("catalog"):
+        from app.modules.catalog.repo_firestore import _topics, reader
+
+        docs = await (await reader(session)).lesson_docs(ids)
+        for i in ids:
+            d = docs.get(str(i))
+            out[i] = _topics(d.get("topics")) if d is not None else []
         return out
     rows = (
         await session.execute(
@@ -277,10 +329,17 @@ def version_meta(v: CourseVersion) -> dict[str, Any]:
 
 
 async def version_out(session: AsyncSession, v: CourseVersion, *, full: bool = True) -> dict[str, Any]:
-    modules, by_module, assets = await version_tree(session, v.id)
     topics: dict[uuid.UUID, list[dict[str, Any]]] = {}
-    if full:
-        topics = await lesson_topics_map(session, [le.id for ls in by_module.values() for le in ls])
+    if uses_firestore("catalog"):
+        from app.modules.catalog.repo_firestore import reader
+
+        modules, by_module, assets, fs_topics = await (await reader(session)).version_tree(v.id)
+        if full:
+            topics = fs_topics
+    else:
+        modules, by_module, assets = await version_tree(session, v.id)
+        if full:
+            topics = await lesson_topics_map(session, [le.id for ls in by_module.values() for le in ls])
     out = version_meta(v)
     out["modules"] = [
         {
@@ -330,6 +389,20 @@ async def create_course(
     is_free: bool,
     summary: str | None,
 ) -> tuple[Course, CourseVersion]:
+    if uses_firestore("catalog"):
+        from app.modules.catalog.repo_firestore import CREATE_PERMS, writer
+
+        return await (await writer(session, principal, CREATE_PERMS)).create_course(
+            principal.user_id,
+            organization_id=organization_id,
+            slug=slug,
+            title=title,
+            course_kind=course_kind,
+            visibility=visibility,
+            is_free=is_free,
+            summary=summary,
+            certificate_rule=DEFAULT_CERTIFICATE_RULE,
+        )
     clash = (
         await session.execute(
             select(Course.id).where(
@@ -488,6 +561,22 @@ def touch_draft(v: CourseVersion) -> None:
 
 
 async def editable_lesson(session: AsyncSession, lesson_id: uuid.UUID) -> tuple[Lesson, CourseVersion]:
+    if uses_firestore("catalog"):
+        from app.modules.catalog.repo_firestore import reader
+
+        repo = await reader(session)
+        fl = (await repo.lessons([lesson_id])).get(lesson_id)
+        if fl is None:
+            raise ProblemError("not_found")
+        fv = (await repo.versions([fl.course_version_id])).get(fl.course_version_id)
+        if fv is None:
+            raise ProblemError("not_found")
+        if fv.status not in EDITABLE:
+            raise ProblemError(
+                "invalid_state_transition",
+                detail="Published lessons are immutable. Edit the lesson in the course draft.",
+            )
+        return fl, fv
     lesson = await session.get(Lesson, lesson_id)
     if lesson is None:
         raise ProblemError("not_found")
@@ -651,6 +740,10 @@ async def set_lesson_topics(session: AsyncSession, lesson: Lesson, topics: list[
 
 
 async def submit_review(session: AsyncSession, course: Course, principal: Principal) -> CourseVersion:
+    if uses_firestore("catalog"):
+        from app.modules.catalog.repo_firestore import writer
+
+        return await (await writer(session, principal)).submit_review(principal.user_id, course.id)
     draft = await editable_version(session, course.id)
     if draft is None or draft.status != "draft":
         raise ProblemError("invalid_state_transition", detail="Only a draft can be submitted for review.")
@@ -671,6 +764,10 @@ async def publish(
     change_type: str,
     changelog: str | None,
 ) -> CourseVersion:
+    if uses_firestore("catalog"):
+        return await _publish_firestore(
+            session, course, principal, change_type=change_type, changelog=changelog
+        )
     version = await editable_version(session, course.id)
     if version is None or version.status != "in_review":
         raise ProblemError("invalid_state_transition", detail="Only a version in review can be published.")
@@ -732,6 +829,24 @@ async def publish(
     return version
 
 
+async def _publish_firestore(
+    session: AsyncSession, course: Course, principal: Principal, *, change_type: str, changelog: str | None
+) -> CourseVersion:
+    """One Firestore transaction (checks, supersede, card, pointers); ``course`` is updated in
+    place like the ORM path. The publish hooks run on the Postgres session after the commit."""
+    from app.modules.catalog.repo_firestore import writer
+
+    repo = await writer(session, principal)
+    new_course, version = await repo.publish(
+        principal.user_id, course.id, change_type=change_type, changelog=changelog
+    )
+    for col in Course.__table__.columns:
+        setattr(course, col.key, getattr(new_course, col.key))
+    for hook in list(_publish_hooks):
+        await hook(session, course, version)
+    return version
+
+
 def completeness(version: CourseVersion, lesson_count: int) -> Decimal:
     plan = version.completeness_plan or {}
     planned = plan.get("planned_lessons")
@@ -753,6 +868,13 @@ def public_course_filter() -> list[Any]:
 
 
 async def public_course_by_slug(session: AsyncSession, slug: str) -> tuple[Course, CourseVersion]:
+    if uses_firestore("catalog"):
+        from app.modules.catalog.repo_firestore import reader
+
+        found = await (await reader(session)).public_course_by_slug(slug)
+        if found is None:
+            raise ProblemError("not_found")
+        return found
     row = (
         await session.execute(
             select(Course, CourseVersion)
@@ -773,6 +895,10 @@ async def published_lesson_counts(
     """version_id -> (lesson count, total duration seconds)."""
     if not version_ids:
         return {}
+    if uses_firestore("catalog"):
+        from app.modules.catalog.repo_firestore import reader
+
+        return await (await reader(session)).lesson_counts(version_ids)
     rows = (
         await session.execute(
             select(

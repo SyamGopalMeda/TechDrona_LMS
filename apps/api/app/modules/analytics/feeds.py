@@ -28,6 +28,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import system_context
+from app.core.firestore.backend import uses_firestore
+from app.modules.analytics import hooks
 from app.modules.analytics.jobs import security_feed_eligible
 
 
@@ -56,6 +58,10 @@ class EngagedBucket:
 async def get_activity_summary(
     session: AsyncSession, user_id: uuid.UUID, from_date: date, to_date: date
 ) -> list[ActivityFeedDay]:
+    if uses_firestore("analytics"):
+        if not await security_feed_eligible(session, user_id):
+            return []
+        return await _fs_activity_summary(user_id, from_date, to_date)
     await system_context(session, "analytics.feed_read")
     if not await security_feed_eligible(session, user_id):
         return []
@@ -80,6 +86,10 @@ async def get_activity_summary(
 async def get_engaged_buckets(
     session: AsyncSession, user_id: uuid.UUID, from_ts: datetime, to_ts: datetime
 ) -> list[EngagedBucket]:
+    if uses_firestore("analytics"):
+        if not await security_feed_eligible(session, user_id):
+            return []
+        return await _fs_engaged_buckets(user_id, from_ts, to_ts)
     await system_context(session, "analytics.feed_read")
     if not await security_feed_eligible(session, user_id):
         return []
@@ -139,6 +149,8 @@ async def get_learning_activity(
     trunc = _GRANULARITY.get(granularity)
     if trunc is None:
         raise ValueError(f"granularity must be one of {sorted(_GRANULARITY)}")
+    if uses_firestore("analytics"):
+        return await _fs_learning_activity(session, from_date, to_date, trunc)
     await system_context(session, "analytics.feed_read")
     rows = (
         await session.execute(
@@ -147,12 +159,13 @@ async def get_learning_activity(
                 SELECT date_trunc('{trunc}', d.activity_date)::date AS p,
                        count(DISTINCT d.user_id) FILTER (WHERE d.m2_active_s > 0) AS learners,
                        coalesce(sum(d.m2_active_s), 0) AS m2, coalesce(sum(d.m5_learning_s), 0) AS m5
-                FROM daily_learning_aggregates d JOIN users u ON u.id = d.user_id AND NOT u.is_synthetic
+                FROM daily_learning_aggregates d
                 WHERE d.entity_kind = '_total' AND d.activity_date BETWEEN :a AND :b
+                  AND NOT (d.user_id = ANY(:syn))
                 GROUP BY 1 ORDER BY 1
                 """  # noqa: S608 - trunc is a module constant
             ),
-            {"a": from_date, "b": to_date},
+            {"syn": await hooks.synthetic_user_ids(session), "a": from_date, "b": to_date},
         )
     ).all()
     out: list[LearningActivityBucket] = []
@@ -167,3 +180,102 @@ async def get_learning_activity(
             )
         )
     return out
+
+
+# --------------------------------------------------------------------------- Firestore paths
+# (``TD_STORE_ANALYTICS=firestore``, data-ops agent): same rows, same order as the SQL above.
+
+
+async def _fs_activity_summary(user_id: uuid.UUID, from_date: date, to_date: date) -> list[ActivityFeedDay]:
+    from app.modules.analytics.repo_firestore import feed_repo
+    from app.modules.analytics.store_specs import SecurityFeedRow
+
+    out = []
+    for d in await feed_repo().security_feed_days(user_id, from_date, to_date):
+        r = SecurityFeedRow.of(d)
+        out.append(
+            ActivityFeedDay(
+                r.activity_date,
+                r.active_devices,
+                r.multi_device_overlap_s,
+                r.max_concurrent_active_page_instances,
+                r.active_hours_bitmap,
+                r.implausible_day,
+                r.plausibility_violations,
+                r.clock_jump_count,
+                r.large_skew_count,
+                r.feed_version,
+            )
+        )
+    return out
+
+
+def _activity_kind(bits: int) -> str:
+    if bits & 1 == 0:
+        return "hidden_playback"
+    if bits & 6 == 6:
+        return "interactive"
+    if bits & 8 == 8:
+        return "media"
+    return "interactive"
+
+
+async def _fs_engaged_buckets(user_id: uuid.UUID, from_ts: datetime, to_ts: datetime) -> list[EngagedBucket]:
+    from app.modules.analytics import fs_raw
+
+    seen: set[tuple[Any, Any, datetime, str]] = set()
+    hbs = (await fs_raw.rows_for_window(user_id, from_ts.astimezone(UTC), to_ts.astimezone(UTC)))[0]
+    for r in hbs:
+        if r.kind != "engaged" or r.privacy_tier != "adult":
+            continue
+        epoch = int(r.effective_at.timestamp()) // 300 * 300
+        seen.add(
+            (r.device_id, r.auth_session_id, datetime.fromtimestamp(epoch, UTC), _activity_kind(r.state_bits))
+        )
+    from app.core.firestore.collation import sort_key
+
+    # ORDER BY bucket, device_id, auth_session_id (uuid: NULLS LAST), activity_kind (text collation)
+    rows = sorted(
+        seen,
+        key=lambda t: (t[2], t[0] is None, str(t[0] or ""), t[1] is None, str(t[1] or ""), sort_key(t[3])),
+    )
+    return [EngagedBucket(a, b, c, k) for a, b, c, k in rows]
+
+
+def _period(d: date, trunc: str) -> date:
+    if trunc == "week":
+        return date.fromordinal(d.toordinal() - d.weekday())
+    if trunc == "month":
+        return d.replace(day=1)
+    return d
+
+
+async def _fs_learning_activity(
+    session: AsyncSession, from_date: date, to_date: date, trunc: str
+) -> list[LearningActivityBucket]:
+    from app.modules.analytics.repo_firestore import feed_repo
+    from app.modules.identity import public as idp
+
+    rows = await feed_repo().daily_totals(from_date, to_date)
+    users = await idp.get_users(session, [uuid.UUID(r["user_id"]) for r in rows])
+    real = {str(k) for k, u in users.items() if not u.is_synthetic}
+    acc: dict[date, tuple[set[str], int, int]] = {}
+    for r in rows:
+        if r["user_id"] not in real:
+            continue
+        p = _period(date.fromisoformat(r["activity_date"]), trunc)
+        learners, m2, m5 = acc.get(p, (set(), 0, 0))
+        m2_s, m5_s = int(r.get("m2_active_s") or 0), int(r.get("m5_learning_s") or 0)
+        if m2_s > 0:
+            learners.add(r["user_id"])
+        acc[p] = (learners, m2 + m2_s, m5 + m5_s)
+    return [
+        LearningActivityBucket(
+            period_start=p,
+            active_learners=len(ls),
+            engaged_minutes=m2 // 60,
+            learning_minutes=m5 // 60,
+            suppressed=False,
+        )
+        for p, (ls, m2, m5) in sorted(acc.items())
+    ]

@@ -617,6 +617,7 @@ The college coordinator portal (COL-001…COL-012) is removed. Batches (formerly
 | ADM-003 | `/admin/ai` | AI and app settings (platform-wide; replaces per-org AI settings) | AI off, cap reached |
 | ADM-013 | `/admin/batches` | Batch list, create batch | E, duplicate code |
 | ADM-014 | `/admin/batches/[batch_id]` | Batch detail: members add/remove (existing accounts), assign trainer/evaluator | E, archived (read-only) |
+| ADM-015 | `/admin/college-data` | College Data Portal (college outreach: colleges, contacts, calls, targets, enrollments), embedded from `/college-portal/` (docs/college-data-portal.md) | portal unavailable (502), access unverifiable (503) |
 | ADM-004 | `/admin/users` | User search (no evidence data; links to security for that) | E |
 | ADM-005 | `/admin/roles` | Role grants (create/expire), grant history | pending second approval (super_admin grants) |
 | ADM-006 | `/admin/policies` | Policy settings (device/session/refund/grace) | pending approval, scheduled effective date |

@@ -3,7 +3,7 @@ import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider } from "@/components/ui";
 import { ApiError } from "@/lib/api/errors";
-import { canEnterPortal, reachablePortals } from "./access";
+import { canEnterPortal, homePortal, reachablePortals } from "./access";
 
 const server = vi.hoisted(() => ({ hasSessionCookie: vi.fn(), serverApiGet: vi.fn() }));
 const redirect = vi.hoisted(() =>
@@ -52,14 +52,42 @@ describe("ADM-12 staff portal role gate", () => {
     ]);
   });
 
-  it("shows a 403 page (no portal content) to a student opening /admin", async () => {
+  it("picks the home portal: most privileged first, null only without any portal", () => {
+    expect(homePortal(["/app"])).toBe("/app");
+    expect(homePortal(["/app", "/trainer"])).toBe("/trainer");
+    expect(homePortal(["/admin", "/app"])).toBe("/admin");
+    expect(homePortal(["/evaluator"])).toBe("/evaluator");
+    expect(homePortal(["/desk"])).toBe("/desk");
+    expect(homePortal([])).toBeNull();
+    expect(homePortal(undefined)).toBeNull();
+    expect(homePortal(["/nowhere"])).toBeNull();
+  });
+
+  it("redirects a student opening /admin straight to the Student portal (no 403 page)", async () => {
     server.hasSessionCookie.mockResolvedValue(true);
-    server.serverApiGet.mockResolvedValue({ data: [], portals: ["/app"] });
-    await renderGate("admin");
+    server.serverApiGet.mockResolvedValue({ data: [{ role_key: "student" }], portals: ["/app"] });
+    await expect(renderGate("admin")).rejects.toThrow("REDIRECT /app");
     expect(server.serverApiGet).toHaveBeenCalledWith("me/grants");
+  });
+
+  it("redirects a trainer opening the content studio to /trainer", async () => {
+    server.hasSessionCookie.mockResolvedValue(true);
+    server.serverApiGet.mockResolvedValue({ data: [{ role_key: "trainer" }], portals: ["/app", "/trainer"] });
+    await expect(renderGate("studio")).rejects.toThrow("REDIRECT /trainer");
+  });
+
+  it("shows a friendly LMS page (no portal content) when the account opens no portal at all", async () => {
+    server.hasSessionCookie.mockResolvedValue(true);
+    server.serverApiGet.mockResolvedValue({ data: [], portals: [] });
+    await renderGate("admin");
+    expect(redirect).not.toHaveBeenCalled();
     expect(screen.queryByText("PORTAL CONTENT")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /don.t have access to the Admin portal/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Go to Student" })).toHaveAttribute("href", "/app");
+    expect(screen.queryByText("403")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /account isn.t set up yet/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Get help" })).toHaveAttribute("href", "/help");
+    // LMS chrome only: none of the company website's header links.
+    expect(screen.queryByRole("link", { name: /contact/i })).not.toBeInTheDocument();
   });
 
   it("renders the portal for a granted role", async () => {

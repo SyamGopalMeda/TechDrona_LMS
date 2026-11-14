@@ -3,20 +3,21 @@
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import {
-  Badge,
   Button,
   Dialog,
   ErrorState,
   FormField,
   Pagination,
   Select,
+  StatusBadge,
   Table,
   Tabs,
   nextCursorStack,
   previousCursorStack,
   useToast,
-  type BadgeTone,
+  buttonClasses,
 } from "@/components/ui";
+import { LMS_COURSES_HREF } from "@/lib/site/website";
 import { api } from "@/lib/api/client";
 import { formatDate, formatDateTime, formatMoney, formatPercent, humanize } from "@/features/catalog/lib/format";
 import type { Paged, ProductDto } from "@/features/catalog/lib/types";
@@ -162,7 +163,7 @@ function OrdersTab() {
         loading={loading}
         error={error}
         onRetry={reload}
-        empty={{ title: "No orders yet", description: "Purchases you make appear here with their invoices.", action: <Link href="/pricing" className="font-medium text-fg-link">See plans</Link> }}
+        empty={{ icon: "card", title: "No orders yet", description: "Purchases you make appear here with their invoices.", action: <Link href={LMS_COURSES_HREF} className={buttonClasses({ variant: "secondary", size: "sm" })}>Explore courses</Link> }}
         columns={[
           {
             key: "order",
@@ -206,7 +207,6 @@ function OrdersTab() {
 
 /* ----------------------------------------------------------- Subscriptions */
 
-const SUB_TONE: Record<string, BadgeTone> = { active: "success", grace: "warning", pending: "warning", halted: "danger", cancelled: "neutral", completed: "neutral" };
 const TERMINAL_SUB = new Set(["cancelled", "completed"]);
 
 function SubscriptionsTab() {
@@ -263,7 +263,7 @@ function SubscriptionsTab() {
         loading={loading}
         error={error}
         onRetry={reload}
-        empty={{ title: "No subscriptions", description: "Recurring plans you start appear here. You can cancel any time in one click." }}
+        empty={{ icon: "calendar", title: "No subscriptions", description: "Recurring plans you start appear here. You can cancel any time in one click." }}
         columns={[
           { key: "started", header: "Started", cell: (r) => formatDate(r.current_period_start) },
           {
@@ -271,7 +271,7 @@ function SubscriptionsTab() {
             header: "Status",
             cell: (r) => (
               <span className="flex flex-col gap-1">
-                <Badge tone={SUB_TONE[r.status] ?? "neutral"}>{r.cancel_at_period_end ? "Cancels at period end" : humanize(r.status)}</Badge>
+                <StatusBadge status={r.status} label={r.cancel_at_period_end ? "Cancels at period end" : humanize(r.status)} />
                 {r.status === "grace" && r.grace_until ? <span className="text-xs text-warning-fg">Renewal payment failed — the bank will retry. Keep your UPI AutoPay or card mandate active; access continues until {formatDate(r.grace_until)}</span> : null}
                 {r.scheduled_price_id ? (
                   <span className="text-xs text-info-fg">
@@ -342,7 +342,7 @@ function InvoicesTab() {
         loading={loading}
         error={error}
         onRetry={reload}
-        empty={{ title: "No invoices yet", description: "A GST invoice is issued for every paid order." }}
+        empty={{ icon: "document", title: "No invoices yet", description: "A GST invoice is issued for every paid order." }}
         columns={[
           { key: "number", header: "Number", cell: (r) => <span className="font-mono text-sm">{r.invoice_number}</span> },
           { key: "kind", header: "Type", cell: (r) => (r.invoice_type === "credit_note" ? "Credit note" : "Invoice") },
@@ -389,7 +389,7 @@ function RefundsTab() {
       loading={loading}
       error={error}
       onRetry={reload}
-      empty={{ title: "No refund requests", description: "To request a refund, open the Orders tab and choose Request refund on a paid order." }}
+      empty={{ icon: "card", title: "No refund requests", description: "To request a refund, open the Orders tab and choose Request refund on a paid order." }}
       columns={[
         {
           key: "order",
@@ -402,7 +402,7 @@ function RefundsTab() {
         },
         { key: "requested", header: "Requested", cell: (r) => formatDate(r.created_at) },
         { key: "amount", header: "Amount", align: "right", cell: (r) => <span className="tabular-nums">{typeof r.amount_paise === "number" ? formatMoney(r.amount_paise) : "—"}</span> },
-        { key: "status", header: "Status", cell: (r) => <Badge tone={r.status === "processed" ? "success" : r.status === "rejected" ? "danger" : "info"}>{humanize(r.status)}</Badge> },
+        { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} label={humanize(r.status)} /> },
         { key: "processed", header: "Processed", cell: (r) => (r.processed_at ? formatDate(r.processed_at) : "—") },
       ]}
       footer={pagination}

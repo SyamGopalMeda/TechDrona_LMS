@@ -40,21 +40,19 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from fastapi import Request
-from sqlalchemy import and_, delete, func, or_, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import auth as core_auth
 from app.core.audit import audit
 from app.core.auth import ScopeRef
 from app.core.company import COMPANY_ORG_ID
-from app.core.db import system_context
 from app.core.errors import ProblemError
 from app.core.ids import uuid7
 from app.core.principal import Principal
 from app.core.time import to_rfc3339, utcnow
 from app.modules.ai.service import require_app_enabled
-from app.modules.paths import schedule
+from app.modules.paths import adapters, schedule
+from app.modules.paths import store as st
 from app.modules.paths.articles import sanitize_markdown, table_of_contents
 from app.modules.paths.models import (
     LearningPath,
@@ -65,6 +63,7 @@ from app.modules.paths.models import (
     PathArticle,
     PathStepProgress,
 )
+from app.modules.rbac.catalogue import ADMIN_ROLE
 
 LEAF_TYPES = ("reading", "video", "article", "assignment", "assessment")
 STEP_TYPES = (*LEAF_TYPES, "super_step")
@@ -154,11 +153,7 @@ COMPANY_SCOPE = ScopeRef("organization", COMPANY_ORG_ID)
 
 
 async def _batch_exists(session: AsyncSession, batch_id: uuid.UUID) -> bool:
-    from app.modules.orgs.models import Batch
-
-    return (
-        await session.execute(select(Batch.id).where(Batch.id == batch_id))
-    ).scalar_one_or_none() is not None
+    return await adapters.batch_exists(session, batch_id)
 
 
 async def has_company_scope(request: Request | None, principal: Principal, perm: str) -> bool:
@@ -206,24 +201,7 @@ async def _active_batch_students(
     session: AsyncSession, batch_ids: set[uuid.UUID], user_ids: list[uuid.UUID]
 ) -> set[uuid.UUID]:
     """Of ``user_ids``, the active student members of any of ``batch_ids``."""
-    from app.modules.orgs.models import BatchMember
-
-    if not batch_ids or not user_ids:
-        return set()
-    async with system_context(session, "paths.members"):
-        return set(
-            (
-                await session.execute(
-                    select(BatchMember.user_id).where(
-                        BatchMember.batch_id.in_(batch_ids),
-                        BatchMember.user_id.in_(user_ids),
-                        BatchMember.status == "active",
-                        BatchMember.removed_at.is_(None),
-                        BatchMember.member_role == "student",
-                    )
-                )
-            ).scalars()
-        )
+    return await adapters.active_batch_students(session, batch_ids, user_ids)
 
 
 async def can_allocate_users(
@@ -246,20 +224,35 @@ async def require_allocate_batch(request: Request | None, principal: Principal, 
     _mark_used(request, "path.allocate")
 
 
+async def require_audience_scope(
+    request: Request | None,
+    session: AsyncSession,
+    principal: Principal,
+    batch_ids: list[uuid.UUID],
+    user_ids: list[uuid.UUID],
+) -> None:
+    """An article's audience (or a path's live allocations) reaches only learners the caller
+    manages: ``path.manage`` on every batch (platform grants cover all) and, for people,
+    ``can_allocate_users``. A company-wide grant passes. RBAC audit 2026-11-13: a batch-A
+    trainer could publish into, unpublish, rewrite or delete content of batch B."""
+    if await has_company_scope(request, principal, "path.manage"):
+        return
+    for b in dict.fromkeys(batch_ids):
+        if not await core_auth.check_permission(principal, "path.manage", ScopeRef("batch", b), request):
+            raise ProblemError("permission_denied", permission="path.manage")
+    if user_ids and not await can_allocate_users(request, session, principal, list(user_ids)):
+        raise ProblemError("permission_denied", permission="path.allocate")
+
+
 async def staff_context(request: Request, session: AsyncSession, principal: Principal) -> dict[str, Any]:
     """What the caller may do in paths, and the batches they may allocate to."""
-    from app.modules.orgs.models import Batch
-
     company_alloc = await has_company_scope(request, principal, "path.allocate")
     mine = set() if company_alloc else await allocatable_batches(request, principal)
-    stmt = select(Batch).where(Batch.status == "active").order_by(Batch.name)
-    if not company_alloc:
-        stmt = stmt.where(Batch.id.in_(mine or {uuid7()}))
-    rows = (await session.execute(stmt)).scalars()
+    rows = await adapters.active_batches(session, None if company_alloc else mine)
     return {
         "can_author": await can_author(request, principal, "path.manage"),
         "can_allocate_any_learner": company_alloc,
-        "batches": [{"id": str(b.id), "name": b.name, "code": b.code} for b in rows],
+        "batches": [{"id": str(b["id"]), "name": b["name"], "code": b["code"]} for b in rows],
     }
 
 
@@ -326,19 +319,11 @@ def _step_out(n: StepNode) -> dict[str, Any]:
 
 
 async def _draft_rows(session: AsyncSession, path_id: uuid.UUID) -> list[LearningPathStep]:
-    return list(
-        (await session.execute(select(LearningPathStep).where(LearningPathStep.path_id == path_id))).scalars()
-    )
+    return await st.draft_rows(session, path_id)
 
 
 async def _version_rows(session: AsyncSession, version_id: uuid.UUID) -> list[LearningPathVersionStep]:
-    return list(
-        (
-            await session.execute(
-                select(LearningPathVersionStep).where(LearningPathVersionStep.path_version_id == version_id)
-            )
-        ).scalars()
-    )
+    return await st.version_rows(session, version_id)
 
 
 def _summary(p: LearningPath, rows: list[Any]) -> dict[str, Any]:
@@ -364,13 +349,7 @@ async def path_detail(session: AsyncSession, p: LearningPath) -> dict[str, Any]:
     rows = await _draft_rows(session, p.id)
     out = _summary(p, rows)
     out["steps"] = [_step_out(n) for n in _tree(rows)]
-    allocs = (
-        await session.execute(
-            select(PathAllocation)
-            .where(PathAllocation.path_id == p.id)
-            .order_by(PathAllocation.created_at.desc())
-        )
-    ).scalars()
+    allocs = await st.allocations_for_path(session, p.id)
     out["allocations"] = [await allocation_out(session, a) for a in allocs]
     return out
 
@@ -379,7 +358,7 @@ async def path_detail(session: AsyncSession, p: LearningPath) -> dict[str, Any]:
 
 
 async def get_path(session: AsyncSession, path_id: uuid.UUID) -> LearningPath:
-    p = (await session.execute(select(LearningPath).where(LearningPath.id == path_id))).scalar_one_or_none()
+    p = await st.get_path(session, path_id)
     if p is None:
         raise ProblemError("not_found")
     return p
@@ -407,14 +386,7 @@ async def list_paths(
 ) -> dict[str, Any]:
     if not await can_author(request, principal, "path.manage"):
         return {"data": []}
-    stmt = select(LearningPath)
-    stmt = (
-        stmt.where(LearningPath.status == status) if status else stmt.where(LearningPath.status != "archived")
-    )
-    if q:
-        like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-        stmt = stmt.where(LearningPath.title.ilike(like))
-    rows = list((await session.execute(stmt.order_by(LearningPath.updated_at.desc()).limit(200))).scalars())
+    rows = await st.list_paths(session, status, q)
     return {"data": [_summary(p, await _draft_rows(session, p.id)) for p in rows]}
 
 
@@ -443,8 +415,7 @@ async def create_path(
         has_unpublished_changes=True,
         created_by=principal.user_id,
     )
-    session.add(p)
-    await session.flush()
+    await st.insert_path(session, p)
     await audit(
         session,
         principal,
@@ -467,7 +438,7 @@ async def update_path(
             setattr(p, k, changes[k].strip() if k == "title" else changes[k])
     p.has_unpublished_changes = True
     p.updated_at = utcnow()
-    await session.flush()
+    await st.save_path(session, p)
     await audit(
         session,
         principal,
@@ -479,49 +450,32 @@ async def update_path(
     )
 
 
-async def archive_path(session: AsyncSession, principal: Principal, p: LearningPath) -> None:
+async def archive_path(
+    session: AsyncSession, principal: Principal, p: LearningPath, request: Request | None = None
+) -> None:
+    # Archiving revokes every live allocation of the path: allowed only if the caller could
+    # revoke each one directly (DELETE /path-allocations/{id}, SEC-01) -- RBAC audit 2026-11-13.
+    for a in await st.allocations_for_path(session, p.id):
+        if a.status == "active":
+            await managed_allocation(request, session, principal, a.id)
     p.status = "archived"
-    await session.flush()
-    await session.execute(
-        update(PathAllocation)
-        .where(PathAllocation.path_id == p.id, PathAllocation.status == "active")
-        .values(status="revoked", revoked_at=utcnow())
-    )
+    await st.save_path(session, p)
+    await st.revoke_active_for_path(session, p.id)
     await audit(session, principal, "path.archive", "learning_path", p.id, organization_id=p.organization_id)
 
 
 async def _check_link(session: AsyncSession, org_id: uuid.UUID, field: str, value: uuid.UUID) -> None:
-    from app.modules.assessments.models import Test
-    from app.modules.catalog.models import Lesson
-    from app.modules.learning.models import Assignment
+    from app.modules.catalog import api as catalog_api
 
     ok: Any
     if field == "assignment_id":
-        ok = (
-            await session.execute(
-                select(Assignment.id).where(Assignment.id == value, Assignment.organization_id == org_id)
-            )
-        ).scalar_one_or_none()
+        ok = await adapters.assignment_in_org(session, value, org_id) or None
     elif field == "test_id":
-        ok = (
-            await session.execute(
-                select(Test.id).where(
-                    Test.id == value, or_(Test.organization_id == org_id, Test.organization_id.is_(None))
-                )
-            )
-        ).scalar_one_or_none()
+        ok = await adapters.test_in_org(session, value, org_id) or None
     elif field == "article_id":
-        ok = (
-            await session.execute(
-                select(PathArticle.id).where(
-                    PathArticle.id == value,
-                    PathArticle.organization_id == org_id,
-                    PathArticle.deleted_at.is_(None),
-                )
-            )
-        ).scalar_one_or_none()
+        ok = await st.article_in_org(session, value, org_id) or None
     else:
-        ok = (await session.execute(select(Lesson.id).where(Lesson.id == value))).scalar_one_or_none()
+        ok = (await catalog_api.get_lessons(session, [value])).get(value)
     if ok is None:
         raise vf(field, "not_found", "The linked item does not exist in this organization")
 
@@ -545,22 +499,22 @@ async def replace_steps(
                 raise vf(f"steps[{i}].children[{j}].step_type", "not_allowed", "Super-steps cannot be nested")
     if count > MAX_STEPS:
         raise vf("steps", "too_many", f"A path can have at most {MAX_STEPS} steps")
-    await session.execute(delete(LearningPathStep).where(LearningPathStep.path_id == p.id))
+    new_rows: list[LearningPathStep] = []
     for i, s in enumerate(steps):
         key = s.get("step_key") or uuid7()
         if key in seen:
             raise vf(f"steps[{i}].step_key", "duplicate", "Duplicate step")
         seen.add(key)
-        await _add_step(session, p, s, key, None, i, f"steps[{i}]")
+        new_rows.append(await _add_step(session, p, s, key, None, i, f"steps[{i}]"))
         for j, c in enumerate(s.get("children") or []):
             ckey = c.get("step_key") or uuid7()
             if ckey in seen:
                 raise vf(f"steps[{i}].children[{j}].step_key", "duplicate", "Duplicate step")
             seen.add(ckey)
-            await _add_step(session, p, c, ckey, key, j, f"steps[{i}].children[{j}]")
+            new_rows.append(await _add_step(session, p, c, ckey, key, j, f"steps[{i}].children[{j}]"))
     p.has_unpublished_changes = True
     p.updated_at = utcnow()
-    await session.flush()
+    await st.replace_draft(session, p, new_rows)
     await audit(
         session,
         principal,
@@ -580,7 +534,7 @@ async def _add_step(
     parent: uuid.UUID | None,
     pos: int,
     field: str,
-) -> None:
+) -> LearningPathStep:
     t = s["step_type"]
     if t not in STEP_TYPES:
         raise vf(f"{field}.step_type", "invalid", "Unknown step type")
@@ -602,21 +556,19 @@ async def _add_step(
     for name in ("lesson_id", "assignment_id", "test_id", "article_id"):
         if links[name] is not None:
             await _check_link(session, p.organization_id, name, links[name])
-    session.add(
-        LearningPathStep(
-            id=uuid7(),
-            path_id=p.id,
-            organization_id=p.organization_id,
-            step_key=key,
-            parent_key=parent,
-            position=pos,
-            step_type=t,
-            title=s["title"].strip(),
-            description_md=s.get("description_md") or "",
-            est_hours=Decimal("0") if t == "super_step" else Decimal(str(s.get("est_hours") or 0)),
-            credits=0 if t == "super_step" else int(s.get("credits") or 0),
-            **links,
-        )
+    return LearningPathStep(
+        id=uuid7(),
+        path_id=p.id,
+        organization_id=p.organization_id,
+        step_key=key,
+        parent_key=parent,
+        position=pos,
+        step_type=t,
+        title=s["title"].strip(),
+        description_md=s.get("description_md") or "",
+        est_hours=Decimal("0") if t == "super_step" else Decimal(str(s.get("est_hours") or 0)),
+        credits=0 if t == "super_step" else int(s.get("credits") or 0),
+        **links,
     )
 
 
@@ -668,34 +620,32 @@ async def publish_path(session: AsyncSession, principal: Principal, p: LearningP
         total_credits=credits,
         published_by=principal.user_id,
     )
-    session.add(v)
-    await session.flush()
-    for r in rows:
-        session.add(
-            LearningPathVersionStep(
-                id=uuid7(),
-                path_version_id=v.id,
-                organization_id=p.organization_id,
-                step_key=r.step_key,
-                parent_key=r.parent_key,
-                position=r.position,
-                step_type=r.step_type,
-                title=r.title,
-                description_md=r.description_md,
-                est_hours=r.est_hours,
-                credits=r.credits,
-                url=r.url,
-                lesson_id=r.lesson_id,
-                assignment_id=r.assignment_id,
-                test_id=r.test_id,
-                article_id=r.article_id,
-            )
+    vrows = [
+        LearningPathVersionStep(
+            id=uuid7(),
+            path_version_id=v.id,
+            organization_id=p.organization_id,
+            step_key=r.step_key,
+            parent_key=r.parent_key,
+            position=r.position,
+            step_type=r.step_type,
+            title=r.title,
+            description_md=r.description_md,
+            est_hours=r.est_hours,
+            credits=r.credits,
+            url=r.url,
+            lesson_id=r.lesson_id,
+            assignment_id=r.assignment_id,
+            test_id=r.test_id,
+            article_id=r.article_id,
         )
+        for r in rows
+    ]
     p.version_no = v.version_no
     p.current_version_id = v.id
     p.status = "published"
     p.has_unpublished_changes = False
-    await session.flush()
+    await st.publish(session, p, v, vrows)
     await audit(
         session,
         principal,
@@ -792,63 +742,24 @@ async def ai_generate(
 async def link_options(
     request: Request, session: AsyncSession, principal: Principal, kind: str, q: str | None
 ) -> dict[str, Any]:
-    from app.modules.assessments.models import Test
-    from app.modules.catalog.models import Course, CourseVersion, Lesson
-    from app.modules.learning.models import Assignment
+    from app.modules.catalog import api as catalog_api
 
     org_id = COMPANY_ORG_ID
     await require_author(request, principal, "path.manage")
-    like = "%" + (q or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    like = adapters.like_pattern(q)
     out: list[dict[str, Any]] = []
-    rows: Any
     if kind == "assignment":
-        rows = await session.execute(
-            select(Assignment.id, Assignment.title, Assignment.max_score)
-            .where(Assignment.organization_id == org_id, Assignment.title.ilike(like))
-            .order_by(Assignment.created_at.desc())
-            .limit(25)
-        )
-        out = [{"id": str(i), "title": t, "meta": f"{_num(m):g} marks"} for i, t, m in rows.all()]
+        rows = await adapters.assignment_options(session, org_id, q)
+        out = [{"id": str(i), "title": t, "meta": f"{_num(m):g} marks"} for i, t, m in rows]
     elif kind == "test":
-        rows = await session.execute(
-            select(Test.id, Test.title, Test.duration_seconds)
-            .where(
-                or_(Test.organization_id == org_id, Test.organization_id.is_(None)),
-                Test.status.in_(("published", "draft")),
-                Test.title.ilike(like),
-            )
-            .order_by(Test.created_at.desc())
-            .limit(25)
-        )
-        out = [{"id": str(i), "title": t, "meta": f"{(d or 0) // 60} min"} for i, t, d in rows.all()]
+        rows = await adapters.test_options(session, org_id, q)
+        out = [{"id": str(i), "title": t, "meta": f"{(d or 0) // 60} min"} for i, t, d in rows]
     elif kind == "article":
-        rows = await session.execute(
-            select(PathArticle.id, PathArticle.title, PathArticle.status)
-            .where(
-                PathArticle.organization_id == org_id,
-                PathArticle.deleted_at.is_(None),
-                PathArticle.title.ilike(like),
-            )
-            .order_by(PathArticle.updated_at.desc())
-            .limit(25)
-        )
-        out = [{"id": str(i), "title": t, "meta": s} for i, t, s in rows.all()]
+        rows = await st.article_options(session, org_id, q)
+        out = [{"id": str(i), "title": t, "meta": s} for i, t, s in rows]
     elif kind == "lesson":
-        rows = await session.execute(
-            select(Lesson.id, Lesson.title, Lesson.lesson_type, Course.title)
-            .join(CourseVersion, CourseVersion.id == Lesson.course_version_id)
-            .join(
-                Course,
-                and_(Course.id == CourseVersion.course_id, Course.current_version_id == CourseVersion.id),
-            )
-            .where(
-                or_(Course.organization_id == org_id, Course.organization_id.is_(None)),
-                Course.status == "published",
-                Lesson.title.ilike(like),
-            )
-            .limit(25)
-        )
-        out = [{"id": str(i), "title": t, "meta": f"{c} · {lt}"} for i, t, lt, c in rows.all()]
+        found = await catalog_api.search_published_lessons(session, org_id, like, limit=25)
+        out = [{"id": str(i), "title": t, "meta": f"{c} · {lt}"} for i, t, lt, c in found]
     else:
         raise vf("kind", "invalid", "Unknown kind")
     return {"data": out}
@@ -856,19 +767,13 @@ async def link_options(
 
 async def _names(session: AsyncSession, user_ids: list[uuid.UUID]) -> dict[uuid.UUID, tuple[str, str]]:
     """Display name + email for staff views (after the caller's permission check)."""
-    if not user_ids:
-        return {}
-    from app.modules.identity.models import User, UserProfile
+    return await adapters.user_names(session, user_ids)
 
-    async with system_context(session, "paths.names"):
-        rows = (
-            await session.execute(
-                select(User.id, User.email, UserProfile.full_name)
-                .outerjoin(UserProfile, UserProfile.user_id == User.id)
-                .where(User.id.in_(user_ids))
-            )
-        ).all()
-    return {r[0]: (r[2] or "", r[1] or "") for r in rows}
+
+def shows_learner_email(principal: Principal) -> bool:
+    """Learner emails are Admin-only here (QA 2026-11, F9): trainers and content managers
+    allocate and follow paths by name; an email is beyond what they need."""
+    return principal.has_role(ADMIN_ROLE, "platform")
 
 
 async def batch_members(
@@ -876,29 +781,16 @@ async def batch_members(
 ) -> dict[str, Any]:
     """Allocate picker: active student members of one batch. Needs ``path.allocate`` on that
     batch (platform grants cover every batch). Replaces the removed ``/paths/org-members``."""
-    from app.modules.identity.models import User, UserProfile
-    from app.modules.orgs.models import BatchMember
-
     if not await _batch_exists(session, batch_id):
         raise ProblemError("not_found")
     await require_allocate_batch(request, principal, batch_id)
-    async with system_context(session, "paths.members"):
-        stmt = (
-            select(User.id, User.email, UserProfile.full_name)
-            .join(BatchMember, BatchMember.user_id == User.id)
-            .outerjoin(UserProfile, UserProfile.user_id == User.id)
-            .where(
-                BatchMember.batch_id == batch_id,
-                BatchMember.status == "active",
-                BatchMember.removed_at.is_(None),
-                BatchMember.member_role == "student",
-            )
-        )
-        if q:
-            like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-            stmt = stmt.where(or_(UserProfile.full_name.ilike(like), User.email.ilike(like)))
-        rows = (await session.execute(stmt.order_by(UserProfile.full_name, User.email).limit(500))).all()
-    return {"data": [{"user_id": str(r[0]), "full_name": r[2] or "", "email": r[1]} for r in rows]}
+    email = shows_learner_email(principal)
+    rows = await adapters.batch_people(session, batch_id, q, search_email=email)
+    return {
+        "data": [
+            {"user_id": str(r[0]), "full_name": r[2] or "", "email": r[1] if email else None} for r in rows
+        ]
+    }
 
 
 # --------------------------------------------------------------------------- allocations
@@ -911,11 +803,8 @@ async def _plan_for(
         rows: list[Any] = await _draft_rows(session, p.id)
         total = _totals(rows)[0]
     else:
-        v = (
-            await session.execute(
-                select(LearningPathVersion).where(LearningPathVersion.id == p.current_version_id)
-            )
-        ).scalar_one()
+        v = await st.get_version(session, p.current_version_id)
+        assert v is not None
         total = Decimal(v.total_hours)
     return schedule.plan(start, total, pace)
 
@@ -936,20 +825,7 @@ async def allocation_preview(session: AsyncSession, p: LearningPath, body: dict[
 
 
 async def _batch_students(session: AsyncSession, batch_id: uuid.UUID) -> list[uuid.UUID]:
-    from app.modules.orgs.models import BatchMember
-
-    return list(
-        (
-            await session.execute(
-                select(BatchMember.user_id).where(
-                    BatchMember.batch_id == batch_id,
-                    BatchMember.status == "active",
-                    BatchMember.removed_at.is_(None),
-                    BatchMember.member_role == "student",
-                )
-            )
-        ).scalars()
-    )
+    return await adapters.batch_students(session, batch_id)
 
 
 async def allocation_learners(session: AsyncSession, a: PathAllocation) -> list[uuid.UUID]:
@@ -959,18 +835,12 @@ async def allocation_learners(session: AsyncSession, a: PathAllocation) -> list[
 
 
 async def allocation_out(session: AsyncSession, a: PathAllocation) -> dict[str, Any]:
-    from app.modules.orgs.models import Batch
-
     batch_name = None
     if a.batch_id:
-        batch_name = (
-            await session.execute(select(Batch.name).where(Batch.id == a.batch_id))
-        ).scalar_one_or_none()
-    vno = (
-        await session.execute(
-            select(LearningPathVersion.version_no).where(LearningPathVersion.id == a.path_version_id)
-        )
-    ).scalar_one()
+        batch_name = await adapters.batch_name(session, a.batch_id)
+    ver = await st.get_version(session, a.path_version_id)
+    assert ver is not None
+    vno = ver.version_no
     return {
         "id": str(a.id),
         "path_id": str(a.path_id),
@@ -996,8 +866,6 @@ async def allocation_out(session: AsyncSession, a: PathAllocation) -> dict[str, 
 async def create_allocation(
     request: Request, session: AsyncSession, principal: Principal, p: LearningPath, body: dict[str, Any]
 ) -> PathAllocation:
-    from app.modules.orgs.models import OrgMembership
-
     await require_app_enabled(session, app_key="paths")
     if p.status == "archived" or p.current_version_id is None:
         raise ProblemError("invalid_state_transition", detail="Publish the path before allocating it.")
@@ -1021,18 +889,7 @@ async def create_allocation(
         if not await can_allocate_users(request, session, principal, user_ids):
             raise ProblemError("permission_denied", permission="path.allocate")
         _mark_used(request, "path.allocate")
-        async with system_context(session, "paths.members"):
-            members = set(
-                (
-                    await session.execute(
-                        select(OrgMembership.user_id).where(
-                            OrgMembership.organization_id == COMPANY_ORG_ID,
-                            OrgMembership.status == "active",
-                            OrgMembership.user_id.in_(user_ids),
-                        )
-                    )
-                ).scalars()
-            )
+        members = await adapters.active_company_members(session, user_ids)
         if set(user_ids) - members:
             raise vf("user_ids", "not_member", "Every learner must be an active batch learner")
     start = body.get("start_date") or utcnow().date()
@@ -1055,8 +912,7 @@ async def create_allocation(
         status="active",
         created_by=principal.user_id,
     )
-    session.add(a)
-    await session.flush()
+    await st.insert_allocation(session, a)
     await audit(
         session,
         principal,
@@ -1080,9 +936,7 @@ async def create_allocation(
 async def managed_allocation(
     request: Request, session: AsyncSession, principal: Principal, allocation_id: uuid.UUID
 ) -> PathAllocation:
-    a = (
-        await session.execute(select(PathAllocation).where(PathAllocation.id == allocation_id))
-    ).scalar_one_or_none()
+    a = await st.get_allocation(session, allocation_id)
     if a is None:
         raise ProblemError("not_found")
     if a.batch_id is not None:
@@ -1101,7 +955,7 @@ async def revoke_allocation(session: AsyncSession, principal: Principal, a: Path
         return
     a.status = "revoked"
     a.revoked_at = utcnow()
-    await session.flush()
+    await st.save_allocation(session, a)
     await audit(
         session,
         principal,
@@ -1112,16 +966,13 @@ async def revoke_allocation(session: AsyncSession, principal: Principal, a: Path
     )
 
 
-async def allocation_progress(session: AsyncSession, a: PathAllocation) -> dict[str, Any]:
+async def allocation_progress(
+    session: AsyncSession, a: PathAllocation, *, show_email: bool = False
+) -> dict[str, Any]:
     rows = await _version_rows(session, a.path_version_id)
     leaves = _leaves(_tree(rows))
     learners = await allocation_learners(session, a)
-    async with system_context(session, "paths.progress"):
-        prog = list(
-            (
-                await session.execute(select(PathStepProgress).where(PathStepProgress.allocation_id == a.id))
-            ).scalars()
-        )
+    prog = await st.allocation_progress_rows(session, a.id)
     by_user: dict[uuid.UUID, list[PathStepProgress]] = {}
     for r in prog:
         by_user.setdefault(r.user_id, []).append(r)
@@ -1140,7 +991,7 @@ async def allocation_progress(session: AsyncSession, a: PathAllocation) -> dict[
             {
                 "user_id": str(uid),
                 "full_name": names.get(uid, ("", ""))[0],
-                "email": names.get(uid, ("", ""))[1],
+                "email": names.get(uid, ("", ""))[1] if show_email else None,
                 "completed_steps": len(done),
                 "total_steps": len(leaves),
                 "credits_earned": sum(r.credits_awarded for r in mine),
@@ -1197,18 +1048,6 @@ def _award(a: PathAllocation, step: Any, due: date | None, at: datetime) -> int:
     if a.flow == "strict" and due is not None and at.date() > due:
         return int(Decimal(step.credits) * STRICT_LATE_FACTOR)
     return int(step.credits)
-
-
-def _targets_user_clause(user_id: uuid.UUID) -> Any:
-    from app.modules.orgs.models import BatchMember
-
-    my_batches = select(BatchMember.batch_id).where(
-        BatchMember.user_id == user_id,
-        BatchMember.status == "active",
-        BatchMember.removed_at.is_(None),
-        BatchMember.member_role == "student",
-    )
-    return or_(PathAllocation.user_ids.contains([user_id]), PathAllocation.batch_id.in_(my_batches))
 
 
 @dataclass
@@ -1313,50 +1152,24 @@ class Player:
 
 
 async def _player(session: AsyncSession, a: PathAllocation, user_id: uuid.UUID) -> Player:
-    v = (
-        await session.execute(select(LearningPathVersion).where(LearningPathVersion.id == a.path_version_id))
-    ).scalar_one()
+    v = await st.get_version(session, a.path_version_id)
+    assert v is not None
     rows = await _version_rows(session, v.id)
-    prog = {
-        r.step_key: r
-        for r in (
-            await session.execute(
-                select(PathStepProgress).where(
-                    PathStepProgress.allocation_id == a.id, PathStepProgress.user_id == user_id
-                )
-            )
-        ).scalars()
-    }
+    prog = {r.step_key: r for r in await st.user_progress(session, a.id, user_id)}
     return Player(a, v, rows, prog)
 
 
 async def my_allocation(
     session: AsyncSession, principal: Principal, allocation_id: uuid.UUID
 ) -> PathAllocation:
-    a = (
-        await session.execute(
-            select(PathAllocation).where(
-                PathAllocation.id == allocation_id,
-                PathAllocation.status == "active",
-                _targets_user_clause(principal.user_id),
-            )
-        )
-    ).scalar_one_or_none()
-    if a is None:
+    found = await st.user_allocations(session, principal.user_id, allocation_id=allocation_id)
+    if not found:
         raise ProblemError("not_found")
-    return a
+    return found[0]
 
 
 async def my_paths(session: AsyncSession, principal: Principal) -> dict[str, Any]:
-    allocs = list(
-        (
-            await session.execute(
-                select(PathAllocation)
-                .where(PathAllocation.status == "active", _targets_user_clause(principal.user_id))
-                .order_by(PathAllocation.created_at.desc())
-            )
-        ).scalars()
-    )
+    allocs = await st.user_allocations(session, principal.user_id)
     out = []
     for a in allocs:
         pl = await _player(session, a, principal.user_id)
@@ -1430,19 +1243,18 @@ async def open_step(
                 "Finish the earlier steps first",
                 "This path is sequential: complete the previous steps to unlock this one.",
             )
-        await session.execute(
-            pg_insert(PathStepProgress)
-            .values(
-                id=uuid7(),
-                allocation_id=a.id,
-                organization_id=a.organization_id,
-                user_id=principal.user_id,
-                step_key=step_key,
-                status="in_progress",
-                opened_at=utcnow(),
-                source="learner",
-            )
-            .on_conflict_do_nothing(index_elements=["allocation_id", "user_id", "step_key"])
+        await st.open_progress(
+            session,
+            {
+                "id": uuid7(),
+                "allocation_id": a.id,
+                "organization_id": a.organization_id,
+                "user_id": principal.user_id,
+                "step_key": step_key,
+                "status": "in_progress",
+                "opened_at": utcnow(),
+                "source": "learner",
+            },
         )
         pl = await _player(session, a, principal.user_id)
     return _step_view(pl, step_key)
@@ -1489,7 +1301,8 @@ async def complete_step(
         pr.source = "learner"
         pr.credits_awarded = _award(a, step, pl.dues.get(step_key), now)
         pr.evidence = {"kind": "learner_mark", "dwell_seconds": int(elapsed)}
-        await session.flush()
+        await st.save_progress(session, pr)
+        await st.flush(session)
     pl = await _player(session, a, principal.user_id)
     earned, _, pct, _ = pl.totals()
     return {"step": _step_view(pl, step_key), "credits_earned": earned, "pct": pct}
@@ -1503,20 +1316,7 @@ async def complete_from_evidence(
 ) -> int:
     """Complete every active allocation step of ``user_id`` that links ``ref_id`` (``field`` =
     ``assignment_id`` | ``test_id``). Runs in the outbox relay (system context). Idempotent."""
-    col = getattr(LearningPathVersionStep, field)
-    allocs = list(
-        (
-            await session.execute(
-                select(PathAllocation).where(
-                    PathAllocation.status == "active",
-                    PathAllocation.path_version_id.in_(
-                        select(LearningPathVersionStep.path_version_id).where(col == ref_id)
-                    ),
-                    _targets_user_clause(user_id),
-                )
-            )
-        ).scalars()
-    )
+    allocs = await st.user_allocations(session, user_id, linking=(field, ref_id))
     n = 0
     now = utcnow()
     for a in allocs:
@@ -1529,7 +1329,8 @@ async def complete_from_evidence(
                 continue
             credits = _award(a, step, pl.dues.get(step.step_key), now)
             if pr is None:
-                session.add(
+                await st.add_progress(
+                    session,
                     PathStepProgress(
                         id=uuid7(),
                         allocation_id=a.id,
@@ -1541,7 +1342,7 @@ async def complete_from_evidence(
                         credits_awarded=credits,
                         source="event",
                         evidence=evidence,
-                    )
+                    ),
                 )
             else:
                 pr.status = "completed"
@@ -1549,27 +1350,18 @@ async def complete_from_evidence(
                 pr.credits_awarded = credits
                 pr.source = "event"
                 pr.evidence = evidence
+                await st.save_progress(session, pr)
             n += 1
-    await session.flush()
+    await st.flush(session)
     return n
 
 
 async def _assignment_done(
     session: AsyncSession, assignment_id: uuid.UUID, user_id: uuid.UUID | None
 ) -> None:
-    from app.modules.learning.models import Assignment, AssignmentSubmission
-
-    released = (
-        await session.execute(select(Assignment.grades_released_at).where(Assignment.id == assignment_id))
-    ).scalar_one_or_none()
-    if released is None:
+    if not await adapters.assignment_released(session, assignment_id):
         return
-    q = select(AssignmentSubmission.user_id, AssignmentSubmission.id).where(
-        AssignmentSubmission.assignment_id == assignment_id, AssignmentSubmission.status == "graded"
-    )
-    if user_id is not None:
-        q = q.where(AssignmentSubmission.user_id == user_id)
-    for uid, sid in (await session.execute(q)).all():
+    for uid, sid in await adapters.graded_submissions(session, assignment_id, user_id):
         await complete_from_evidence(
             session,
             uid,
@@ -1602,25 +1394,10 @@ async def on_grades_released(session: AsyncSession, msg: Any) -> None:
 async def on_attempt_scored(session: AsyncSession, msg: Any) -> None:
     """assessments ``attempt.scored``: completes when the result is a pass (or graded without a
     pass mark) and the attempt is not invalidated. State is re-read from the database."""
-    from app.modules.assessments.models import AttemptResult, Test, TestAttempt
-
     att_id = _uuid(msg.payload.get("attempt_id"))
     if att_id is None:
         return
-    row = (
-        await session.execute(
-            select(
-                TestAttempt.user_id,
-                TestAttempt.test_id,
-                TestAttempt.integrity_status,
-                AttemptResult.passed,
-                Test.pass_percentage,
-            )
-            .join(AttemptResult, AttemptResult.attempt_id == TestAttempt.id)
-            .join(Test, Test.id == TestAttempt.test_id)
-            .where(TestAttempt.id == att_id)
-        )
-    ).first()
+    row = await adapters.attempt_outcome(session, att_id)
     if row is None:
         return
     user_id, test_id, integrity, passed, pass_pct = row
@@ -1691,8 +1468,7 @@ async def _new_article(
         status="draft",
         created_by=principal.user_id,
     )
-    session.add(a)
-    await session.flush()
+    await st.insert_article(session, a)
     await audit(
         session,
         principal,
@@ -1722,21 +1498,28 @@ async def create_article(
 
 
 async def get_article(session: AsyncSession, article_id: uuid.UUID) -> PathArticle:
-    a = (
-        await session.execute(
-            select(PathArticle).where(PathArticle.id == article_id, PathArticle.deleted_at.is_(None))
-        )
-    ).scalar_one_or_none()
+    a = await st.get_article(session, article_id)
     if a is None:
         raise ProblemError("not_found")
     return a
 
 
 async def managed_article(
-    request: Request, session: AsyncSession, principal: Principal, article_id: uuid.UUID
+    request: Request,
+    session: AsyncSession,
+    principal: Principal,
+    article_id: uuid.UUID,
+    *,
+    change: bool = False,
 ) -> PathArticle:
+    """``change``: the caller is about to edit, re-target, unpublish or delete the article, so
+    its current audience must be within the caller's scope (``require_audience_scope``)."""
     a = await get_article(session, article_id)
     await require_author(request, principal, "path.manage")
+    if change and a.status == "published":
+        await require_audience_scope(
+            request, session, principal, list(a.batch_ids or []), list(a.user_ids or [])
+        )
     return a
 
 
@@ -1748,11 +1531,7 @@ async def list_articles(
 ) -> dict[str, Any]:
     if not await can_author(request, principal, "path.manage"):
         return {"data": []}
-    stmt = select(PathArticle).where(PathArticle.deleted_at.is_(None))
-    if q:
-        like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-        stmt = stmt.where(PathArticle.title.ilike(like))
-    rows = list((await session.execute(stmt.order_by(PathArticle.updated_at.desc()).limit(200))).scalars())
+    rows = await st.list_articles(session, q)
     return {"data": [article_out(a, body=False) for a in rows]}
 
 
@@ -1766,7 +1545,7 @@ async def update_article(
         a.body_md = sanitize_markdown(changes["body_md"])
         a.toc = table_of_contents(a.body_md)
     a.updated_at = utcnow()
-    await session.flush()
+    await st.save_article(session, a)
     await audit(
         session,
         principal,
@@ -1781,44 +1560,32 @@ async def update_article(
 async def publish_article(
     request: Request, session: AsyncSession, principal: Principal, a: PathArticle, body: dict[str, Any]
 ) -> None:
-    from app.modules.orgs.models import Batch, OrgMembership
-
     audience = body["audience"]
     batch_ids: list[uuid.UUID] = list(dict.fromkeys(body.get("batch_ids") or []))
     user_ids: list[uuid.UUID] = list(dict.fromkeys(body.get("user_ids") or []))
     if audience == "batches":
         if not batch_ids:
             raise vf("batch_ids", "required", "Choose at least one batch")
-        found = set((await session.execute(select(Batch.id).where(Batch.id.in_(batch_ids)))).scalars())
+        found = await adapters.existing_batch_ids(session, batch_ids)
         if set(batch_ids) - found:
             raise vf("batch_ids", "not_found", "Choose existing batches")
         user_ids = []
     elif audience == "people":
         if not user_ids:
             raise vf("user_ids", "required", "Choose at least one person")
-        async with system_context(session, "paths.members"):
-            found = set(
-                (
-                    await session.execute(
-                        select(OrgMembership.user_id).where(
-                            OrgMembership.organization_id == COMPANY_ORG_ID,
-                            OrgMembership.status == "active",
-                            OrgMembership.user_id.in_(user_ids),
-                        )
-                    )
-                ).scalars()
-            )
+        found = await adapters.active_company_members(session, user_ids)
         if set(user_ids) - found:
             raise vf("user_ids", "not_member", "Choose active batch learners or staff")
         batch_ids = []
     else:
         raise vf("audience", "invalid", "Choose batches or people")
+    await require_audience_scope(request, session, principal, batch_ids, user_ids)
     a.status = "published"
     a.audience = audience
     a.batch_ids = batch_ids
     a.user_ids = user_ids
     a.published_at = a.published_at or utcnow()
-    await session.flush()
+    await st.save_article(session, a)
     await audit(
         session,
         principal,
@@ -1835,18 +1602,14 @@ async def unpublish_article(session: AsyncSession, principal: Principal, a: Path
     a.audience = None
     a.batch_ids = []
     a.user_ids = []
-    await session.flush()
+    await st.save_article(session, a)
     await audit(
         session, principal, "path_article.unpublish", "path_article", a.id, organization_id=a.organization_id
     )
 
 
 async def delete_article(session: AsyncSession, principal: Principal, a: PathArticle) -> None:
-    used = (
-        await session.execute(
-            select(func.count()).select_from(LearningPathStep).where(LearningPathStep.article_id == a.id)
-        )
-    ).scalar_one()
+    used = await st.draft_steps_using_article(session, a.id)
     if used:
         raise ProblemError(
             "invalid_state_transition", detail="Remove this article from its path steps first."
@@ -1854,28 +1617,14 @@ async def delete_article(session: AsyncSession, principal: Principal, a: PathArt
     a.deleted_at = utcnow()
     a.status = "draft"
     a.audience = None
-    await session.flush()
+    await st.save_article(session, a)
     await audit(
         session, principal, "path_article.delete", "path_article", a.id, organization_id=a.organization_id
     )
 
 
 async def _on_allocated_path(session: AsyncSession, user_id: uuid.UUID, article_id: uuid.UUID) -> bool:
-    return (
-        await session.execute(
-            select(PathAllocation.id)
-            .where(
-                PathAllocation.status == "active",
-                PathAllocation.path_version_id.in_(
-                    select(LearningPathVersionStep.path_version_id).where(
-                        LearningPathVersionStep.article_id == article_id
-                    )
-                ),
-                _targets_user_clause(user_id),
-            )
-            .limit(1)
-        )
-    ).first() is not None
+    return bool(await st.user_allocations(session, user_id, linking=("article_id", article_id), limit=1))
 
 
 async def read_article(
@@ -1884,8 +1633,6 @@ async def read_article(
     """Reader view. Allowed: path authors; learners on an active allocation whose path includes
     the article (published or not); otherwise the publish audience — active members of the
     chosen batches, or the chosen people. Everyone else gets 404 (existence is not disclosed)."""
-    from app.modules.orgs.models import BatchMember
-
     a = await get_article(session, article_id)
     can_edit = await can_author(request, principal, "path.manage")
     allowed = can_edit or await _on_allocated_path(session, principal.user_id, a.id)
@@ -1893,18 +1640,7 @@ async def read_article(
         if a.audience == "people":
             allowed = principal.user_id in a.user_ids
         elif a.audience == "batches" and a.batch_ids:
-            allowed = (
-                await session.execute(
-                    select(BatchMember.id)
-                    .where(
-                        BatchMember.user_id == principal.user_id,
-                        BatchMember.batch_id.in_(a.batch_ids),
-                        BatchMember.status == "active",
-                        BatchMember.removed_at.is_(None),
-                    )
-                    .limit(1)
-                )
-            ).first() is not None
+            allowed = await adapters.active_member_of_batches(session, principal.user_id, a.batch_ids)
     if not allowed:
         raise ProblemError("not_found")
     return {

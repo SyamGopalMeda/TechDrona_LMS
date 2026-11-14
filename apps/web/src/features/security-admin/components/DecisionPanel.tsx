@@ -6,7 +6,9 @@ import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { ActionDialog, InlineProblem, KeyValueList, TextArea } from "@/features/admin/components/console-ui";
 import { formatCountdown, formatDateTime, humanize, problemFieldErrors, toOutcome } from "@/features/admin/lib/console";
-import { DECISION_OUTCOMES } from "../lib/catalogue";
+import { staffRef } from "../lib/ids";
+import { STAFF_LEVEL_LABEL, toLevel } from "./RiskLevel";
+import { DECISION_OUTCOMES, outcomesFor } from "../lib/catalogue";
 import type { CaseDetail, DecisionPayload, PendingCaseApproval } from "../lib/types";
 
 const MIN_SUMMARY = 50;
@@ -42,7 +44,10 @@ export interface DecisionPanelProps {
  */
 export function DecisionPanel({ detail, ifMatch, viewed, onChanged }: DecisionPanelProps) {
   const toast = useToast();
-  const [outcome, setOutcome] = useState<string>("lift_with_warning");
+  const restricted = !!detail.restriction;
+  const outcomes = outcomesFor(restricted);
+  const [outcome, setOutcome] = useState<string>(restricted ? "lift_with_warning" : "close_no_action");
+  const closing = outcome === "close_no_action";
   const [rationale, setRationale] = useState("");
   const [summary, setSummary] = useState("");
   const [extension, setExtension] = useState(false);
@@ -64,7 +69,8 @@ export function DecisionPanel({ detail, ifMatch, viewed, onChanged }: DecisionPa
 
   const validate = (): Record<string, string> => {
     const e: Record<string, string> = {};
-    if (summary.trim().length < MIN_SUMMARY) e.student_summary = `Write at least ${MIN_SUMMARY} characters the student will read (${summary.trim().length} so far).`;
+    // Closing without action: the summary is optional (the learner may not know about the case).
+    if (!(closing && !summary.trim()) && summary.trim().length < MIN_SUMMARY) e.student_summary = `Write at least ${MIN_SUMMARY} characters the student will read (${summary.trim().length} so far).`;
     if (outcome === "convert_L4" && rationale.trim().length < 20) e.rationale = "Converting to L4 needs a documented rationale.";
     if (!rationale.trim()) e.rationale = e.rationale ?? "Add the internal rationale.";
     if (extension && outcome !== "lift_false_positive") e.extension_days = "Extension credit only applies to a false-positive lift.";
@@ -80,10 +86,10 @@ export function DecisionPanel({ detail, ifMatch, viewed, onChanged }: DecisionPa
     const body: DecisionPayload = {
       // unblock_request_id omitted: the case GET exposes only the reference; the api links the open request itself.
       outcome,
-      resulting_level: resultingLevel,
+      ...(closing ? {} : { resulting_level: resultingLevel }),
       rationale: rationale.trim(),
       student_summary: summary.trim(),
-      ...(exceptionKey
+      ...(exceptionKey && !closing
         ? { conditions: { user_exception: { setting_key: exceptionKey.trim(), value: Number.isNaN(Number(exceptionValue)) ? exceptionValue : Number(exceptionValue), expires_at: new Date(`${exceptionExpiry}T00:00:00+05:30`).toISOString() } } }
         : {}),
       ...(extension && extensionDays && outcome === "lift_false_positive" ? { extension_days: Number(extensionDays) } : {}),
@@ -97,7 +103,7 @@ export function DecisionPanel({ detail, ifMatch, viewed, onChanged }: DecisionPa
       if (res.kind === "approval_pending" || data?.requires_second_approval) {
         toast.show({ title: "Submitted for second approval", description: "Another reviewer (not you, not the person who applied the restriction) must approve within 72 h.", tone: "info" });
       } else {
-        toast.show({ title: "Decision recorded", tone: "success", requestId: res.requestId });
+        toast.show({ title: closing ? "Case closed — no action taken" : "Decision recorded", tone: "success", requestId: res.requestId });
       }
       onChanged();
     } catch (err) {
@@ -114,19 +120,29 @@ export function DecisionPanel({ detail, ifMatch, viewed, onChanged }: DecisionPa
         Decision
       </h2>
       {!ready ? (
-        <p role="status" className="mt-2 rounded-md border border-warning-border bg-warning-subtle p-2 text-sm text-warning-fg">
+        <p id="decision-not-ready" role="status" className="mt-2 rounded-md border border-warning-border bg-warning-subtle p-2 text-sm text-warning-fg">
           Open Explanation and Timeline before deciding.
+          <span className="mt-0.5 block text-xs">
+            Still to open: {[!viewed.explanation ? "Explanation" : null, !viewed.timeline ? "Timeline" : null].filter(Boolean).join(" and ")}. The decision button unlocks once both tabs have loaded.
+          </span>
         </p>
       ) : null}
       <form onSubmit={submit} className="mt-3 space-y-3" noValidate>
         <FormField label="Outcome" required>
-          {(f) => <Select {...f} value={outcome} onChange={(e) => setOutcome(e.target.value)} options={DECISION_OUTCOMES.map((o) => ({ value: o.value, label: o.label }))} />}
+          {(f) => <Select {...f} value={outcome} onChange={(e) => setOutcome(e.target.value)} options={outcomes.map((o) => ({ value: o.value, label: o.label }))} />}
         </FormField>
-        <p className="text-xs text-fg-muted">Resulting level: L{resultingLevel}</p>
+        <p className="text-xs text-fg-muted">
+          {closing ? "No restriction on this account: the case is closed and nothing on the account changes." : `Resulting level: ${levelWords(resultingLevel)}`}
+        </p>
         <FormField label="Rationale (internal)" required error={errors.rationale}>
           {(f) => <TextArea {...f} value={rationale} onChange={(e) => setRationale(e.target.value)} maxLength={4000} />}
         </FormField>
-        <FormField label="Student summary" required hint={`At least ${MIN_SUMMARY} characters. Shown exactly as written.`} error={errors.student_summary}>
+        <FormField
+          label="Student summary"
+          required={!closing}
+          hint={closing ? `Optional. Leave empty to close without telling the student; if written, at least ${MIN_SUMMARY} characters.` : `At least ${MIN_SUMMARY} characters. Shown exactly as written.`}
+          error={errors.student_summary}
+        >
           {(f) => <TextArea {...f} value={summary} onChange={(e) => setSummary(e.target.value)} maxLength={2000} />}
         </FormField>
         <Button variant="ghost" size="sm" onClick={() => setPreview((p) => !p)} aria-expanded={preview}>
@@ -138,6 +154,7 @@ export function DecisionPanel({ detail, ifMatch, viewed, onChanged }: DecisionPa
             <p className="mt-1 whitespace-pre-wrap">{summary || "(empty)"}</p>
           </div>
         ) : null}
+        {closing ? null : (
         <details className="rounded-md border border-line p-2">
           <summary className="cursor-pointer text-sm font-medium text-fg">Conditions / exception</summary>
           <div className="mt-2 space-y-2">
@@ -150,6 +167,7 @@ export function DecisionPanel({ detail, ifMatch, viewed, onChanged }: DecisionPa
             </FormField>
           </div>
         </details>
+        )}
         {outcome === "lift_false_positive" ? (
           <>
             <Checkbox label="Extension credit (restricted days)" checked={extension} onChange={(e) => setExtension(e.target.checked)} />
@@ -161,7 +179,7 @@ export function DecisionPanel({ detail, ifMatch, viewed, onChanged }: DecisionPa
           </>
         ) : null}
         {outcome === "lift_false_positive" ? (
-          <FormField label="False-positive rules" hint="Rule ids, comma separated (counted in H8)">
+          <FormField label="False-positive rules" hint="Rule keys, comma separated (counted in the false-positive report)">
             {(f) => <Input {...f} value={fpRules} onChange={(e) => setFpRules(e.target.value)} />}
           </FormField>
         ) : null}
@@ -173,7 +191,7 @@ export function DecisionPanel({ detail, ifMatch, viewed, onChanged }: DecisionPa
           readOnly
         />
         <InlineProblem error={error} />
-        <Button type="submit" loading={busy} disabled={!ready} className="w-full">
+        <Button type="submit" loading={busy} disabled={!ready} aria-describedby={!ready ? "decision-not-ready" : undefined} className="w-full">
           {secondApproval ? "Submit for approval" : "Record decision"}
         </Button>
       </form>
@@ -203,15 +221,15 @@ export function PendingApprovalPanel({ detail, approval, ifMatch, onChanged }: {
         {expired ? "Proposal expired" : "Waiting for a second approver"}
       </h2>
       <p className="mt-1 text-sm text-fg-secondary">
-        Proposed by {approval.requested_by ?? "a reviewer"}
+        Proposed by {approval.requested_by ? staffRef(approval.requested_by, "Reviewer") : "a reviewer"}
         {approval.requested_at ? ` ${formatDateTime(approval.requested_at)}` : ""} · {expired ? "expired — the proposer must re-propose" : `expires ${formatCountdown(approval.expires_at)}`}
       </p>
       {p ? (
         <KeyValueList
           className="mt-3"
           items={[
-            { label: "Outcome", value: humanize(p.outcome) },
-            { label: "Resulting level", value: typeof p.resulting_level === "number" ? `L${p.resulting_level}` : "—" },
+            { label: "Outcome", value: outcomeLabel(p.outcome) },
+            { label: "Resulting level", value: typeof p.resulting_level === "number" ? levelWords(p.resulting_level) : "—" },
             { label: "Extension credit", value: p.extension_days ? `${p.extension_days} days` : "None" },
             { label: "Student summary", value: p.student_summary },
             ...(p.rationale ? [{ label: "Rationale", value: p.rationale }] : []),
@@ -241,6 +259,7 @@ export function PendingApprovalPanel({ detail, approval, ifMatch, onChanged }: {
       <ActionDialog
         open={dialog === "approve"}
         onClose={() => setDialog(null)}
+        onOpen={() => setNote("")}
         title="Approve this decision?"
         description="The stored proposal is executed exactly as submitted. This needs a fresh confirmation."
         submitLabel="Approve"
@@ -256,6 +275,7 @@ export function PendingApprovalPanel({ detail, approval, ifMatch, onChanged }: {
       <ActionDialog
         open={dialog === "send_back"}
         onClose={() => setDialog(null)}
+        onOpen={() => setNote("")}
         title="Send back to the proposer"
         description="The request returns to Under review with your note. No decision is recorded."
         submitLabel="Send back"
@@ -295,15 +315,26 @@ export function DecidedPanel({ detail }: { detail: CaseDetail }) {
       <KeyValueList
         className="mt-3"
         items={[
-          { label: "Outcome", value: humanize(d.outcome) },
-          { label: "Decided by", value: <span className="font-mono">{d.decided_by}</span> },
-          { label: "Approved by", value: d.approved_by ? <span className="font-mono">{d.approved_by}</span> : "Not required" },
+          { label: "Outcome", value: outcomeLabel(d.outcome) },
+          { label: "Decided by", value: staffRef(d.decided_by, "Reviewer") },
+          { label: "Approved by", value: d.approved_by ? staffRef(d.approved_by, "Reviewer") : "Not required" },
           { label: "When", value: formatDateTime(d.at) },
         ]}
       />
       <p className="mt-3 text-xs text-fg-muted">Decisions are append-only and cannot be deleted.</p>
     </section>
   );
+}
+
+/** "L0 · None" … "L4 · Suspended" for a resulting level. */
+function levelWords(level: number): string {
+  const lv = toLevel(level);
+  return lv === null ? "—" : STAFF_LEVEL_LABEL[lv];
+}
+
+/** Decision outcome in the same words as the Outcome select. */
+export function outcomeLabel(outcome: string | null | undefined): string {
+  return DECISION_OUTCOMES.find((o) => o.value === outcome)?.label ?? humanize(outcome);
 }
 
 export function isApiCode(err: unknown, code: string): boolean {

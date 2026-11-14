@@ -85,6 +85,10 @@ class ApprovalRequest(Base):
     required_approver_role: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
     decided_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    # rbac_0006: True when the only active Admin decided their own request (ck_apr_distinct allows it)
+    sole_admin_decision: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
+    )
     decided_at: Mapped[datetime | None] = mapped_column(_TS)
     decision_note: Mapped[str | None] = mapped_column(Text)
     expires_at: Mapped[datetime] = mapped_column(_TS, nullable=False)

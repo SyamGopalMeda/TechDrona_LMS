@@ -9,7 +9,11 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from tests.catalog.factory import make_published_course, staff, student
+
+pytestmark = pytest.mark.usefixtures("catalog_backend")
 
 
 async def _course(browser) -> str:

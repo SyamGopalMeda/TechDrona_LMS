@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
-import { Badge, Button, Card, ErrorState, PageHeader, Table, Tabs, useToast, type BadgeTone } from "@/components/ui";
+import { StatusBadge, Badge, Button, Card, ErrorState, PageHeader, Table, Tabs, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { formatDateTime, humanize } from "@/features/catalog/lib/format";
 import type { Paged } from "@/features/catalog/lib/types";
@@ -13,13 +13,12 @@ import { isStructured } from "../assignment-manager/api";
 import { useResource } from "../lib/use-resource";
 import { ContentErrorState, LoadingBlock } from "./States";
 
-const STATUS_TONE: Record<string, BadgeTone> = { due: "info", submitted: "brand", late: "warning", graded: "success", returned: "warning", missed: "danger" };
 
 const MAX_FILE_MB = MAX_ASSIGNMENT_FILE_MB;
 
 export function AssignmentStatus({ status }: { status: string }) {
   const label = status === "returned" ? "Returned for changes" : humanize(status);
-  return <Badge tone={STATUS_TONE[status] ?? "neutral"}>{label}</Badge>;
+  return <StatusBadge status={status} label={label} />;
 }
 
 /**
@@ -192,7 +191,12 @@ export function AssignmentDetail({ assignmentId }: { assignmentId: string }) {
   const graded = data.grades_released && last && typeof last.score === "number" ? last : null;
   return (
     <div className="space-y-6">
-      <PageHeader title={data.title} description={data.due_at ? `Due ${formatDateTime(data.due_at)}` : undefined} actions={<AssignmentStatus status={status} />} />
+      <PageHeader
+        breadcrumbs={[{ label: "Assignments", href: "/app/assignments" }, { label: data.title }]}
+        title={data.title}
+        description={data.due_at ? `Due ${formatDateTime(data.due_at)}` : undefined}
+        meta={<AssignmentStatus status={status} />}
+      />
       {data.instructions_md ? (
         <Card title="Instructions">
           <p className="whitespace-pre-line text-sm text-fg-secondary">{data.instructions_md}</p>

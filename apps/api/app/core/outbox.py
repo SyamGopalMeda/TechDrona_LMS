@@ -1,11 +1,16 @@
 """Transactional outbox (ADR-0011): ``emit_event`` inserts into ``outbox_events`` in the
-caller's business transaction. Payloads carry ids only — never raw PII or secrets."""
+caller's business transaction. Payloads carry ids only — never raw PII or secrets.
+
+Modules whose business writes are in Firestore emit with
+``app.core.firestore.core_store.emit_event_tx(tx, ...)`` instead (same handlers, same message);
+``app.worker`` relays both stores (Firestore only when a module is on Firestore)."""
 
 from __future__ import annotations
 
 import re
 import uuid
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -36,6 +41,22 @@ async def emit_event(
     handlers use for idempotency."""
     if not EVENT_TYPE_RE.match(event_type):
         raise ValueError(f"invalid event type {event_type!r} (use 'module.thing_happened')")
+    from app.core.db import no_sql_session
+
+    if no_sql_session(session):
+        # No Postgres (Firebase stack): the Firestore outbox. In a request the event is buffered
+        # and written at the request's commit point (dropped if the request fails), exactly like
+        # the row would commit/roll back with the Postgres transaction; outside a request (jobs)
+        # it is written at once in its own transaction.
+        event = PendingEvent(
+            uuid7(), event_type, dict(payload), aggregate_type, aggregate_id, organization_id, utcnow()
+        )
+        buf = _pending_events.get()
+        if buf is not None:
+            buf.append(event)
+        else:
+            await write_events_now([event])
+        return event.id
     event_id = uuid7()
     await session.execute(
         insert(OutboxEvent).values(
@@ -48,6 +69,80 @@ async def emit_event(
         )
     )
     return event_id
+
+
+# --------------------------------------------------------------------------- no-Postgres buffer
+
+
+@dataclass(frozen=True, slots=True)
+class PendingEvent:
+    id: uuid.UUID
+    event_type: str
+    payload: dict[str, Any]
+    aggregate_type: str
+    aggregate_id: uuid.UUID
+    organization_id: uuid.UUID | None
+    occurred_at: datetime
+
+
+_pending_events: ContextVar[list[PendingEvent] | None] = ContextVar("td_outbox_pending", default=None)
+
+
+def begin_event_buffer() -> Token[list[PendingEvent] | None]:
+    return _pending_events.set([])
+
+
+def end_event_buffer(token: Token[list[PendingEvent] | None]) -> None:
+    _pending_events.reset(token)
+
+
+def pending_events() -> list[PendingEvent]:
+    return list(_pending_events.get() or ())
+
+
+def write_pending_events(tx: Any, events: list[PendingEvent]) -> None:
+    """Write buffered events inside a Firestore transaction (pure: retry-safe)."""
+    from app.core.firestore.core_store import OUTBOX as FS_OUTBOX
+    from app.core.firestore.core_store import event_doc
+
+    for e in events:
+        tx.raw_create(
+            FS_OUTBOX,
+            str(e.id),
+            event_doc(
+                e.id,
+                e.event_type,
+                e.payload,
+                e.aggregate_type,
+                e.aggregate_id,
+                e.organization_id,
+                e.occurred_at,
+            ),
+        )
+
+
+def mark_events_written(events: list[PendingEvent]) -> None:
+    buf = _pending_events.get()
+    if buf is not None:
+        done = {e.id for e in events}
+        buf[:] = [e for e in buf if e.id not in done]
+
+
+def drop_pending_events() -> int:
+    buf = _pending_events.get()
+    n = len(buf or ())
+    if buf:
+        buf.clear()
+    return n
+
+
+async def write_events_now(events: list[PendingEvent]) -> None:
+    from app.core.firestore.store import ScopedStore
+
+    async def fn(tx: Any) -> None:
+        write_pending_events(tx, events)
+
+    await ScopedStore.system("core.outbox_relay").run_transaction(fn)
 
 
 # --------------------------------------------------------------------------- relay (worker side)
@@ -170,3 +265,71 @@ async def relay_pending(
         result.dispatched += 1
     await session.flush()
     return result
+
+
+# --------------------------------------------------------------------------- store-neutral read API
+
+
+@dataclass(frozen=True, slots=True)
+class OutboxRecord:
+    """A stored outbox event as consumers see it (same values from either store)."""
+
+    id: uuid.UUID
+    event_type: str
+    aggregate_type: str
+    aggregate_id: uuid.UUID
+    payload: dict[str, Any]
+    organization_id: uuid.UUID | None
+    occurred_at: datetime
+    dispatched_at: datetime | None
+
+
+async def read_events(
+    session: Any,
+    *,
+    since: datetime,
+    event_types: Any,
+    limit: int = 500,
+    after: tuple[datetime, uuid.UUID] | None = None,
+) -> list[OutboxRecord]:
+    """Outbox events with ``occurred_at > since`` and ``event_type`` in ``event_types``, ordered
+    ``(occurred_at, id)``, at most ``limit``; ``after`` = keyset of the last record of the previous
+    page. Reads the Postgres table (when Postgres is in use) and the Firestore outbox (when a module
+    is on Firestore) and merges both, so consumers (``analytics.consumer``) never touch
+    ``outbox_events`` / ``lms_outbox_events`` themselves. Dispatched or not, like the old query."""
+    from app.core.db import no_session
+    from app.core.firestore.backend import firestore_modules
+    from app.core.runtime import postgres_enabled
+
+    types = list(event_types)
+    out: list[OutboxRecord] = []
+    if not no_session(session) and postgres_enabled():
+        q = (
+            select(OutboxEvent)
+            .where(OutboxEvent.occurred_at > since, OutboxEvent.event_type.in_(types))
+            .order_by(OutboxEvent.occurred_at, OutboxEvent.id)
+            .limit(limit)
+        )
+        if after is not None:
+            from sqlalchemy import tuple_
+
+            q = q.where(tuple_(OutboxEvent.occurred_at, OutboxEvent.id) > tuple_(*after))
+        for ev in (await session.execute(q)).scalars().all():
+            out.append(
+                OutboxRecord(
+                    ev.id,
+                    ev.event_type,
+                    ev.aggregate_type,
+                    ev.aggregate_id,
+                    dict(ev.payload or {}),
+                    ev.organization_id,
+                    ev.occurred_at,
+                    ev.dispatched_at,
+                )
+            )
+    if firestore_modules():
+        from app.core.firestore.core_store import read_outbox_firestore
+
+        out += await read_outbox_firestore(since=since, event_types=types, limit=limit, after=after)
+    out.sort(key=lambda r: (r.occurred_at, r.id))
+    return out[:limit]

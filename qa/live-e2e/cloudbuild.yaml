@@ -1,0 +1,43 @@
+# Live-site audit in Google Cloud Build (no Docker or browsers on the laptop).
+#   bash qa/live-e2e/run.sh [spec-file-or-grep] [--projects=desktop,phone-iphone] [--roles=admin,student]
+# Results: gs://td-qa-reports-f4fe3/runs/$BUILD_ID/ (results.json, findings/*.json, html report, screenshots).
+timeout: 3600s
+options:
+  machineType: E2_STANDARD_2 # inside the 2,500 free build-minutes/month
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _SPEC: ""
+  _PROJECTS: "desktop"
+  _ROLES: ""
+  _WORKERS: "2"
+  _LMS_URL: "https://techdrona-lms-app.web.app"
+  _SITE_URL: "https://techdrona-website.web.app"
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/td-qa-creds/versions/latest
+      env: QA_CREDS
+steps:
+  - id: test
+    name: mcr.microsoft.com/playwright:v1.65.1-noble
+    entrypoint: bash
+    secretEnv: [QA_CREDS]
+    env:
+      - PROJECTS=$_PROJECTS
+      - ROLE_ONLY=$_ROLES
+      - WORKERS=$_WORKERS
+      - LMS_URL=$_LMS_URL
+      - SITE_URL=$_SITE_URL
+      - CI=1
+    args:
+      - -c
+      - |
+        set -u
+        npm install --no-audit --no-fund --loglevel=error >/dev/null
+        mkdir -p out
+        npx playwright test $_SPEC; echo $? > out/exit_code
+        rm -rf out/state   # session cookies never leave the build
+        exit 0
+  - id: upload
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args: ["-c", "gcloud storage cp -r out/* gs://td-qa-reports-f4fe3/runs/$BUILD_ID/ --quiet && echo RESULTS gs://td-qa-reports-f4fe3/runs/$BUILD_ID/"]

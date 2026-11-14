@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Button, Card, EmptyState, ErrorState, FormField, Select, Skeleton, Table, type Column } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, ErrorState, FormField, Select, LoadingBlock, Table, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
-import { ActionDialog, InlineProblem, KeyValueList, StateBadge, TextArea } from "@/features/admin/components/console-ui";
+import { ActionDialog, ConfirmDialog, InlineProblem, KeyValueList, StateBadge, TextArea, ValueSummary } from "@/features/admin/components/console-ui";
 import { cellText, formatDateTime, humanize, ifMatchFor, toOutcome, useVersioned, type Query } from "@/features/admin/lib/console";
 import { INFO_TEMPLATES_FALLBACK } from "../lib/catalogue";
+import { staffRef } from "../lib/ids";
+import { outcomeLabel } from "./DecisionPanel";
 import type { CaseDetail, CaseExplanation, Concurrency, ContributingSignal, DeviceGraph, ReviewUnblockDetail, ReviewUnblockRow, Timeline, TimelineEvent } from "../lib/types";
 
 export interface EvidenceContext {
@@ -14,11 +16,31 @@ export interface EvidenceContext {
 }
 
 function Loading({ label }: { label: string }) {
+  return <LoadingBlock label={label} rows={2} size="card" />;
+}
+
+const isScalarValue = (v: unknown) => v === null || v === undefined || typeof v !== "object";
+
+/**
+ * Evidence attached to a signal or timeline event, in words: simple fields inline
+ * ("Devices: 2 · Network: 49.36.112.0/24"), nested data behind "More detail" (audit 1.11).
+ */
+export function EvidenceSummary({ evidence }: { evidence: unknown }) {
+  if (!evidence || typeof evidence !== "object") return evidence === null || evidence === undefined ? <span className="text-fg-muted">—</span> : <>{cellText(evidence)}</>;
+  const entries = Array.isArray(evidence) ? [] : Object.entries(evidence as Record<string, unknown>);
+  const simple = entries.filter(([, v]) => isScalarValue(v) && v !== null && v !== "");
+  const nested = Array.isArray(evidence) || entries.some(([, v]) => !isScalarValue(v));
   return (
-    <div aria-busy="true" className="space-y-2">
-      <span className="sr-only">{label}</span>
-      <Skeleton className="h-5 w-1/2" />
-      <Skeleton className="h-24 w-full" />
+    <div className="space-y-1 text-xs text-fg-secondary">
+      {simple.length ? <p>{simple.map(([k, v]) => `${humanize(k)}: ${cellText(v)}`).join(" · ")}</p> : null}
+      {nested ? (
+        <details>
+          <summary className="inline-flex min-h-6 cursor-pointer items-center font-medium text-fg-secondary hover:text-fg focus-visible:shadow-focus focus-visible:outline-none">More detail</summary>
+          <div className="mt-1">
+            <ValueSummary label="Evidence" value={evidence} />
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -53,7 +75,7 @@ export function ExplanationTab({ caseId, ctx, onViewed }: { caseId: string; ctx:
     { key: "cat", header: "Category", cell: (s) => s.category ?? "—" },
     { key: "pts", header: "Points", align: "right", cell: (s) => cellText(s.base_points) },
     { key: "dec", header: "Decayed", align: "right", cell: (s) => cellText(s.decayed_points) },
-    { key: "ev", header: "Evidence", cell: (s) => (s.evidence ? <span className="font-mono text-xs">{cellText(s.evidence)}</span> : "—") },
+    { key: "ev", header: "Evidence", cell: (s) => (s.evidence ? <EvidenceSummary evidence={s.evidence} /> : "—") },
   ];
   const subtotals = Object.entries(ev?.subtotals ?? {});
   return (
@@ -133,9 +155,9 @@ function RevealIp({ evidenceRef, ctx }: { evidenceRef: string; ctx: EvidenceCont
 const TIMELINE_TYPES = ["login", "session", "network", "cap", "signal", "evaluation", "restriction", "otp", "case"];
 
 function eventSummary(e: TimelineEvent): string {
-  const skip = new Set(["at", "type", "evidence", "evidence_ref", "session_id"]);
+  const skip = new Set(["at", "type", "evidence", "evidence_ref", "session_id", "evaluation_id"]);
   return Object.entries(e)
-    .filter(([k, v]) => !skip.has(k) && v !== null && v !== undefined && v !== "")
+    .filter(([k, v]) => !skip.has(k) && v !== null && v !== undefined && v !== "" && (typeof v !== "object" || Array.isArray(v)))
     .map(([k, v]) => `${humanize(k)}: ${cellText(v)}`)
     .join(" · ");
 }
@@ -155,7 +177,7 @@ export function TimelineTab({ userId, ctx, onViewed }: { userId: string; ctx: Ev
       cell: (e) => (
         <div className="space-y-1">
           <p className="text-xs text-fg-secondary">{eventSummary(e) || "—"}</p>
-          {e.evidence && typeof e.evidence === "object" ? <p className="font-mono text-xs text-fg-muted">{cellText(e.evidence)}</p> : null}
+          {e.evidence && typeof e.evidence === "object" ? <EvidenceSummary evidence={e.evidence} /> : null}
         </div>
       ),
     },
@@ -171,7 +193,7 @@ export function TimelineTab({ userId, ctx, onViewed }: { userId: string; ctx: Ev
           {(f) => <Select {...f} value={type} onChange={(e) => setType(e.target.value)} options={[{ value: "", label: "All types" }, ...TIMELINE_TYPES.map((t) => ({ value: t, label: humanize(t) }))]} />}
         </FormField>
       </div>
-      <Table caption="User security timeline (H12)" columns={cols} rows={res.data?.events} rowKey={(e) => `${e.at}-${e.type}-${String(e.session_id ?? e.rule ?? e.evidence_ref ?? e.evaluation_id ?? "")}`} loading={res.loading} error={res.error} onRetry={() => void res.reload()} empty={{ title: "No events in this period" }} />
+      <Table caption="User security timeline" columns={cols} rows={res.data?.events} rowKey={(e) => `${e.at}-${e.type}-${String(e.session_id ?? e.rule ?? e.evidence_ref ?? e.evaluation_id ?? "")}`} loading={res.loading} error={res.error} onRetry={() => void res.reload()} empty={{ title: "No events in this period", description: "Try “All types”, or check the account's devices from the case." }} />
       {res.data?.page.has_more ? <p className="text-xs text-fg-muted">Showing the first 200 events of the last 30 days.</p> : null}
       <p className="text-xs text-fg-muted">IP addresses are shown as /24 (IPv4) or /48 (IPv6) networks. Full values are revealed one at a time and audited.</p>
     </div>
@@ -208,11 +230,11 @@ export function ConcurrencyTab({ userId, ctx, isMinor }: { userId: string; ctx: 
   const [days, setDays] = useState("7");
   const query = useMemo(() => ({ reason_code: ctx.reasonCode, ...dayRange(Number(days)) }), [ctx, days]);
   const res = useVersioned<Concurrency>(isMinor ? null : `security/users/${userId}/concurrency`, query);
-  if (isMinor) return <EmptyState title="Not available" description={MINOR_NOTICE} />;
+  if (isMinor) return <EmptyState variant="inline" icon="lock" title="Not available" description={MINOR_NOTICE} />;
   if (res.error) return <ErrorState error={res.error} onRetry={() => void res.reload()} />;
   if (!res.data) return <Loading label="Loading concurrency…" />;
   const c = res.data;
-  if (!c.available) return <EmptyState title="Not available yet" description="Engaged-bucket data is not available from the api in this environment." />;
+  if (!c.available) return <EmptyState variant="inline" icon="chart" title="Not available yet" description="Engaged-bucket data is not available from the api in this environment." />;
   const byDevice = new Map<string, number[]>();
   for (const b of c.buckets) byDevice.set(b.device_id, [...(byDevice.get(b.device_id) ?? []), Date.parse(b.bucket)]);
   const devices = [...byDevice.entries()];
@@ -280,7 +302,7 @@ export function DeviceGraphTab({ userId, ctx, isMinor }: { userId: string; ctx: 
   const [days, setDays] = useState("30");
   const query = useMemo(() => ({ reason_code: ctx.reasonCode, hops, days }), [ctx, hops, days]);
   const res = useVersioned<DeviceGraph>(isMinor ? null : `security/users/${userId}/device-graph`, query);
-  if (isMinor) return <EmptyState title="Not available" description={MINOR_NOTICE} />;
+  if (isMinor) return <EmptyState variant="inline" icon="lock" title="Not available" description={MINOR_NOTICE} />;
   if (res.error) return <ErrorState error={res.error} onRetry={() => void res.reload()} />;
   if (!res.data) return <Loading label="Loading device graph…" />;
   const g = res.data;
@@ -387,10 +409,10 @@ export function SubmissionTab({ reference, ctx, onChanged }: { reference: string
   const [dialog, setDialog] = useState<"info" | "escalate" | null>(null);
   const [template, setTemplate] = useState(INFO_TEMPLATES_FALLBACK[0]!.key);
   const [message, setMessage] = useState("");
-  if (!reference) return <EmptyState title="No unblock request" description="The student has not submitted a request for this case." />;
+  if (!reference) return <EmptyState variant="inline" icon="document" title="No unblock request" description="The student has not submitted a request for this case." />;
   if (queue.error) return <ErrorState error={queue.error} onRetry={() => void queue.reload()} />;
   if (!queue.data) return <Loading label="Loading submission…" />;
-  if (!requestId) return <EmptyState title="Request not found" description={`Request ${reference} is not in the review queue.`} />;
+  if (!requestId) return <EmptyState variant="inline" icon="search" title="Request not found" description={`Request ${reference} is not in the review queue.`} />;
   if (res.error) return <ErrorState error={res.error} onRetry={() => void res.reload()} />;
   if (!res.data) return <Loading label="Loading submission…" />;
   const r = res.data;
@@ -444,6 +466,10 @@ export function SubmissionTab({ reference, ctx, onChanged }: { reference: string
       <ActionDialog
         open={dialog === "info"}
         onClose={() => setDialog(null)}
+        onOpen={() => {
+          setMessage("");
+          setTemplate(templates[0]?.key ?? INFO_TEMPLATES_FALLBACK[0]!.key);
+        }}
         title="Request more information"
         description="The SLA clock pauses. Reminders go out after 72 h and 6 days; the request closes after 7 days without a reply."
         submitLabel="Send request"
@@ -461,6 +487,7 @@ export function SubmissionTab({ reference, ctx, onChanged }: { reference: string
       <ActionDialog
         open={dialog === "escalate"}
         onClose={() => setDialog(null)}
+        onOpen={() => setMessage("")}
         title="Escalate to a senior reviewer"
         submitLabel="Escalate"
         validate={() => (message.trim().length < 3 ? "Add a reason for the senior reviewer." : null)}
@@ -537,11 +564,11 @@ export function HistoryTab({ detail, userId, ctx }: { detail: CaseDetail; userId
           <ul className="space-y-2 text-sm">
             {detail.decisions.map((d) => (
               <li key={d.decision_id}>
-                <span className="font-semibold">{humanize(d.outcome)}</span> · {formatDateTime(d.at)} · by <span className="font-mono">{d.decided_by}</span>
+                <span className="font-semibold">{outcomeLabel(d.outcome)}</span> · {formatDateTime(d.at)} · by {staffRef(d.decided_by, "Reviewer")}
                 {d.approved_by ? (
                   <>
                     {" "}
-                    · approved by <span className="font-mono">{d.approved_by}</span>
+                    · approved by {staffRef(d.approved_by, "Reviewer")}
                   </>
                 ) : null}
               </li>
@@ -563,14 +590,18 @@ export function NotesTab({ caseId, notes, onAdded }: { caseId: string; notes: Ca
   const [visibility, setVisibility] = useState("internal");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [confirmStudent, setConfirmStudent] = useState(false);
+  const post = async () => {
+    await api.post(`security/cases/${caseId}/notes`, { visibility, body: body.trim() }, { idempotencyKey: true });
+    setBody("");
+    onAdded();
+  };
   const submit = async () => {
     if (!body.trim()) return;
     setBusy(true);
     setError(null);
     try {
-      await api.post(`security/cases/${caseId}/notes`, { visibility, body: body.trim() }, { idempotencyKey: true });
-      setBody("");
-      onAdded();
+      await post();
     } catch (err) {
       setError(err);
     } finally {
@@ -583,7 +614,7 @@ export function NotesTab({ caseId, notes, onAdded }: { caseId: string; notes: Ca
         {(notes ?? []).map((n, i) => (
           <li key={`${n.at}-${i}`} className="rounded-lg border border-line p-3 text-sm">
             <p className="text-xs text-fg-muted">
-              {formatDateTime(n.at)} · {n.author_id ? <span className="font-mono">{n.author_id}</span> : "System"} · <Badge tone={n.visibility === "internal" ? "neutral" : "info"}>{n.visibility === "internal" ? "Internal" : "Visible to student"}</Badge>
+              {formatDateTime(n.at)} · {n.author_id ? staffRef(n.author_id, "Reviewer") : "System"} · <Badge tone={n.visibility === "internal" ? "neutral" : "info"}>{n.visibility === "internal" ? "Internal" : "Visible to student"}</Badge>
             </p>
             <p className="mt-1 whitespace-pre-wrap text-fg">{n.body}</p>
           </li>
@@ -594,7 +625,10 @@ export function NotesTab({ caseId, notes, onAdded }: { caseId: string; notes: Ca
         className="space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
-          void submit();
+          if (!body.trim()) return;
+          // A student-visible note cannot be taken back: confirm first (audit 0.7).
+          if (visibility === "student") setConfirmStudent(true);
+          else void submit();
         }}
       >
         <FormField label="Visibility">
@@ -615,9 +649,20 @@ export function NotesTab({ caseId, notes, onAdded }: { caseId: string; notes: Ca
         </FormField>
         <InlineProblem error={error} />
         <Button type="submit" loading={busy} disabled={!body.trim()}>
-          Add note
+          {visibility === "student" ? "Add note for student" : "Add note"}
         </Button>
       </form>
+      <ConfirmDialog
+        open={confirmStudent}
+        onClose={() => setConfirmStudent(false)}
+        title="Show this note to the student?"
+        description="The student will see this note on their case. Notes cannot be edited or removed after they are added."
+        confirmLabel="Add visible note"
+        cancelLabel="Back to editing"
+        onConfirm={post}
+      >
+        <blockquote className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border border-line bg-surface-sunken p-3 text-sm text-fg">{body.trim()}</blockquote>
+      </ConfirmDialog>
     </div>
   );
 }

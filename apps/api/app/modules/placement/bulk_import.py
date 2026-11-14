@@ -772,6 +772,8 @@ async def import_items(
     rolls back everything)."""
     ids: list[uuid.UUID] = []
     default_topic = primary_topic_id or bank.default_topic_id or await qbank.uncategorised_topic(session)
+    fs = qbank._fs()
+    built: list[Any] = []
     for n in items:
         problem_id = None
         if n.kind == "code":
@@ -785,6 +787,12 @@ async def import_items(
             coding_problem_id=problem_id,
         )
         try:
+            if fs:  # validate + build every item first, then write them together (all or nothing)
+                await qbank._validate_topic(session, default_topic, "primary_topic_id")
+                entry = await qbank.fs_build_question(session, principal, body, default_topic)
+                built.append(entry)
+                ids.append(entry[0].id)
+                continue
             q, _qv = await qbank.create_question(session, principal, body)
         except ProblemError as e:
             errs = e.ext.get("errors") or [{"field": "item", "message": e.detail}]
@@ -803,6 +811,10 @@ async def import_items(
         ids.append(q.id)
     from app.core.time import utcnow
 
+    if fs:
+        await (await qbank._repo(session)).create_questions_in_bank(built, bank, principal.user_id)
+        bank.last_added_at = utcnow()
+        return ids
     bank.last_added_at = utcnow()
     await session.flush()
     return ids

@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- Always the light theme (apps/web/src/app/layout.tsx). -->
+<html lang="en-IN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#ffffff" />
+    <title>%TD_APP_NAME%</title>
+    <meta name="description" content="Tech Drona: placement preparation, courses, tests and coding practice." />
+    <meta name="application-name" content="%TD_APP_NAME%" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/icon-512.png" sizes="512x512" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" type="image/png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- Self-hosted brand fonts (src/styles/fonts.css): latin subsets used on every page. -->
+    <link rel="preload" href="/fonts/plus-jakarta-sans-latin.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+    <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/spa/main.tsx"></script>
+  </body>
+</html>

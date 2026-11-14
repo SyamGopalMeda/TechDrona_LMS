@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "My learning" };
 export default function Page() {
   return (
     <div>
-      <PageHeader title="My learning" description="Courses you're enrolled in, with progress recorded by the server." />
+      <PageHeader title="My learning" description="Your courses and how far you've got." />
       <MyCourses />
     </div>
   );

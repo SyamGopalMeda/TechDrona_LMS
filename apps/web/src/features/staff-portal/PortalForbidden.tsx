@@ -1,41 +1,33 @@
 import Link from "next/link";
-import { PublicShell } from "@/components/shell/PublicShell";
 import { SignOutButton } from "@/components/shell/SignOutButton";
-
-const linkCls = "font-medium text-fg-link underline hover:text-fg-link-hover";
+import { Logo } from "@/components/ui/Logo";
 
 /**
- * ADM-12: shown instead of a staff portal's shell and navigation when the signed-in user holds
- * no grant for it. Lists only the portals the user can open (portal switcher, matrix rule 6).
+ * ADM-12: shown instead of a portal when the signed-in account opens no portal at all (users
+ * with any role are redirected to their own portal by StaffPortalGate instead). LMS chrome only —
+ * no website header/footer — and a way forward: help or sign out.
  */
-export function PortalForbidden({ portalTitle, reachable }: { portalTitle: string; reachable: { href: string; title: string }[] }) {
+export function PortalForbidden() {
   return (
-    <PublicShell signedIn>
-      <div className="mx-auto max-w-prose py-8 text-center">
-        <p className="font-display text-5xl font-bold text-fg-muted" aria-hidden="true">
-          403
-        </p>
-        <h1 className="mt-2 font-display text-2xl font-bold text-fg">You don&apos;t have access to the {portalTitle} portal</h1>
-        <p className="mt-2 text-sm text-fg-muted">
-          Your account has no role that opens this area. If you think this is wrong, ask your administrator to grant you the role.
-        </p>
-        {reachable.length ? (
-          <nav aria-label="Your portals" className="mt-6">
-            <ul className="flex flex-wrap justify-center gap-4 text-sm">
-              {reachable.map((p) => (
-                <li key={p.href}>
-                  <Link href={p.href} className={linkCls}>
-                    Go to {p.title}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        ) : null}
-        <div className="mt-6 flex justify-center">
-          <SignOutButton />
+    <div className="flex min-h-dvh flex-col bg-surface-canvas text-fg">
+      <header className="flex items-center border-b border-line bg-surface px-4 py-3 sm:px-6">
+        <Logo tone="auto" className="h-7 sm:h-8" />
+      </header>
+      <main id="main" tabIndex={-1} className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 py-10 focus:outline-none">
+        <div className="rounded-xl border border-line bg-surface p-6 text-center shadow-xs">
+          <h1 className="font-display text-xl font-bold text-fg-heading">Your account isn&apos;t set up yet</h1>
+          <p className="mt-2 text-sm text-fg-secondary">
+            You&apos;re signed in, but no area of Tech Drona has been opened for this account yet. Ask your administrator to assign you a role, or sign out and
+            use a different account.
+          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <SignOutButton />
+            <Link href="/help" className="inline-flex min-h-touch items-center text-sm font-medium text-fg-link underline hover:text-fg-link-hover">
+              Get help
+            </Link>
+          </div>
         </div>
-      </div>
-    </PublicShell>
+      </main>
+    </div>
   );
 }

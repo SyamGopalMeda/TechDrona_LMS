@@ -235,6 +235,8 @@ export interface AutosaveResponse {
   ignored_events?: number;
   /** exam protocol only: live counts for the warning banner */
   integrity?: IntegritySummary;
+  /** answers the server could not save because they are invalid for their question */
+  rejected?: { question_version_id: string; client_seq: number; field?: string | null; message: string }[];
 }
 
 /** verified: attempts.py time_payload (ATT-07) */

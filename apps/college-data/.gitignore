@@ -1,0 +1,23 @@
+# Runtime databases and backups (rebuild with: npm run seed && node server/import_research.js)
+portal/data/*.db
+portal/data/*.db-shm
+portal/data/*.db-wal
+portal/*.db
+*.db-journal
+
+# Local tooling
+.codegraph/
+node_modules/
+.vscode/
+*.log
+
+# Not part of this project / superseded
+reports/Cross motor fault diagnosis methods.md
+research_notes/Cross motor fault diagnosis methods/
+reports/Krishna Guntur West Godavari colleges.md
+reports/Krishna Guntur West Godavari colleges tracker.xlsx
+portal/QA_REPORT.md
+
+# Optional offline snapshot (portal/export_static_data.js) — generated, never committed
+portal/public/api_static/
+portal/public/api_static_index.json

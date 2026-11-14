@@ -5,7 +5,7 @@ import { mockApi } from "@/features/auth/test/mock-api";
 import { PORTALS, type NavItem } from "@/lib/nav/portals";
 import { resetNavAppsCache } from "./hooks/useNavApps";
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/trainer" }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/trainer", useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {

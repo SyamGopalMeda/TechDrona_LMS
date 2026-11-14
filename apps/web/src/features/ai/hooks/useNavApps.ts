@@ -16,7 +16,9 @@ let cache: { at: number; promise: Promise<EnabledAppsOut | null> } | null = null
 
 function load(): Promise<EnabledAppsOut | null> {
   if (cache && Date.now() - cache.at < TTL_MS) return cache.promise;
-  const promise = api.get<EnabledAppsOut>("me/enabled-apps").then(
+  // A restricted/suspended learner gets 403 account_restricted here; that must not trigger the global
+  // redirect to /account/restricted, or support/devices/privacy pages (still allowed) become unreachable.
+  const promise = api.get<EnabledAppsOut>("me/enabled-apps", { handle: { stepUp: false, restriction: false, auth: false, sessionChoice: false } }).then(
     (res) => res,
     () => null,
   );

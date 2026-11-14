@@ -103,7 +103,7 @@ export function TestInstructions({ testId }: { testId: string }) {
   return (
     <div className="max-w-content">
       <PageHeader
-        eyebrow="Test instructions"
+        breadcrumbs={[{ label: "Tests", href: "/app/tests" }, { label: t.title }]}
         title={t.title}
         description={`${formatDuration(t.duration_seconds)} · ${t.sections.length} section${t.sections.length === 1 ? "" : "s"}`}
       />

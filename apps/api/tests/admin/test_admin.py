@@ -8,10 +8,9 @@ import uuid
 from types import SimpleNamespace
 from typing import Any
 
-from sqlalchemy import select
+import pytest
 
 from app.modules.admin import policy as pol
-from app.modules.admin.models import PolicySetting
 from app.modules.admin.policy import get_value
 from app.modules.identity.policy import get_policy
 from tests.identity.factory import Browser, company_org
@@ -22,6 +21,7 @@ async def approve(b: Browser, approval_id: str):
     return await b.post(f"/admin/approvals/{approval_id}/approve", {"note": "ok"}, headers=idem())
 
 
+@pytest.mark.usefixtures("admin_backend")
 async def test_policy_bounds_locks_scopes_and_dual_control(client, db) -> None:
     a1, a2 = await staff(db, "super_admin"), await staff(db, "super_admin")
     cm = await staff(db, "content_manager")
@@ -85,6 +85,7 @@ async def test_policy_bounds_locks_scopes_and_dual_control(client, db) -> None:
     assert hist.status_code == 200 and hist.json()["history"][0]["approved_by"] == str(a2.id)
 
 
+@pytest.mark.usefixtures("admin_backend")
 async def test_policy_precedence_plan_over_platform_and_versioning(db) -> None:
     u = await adult(db)
     plan = uuid.uuid4()
@@ -94,18 +95,11 @@ async def test_policy_precedence_plan_over_platform_and_versioning(db) -> None:
     assert await get_value(db, "devices.student.max_trusted", user_id=u.id, plan_id=plan) == 2
     assert await get_value(db, "devices.student.max_trusted", user_id=u.id) == 5  # other plans
     await set_policy(db, "devices.student.max_trusted", 6)  # new platform version
-    rows = (
-        (
-            await db.execute(
-                select(PolicySetting).where(
-                    PolicySetting.setting_key == "devices.student.max_trusted",
-                    PolicySetting.scope_type == "platform",
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    rows = [
+        r
+        for r in await pol.history_rows(db, "devices.student.max_trusted")  # either store
+        if r.scope_type == "platform"
+    ]
     assert sum(r.is_active for r in rows) == 1 and max(r.version for r in rows) >= 2
     assert await get_value(db, "devices.student.max_trusted") == 6
     assert await get_value(db, "devices.student.max_trusted", plan_id=plan) == 2
@@ -135,6 +129,7 @@ async def test_policy_precedence_user_over_plan_over_platform() -> None:
     assert await pol.resolve(FakeSession([]), key) == 3  # type: ignore[arg-type]  # code default
 
 
+@pytest.mark.usefixtures("admin_backend")
 async def test_feature_flags_and_approval_queue_visibility(client, db) -> None:
     sa, r1 = await staff(db, "super_admin"), await staff(db, "super_admin")
     cm = await staff(db, "content_manager")

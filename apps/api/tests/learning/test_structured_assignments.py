@@ -15,7 +15,7 @@ import pytest
 
 from app.core.outbox import relay_pending
 from app.core.time import utcnow
-from app.modules.ai import service as ai
+from app.modules.ai import public as ai
 from app.modules.learning import structured as st
 from tests.placement.world import World, build_world, idem, question, topic
 
@@ -125,6 +125,7 @@ def _structure(mcq: Any, essay_marks: float) -> dict[str, Any]:
     }
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_structured_assignment_end_to_end(client, world: World, db, spy, fake_ai) -> None:
     w = world
     tr, stu = w.personas["trainer_a"], w.personas["student"]
@@ -313,6 +314,7 @@ async def test_structured_assignment_end_to_end(client, world: World, db, spy, f
     )
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_pure_objective_and_manual_items_and_ai_disabled(client, world: World, db, fake_ai) -> None:
     w = world
     tr, stu = w.personas["trainer_a"], w.personas["student"]
@@ -382,6 +384,7 @@ async def test_pure_objective_and_manual_items_and_ai_disabled(client, world: Wo
     assert r.status_code == 200 and str(stu.id) in r.json()["extensions"]
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_ai_engine_blocked_when_org_ai_off(client, world: World, db, fake_ai) -> None:
     w = world
     tr, stu = w.personas["trainer_a"], w.personas["student"]
@@ -404,6 +407,7 @@ async def test_ai_engine_blocked_when_org_ai_off(client, world: World, db, fake_
     assert r.status_code == 403 and r.json()["code"] == "ai_disabled"
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_create_validation_and_legacy_submit_rejected(client, world: World) -> None:
     w = world
     tr = w.personas["trainer_a"]
@@ -465,6 +469,7 @@ class _DenyAll:
         return AccessDecision(False, "no_entitlement")
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_coding_problem_access_through_open_assignment(client, world: World, db) -> None:
     """Paid coding problems inside a structured assignment: allowed while the learner works on an
     allocated, started assignment containing it; denied without an allocation, before starting,
@@ -543,6 +548,7 @@ async def test_coding_problem_access_through_open_assignment(client, world: Worl
         access.register_access_checker(prev)
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_bank_essay_settings_enforced_and_never_auto_scored(client, world: World, db) -> None:
     """A bank essay's ``settings.max_words`` limits the learner's answer; even under
     ``pure_objective`` an essay is never auto-scored (a human must mark it)."""

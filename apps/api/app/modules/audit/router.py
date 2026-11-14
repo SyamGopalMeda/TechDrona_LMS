@@ -11,8 +11,8 @@ are invisible (detail → 404) and callers outside ``FULL_IP_ROLES`` get the IP 
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
-from typing import Annotated
+from datetime import UTC, datetime
+from typing import Annotated, Any
 
 from fastapi import Depends, Query, Request
 from sqlalchemy import ColumnElement, false, or_, select
@@ -21,6 +21,7 @@ from app.core.audit import audit
 from app.core.auth import require_permission
 from app.core.db import PrincipalDbSession
 from app.core.errors import ProblemError
+from app.core.firestore.backend import uses_firestore
 from app.core.pagination import DEFAULT_LIMIT, MAX_LIMIT, decode_cursor, page_meta
 from app.core.principal import Principal
 from app.core.routing import authenticated_router
@@ -112,6 +113,32 @@ def _family_filter(families: set[str]) -> ColumnElement[bool]:
     return or_(*conds) if conds else false()
 
 
+def _family_match(families: set[str]) -> Any:
+    """``_family_filter`` as a Python predicate over an audit row (Firestore store)."""
+
+    def keep(row: Any) -> bool:
+        for fam in sorted(families):
+            prefixes, targets = _FAMILIES[fam]
+            if row.target_type in targets or any(row.action.startswith(p) for p in prefixes):
+                return True
+            st = row.after_state
+            approval_type = st.get("action_type") if isinstance(st, dict) else None
+            if (
+                row.target_type == "approval_request"
+                and isinstance(approval_type, str)
+                and any(approval_type.startswith(p) for p in prefixes)
+            ):
+                return True
+        return False
+
+    return keep
+
+
+def _utc(dt: datetime) -> datetime:
+    # Postgres reads a zone-less timestamp in the session zone (UTC).
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
+
 def _mask_ip(ip: str | None) -> str | None:
     if ip is None:
         return None
@@ -143,8 +170,37 @@ async def list_events(
         raise ProblemError(
             "validation_failed", 422, errors=[{"field": "to", "code": "before_from", "message": "to < from"}]
         )
-    q = select(AuditLog)
     families = _families(principal)
+    if uses_firestore("audit"):
+        fs_rows, fs_more = await _list_events_fs(
+            principal,
+            families,
+            {
+                "action": action,
+                "actor_user_id": actor_user_id,
+                "subject_user_id": subject_user_id,
+                "target_type": target_type,
+                "target_id": target_id,
+                "organization_id": organization_id,
+                "reason_code": reason_code,
+            },
+            from_,
+            to,
+            cursor,
+            limit,
+        )
+        await audit(
+            session,
+            principal,
+            "audit.query",
+            "audit_log",
+            after={k: str(v) for k, v in request.query_params.items() if k != "cursor"},
+        )
+        return AuditEventList(
+            data=[AuditEventOut.from_row(r) for r in fs_rows],
+            page=PageMeta(**page_meta({"seq": fs_rows[-1].seq} if fs_more and fs_rows else None, limit)),
+        )
+    q = select(AuditLog)
     if families is not None:
         q = q.where(_family_filter(families))
     for col, val in (
@@ -186,11 +242,19 @@ async def list_events(
 
 @router.get("/events/{seq}", response_model=AuditEventDetailOut, openapi_extra={"x-td-idle": "extends"})
 async def get_event(seq: int, session: PrincipalDbSession, principal: AuditReader) -> AuditEventDetailOut:
-    q = select(AuditLog).where(AuditLog.seq == seq)
     families = _families(principal)
-    if families is not None:
-        q = q.where(_family_filter(families))
-    row = (await session.execute(q)).scalar_one_or_none()
+    row: Any
+    if uses_firestore("audit"):
+        from app.modules.audit.repo_firestore import reader_repo
+
+        row = await reader_repo(principal).get_event(seq)
+        if row is not None and families is not None and not _family_match(families)(row):
+            row = None
+    else:
+        q = select(AuditLog).where(AuditLog.seq == seq)
+        if families is not None:
+            q = q.where(_family_filter(families))
+        row = (await session.execute(q)).scalar_one_or_none()
     if row is None:
         raise ProblemError("not_found")
     await audit(session, principal, "audit.query", "audit_log", after={"seq": seq})
@@ -202,7 +266,12 @@ async def get_event(seq: int, session: PrincipalDbSession, principal: AuditReade
 
 @router.get("/chain-status", response_model=ChainStatusOut, openapi_extra={"x-td-idle": "neutral"})
 async def chain_status(session: PrincipalDbSession, principal: AuditReader) -> ChainStatusOut:
-    result = await verify_chain(session)
+    if uses_firestore("audit"):
+        from app.modules.audit.repo_firestore import chain_repo
+
+        result = await chain_repo().verify_chain()
+    else:
+        result = await verify_chain(session)
     return ChainStatusOut(
         verified=result.ok,
         checked_rows=result.checked,
@@ -210,4 +279,41 @@ async def chain_status(session: PrincipalDbSession, principal: AuditReader) -> C
         last_row_hash=result.last_hash.hex() if result.last_hash else None,
         first_bad_seq=result.first_bad_seq,
         reason=result.reason,
+    )
+
+
+async def _list_events_fs(
+    principal: Principal,
+    families: set[str] | None,
+    equals: dict[str, Any],
+    from_: datetime | None,
+    to: datetime | None,
+    cursor: str | None,
+    limit: int,
+) -> tuple[list[Any], bool]:
+    """Firestore twin of the ``list_events`` query (same rows, same order, same cursor)."""
+    from app.modules.audit.repo_firestore import reader_repo
+
+    before_seq: int | None = None
+    if cursor:
+        pos = decode_cursor(cursor)
+        try:
+            before_seq = int(pos["seq"])
+        except (KeyError, TypeError, ValueError) as e:
+            raise ProblemError("invalid_cursor") from e
+    fam = _family_match(families) if families is not None else None
+    lo = _utc(from_) if from_ else None
+    hi = _utc(to) if to else None
+
+    def keep(row: Any) -> bool:
+        if lo is not None and row.occurred_at < lo:
+            return False
+        if hi is not None and row.occurred_at >= hi:
+            return False
+        return fam is None or fam(row)
+
+    if families is not None and not families:
+        return [], False  # ``false()``: a reader with no family sees nothing
+    return await reader_repo(principal).list_events(
+        equals=equals, before_seq=before_seq, limit=limit, keep=keep if (lo or hi or fam) else None
     )

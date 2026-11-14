@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Badge, Button, Card, EmptyState, ErrorState, FormField, PageHeader, Pagination, Select, Skeleton, useToast } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, ErrorState, FormField, LoadingBlock, PageHeader, Pagination, Select, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { useResource } from "@/features/account/lib/use-resource";
-import { ActionDialog, FilterBar, InlineProblem, JsonBlock, KeyValueList, StateBadge, TextArea } from "./console-ui";
-import { cleanQuery, formatCountdown, formatDateTime, formatINR, humanize, toOutcome, useCursorList, useVersioned, type MutationOutcome } from "../lib/console";
+import { ActionDialog, FilterBar, InlineProblem, JsonBlock, KeyValueList, StateBadge, TextArea, ValueSummary } from "./console-ui";
+import { UserRef } from "./Governance";
+import { cleanQuery, formatCountdown, formatDateTime, formatINR, humanize, shortRef, toOutcome, useCursorList, useVersioned, type MutationOutcome } from "../lib/console";
 
 /**
  * One approval request. verified: app/modules/admin/approvals.py approval_out (list rows from
@@ -28,6 +29,8 @@ export interface ApprovalRow {
   created_at: string | null;
   payload?: unknown;
   payload_hash?: string;
+  /** The caller is the only active Admin, so they may decide their own request (rbac is_sole_admin). */
+  self_decidable?: boolean;
 }
 
 export const approvalId = (r: ApprovalRow) => r.approval_request_id;
@@ -99,24 +102,35 @@ function payloadValue(key: string, v: unknown): ReactNode {
   if (v === null || v === undefined || v === "") return "—";
   if (typeof v === "number" && key.endsWith("_paise")) return formatINR(v);
   if (typeof v === "boolean") return v ? "Yes" : "No";
-  if (typeof v === "string" || typeof v === "number") return <span className={/_id$|^id$/.test(key) ? "break-all font-mono text-xs" : undefined}>{String(v)}</span>;
-  return <code className="break-all font-mono text-xs">{JSON.stringify(v)}</code>;
+  if (typeof v === "string" && /_id$|^id$/.test(key)) return <span title={v}>{key === "user_id" ? `User ${shortRef(v)}` : shortRef(v)}</span>;
+  if (typeof v === "string" || typeof v === "number") return String(v);
+  if (Array.isArray(v) && v.every((x) => typeof x !== "object" || x === null)) return v.length ? v.map(String).join(", ") : "None";
+  return <ValueSummary label={humanize(key)} value={v} raw={false} />;
 }
 
-/** The stored payload that will execute (FR-ADM-004 "payload diff"): one row per field. */
+/**
+ * The stored change that will run (FR-ADM-004 "payload diff"): one readable row per field, with
+ * the exact JSON and its integrity hash under a collapsed "Raw data" disclosure (audit 1.11).
+ */
 export function ApprovalPayload({ payload, hash }: { payload: unknown; hash?: string }) {
   return (
-    <div className="space-y-2" aria-label="Request payload">
+    <div className="space-y-2" role="group" aria-label="Request payload">
       {isRecord(payload) ? (
         Object.keys(payload).length ? (
-          <KeyValueList items={Object.entries(payload).map(([k, v]) => ({ label: humanize(k), value: payloadValue(k, v) }))} />
+          <KeyValueList items={Object.entries(payload).map(([k, v]) => ({ key: k, label: humanize(k), value: payloadValue(k, v), wide: typeof v === "object" && v !== null }))} />
         ) : (
-          <p className="text-sm text-fg-muted">The request carries no payload.</p>
+          <p className="text-sm text-fg-muted">The request carries no details.</p>
         )
       ) : (
-        <JsonBlock label="Payload" value={payload} />
+        <ValueSummary label="Request details" value={payload} raw={false} />
       )}
-      {hash ? <p className="break-all font-mono text-xs text-fg-muted">Payload hash {hash}</p> : null}
+      <details className="text-sm">
+        <summary className="inline-flex min-h-6 cursor-pointer items-center font-medium text-fg-secondary hover:text-fg focus-visible:shadow-focus focus-visible:outline-none">Raw data</summary>
+        <div className="mt-2 space-y-2">
+          <JsonBlock label="Payload" value={payload} collapsed={false} />
+          {hash ? <p className="break-all font-mono text-xs text-fg-muted">Payload hash {hash}</p> : null}
+        </div>
+      </details>
     </div>
   );
 }
@@ -125,7 +139,7 @@ export function ApprovalPayload({ payload, hash }: { payload: unknown; hash?: st
 function ApprovalDetail({ id }: { id: string }) {
   const detail = useVersioned<ApprovalRow>(`admin/approvals/${id}`);
   if (detail.error) return <InlineProblem error={detail.error} />;
-  if (!detail.data) return <Skeleton className="h-16 w-full" />;
+  if (!detail.data) return <LoadingBlock label="Loading the request details…" lines={2} />;
   return <ApprovalPayload payload={detail.data.payload} hash={detail.data.payload_hash} />;
 }
 
@@ -145,7 +159,7 @@ export interface ApprovalsQueueProps {
  * approve. Approve/reject are hidden for the requester ("You requested this…"); never used
  * for `security.case.decision` (those are decided on the case, SEC-10/SEC-11).
  */
-export function ApprovalsQueue({ title = "Approvals", eyebrow = "ADM-010", description, actionTypes, fixedType, embedded }: ApprovalsQueueProps) {
+export function ApprovalsQueue({ title = "Approvals", eyebrow, description, actionTypes, fixedType, embedded }: ApprovalsQueueProps) {
   const toast = useToast();
   const [type, setType] = useState(actionTypes?.join(",") ?? "");
   const [status, setStatus] = useState("pending");
@@ -204,28 +218,34 @@ export function ApprovalsQueue({ title = "Approvals", eyebrow = "ADM-010", descr
       {list.error ? (
         <ErrorState error={list.error} onRetry={() => void list.reload()} />
       ) : !rows ? (
-        <div aria-busy="true">
-          <Skeleton className="h-28 w-full" />
-        </div>
+        <LoadingBlock label="Loading approval requests…" size="card" rows={2} />
       ) : rows.length === 0 ? (
-        <EmptyState title="No approvals here" description="Requests you can decide appear here. Your own requests show for tracking only." />
+        <EmptyState
+          icon="check"
+          title={status === "pending" ? "Nothing waiting for approval" : `No ${humanize(status).toLowerCase()} requests`}
+          description={
+            status === "pending"
+              ? "Requests you can decide appear here. Your own requests show for tracking only."
+              : "Choose another status to see older requests."
+          }
+        />
       ) : (
         <ul className="space-y-3" aria-label="Approval requests">
           {rows.map((r) => {
             const id = approvalId(r);
-            const isRequester = !!myId && r.requested_by === myId;
+            const isRequester = !!myId && r.requested_by === myId && !r.self_decidable;
             const expired = r.status === "expired" || (!!r.expires_at && Date.parse(r.expires_at) < Date.now() && r.status === "pending");
             const pending = r.status === "pending" && !expired;
             return (
               <li key={id}>
                 <Card
-                  className={expired ? "opacity-70" : undefined}
+                  className={expired ? "bg-surface-sunken" : undefined}
                   title={
                     <span className="flex flex-wrap items-center gap-2">
                       {actionTypeLabel(r.action_type)}
                       <span className="font-normal text-fg-secondary">
                         · {humanize(r.target_type)}
-                        {r.target_id ? ` ${r.target_id}` : ""}
+                        {r.target_id ? ` ${shortRef(r.target_id)}` : ""}
                       </span>
                       <StateBadge state={expired ? "expired" : r.status} />
                     </span>
@@ -233,7 +253,7 @@ export function ApprovalsQueue({ title = "Approvals", eyebrow = "ADM-010", descr
                 >
                   <KeyValueList
                     items={[
-                      { label: "Requested by", value: isRequester ? "You" : <span className="font-mono text-xs">{r.requested_by}</span> },
+                      { label: "Requested by", value: isRequester ? "You" : <UserRef id={r.requested_by} /> },
                       { label: "Requested", value: formatDateTime(r.created_at) },
                       { label: "Expires", value: r.expires_at ? (expired ? "Expired — request again" : `${formatCountdown(r.expires_at)} (${formatDateTime(r.expires_at)})`) : "—" },
                       { label: "Reason", value: r.request_reason ?? "—" },
@@ -242,7 +262,7 @@ export function ApprovalsQueue({ title = "Approvals", eyebrow = "ADM-010", descr
                   />
                   <div className="mt-3">
                     <Button size="sm" variant="ghost" aria-expanded={expanded.has(id)} aria-controls={`approval-payload-${id}`} onClick={() => toggle(id)}>
-                      {expanded.has(id) ? "Hide payload" : "Show payload"}
+                      {expanded.has(id) ? "Hide details" : "Show details"}
                     </Button>
                     {expanded.has(id) ? (
                       <div id={`approval-payload-${id}`} className="mt-2">
@@ -282,8 +302,9 @@ export function ApprovalsQueue({ title = "Approvals", eyebrow = "ADM-010", descr
       <ActionDialog
         open={dialog?.kind === "approve"}
         onClose={() => setDialog(null)}
+        onOpen={() => setNote("")}
         title="Approve and execute?"
-        description="The stored payload runs exactly as requested (its hash is re-verified). This needs a fresh confirmation."
+        description="The change below runs exactly as requested (its integrity is re-checked first). You may be asked to confirm your identity."
         submitLabel="Approve"
         onSubmit={() => decideApproval(dialog!.row, true, note)}
         onDone={() => done("Approved.")}
@@ -294,9 +315,10 @@ export function ApprovalsQueue({ title = "Approvals", eyebrow = "ADM-010", descr
       <ActionDialog
         open={dialog?.kind === "reject"}
         onClose={() => setDialog(null)}
+        onOpen={() => setNote("")}
         title="Send back"
         submitLabel="Send back"
-        validate={() => (note.trim().length < 5 ? "A reason is required." : null)}
+        validate={() => (note.trim().length < 5 ? "Give a reason (5+ characters) so the requester knows what to fix." : null)}
         onSubmit={() => decideApproval(dialog!.row, false, note)}
         onDone={() => done("Sent back.")}
       >
@@ -308,6 +330,7 @@ export function ApprovalsQueue({ title = "Approvals", eyebrow = "ADM-010", descr
         onClose={() => setDialog(null)}
         title="Cancel your request?"
         submitLabel="Cancel request"
+        cancelLabel="Keep request"
         onSubmit={async () => toOutcome(await api.post(`admin/approvals/${approvalId(dialog!.row)}/cancel`, {}))}
         onDone={() => done("Request cancelled.")}
       />
@@ -317,7 +340,7 @@ export function ApprovalsQueue({ title = "Approvals", eyebrow = "ADM-010", descr
   if (embedded) return <div>{body}</div>;
   return (
     <div>
-      <PageHeader eyebrow={eyebrow} title={title} description={description ?? "Dual-control requests you can decide. Approving needs a fresh confirmation; you can never approve your own request."} />
+      <PageHeader eyebrow={eyebrow} title={title} description={description ?? "Changes that need a second person to approve. Approving asks you to confirm again, and you can never approve your own request."} />
       {body}
     </div>
   );

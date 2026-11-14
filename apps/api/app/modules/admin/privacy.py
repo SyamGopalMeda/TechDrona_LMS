@@ -23,10 +23,12 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.firestore.backend import uses_firestore
 from app.core.ids import uuid7
+from app.core.principal import Principal
 from app.core.time import to_rfc3339
 from app.modules.admin.models import ErasureLedger, PrivacyRequest
 from app.modules.identity import clock
@@ -84,10 +86,21 @@ def request_out(r: PrivacyRequest, *, staff: bool = False) -> dict[str, Any]:
 
 
 async def create(
-    session: AsyncSession, user_id: uuid.UUID, request_type: str, details: str | None, idem: str | None
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    request_type: str,
+    details: str | None,
+    idem: str | None,
+    *,
+    principal: Principal | None = None,
 ) -> PrivacyRequest:
     now = clock.now()
-    r = PrivacyRequest(
+    cls: Any = PrivacyRequest
+    if uses_firestore("admin"):
+        from app.modules.admin.store_specs import PrivacyRow
+
+        cls = PrivacyRow
+    r = cls(
         id=uuid7(),
         request_ref=new_ref(),
         user_id=user_id,
@@ -103,36 +116,128 @@ async def create(
         cooling_off_until=now + COOLING_OFF if request_type == "erasure" else None,
         idempotency_key=idem,
     )
+    if uses_firestore("admin"):
+        from app.modules.admin.repo_firestore_privacy import privacy_repo
+
+        return await privacy_repo(principal, "admin.privacy").create(user_id, r)  # type: ignore[return-value]
     session.add(r)
     await session.flush()
-    return r
+    return r  # type: ignore[return-value,unused-ignore]
+
+
+async def save(principal: Principal | None, r: Any, *, own: bool = False) -> None:
+    """Persist attribute changes of a request loaded by the routes. Postgres: no-op (the ORM row
+    is flushed with the transaction). Firestore: optimistic-lock update."""
+    if uses_firestore("admin"):
+        from app.modules.admin.repo_firestore_privacy import privacy_repo
+
+        await privacy_repo(principal).save(principal.user_id if own and principal else None, r)
+
+
+async def load(
+    session: AsyncSession, request_id: uuid.UUID, *, principal: Principal | None, own: bool
+) -> Any:
+    """``SELECT ... FOR UPDATE`` of one request; ``None`` when missing or (``own``) not the caller's."""
+    if uses_firestore("admin"):
+        from app.modules.admin.repo_firestore_privacy import privacy_repo
+
+        return await privacy_repo(principal).get_request(
+            principal.user_id if own and principal else None, request_id
+        )
+    x = (
+        await session.execute(select(PrivacyRequest).where(PrivacyRequest.id == request_id).with_for_update())
+    ).scalar_one_or_none()
+    if x is None or (own and principal is not None and x.user_id != principal.user_id):
+        return None
+    return x
+
+
+async def list_own(session: AsyncSession, principal: Principal) -> list[Any]:
+    if uses_firestore("admin"):
+        from app.modules.admin.repo_firestore_privacy import privacy_repo
+
+        return list(await privacy_repo(principal).list_for_user(principal.user_id))
+    return list(
+        (
+            await session.execute(
+                select(PrivacyRequest)
+                .where(PrivacyRequest.user_id == principal.user_id)
+                .order_by(PrivacyRequest.received_at.desc())
+            )
+        ).scalars()
+    )
+
+
+async def count_own_since(session: AsyncSession, principal: Principal, since: Any) -> int:
+    if uses_firestore("admin"):
+        from app.modules.admin.repo_firestore_privacy import privacy_repo
+
+        return await privacy_repo(principal).count_received_since(principal.user_id, since)
+    return len(
+        (
+            await session.execute(
+                select(PrivacyRequest.id).where(
+                    PrivacyRequest.user_id == principal.user_id, PrivacyRequest.received_at > since
+                )
+            )
+        ).all()
+    )
+
+
+async def queue(session: AsyncSession, principal: Principal) -> list[Any]:
+    if uses_firestore("admin"):
+        from app.modules.admin.repo_firestore_privacy import privacy_repo
+
+        return list(await privacy_repo(principal).queue(OPEN_STATES, clock.now()))
+    return list(
+        (
+            await session.execute(
+                select(PrivacyRequest)
+                .where(
+                    or_(
+                        PrivacyRequest.status.in_(OPEN_STATES),
+                        PrivacyRequest.completed_at > clock.now() - timedelta(days=30),
+                    )
+                )
+                .order_by(PrivacyRequest.due_at)
+            )
+        ).scalars()
+    )
+
+
+async def open_counts(session: AsyncSession, now: Any) -> tuple[int, int]:
+    """(open, overdue) for the admin dashboard."""
+    if uses_firestore("admin"):
+        from app.modules.admin.repo_firestore_privacy import privacy_repo
+
+        return await privacy_repo(None, "admin.dashboard").open_counts(OPEN_STATES, now)
+    open_ = await session.execute(
+        select(func.count()).select_from(PrivacyRequest).where(PrivacyRequest.status.in_(OPEN_STATES))
+    )
+    overdue = await session.execute(
+        select(func.count())
+        .select_from(PrivacyRequest)
+        .where(PrivacyRequest.status.in_(OPEN_STATES), PrivacyRequest.due_at <= now)
+    )
+    return int(open_.scalar_one()), int(overdue.scalar_one())
 
 
 async def build_export(session: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]:
-    """The principal's own records (identity, consents, sessions, devices, security status)."""
-    from app.modules.identity.models import Consent, User, UserProfile
-    from app.modules.security.models import AccountRestriction, UnblockRequest
-    from app.modules.sessions.models import AuthSession, UserDevice
+    """The principal's own records (identity, consents, sessions, devices, security status).
 
-    user = await session.get(User, user_id)
-    profile = await session.get(UserProfile, user_id)
-    consents = (await session.execute(select(Consent).where(Consent.user_id == user_id))).scalars().all()
-    sessions = (
-        (await session.execute(select(AuthSession).where(AuthSession.user_id == user_id).limit(500)))
-        .scalars()
-        .all()
-    )
-    devices = (await session.execute(select(UserDevice).where(UserDevice.user_id == user_id))).scalars().all()
-    restr = (
-        (await session.execute(select(AccountRestriction).where(AccountRestriction.user_id == user_id)))
-        .scalars()
-        .all()
-    )
-    unb = (
-        (await session.execute(select(UnblockRequest).where(UnblockRequest.user_id == user_id)))
-        .scalars()
-        .all()
-    )
+    Store-neutral: every read goes through the owning module's ``public`` API (identity,
+    sessions, security), so the export is the same on Postgres and Firestore."""
+    from app.modules.identity import public as idp
+    from app.modules.security import public as secp
+    from app.modules.sessions import public as sp
+
+    user = await idp.get_user(session, user_id)
+    profile = await idp.get_profile(session, user_id)
+    consents = await idp.consents_of(session, user_id)
+    sessions = (await sp.list_sessions(session, user_id=user_id))[:500]
+    devices = await sp.list_user_devices(session, user_id=user_id)
+    restr = await secp.user_restrictions(session, user_id)
+    unb = await secp.user_unblock_requests(session, user_id)
     return {
         "generated_at": to_rfc3339(clock.now()),
         "account": {
@@ -234,24 +339,31 @@ class ErasureResult:
 async def execute_erasure(
     session: AsyncSession, user_id: uuid.UUID, request_id: uuid.UUID | None = None
 ) -> ErasureResult:
-    from app.modules.identity.models import User
+    from app.modules.identity import public as idp
     from app.modules.sessions import service as ss
 
     n = await ss.revoke_all_sessions(session, user_id, "account_deleted")
-    await session.execute(update(User).where(User.id == user_id).values(status="deactivated"))
+    await idp.update_user(session, user_id, status="deactivated")  # either store
     result = ErasureResult(sessions_revoked=n)
     for module, provider in sorted(erasure_providers().items()):
         result.ran[module] = await provider(session, user_id)
     result.missing = [m for m in REQUIRED_ERASURE_MODULES if m not in result.ran]
-    session.add(
-        ErasureLedger(
-            id=uuid7(),
-            privacy_request_id=request_id,
-            subject_hash=subject_hash(user_id),
-            erased_at=clock.now(),
-            scope={"modules": sorted(result.ran), "sessions_revoked": n},
-            pending_modules=result.missing,
-        )
-    )
+    ledger: dict[str, Any] = {
+        "id": uuid7(),
+        "privacy_request_id": request_id,
+        "subject_hash": subject_hash(user_id),
+        "erased_at": clock.now(),
+        "scope": {"modules": sorted(result.ran), "sessions_revoked": n},
+        "pending_modules": result.missing,
+    }
+    if uses_firestore("admin"):
+        from app.modules.admin.repo_firestore_privacy import privacy_repo
+        from app.modules.admin.store_specs import ErasureLedgerRow
+
+        if session:
+            await session.flush()
+        await privacy_repo(None, "admin.privacy_erasure").append_ledger(ErasureLedgerRow(**ledger))
+        return result
+    session.add(ErasureLedger(**ledger))
     await session.flush()
     return result

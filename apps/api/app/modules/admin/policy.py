@@ -6,6 +6,10 @@ There is no organization layer any more. Every key has bounds and flags (``plan_
 scope. Changes are versioned rows (old row ``is_active = false``); reads are uncached DB reads, so a change is
 effective immediately (well within the 60 s budget).
 
+``TD_STORE_ADMIN=firestore``: rows live in ``policy_settings/{id}`` with ``policy_heads`` as the
+one-active-row-per-scope invariant and version counter (``repo_firestore``). The ``session``
+arguments are then unused (kept so callers in Postgres modules need no change).
+
 ``identity.policy.get_policy`` delegates here once the admin module is imported
 (``register_policy_resolver``), so every module reads the same values.
 """
@@ -21,6 +25,7 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ProblemError
+from app.core.firestore.backend import uses_firestore
 from app.core.ids import uuid7
 from app.modules.admin.models import PolicySetting
 from app.modules.identity import clock
@@ -55,6 +60,9 @@ _KEYS: tuple[PolicyKey, ...] = (
     _K("sessions.student.absolute_hours", 24, "int", 4, 24, tighten="lower"),
     _K("sessions.remember_device.max_days", 30, "int", 0, 30, plan=True, tighten="lower"),
     _K("devices.student.max_trusted", 3, "int", 1, 10, plan=True),
+    # faculty (trainer, evaluator, content manager); also admins when devices.admin.cap_enabled
+    _K("devices.staff.max_trusted", 3, "int", 1, 10),
+    _K("devices.admin.cap_enabled", False, "bool"),
     _K("devices.student.max_replacements_per_30d", 2, "int", 0, 10, plan=True),
     _K("devices.new_device_verification", "otp", "enum", choices=("otp", "otp_plus_email_notice")),
     _K("devices.trusted_inactivity_expiry_days", 90, "int", 30, 180),
@@ -224,6 +232,8 @@ async def resolve(
     del org_id
     k = REGISTRY.get(key)
     now = clock.now()
+    if uses_firestore("admin"):
+        return await _fs_resolve(key, k, now, user_id=user_id, plan_id=plan_id)
     conds = [PolicySetting.scope_type == "platform"]
     if k is None or not k.locked:
         if user_id is not None:
@@ -237,6 +247,10 @@ async def resolve(
             )
         )
     ).all()
+    return _best(key, k, rows)
+
+
+def _best(key: str, k: PolicyKey | None, rows: Any) -> Any:
     if not rows:
         if k is not None:
             return k.default
@@ -246,6 +260,21 @@ async def resolve(
     rank = {"user": 0, "plan": 1, "platform": 2}
     best = sorted(rows, key=lambda r: (rank.get(r.scope_type, 9), str(r.scope_id)))[0]
     return best.value
+
+
+async def _fs_resolve(
+    key: str, k: PolicyKey | None, now: datetime, *, user_id: uuid.UUID | None, plan_id: uuid.UUID | None
+) -> Any:
+    from app.modules.admin.repo_firestore import system_repo
+
+    scopes: list[tuple[str, str, Any]] = [(key, "platform", None)]
+    if k is None or not k.locked:
+        if user_id is not None:
+            scopes.append((key, "user", user_id))
+        if plan_id is not None and (k is None or k.plan):
+            scopes.append((key, "plan", plan_id))
+    rows = await system_repo("admin.policy").active_rows(scopes)
+    return _best(key, k, [r for r in rows if r.live(now)])
 
 
 async def get_value(session: AsyncSession, key: str, **kw: Any) -> Any:
@@ -261,9 +290,13 @@ async def identity_resolver(
 # --------------------------------------------------------------------------- changes
 
 
-async def active_row(
-    session: AsyncSession, key: str, scope_type: str, scope_id: uuid.UUID | None
-) -> PolicySetting | None:
+async def active_row(session: AsyncSession, key: str, scope_type: str, scope_id: uuid.UUID | None) -> Any:
+    """The active row (``PolicySetting`` or, on Firestore, ``PolicyRow``) of one key and scope."""
+    if uses_firestore("admin"):
+        from app.modules.admin.repo_firestore import system_repo
+
+        found = await system_repo("admin.policy").active_rows([(key, scope_type, scope_id)])
+        return found[0] if found else None
     return (
         await session.execute(
             select(PolicySetting).where(
@@ -276,7 +309,71 @@ async def active_row(
     ).scalar_one_or_none()
 
 
-async def _next_version(session: AsyncSession, key: str, scope_type: str, scope_id: uuid.UUID | None) -> int:
+async def active_platform_rows(session: AsyncSession, keys: list[str]) -> dict[str, Any]:
+    """Active platform-scope rows of many keys at once (the settings listing)."""
+    if uses_firestore("admin"):
+        from app.modules.admin.repo_firestore import system_repo
+
+        rows = await system_repo("admin.policy").active_rows([(k, "platform", None) for k in keys])
+        return {r.setting_key: r for r in rows}
+    res = (
+        await session.execute(
+            select(PolicySetting).where(
+                PolicySetting.setting_key.in_(keys),
+                PolicySetting.scope_type == "platform",
+                PolicySetting.scope_id.is_(None),
+                PolicySetting.is_active.is_(True),
+            )
+        )
+    ).scalars()
+    return {r.setting_key: r for r in res}
+
+
+async def history_rows(session: AsyncSession, key: str) -> list[Any]:
+    """Every version of a key (all scopes), newest first."""
+    if uses_firestore("admin"):
+        from app.modules.admin.repo_firestore import system_repo
+
+        return await system_repo("admin.policy").history(key)
+    return list(
+        (
+            await session.execute(
+                select(PolicySetting)
+                .where(PolicySetting.setting_key == key)
+                .order_by(PolicySetting.created_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+async def active_user_exception_count(session: AsyncSession, user_id: uuid.UUID, now: datetime) -> int:
+    """Active, unexpired user-scope exceptions of one user (security HC-01 exclusion)."""
+    if uses_firestore("admin"):
+        from app.modules.admin.repo_firestore import system_repo
+
+        return await system_repo("admin.policy").user_exception_count(user_id, now)
+    from sqlalchemy import func
+
+    n = (
+        await session.execute(
+            select(func.count())
+            .select_from(PolicySetting)
+            .where(
+                PolicySetting.scope_type == "user",
+                PolicySetting.scope_id == user_id,
+                PolicySetting.is_active.is_(True),
+                PolicySetting.expires_at > now,
+            )
+        )
+    ).scalar_one()
+    return int(n or 0)
+
+
+async def _next_version_pg(
+    session: AsyncSession, key: str, scope_type: str, scope_id: uuid.UUID | None
+) -> int:
     from sqlalchemy import func
 
     v = (
@@ -322,10 +419,33 @@ async def write_setting(
     effective_from: datetime | None = None,
     expires_at: datetime | None = None,
     case_decision_id: uuid.UUID | None = None,
-) -> PolicySetting:
+) -> Any:
     """Insert a new active version (the previous active row of that scope is deactivated)."""
     k = spec(key)
     value = validate_value(k, value)
+    if uses_firestore("admin"):
+        from app.modules.admin.repo_firestore import system_repo
+
+        return await system_repo("admin.policy").write_version(
+            {
+                "setting_key": key,
+                "scope_type": scope_type,
+                "scope_id": str(scope_id) if scope_id else None,
+                "value": value,
+                "value_schema": k.kind,
+                "min_value": k.min,
+                "max_value": k.max,
+                "plan_overridable": k.plan,
+                "locked": k.locked,
+                "expires_at": expires_at,
+                "effective_from": effective_from,
+                "case_decision_id": str(case_decision_id) if case_decision_id else None,
+                "change_reason": change_reason,
+                "changed_by": str(changed_by),
+                "approved_by": str(approved_by) if approved_by else None,
+                "approval_request_id": str(approval_request_id) if approval_request_id else None,
+            }
+        )
     await session.execute(
         update(PolicySetting)
         .where(
@@ -347,7 +467,7 @@ async def write_setting(
         max_value=k.max,
         plan_overridable=k.plan,
         locked=k.locked,
-        version=await _next_version(session, key, scope_type, scope_id),
+        version=await _next_version_pg(session, key, scope_type, scope_id),
         is_active=True,
         expires_at=expires_at,
         case_decision_id=case_decision_id,
@@ -363,7 +483,7 @@ async def write_setting(
     return row
 
 
-def setting_out(k: PolicyKey, row: PolicySetting | None) -> dict[str, Any]:
+def setting_out(k: PolicyKey, row: Any) -> dict[str, Any]:
     return {
         "setting_key": k.key,
         "value": row.value if row else k.default,

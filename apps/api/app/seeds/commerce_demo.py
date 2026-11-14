@@ -35,6 +35,7 @@ from app.core.models_registry import import_all_models
 from app.core.time import utcnow
 from app.modules.commerce.models import Coupon, Plan, Price, Product, ProductItem
 from app.seeds import seeds_allowed
+from app.seeds.sync import sync_touched
 
 # Seeds run standalone: register every module's tables so cross-module FKs resolve.
 import_all_models()
@@ -188,6 +189,7 @@ async def main() -> None:
     try:
         async with async_sessionmaker(engine, expire_on_commit=False)() as session, session.begin():
             print(await seed(session))
+            await sync_touched(session, "commerce", "identity")
     finally:
         await engine.dispose()
 

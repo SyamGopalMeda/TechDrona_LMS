@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
-import { PageHeader } from "@/components/ui";
 import { GradeSubmission } from "@/features/trainer/components/Grading";
 
 export const metadata: Metadata = { title: "Grade submission" };
 
-/** EVL-002 (reuses TRN-009). */
+/** EVL-002 (reuses TRN-009): GradeSubmission renders the header (breadcrumbs + the student's name). */
 export default async function Page({
   params,
   searchParams,
@@ -15,10 +14,5 @@ export default async function Page({
   const { submission_id } = await params;
   const sp = await searchParams;
   const assignment = typeof sp.assignment === "string" ? sp.assignment : null;
-  return (
-    <div>
-      <PageHeader title="Grade submission" eyebrow="Evaluator" />
-      <GradeSubmission submissionId={submission_id} assignmentId={assignment} />
-    </div>
-  );
+  return <GradeSubmission submissionId={submission_id} assignmentId={assignment} />;
 }

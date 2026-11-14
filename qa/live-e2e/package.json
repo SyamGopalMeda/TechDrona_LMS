@@ -1,0 +1,10 @@
+{
+  "name": "@techdrona/live-e2e",
+  "private": true,
+  "description": "Playwright audit of the LIVE LMS + website. Runs in Google Cloud Build (cloudbuild.yaml), never on the laptop.",
+  "scripts": { "test": "playwright test" },
+  "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
+    "@playwright/test": "1.65.1"
+  }
+}

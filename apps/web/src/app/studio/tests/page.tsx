@@ -1,15 +1,14 @@
 import type { Metadata } from "next";
-import { PageHeader } from "@/components/ui";
 import { TestBlueprints } from "@/features/studio/components/Tests";
 
-export const metadata: Metadata = { title: "Test blueprints" };
+export const metadata: Metadata = { title: "Template mocks" };
 
-/** CMS-011 */
+/** CMS-011: test blueprints, labelled "Template mocks" in the studio nav. */
 export default function Page() {
   return (
-    <div>
-      <PageHeader title="Test blueprints" eyebrow="CMS-011" />
-      <TestBlueprints hrefPattern="/studio/tests/:id" />
-    </div>
+    <TestBlueprints
+      hrefPattern="/studio/tests/:id"
+      header={{ title: "Template mocks", description: "Test blueprints that trainers assign to batches: settings, review policy, integrity and question draw rules." }}
+    />
   );
 }

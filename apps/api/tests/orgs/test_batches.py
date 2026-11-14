@@ -5,12 +5,15 @@ trainers manage their own batch; memberships follow batch membership; the colleg
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import select, update
 
 from app.core.company import COMPANY_ORG_ID
 from app.core.db import system_context
+from app.core.time import ist_date
+from app.modules.identity import clock
 from app.modules.orgs.models import Batch, BatchMember, OrgMembership
 from app.modules.orgs.service import LearnerOrgContext, get_learner_org_context
 from tests.identity.factory import add_member, company_org, grant, make_batch, make_user, staff_login
@@ -68,6 +71,20 @@ async def test_admin_creates_batches_in_the_company_org(browser, db) -> None:
     assert bad.status_code in (400, 422)
     codes = {b["code"] for b in (await browser.get("/batches")).json()["data"]}
     assert "WS1-CSE27" in codes
+    # no start date / started already → active; a future start → planned unless chosen explicitly
+    assert r.json()["status"] == "active"
+    today = ist_date(clock.now())
+    past = await browser.post("/batches", {"name": "p", "code": "WS1-PAST", "starts_on": str(today)})
+    assert past.json()["status"] == "active", past.text
+    later = str(today + timedelta(days=20))
+    fut = await browser.post("/batches", {"name": "f", "code": "WS1-FUT", "starts_on": later})
+    assert fut.status_code == 201 and fut.json()["status"] == "planned", fut.text
+    chosen = await browser.post(
+        "/batches", {"name": "c", "code": "WS1-CHOSEN", "starts_on": later, "status": "active"}
+    )
+    assert chosen.json()["status"] == "active", chosen.text
+    nope = await browser.post("/batches", {"name": "n", "code": "WS1-NOPE", "status": "archived"})
+    assert nope.status_code in (400, 422)
 
 
 async def test_non_admins_cannot_create_or_list_all_batches(browser, db) -> None:

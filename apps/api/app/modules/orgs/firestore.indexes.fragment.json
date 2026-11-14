@@ -1,0 +1,10 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "lms_batch_plans",
+      "fieldPath": "plan",
+      "indexes": []
+    }
+  ]
+}

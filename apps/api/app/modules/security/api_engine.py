@@ -5,7 +5,7 @@ Single company (D5): org trusted networks and the org security summary were remo
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from fastapi import Depends, Request
@@ -15,8 +15,9 @@ from sqlalchemy import func, select
 
 from app.core.audit import audit
 from app.core.auth import require_permission
-from app.core.db import PrincipalDbSession
 from app.core.errors import ProblemError
+from app.core.firestore.backend import uses_firestore
+from app.core.firestore.sqlstore import StorePrincipalDbSession as PrincipalDbSession
 from app.core.idempotency import IdemResult, idempotent
 from app.core.ids import uuid7
 from app.core.principal import Principal
@@ -24,9 +25,11 @@ from app.core.routing import authenticated_router
 from app.core.time import to_rfc3339
 from app.modules.admin import approvals as apr
 from app.modules.identity import clock
+from app.modules.identity.fs_journal import request_journal
 from app.modules.rbac.catalogue import ADMIN_ROLE
 from app.modules.security import controls as ctl
 from app.modules.security import engine
+from app.modules.security import repo_fs_controls as secx
 from app.modules.security.catalogue import BUILTIN_HC, RULES
 from app.modules.security.models import (
     AccountRestriction,
@@ -48,6 +51,8 @@ from app.modules.security.reports import (
 
 r = authenticated_router(tags=["security"], route_tag="default", idle="extends")
 NEUTRAL = {"x-td-idle": "neutral"}
+# Direct multi-write routes: one undo scope on Firestore (approval request + engine writes).
+JOURNAL = Depends(request_journal, scope="function")
 
 
 def perm(key: str, scope: Any = None) -> Any:
@@ -147,7 +152,7 @@ async def rule_versions(
         q = q.where(RiskRuleVersion.family == family)
     if status:
         q = q.where(RiskRuleVersion.status == status)
-    rows = (await session.execute(q.order_by(RiskRuleVersion.created_at.desc()))).all()
+    rows = (await secx.execute(session, q.order_by(RiskRuleVersion.created_at.desc()))).all()
     return {
         "data": [ctl.version_out(v, k) for v, k in rows],
         "builtin": {fam: d["ruleset_version"] for fam, d in ctl.BUILTIN_RULESETS.items()},
@@ -230,7 +235,7 @@ async def rollback_request(
 # --------------------------------------------------------------------------- engine controls
 
 
-@r.post("/security/engine/kill-switch")
+@r.post("/security/engine/kill-switch", dependencies=[JOURNAL])
 async def kill_switch(
     body: KillIn,
     request: Request,
@@ -254,7 +259,7 @@ async def engine_state(
     return await ctl.engine_state(session)
 
 
-@r.post("/security/restrictions/bulk-lift-requests")
+@r.post("/security/restrictions/bulk-lift-requests", dependencies=[JOURNAL])
 async def bulk_lift(
     body: BulkIn,
     request: Request,
@@ -276,7 +281,7 @@ async def bulk_status(
     session: PrincipalDbSession,
     principal: Principal = perm("security.restriction.bulk_lift"),
 ) -> dict[str, Any]:
-    bl = await session.get(SecurityBulkLift, bulk_lift_id)
+    bl = await secx.get(session, SecurityBulkLift, bulk_lift_id)
     if bl is None:
         raise ProblemError("not_found")
     return {
@@ -348,11 +353,12 @@ async def my_exports(
     single-principal: only the requester can list or fetch a job)."""
     rows = (
         (
-            await session.execute(
+            await secx.execute(
+                session,
                 select(SecurityReportExport)
                 .where(SecurityReportExport.requested_by == principal.user_id)
                 .order_by(SecurityReportExport.created_at.desc(), SecurityReportExport.id.desc())
-                .limit(max(1, min(limit, 200)))
+                .limit(max(1, min(limit, 200))),
             )
         )
         .scalars()
@@ -389,7 +395,7 @@ async def report(
     return data
 
 
-@r.post("/security/reports/{report_key}/exports", status_code=202)
+@r.post("/security/reports/{report_key}/exports", status_code=202, dependencies=[JOURNAL])
 async def export_report(
     report_key: str,
     body: ExportIn,
@@ -418,8 +424,8 @@ async def export_report(
             reason=body.reason,
             status="awaiting_approval" if per_user else "running",
         )
-        session.add(job)
-        await session.flush()
+        secx.add(session, job)
+        await secx.flush(session)
         approval_id = None
         if per_user:
             action = "security.export.per_user" if report_key in SECURITY_EXPORT_KEYS else "export.bulk_pii"
@@ -465,7 +471,7 @@ async def download_export(
     session: PrincipalDbSession,
     principal: Principal = perm("report.export.request"),
 ) -> PlainTextResponse:
-    job = await session.get(SecurityReportExport, export_job_id)
+    job = await secx.get(session, SecurityReportExport, export_job_id)
     if job is None or job.requested_by != principal.user_id:
         raise ProblemError("not_found")
     if job.status != "completed" or job.content is None:
@@ -505,8 +511,12 @@ def _inc_out(i: SecurityIncident) -> dict[str, Any]:
 async def incidents(
     session: PrincipalDbSession, principal: Principal = perm("security.incident.read")
 ) -> dict[str, Any]:
+    if uses_firestore("security"):
+        from app.modules.security.repo_firestore import incident_repo
+
+        return {"data": [_inc_out(i) for i in await incident_repo(principal).list_incidents()]}
     rows = (
-        await session.execute(select(SecurityIncident).order_by(SecurityIncident.detected_at.desc()))
+        await secx.execute(session, select(SecurityIncident).order_by(SecurityIncident.detected_at.desc()))
     ).scalars()
     return {"data": [_inc_out(i) for i in rows]}
 
@@ -516,7 +526,23 @@ async def open_incident(
     body: IncidentIn, session: PrincipalDbSession, principal: Principal = perm("security.incident.manage")
 ) -> dict[str, Any]:
     require_fresh_step_up(principal, S10)
-    i = SecurityIncident(
+    # The CERT-In (6 h) and DPB (72 h) deadlines run from detected_at: a future time would push
+    # them out silently. A few minutes of clock skew are tolerated.
+    detected = body.detected_at if body.detected_at.tzinfo else body.detected_at.replace(tzinfo=UTC)
+    if detected > clock.now() + timedelta(minutes=5):
+        raise ProblemError(
+            "validation_failed",
+            422,
+            errors=[
+                {"field": "detected_at", "code": "in_future", "message": "Detection time is in the future"}
+            ],
+        )
+    inc_cls: Any = SecurityIncident
+    if uses_firestore("security"):
+        from app.modules.security.store_specs import IncidentRow
+
+        inc_cls = IncidentRow
+    i = inc_cls(
         id=uuid7(),
         incident_ref=make_ref("INC"),
         title=body.title,
@@ -529,8 +555,13 @@ async def open_incident(
         owner_id=principal.user_id,
         timeline=[{"at": to_rfc3339(clock.now()), "entry": "opened"}],
     )
-    session.add(i)
-    await session.flush()
+    if uses_firestore("security"):
+        from app.modules.security.repo_firestore import incident_repo
+
+        i = await incident_repo(principal).create_incident(i)
+    else:
+        secx.add(session, i)
+        await secx.flush(session)
     await audit(session, principal, "security.incident.opened", "security_incident", i.id)
     return _inc_out(i)
 
@@ -546,7 +577,13 @@ async def update_incident(
     from app.modules.security.policies import check_if_match
 
     require_fresh_step_up(principal, S10)
-    i = await session.get(SecurityIncident, incident_id)
+    i: Any
+    if uses_firestore("security"):
+        from app.modules.security.repo_firestore import incident_repo
+
+        i = await incident_repo(principal).get_incident(incident_id)
+    else:
+        i = await secx.get(session, SecurityIncident, incident_id)
     if i is None:
         raise ProblemError("not_found")
     check_if_match(request, i.version)
@@ -559,6 +596,10 @@ async def update_incident(
     if i.status == "closed" and i.closed_at is None:
         i.closed_at = clock.now()
     i.version += 1
+    if uses_firestore("security"):
+        from app.modules.security.repo_firestore import incident_repo
+
+        await incident_repo(principal).save_incident(i)
     await audit(
         session, principal, "security.incident.updated", "security_incident", i.id, after={"status": i.status}
     )
@@ -571,27 +612,30 @@ async def dashboard(
 ) -> dict[str, Any]:
     open_cases = dict(
         (
-            await session.execute(
+            await secx.execute(
+                session,
                 select(SecurityCase.status, func.count())
                 .where(SecurityCase.status != "closed")
-                .group_by(SecurityCase.status)
+                .group_by(SecurityCase.status),
             )
         ).all()
     )
     restr = dict(
         (
-            await session.execute(
+            await secx.execute(
+                session,
                 select(AccountRestriction.level, func.count())
                 .where(AccountRestriction.ended_at.is_(None))
-                .group_by(AccountRestriction.level)
+                .group_by(AccountRestriction.level),
             )
         ).all()
     )
     appeals = (
-        await session.execute(
+        await secx.execute(
+            session,
             select(func.count())
             .select_from(UnblockRequest)
-            .where(UnblockRequest.state.in_(("submitted", "under_review", "info_requested", "escalated")))
+            .where(UnblockRequest.state.in_(("submitted", "under_review", "info_requested", "escalated"))),
         )
     ).scalar_one()
     return {

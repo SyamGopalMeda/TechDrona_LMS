@@ -20,17 +20,25 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import AuditActor, audit
+from app.core.config import get_settings
 from app.core.errors import ProblemError
 from app.core.security import generate_token, hash_token
 from app.core.time import to_rfc3339
 from app.modules.identity import clock
 from app.modules.identity.contacts import mask_email, mask_phone
-from app.modules.identity.models import User
 from app.modules.identity.policy import get_policy
+from app.modules.identity.public import User
 from app.modules.identity.service import has_strong_factor
 from app.modules.sessions import service as ss
 from app.modules.sessions.hooks import RestrictionState
 from app.modules.sessions.models import AuthSession, Device, UserDevice
+
+
+async def _device(session: AsyncSession, device_id: Any) -> Device | None:
+    if ss._fs():
+        return await ss._repo().get_device(device_id)
+    return await session.get(Device, device_id)
+
 
 # Landing portal per role (single-company roles). Evaluators have their own grading portal
 # (`/evaluator` in the web app: grading queues, results release; no authoring).
@@ -87,13 +95,15 @@ def device_channels(user: User) -> list[dict[str, str]]:
 
 async def _device_cap_problem(session: AsyncSession, user: User) -> ProblemError | None:
     lim = await ss.device_limits(session, user)
+    if lim["max_trusted"] is None:  # admins: no trusted-device cap (devices are still recorded)
+        return None
     max_trusted = int(lim["max_trusted"])  # type: ignore[call-overload]
     trusted = await ss.trusted_devices(session, user.id)
     if len(trusted) < max_trusted:
         return None
     devs = []
     for ud in trusted:
-        dev = await session.get(Device, ud.device_id)
+        dev = await _device(session, ud.device_id)
         devs.append(
             {
                 "user_device_id": str(ud.id),
@@ -118,7 +128,20 @@ async def free_device_slot(
     session: AsyncSession, user: User, remove_user_device_id: Any, current: UserDevice
 ) -> ProblemError | None:
     """Remove a trusted device during a pending login (counts as a replacement)."""
-    ud = (
+    if ss._fs():
+        got = await ss._repo().get_user_device_by_id(remove_user_device_id)
+        ud = got if got is not None and got.user_id == user.id and got.trust_status == "trusted" else None
+    else:
+        ud = await _pg_trusted_device(session, user, remove_user_device_id)
+    if ud is None or ud.id == current.id:
+        return ProblemError("not_found")
+    return await _replace_device(session, user, ud)
+
+
+async def _pg_trusted_device(
+    session: AsyncSession, user: User, remove_user_device_id: Any
+) -> UserDevice | None:
+    return (
         await session.execute(
             select(UserDevice).where(
                 UserDevice.id == remove_user_device_id,
@@ -127,8 +150,9 @@ async def free_device_slot(
             )
         )
     ).scalar_one_or_none()
-    if ud is None or ud.id == current.id:
-        return ProblemError("not_found")
+
+
+async def _replace_device(session: AsyncSession, user: User, ud: UserDevice) -> ProblemError | None:
     max_repl = int(await get_policy(session, "devices.student.max_replacements_per_30d", user_id=user.id))
     used, nxt = await ss.replacements_used(session, user.id)
     if used >= max_repl:
@@ -146,7 +170,7 @@ async def trust_current_device(
 ) -> ProblemError | None:
     if ud.trust_status == "trusted":
         return None
-    if ud.counts_toward_cap:
+    if ud.counts_toward_cap and not get_settings().simple_auth:  # simple auth: no device cap
         cap = await _device_cap_problem(session, user)
         if cap is not None:
             return cap
@@ -175,16 +199,25 @@ async def advance(
     while pending never becomes a full session. Callers that minted the token in this
     request (login, remember refresh) or just rotated it (MFA verify) pass ``False``."""
     cookies = [ss.session_cookie(s, token)]
+    # TD_SIMPLE_AUTH (permanent owner decision): email + password only. No MFA prompt, the
+    # device is trusted without a code (``device_code_off``), no risk step-up
+    # (``account_protection_off``), no device cap and no session-choice prompt.
+    simple = get_settings().simple_auth
 
     # 1. MFA
-    if not mfa_done(s) and await has_strong_factor(session, user.id):
+    if not simple and not mfa_done(s) and await has_strong_factor(session, user.id):
         await ss.set_pending(session, s, "pending_mfa")
         methods = ["totp", "recovery_code"]
         return LoginOutcome(200, {"result": "mfa_required", "methods": methods}, cookies)
 
     # 2. Device trust (+ T-step-up, RE §6.2: MFA or SMS OTP even on a trusted device)
     strong = STEP_UP_AMR if (user.phone_e164 and user.phone_verified_at) else STEP_UP_AMR | {"otp_email"}
-    step_up = restriction.step_up_required and not (set(s.amr) & strong)
+    # TD_MFA_EXEMPT_EMAILS (demo owner override, never in production): password-only sign-in, so no
+    # risk step-up either; the owner chose this knowingly.
+    # TD_DEVICE_CODE_OFF (testing phase, email not integrated, never in production): no
+    # new-device code at all; the device is trusted after the password (+ any MFA).
+    exempt = get_settings().mfa_exempt(user.email) or get_settings().device_code_off
+    step_up = restriction.step_up_required and not (set(s.amr) & strong) and not exempt
     if ud is not None and (ud.trust_status != "trusted" or step_up):
         if step_up and (ud.trust_status == "trusted" or await ss.has_device_history(session, user.id)):
             await ss.set_pending(session, s, "pending_device_otp")
@@ -199,7 +232,8 @@ async def advance(
                 },
                 cookies,
             )
-        if not await ss.has_device_history(session, user.id):
+        if not await ss.has_device_history(session, user.id) or (not step_up and exempt):
+            # first device ever, or a TD_MFA_EXEMPT_EMAILS account (demo owner override)
             problem = await trust_current_device(session, user, ud, None, owner_verified=False)
         elif mfa_done(s):
             problem = await trust_current_device(session, user, ud, "totp", owner_verified=True)
@@ -220,16 +254,59 @@ async def advance(
 
     # 3. Same-device sessions end, then the concurrent-session cap
     await ss.lock_user(session, user.id)
-    if s.device_id is not None:
-        await ss.end_sessions_where(
+    try:
+        return await _cap_and_activate(
             session,
-            AuthSession.user_id == user.id,
-            AuthSession.device_id == s.device_id,
-            AuthSession.id != s.id,
-            AuthSession.status == "active",
-            status="revoked",
-            reason="replaced_same_device",
+            s=s,
+            user=user,
+            ud=ud,
+            device=device,
+            restriction=restriction,
+            remember_requested=remember_requested,
+            token=token,
+            info=info,
+            rotate_on_activate=rotate_on_activate,
+            cookies=cookies,
+            simple=simple,
         )
+    finally:
+        await ss.unlock_user(session, user.id)
+
+
+async def _cap_and_activate(
+    session: AsyncSession,
+    *,
+    s: AuthSession,
+    user: User,
+    ud: UserDevice | None,
+    device: Device | None,
+    restriction: RestrictionState,
+    remember_requested: bool,
+    token: str,
+    info: ss.ClientInfo,
+    rotate_on_activate: bool,
+    cookies: list[str],
+    simple: bool,
+) -> LoginOutcome:
+    """Steps 3-4 of ``advance``, run while ``ss.lock_user`` is held."""
+    if s.device_id is not None:
+        if ss._fs():
+            await ss._repo().end_sessions(
+                user.id,
+                status="revoked",
+                reason="replaced_same_device",
+                where=lambda o: o.device_id == s.device_id and o.id != s.id and o.status == "active",
+            )
+        else:
+            await ss.end_sessions_where(
+                session,
+                AuthSession.user_id == user.id,
+                AuthSession.device_id == s.device_id,
+                AuthSession.id != s.id,
+                AuthSession.status == "active",
+                status="revoked",
+                reason="replaced_same_device",
+            )
     key = (
         "sessions.student.max_concurrent" if s.session_tier == "student" else "sessions.staff.max_concurrent"
     )
@@ -239,14 +316,19 @@ async def advance(
         behavior = str(await get_policy(session, "sessions.student.at_limit_behavior", user_id=user.id))
         with_attempt = await ss.sessions_with_attempts(session, [o.id for o in others])
         evictable = [o for o in others if o.id not in with_attempt]
-        if behavior == "evict_oldest" and evictable:
+        if simple:
+            # simple auth: end the oldest sessions (never one holding an attempt) to stay at the
+            # cap; if every other session holds an attempt, sign in anyway.
+            for o in evictable[: len(others) - max_concurrent + 1]:
+                await ss.end_session(session, o, status="revoked", reason="session_cap_evicted")
+        elif behavior == "evict_oldest" and evictable:
             await ss.end_session(session, evictable[0], status="revoked", reason="session_cap_evicted")
         else:
             minutes = int(await get_policy(session, "auth.session_choice_minutes"))
             await ss.set_pending(session, s, "pending_session_choice", minutes)
             listing = []
             for o in others:
-                dev = await session.get(Device, o.device_id) if o.device_id else None
+                dev = await _device(session, o.device_id) if o.device_id else None
                 listing.append(
                     {
                         "session_id": str(o.id),
@@ -294,7 +376,18 @@ async def advance(
                     ss.REMEMBER_COOKIE, remember_raw, int((ud.remember_until - clock.now()).total_seconds())
                 )
             )
-    await session.flush()
+    if ss._fs():
+        await ss.save_session(session, s)
+        if ud is not None:
+            await ss._repo().save_user_device(ud)
+    from app.core.firestore.backend import uses_firestore
+
+    if uses_firestore("identity"):
+        from app.modules.identity import public as identity_public
+
+        await identity_public.update_user(session, user.id, last_login_at=user.last_login_at)
+    if session:
+        await session.flush()
     cookies[0] = ss.session_cookie(s, token)
     await audit(
         session,
@@ -307,6 +400,10 @@ async def advance(
         after={"tier": s.session_tier, "amr": list(s.amr), "created_via": s.created_via, "scope": s.scope},
     )
     body: dict[str, Any] = {"result": "authenticated", "session": session_summary(s)}
+    if user.must_change_password:
+        # set by an Admin (create user / set password) or a protect-lock: every route but
+        # POST /auth/password/change (and /me, logout, ...) answers 403 password_change_required.
+        body["must_change_password"] = True
     if restriction.level >= 3:
         body["restriction"] = {
             "level": restriction.level,

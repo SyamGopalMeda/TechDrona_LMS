@@ -1,0 +1,316 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "lms_tests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "organization_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_tests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_test_sections",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "position",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_test_section_rules",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "test_section_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "position",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_test_assignments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_test_attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "attempt_no",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_test_attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_overrides",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_sections",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "attempt_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "position",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_responses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "attempt_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "saved_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_test_attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_test_attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_results",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "graded_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "attempt_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "occurred_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_results",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "graded_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_item_grades",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "test_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_attempt_integrity_decisions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "attempt_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "lms_test_attempts",
+      "fieldPath": "layout",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_test_attempts",
+      "fieldPath": "selection_seed",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_attempt_responses",
+      "fieldPath": "response",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_attempt_events",
+      "fieldPath": "payload",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_attempt_results",
+      "fieldPath": "section_scores",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_attempt_results",
+      "fieldPath": "topic_scores",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_attempt_item_grades",
+      "fieldPath": "ai_feedback",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_attempt_item_grades",
+      "fieldPath": "ai_criteria",
+      "indexes": []
+    }
+  ]
+}

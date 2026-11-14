@@ -101,6 +101,7 @@ describe("PracticeHub (PRC-001)", () => {
     restore = api.restore;
     renderWithProviders(<PracticeHub />);
     expect(await screen.findByText("Why: Weak topic in your TCS path")).toBeInTheDocument();
+    expect(await screen.findByText("1 topic · 120 questions")).toBeInTheDocument(); // singular, not "1 topics"
     await userEvent.selectOptions(await screen.findByRole("combobox", { name: "Topic" }), "top-seat");
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Difficulty" }), "hard");
     await userEvent.click(screen.getByRole("button", { name: "Start 10-question set" }));

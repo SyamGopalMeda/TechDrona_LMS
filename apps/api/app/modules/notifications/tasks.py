@@ -9,7 +9,7 @@ from __future__ import annotations
 import structlog
 from celery import shared_task
 
-from app.core.db import get_sessionmaker, system_context
+from app.core.db import job_session
 from app.core.jobs import register_periodic, run_async
 from app.core.time import utcnow
 
@@ -21,8 +21,7 @@ RENEWAL_TASK = "notifications.renewal_reminders"
 async def renewal_reminders() -> int:
     from app.modules.notifications.consumers import send_renewal_reminders
 
-    async with get_sessionmaker()() as session, session.begin():
-        await system_context(session, "notifications.renewal_reminders")
+    async with job_session("notifications.renewal_reminders") as session:  # NO_POSTGRES on Firebase
         n = await send_renewal_reminders(session, utcnow())
     if n:
         log.info("renewal_reminders_sent", count=n)

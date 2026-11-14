@@ -256,7 +256,7 @@ async def archive_path(
     path_id: uuid.UUID, request: Request, session: PrincipalDbSession, principal: CurrentPrincipal
 ) -> Response:
     p = await svc.managed_path(request, session, principal, path_id)
-    await svc.archive_path(session, principal, p)
+    await svc.archive_path(session, principal, p, request)
     return Response(status_code=204)
 
 
@@ -316,7 +316,7 @@ async def allocation_progress(
     allocation_id: uuid.UUID, request: Request, session: PrincipalDbSession, principal: CurrentPrincipal
 ) -> dict[str, Any]:
     a = await svc.managed_allocation(request, session, principal, allocation_id)
-    return await svc.allocation_progress(session, a)
+    return await svc.allocation_progress(session, a, show_email=svc.shows_learner_email(principal))
 
 
 @staff.delete("/path-allocations/{allocation_id}", status_code=204)
@@ -368,7 +368,7 @@ async def patch_article(
     session: PrincipalDbSession,
     principal: CurrentPrincipal,
 ) -> dict[str, Any]:
-    a = await svc.managed_article(request, session, principal, article_id)
+    a = await svc.managed_article(request, session, principal, article_id, change=True)
     await svc.update_article(session, principal, a, body.model_dump())
     return svc.article_out(a, body=True)
 
@@ -377,7 +377,7 @@ async def patch_article(
 async def delete_article(
     article_id: uuid.UUID, request: Request, session: PrincipalDbSession, principal: CurrentPrincipal
 ) -> Response:
-    a = await svc.managed_article(request, session, principal, article_id)
+    a = await svc.managed_article(request, session, principal, article_id, change=True)
     await svc.delete_article(session, principal, a)
     return Response(status_code=204)
 
@@ -390,7 +390,7 @@ async def publish_article(
     session: PrincipalDbSession,
     principal: CurrentPrincipal,
 ) -> dict[str, Any]:
-    a = await svc.managed_article(request, session, principal, article_id)
+    a = await svc.managed_article(request, session, principal, article_id, change=True)
     await svc.publish_article(request, session, principal, a, body.model_dump())
     return svc.article_out(a, body=True)
 
@@ -399,7 +399,7 @@ async def publish_article(
 async def unpublish_article(
     article_id: uuid.UUID, request: Request, session: PrincipalDbSession, principal: CurrentPrincipal
 ) -> dict[str, Any]:
-    a = await svc.managed_article(request, session, principal, article_id)
+    a = await svc.managed_article(request, session, principal, article_id, change=True)
     await svc.unpublish_article(session, principal, a)
     return svc.article_out(a, body=True)
 

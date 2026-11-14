@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Badge, Button, Card, Dialog, EmptyState, FormField, Select, Table, type BadgeTone } from "@/components/ui";
+import { StatusBadge, Button, Card, Dialog, Table } from "@/components/ui";
 import type { Page } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { useApi, seg } from "@/features/trainer/shared/use-api";
@@ -17,12 +17,12 @@ import {
   type AssetStatus,
 } from "../lib/media";
 import type { CourseDetail, CourseSummary, Lesson, LessonAssetOut } from "../lib/types";
+import { courseStatus } from "./Courses";
 
-const ASSET_TONE: Record<string, BadgeTone> = { ready: "success", failed: "danger", uploading: "info", processing: "info" };
 const ASSET_LABEL: Record<string, string> = { ready: "Ready", failed: "Failed", uploading: "Waiting for upload", processing: "Processing" };
 
 export function AssetStatusBadge({ status }: { status: string }) {
-  return <Badge tone={ASSET_TONE[status] ?? "neutral"}>{ASSET_LABEL[status] ?? status}</Badge>;
+  return <StatusBadge status={status} label={ASSET_LABEL[status] ?? status} />;
 }
 
 type Phase = "idle" | "requesting" | "uploading" | "processing" | "done";
@@ -176,9 +176,26 @@ export function LessonMediaPanel({ lesson, editable, onChanged }: { lesson: Less
   );
 }
 
+const LESSON_TYPE_LABEL: Record<string, string> = {
+  video: "Video",
+  article: "Article",
+  pdf: "PDF",
+  practice_set: "Practice set",
+  quiz: "Quiz",
+  coding: "Coding",
+  assignment: "Assignment",
+  live_link: "Live session",
+};
+
+export function lessonTypeLabel(t: string): string {
+  return LESSON_TYPE_LABEL[t] ?? t.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+}
+
 /**
- * CMS-012 media screen (audit INV-03 / ADM-50): pick a course, see every lesson's media and its
- * processing status, and upload or attach media to lessons of the editable draft.
+ * CMS-012 media screen (audit INV-03 / ADM-50): a list of courses first (no dead-end picker),
+ * then every lesson's media and its processing status for the opened course, with upload/attach
+ * on lessons of the editable draft. The course list api has no media counts, so the list shows
+ * each course's status and whether it has an editable draft.
  */
 export function MediaLibrary() {
   const courses = useApi<Page<CourseSummary>>("studio/courses", { limit: 100 });
@@ -187,75 +204,96 @@ export function MediaLibrary() {
   const [open, setOpen] = useState<Lesson | null>(null);
 
   const list = courses.data?.data ?? [];
+  if (!courseId) {
+    return (
+      <Boundary state={courses}>
+        {() => (
+          <Table
+            caption="Courses"
+            columns={[
+              { key: "t", header: "Course", cell: (c: CourseSummary) => <span className="font-medium text-fg">{c.title}</span> },
+              { key: "s", header: "Status", cell: (c) => <StatusBadge status={courseStatus(c)} /> },
+              {
+                key: "d",
+                header: "Media editable",
+                priority: "secondary",
+                cell: (c) => (c.draft?.status === "draft" ? "Yes (draft)" : "View only"),
+              },
+              {
+                key: "x",
+                header: <span className="sr-only">Actions</span>,
+                align: "right",
+                cell: (c) => (
+                  <Button size="sm" variant="secondary" onClick={() => setCourseId(c.id)} aria-label={`Open media for ${c.title}`}>
+                    Open media
+                  </Button>
+                ),
+              },
+            ]}
+            rows={list}
+            rowKey={(c) => c.id}
+            empty={{ title: "No courses yet", description: "Create a course first, then add video lessons to upload media." }}
+          />
+        )}
+      </Boundary>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      <Boundary state={courses}>
-        {() =>
-          list.length === 0 ? (
-            <EmptyState title="No courses yet" description="Create a course first, then add video lessons to upload media." />
-          ) : (
-            <div className="w-full max-w-md">
-              <FormField label="Course">
-                {(p) => (
-                  <Select {...p} value={courseId} placeholder="Choose a course" onChange={(e) => setCourseId(e.target.value)} options={list.map((c) => ({ value: c.id, label: c.title }))} />
-                )}
-              </FormField>
-            </div>
-          )
-        }
-      </Boundary>
-      {courseId ? (
-        <Boundary state={course}>
-          {(c) => {
-            const version = c.draft ?? c.published;
-            const editable = c.draft?.status === "draft";
-            const lessons = (version?.modules ?? []).flatMap((m) => m.lessons.map((l) => ({ ...l, module: m.title })));
-            return (
-              <Card title={version?.title ?? c.title}>
-                {!editable ? <p className="mb-3 text-sm text-fg-muted">This course has no editable draft. Open it in the course builder and save the draft to change media.</p> : null}
-                <Table
-                  caption="Lessons and media"
-                  columns={[
-                    { key: "m", header: "Module", cell: (l: Lesson & { module: string }) => l.module },
-                    { key: "t", header: "Lesson", cell: (l) => l.title },
-                    { key: "k", header: "Type", cell: (l) => l.lesson_type },
-                    {
-                      key: "a",
-                      header: "Media",
-                      cell: (l) =>
-                        (l.assets ?? []).length ? (
-                          <span className="flex flex-wrap gap-1">
-                            {(l.assets ?? []).map((a) => (
-                              <AssetStatusBadge key={a.id} status={a.status} />
-                            ))}
-                          </span>
-                        ) : (
-                          "—"
-                        ),
-                    },
-                    {
-                      key: "x",
-                      header: <span className="sr-only">Actions</span>,
-                      align: "right",
-                      cell: (l) => (
-                        <Button size="sm" variant="secondary" onClick={() => setOpen(l)}>
-                          {editable ? "Manage media" : "View media"}
-                        </Button>
+      <Button variant="ghost" size="sm" onClick={() => setCourseId("")}>
+        <span aria-hidden="true">←</span> All courses
+      </Button>
+      <Boundary state={course}>
+        {(c) => {
+          const version = c.draft ?? c.published;
+          const editable = c.draft?.status === "draft";
+          const lessons = (version?.modules ?? []).flatMap((m) => m.lessons.map((l) => ({ ...l, module: m.title })));
+          return (
+            <Card title={version?.title ?? c.title}>
+              {!editable ? <p className="mb-3 text-sm text-fg-muted">This course has no editable draft. Open it in the course builder and save the draft to change media.</p> : null}
+              <Table
+                caption="Lessons and media"
+                columns={[
+                  { key: "m", header: "Module", priority: "secondary", cell: (l: Lesson & { module: string }) => l.module },
+                  { key: "t", header: "Lesson", cell: (l) => l.title },
+                  { key: "k", header: "Type", cell: (l) => lessonTypeLabel(l.lesson_type) },
+                  {
+                    key: "a",
+                    header: "Media",
+                    cell: (l) =>
+                      (l.assets ?? []).length ? (
+                        <span className="flex flex-wrap gap-1">
+                          {(l.assets ?? []).map((a) => (
+                            <AssetStatusBadge key={a.id} status={a.status} />
+                          ))}
+                        </span>
+                      ) : (
+                        "—"
                       ),
-                    },
-                  ]}
-                  rows={lessons}
-                  rowKey={(l) => l.id}
-                  empty={{ title: "No lessons yet" }}
-                />
-                <Dialog open={open !== null} onClose={() => setOpen(null)} title={open ? `Media · ${open.title}` : "Media"}>
-                  {open ? <LessonMediaPanel lesson={open} editable={editable} onChanged={() => void course.reload()} /> : null}
-                </Dialog>
-              </Card>
-            );
-          }}
-        </Boundary>
-      ) : null}
+                  },
+                  {
+                    key: "x",
+                    header: <span className="sr-only">Actions</span>,
+                    align: "right",
+                    cell: (l) => (
+                      <Button size="sm" variant="secondary" onClick={() => setOpen(l)}>
+                        {editable ? "Manage media" : "View media"}
+                      </Button>
+                    ),
+                  },
+                ]}
+                rows={lessons}
+                rowKey={(l) => l.id}
+                empty={{ title: "No lessons yet", description: "Add lessons in the course builder, then come back to upload media." }}
+              />
+              <Dialog open={open !== null} onClose={() => setOpen(null)} title={open ? `Media · ${open.title}` : "Media"}>
+                {open ? <LessonMediaPanel lesson={open} editable={editable} onChanged={() => void course.reload()} /> : null}
+              </Dialog>
+            </Card>
+          );
+        }}
+      </Boundary>
     </div>
   );
 }

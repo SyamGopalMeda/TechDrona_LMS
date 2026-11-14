@@ -19,19 +19,22 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import Depends, Query, Request
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 from app.core import auth as core_auth
 from app.core.auth import ScopeRef, require_active_principal
-from app.core.db import PrincipalDbSession, system_context
+from app.core.db import PrincipalDbSession
 from app.core.errors import ProblemError
 from app.core.pagination import DEFAULT_LIMIT, MAX_LIMIT, decode_cursor, page_meta
 from app.core.principal import Principal
 from app.core.routing import authenticated_router
+from app.modules.placement.rls import bind_principal
 
 PERM = "mentor.notes.read"
 
-mentor = authenticated_router(prefix="/mentor", tags=["placement-mentor"], route_tag="default")
+mentor = authenticated_router(
+    prefix="/mentor", tags=["placement-mentor"], route_tag="default", dependencies=[Depends(bind_principal)]
+)
 
 
 async def _may(request: Request, principal: Principal, scope: ScopeRef) -> bool:
@@ -40,29 +43,33 @@ async def _may(request: Request, principal: Principal, scope: ScopeRef) -> bool:
 
 async def _assigned_batches(request: Request, session: Any, principal: Principal) -> dict[uuid.UUID, str]:
     """batch_id -> batch name for every batch whose students the caller may see."""
-    from app.modules.orgs.models import Batch
+    from app.modules.orgs import public as orgs_public
+    from app.modules.placement.rls import system_scope
 
     batch_ids = {g.scope_id for g in principal.grants if g.scope_type == "batch" and g.scope_id}
     org_ids = {g.scope_id for g in principal.grants if g.scope_type == "organization" and g.scope_id}
     if not batch_ids and not org_ids:
         return {}
-    conds = []
-    if batch_ids:
-        conds.append(Batch.id.in_(batch_ids))
-    if org_ids:
-        conds.append(Batch.organization_id.in_(org_ids))
-    from sqlalchemy import or_
-
-    async with system_context(session, "placement.mentor_scope"):
-        rows = (
-            await session.execute(
-                select(Batch.id, Batch.name).where(or_(*conds), Batch.status == "active").order_by(Batch.id)
+    # id in batches OR organization in orgs, active, ordered by id (orgs public API, system scope)
+    async with system_scope(session, "placement.mentor_scope"):
+        found = (
+            {b.id: b for b in await orgs_public.list_batches(session, status="active", ids=batch_ids)}
+            if batch_ids
+            else {}
+        )
+        if org_ids:
+            found.update(
+                {
+                    b.id: b
+                    for b in await orgs_public.list_batches(
+                        session, status="active", organization_ids=org_ids
+                    )
+                }
             )
-        ).all()
     out: dict[uuid.UUID, str] = {}
-    for bid, name in rows:
-        if await _may(request, principal, ScopeRef("batch", bid)):
-            out[bid] = name
+    for b in sorted(found.values(), key=lambda b: str(b.id)):
+        if await _may(request, principal, ScopeRef("batch", b.id)):
+            out[b.id] = b.name
     return out
 
 
@@ -81,18 +88,43 @@ async def _students(
 ) -> dict[uuid.UUID, dict[str, Any]]:
     if not batches:
         return {}
-    sql = (
-        "SELECT bm.user_id, coalesce(up.display_name, up.full_name), bm.batch_id FROM batch_members bm "
-        "JOIN users u ON u.id = bm.user_id LEFT JOIN user_profiles up ON up.user_id = bm.user_id "
-        "WHERE bm.batch_id = ANY(:b) AND bm.member_role = 'student' AND bm.status = 'active' "
-        "AND u.deleted_at IS NULL"
-    )
-    params: dict[str, Any] = {"b": list(batches)}
+    from app.modules.placement.rls import system_scope
+
+    async with system_scope(session, "placement.mentor_students"):
+        rows = await _students_rows_public(session, list(batches), user_id)
+    return _students_out(rows, batches)
+
+
+async def _students_rows_public(
+    session: Any, batch_ids: list[uuid.UUID], user_id: uuid.UUID | None
+) -> list[tuple[uuid.UUID, str | None, uuid.UUID]]:
+    from app.modules.identity import public as identity_public
+    from app.modules.orgs import public as orgs_public
+
+    # bm.status = 'active' (removed_at is not part of the original filter)
+    members = [
+        m
+        for m in await orgs_public.batch_members(
+            session, batch_ids=batch_ids, member_role="student", active_only=False
+        )
+        if m.status == "active"
+    ]
     if user_id is not None:
-        sql += " AND bm.user_id = :u"
-        params["u"] = user_id
-    async with system_context(session, "placement.mentor_students"):
-        rows = (await session.execute(text(sql + " ORDER BY bm.user_id, bm.batch_id"), params)).all()
+        members = [m for m in members if m.user_id == user_id]
+    uids = {m.user_id for m in members}
+    users = await identity_public.get_users(session, uids)
+    profiles = await identity_public.get_profiles(session, uids)
+    out = []
+    for m in members:
+        u = users.get(m.user_id)
+        if u is None or u.deleted_at is not None:
+            continue
+        pr = profiles.get(m.user_id)
+        out.append((m.user_id, (pr.display_name or pr.full_name) if pr else None, m.batch_id))
+    return sorted(out, key=lambda r: (str(r[0]), str(r[2])))
+
+
+def _students_out(rows: list[Any], batches: dict[uuid.UUID, str]) -> dict[uuid.UUID, dict[str, Any]]:
     out: dict[uuid.UUID, dict[str, Any]] = {}
     for uid, name, bid in rows:
         s = out.setdefault(
@@ -191,18 +223,25 @@ async def mentor_student_detail(
     if found is None:
         raise ProblemError("not_found")
     from app.modules.analytics.mastery import get_topic_mastery
+    from app.modules.placement.bank import _fs as bank_fs
     from app.modules.placement.models import Topic
     from app.modules.placement.practice import practised_company_readiness
+    from app.modules.placement.rls import system_scope
 
-    async with system_context(session, "placement.mentor_readiness"):
+    async with system_scope(session, "placement.mentor_readiness"):
         readiness = await practised_company_readiness(session, user_id)
         views = await get_topic_mastery(session, user_id)
-        names = {
-            t.id: t.name
-            for t in (
-                await session.execute(select(Topic).where(Topic.id.in_([v.topic_id for v in views])))
-            ).scalars()
-        }
+        if bank_fs():
+            from app.modules.placement.public import topic_names
+
+            names = await topic_names(session, [v.topic_id for v in views])
+        else:
+            names = {
+                t.id: t.name
+                for t in (
+                    await session.execute(select(Topic).where(Topic.id.in_([v.topic_id for v in views])))
+                ).scalars()
+            }
     topics = [
         {
             "topic_id": str(v.topic_id),

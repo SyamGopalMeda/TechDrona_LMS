@@ -3,16 +3,21 @@
 import { useState } from "react";
 import { Button, FormField, Input, PageHeader, Select } from "@/components/ui";
 import { SECURITY_REASON_CODES } from "@/features/admin/components/console-ui";
+import { shortRef } from "@/features/admin/lib/console";
 import { TimelineTab } from "./EvidenceTabs";
 
-/** SEC-007 user security timeline (H12). Needs a reason code and a case ref or ticket id. */
+/** One user's security timeline. Needs a reason code and a case ref or ticket id (audited). */
 export function UserTimelinePage({ userId }: { userId: string }) {
   const [reason, setReason] = useState("case_review");
   const [caseRef, setCaseRef] = useState("");
   const [ctx, setCtx] = useState<{ reasonCode: string; caseRef: string } | null>(null);
   return (
     <div>
-      <PageHeader eyebrow="SEC-007 · H12" title="User security timeline" description={`User ${userId}`} />
+      <PageHeader
+        breadcrumbs={[{ label: "Security", href: "/security" }, { label: "Cases", href: "/security/cases" }, { label: `User ${shortRef(userId)}` }]}
+        title={`Security timeline · User ${shortRef(userId)}`}
+        description="Sign-ins, sessions, devices, risk signals and case events for this account."
+      />
       {ctx ? (
         <TimelineTab userId={userId} ctx={ctx} />
       ) : (

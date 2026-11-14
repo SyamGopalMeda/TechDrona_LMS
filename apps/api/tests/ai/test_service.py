@@ -120,6 +120,7 @@ async def test_generate_validation(db, fake_ai, learner) -> None:
     assert e.value.code == "validation_failed"
 
 
+@pytest.mark.usefixtures("ai_backend")
 async def test_platform_disable_ai_and_app(db, fake_ai, learner) -> None:
     await disable_app(db, "ai_generation")
     assert await ai.ai_enabled(db) is True

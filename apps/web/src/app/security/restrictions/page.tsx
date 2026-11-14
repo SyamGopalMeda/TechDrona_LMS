@@ -3,7 +3,7 @@ import { Restrictions } from "@/features/security-admin/components/Restrictions"
 
 export const metadata: Metadata = { title: "Restrictions" };
 
-/** SEC-005 (H5) */
+/** Restrictions and bulk lifts. */
 export default function Page() {
   return <Restrictions />;
 }

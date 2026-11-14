@@ -21,12 +21,12 @@ import uuid
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ProblemError
 from app.core.outbox import OutboxMessage
 from app.core.principal import Principal
+from app.modules.assessments import datastore as adb
 from app.modules.assessments.models import AttemptResult, Test, TestAttempt
 from app.modules.placement import bank, grading
 
@@ -70,9 +70,9 @@ async def check_pinned_submission(
     """Autosave guard: a pinned submission must belong to this attempt and problem."""
     if not response or not response.get("submission_id"):
         return
-    from app.modules.coding.models import CodeSubmission
+    from app.modules.coding import public as coding_public
 
-    sub = await session.get(CodeSubmission, uuid.UUID(response["submission_id"]))
+    sub = await coding_public.get_submission(session, uuid.UUID(response["submission_id"]))
     if (
         sub is None
         or sub.attempt_id != attempt.id
@@ -98,22 +98,18 @@ async def _scored_submission(
     response: dict[str, Any] | None,
 ) -> Any:
     """The submission that counts for ``problem_id``: the pinned one, else the newest judged."""
-    from app.modules.coding.models import CodeSubmission
+    from app.modules.coding import public as coding_public
 
-    q = select(CodeSubmission).where(
-        CodeSubmission.attempt_id == attempt.id,
-        CodeSubmission.user_id == attempt.user_id,
-        CodeSubmission.coding_problem_id == problem_id,
-        CodeSubmission.mode == "submit",
+    subs = await coding_public.attempt_submissions(
+        session, attempt_id=attempt.id, user_id=attempt.user_id, problem_id=problem_id, mode="submit"
     )
-    pinned = response.get("submission_id") if response else None
-    if pinned:
-        q = q.where(CodeSubmission.id == uuid.UUID(str(pinned)))
-    else:
-        q = q.where(CodeSubmission.status == "completed").order_by(
-            CodeSubmission.completed_at.desc(), CodeSubmission.id.desc()
-        )
-    return (await session.execute(q.limit(1))).scalar_one_or_none()
+    pin = response.get("submission_id") if response else None
+    if pin:
+        return next((x for x in subs if str(x.id) == str(pin)), None)
+    done = [x for x in subs if x.status == "completed"]
+    # ORDER BY completed_at DESC, id DESC (completed rows always carry completed_at)
+    done.sort(key=lambda x: (x.completed_at is not None, x.completed_at, x.id), reverse=True)
+    return done[0] if done else None
 
 
 async def coding_outcome(
@@ -148,7 +144,7 @@ async def coding_review(
     (``coding.service.submission_view``)."""
     if problem_id is None:
         return None
-    from app.modules.coding.service import submission_view
+    from app.modules.coding.public import submission_view
 
     sub = await _scored_submission(session, attempt, problem_id, response)
     if sub is None:
@@ -161,9 +157,27 @@ async def coding_review(
 
 
 async def on_submission_judged(session: AsyncSession, msg: OutboxMessage) -> None:
-    """Outbox handler: a late verdict for an already-scored attempt re-scores it."""
+    """Outbox handler: a late verdict for an already-scored attempt re-scores it.
+
+    On the Firestore store the relay passes ``None`` (no Postgres) or a session the engine cannot
+    use: the handler then runs in its own engine transaction (``store_session``, system scope),
+    committed when it returns -- the Postgres relay's per-event transaction equivalent."""
+    from app.modules.placement.rls import memory_gucs
+
+    if adb.on_firestore() and memory_gucs(session) is None:
+        from app.core.db import system_context
+        from app.core.firestore.sqlstore import store_session
+
+        async with store_session() as fs_session:
+            await system_context(fs_session, "assessments.submission_judged")
+            await _on_submission_judged(fs_session, msg)
+        return
+    await _on_submission_judged(session, msg)
+
+
+async def _on_submission_judged(session: AsyncSession, msg: OutboxMessage) -> None:
     from app.modules.assessments.attempts import score_attempt
-    from app.modules.coding.models import CodeSubmission
+    from app.modules.coding import public as coding_public
 
     if msg.payload.get("mode") != "submit":
         return
@@ -171,18 +185,18 @@ async def on_submission_judged(session: AsyncSession, msg: OutboxMessage) -> Non
         sub_id = uuid.UUID(str(msg.payload.get("submission_id")))
     except ValueError:
         return
-    sub = await session.get(CodeSubmission, sub_id)
+    sub = await coding_public.get_submission(session, sub_id)
     if sub is None or sub.attempt_id is None:
         return
-    attempt = await session.get(TestAttempt, sub.attempt_id, with_for_update=True)
+    attempt = await adb.get(session, TestAttempt, sub.attempt_id, with_for_update=True)
     if attempt is None or attempt.status not in ("graded", "awaiting_manual"):
         return  # still in progress: the final scoring will see the verdict
-    existing = await session.get(AttemptResult, attempt.id)
+    existing = await adb.get(session, AttemptResult, attempt.id)
     if existing is None or existing.graded_at is None:
         return
     if sub.completed_at is not None and sub.completed_at <= existing.graded_at:
         return  # already reflected
-    test = await session.get(Test, attempt.test_id)
+    test = await adb.get(session, Test, attempt.test_id)
     if test is None:  # pragma: no cover - FK
         return
     await score_attempt(session, attempt, test, scoring_version=existing.scoring_version + 1)

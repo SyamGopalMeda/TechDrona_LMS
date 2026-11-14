@@ -17,9 +17,21 @@ from app.core.time import utcnow
 async def sweep_pending_question_media(session: AsyncSession, *, limit: int = 200) -> int:
     """Resolve pending question images (oldest first). Caller supplies a system context.
     Returns the number of rows that changed."""
+    from app.core.firestore.backend import uses_firestore
     from app.modules.placement.models import QuestionMedia
     from app.modules.placement.qbank_router import refresh_scan
 
+    if uses_firestore("placement"):
+        from app.modules.placement.repo_firestore import system_repo
+
+        r = system_repo()
+        changed = 0
+        for fm in await r.pending_media(limit):
+            if await refresh_scan(fm):
+                fm.updated_at = utcnow()
+                await r.save_media(fm)
+                changed += 1
+        return changed
     rows = list(
         (
             await session.execute(
@@ -41,6 +53,10 @@ async def sweep_pending_question_media(session: AsyncSession, *, limit: int = 20
 
 
 async def media_scan_sweep() -> int:
+    from app.core.firestore.backend import uses_firestore
+
+    if uses_firestore("placement"):
+        return await sweep_pending_question_media(None)  # type: ignore[arg-type]
     async with get_sessionmaker()() as session, session.begin():
         await system_context(session, "placement.media_scan_sweep")
         return await sweep_pending_question_media(session)

@@ -33,6 +33,7 @@ from app.core.db import system_context
 from app.core.ids import uuid7
 from app.core.outbox import emit_event
 from app.core.time import utcnow
+from app.modules.commerce import datastore as ds
 from app.modules.commerce import policy
 from app.modules.commerce import service as svc
 from app.modules.commerce.gateway import GatewayUnavailable, PaymentGateway
@@ -114,7 +115,8 @@ async def ingest(
     elif s.RAZORPAY_ACCOUNT_ID and payload.get("account_id") not in (None, s.RAZORPAY_ACCOUNT_ID):
         status, last_error = "ignored", "account_mismatch"
     row_id = (
-        await session.execute(
+        await ds.execute(
+            session,
             pg_insert(PaymentWebhookEvent)
             .values(
                 id=uuid7(),
@@ -132,7 +134,7 @@ async def ingest(
                 refetch_status="not_required" if status == "ignored" else None,
             )
             .on_conflict_do_nothing(index_elements=["gateway", "event_id"])
-            .returning(PaymentWebhookEvent.id)
+            .returning(PaymentWebhookEvent.id),
         )
     ).scalar_one_or_none()
     if row_id is None:
@@ -146,31 +148,31 @@ async def process_event(session: AsyncSession, gw: PaymentGateway, row_id: uuid.
     """Worker step. Returns the resulting event status."""
     await system_context(session, "commerce.webhook")
     row = (
-        await session.execute(
-            select(PaymentWebhookEvent).where(PaymentWebhookEvent.id == row_id).with_for_update()
+        await ds.execute(
+            session, select(PaymentWebhookEvent).where(PaymentWebhookEvent.id == row_id).with_for_update()
         )
     ).scalar_one_or_none()
     if row is None or row.status in ("processed", "ignored"):
         return row.status if row else "missing"
     row.status = "processing"
     row.attempts += 1
-    await session.flush()
+    await ds.flush(session)
     actor = ent.Actor.gateway()
     p = row.payload
     et = row.event_type
-    nested = await session.begin_nested()
+    nested = await ds.begin_nested(session)
     try:
         await _apply(session, gw, row, et, p, actor)
     except GatewayUnavailable as e:
         await nested.rollback()
-        await session.refresh(row)
+        await ds.refresh(session, row)
         row.refetch_status = "failed"
         await _retry_later(session, row, f"refetch_failed: {e}")
         log.warning("webhook_refetch_failed", event_type=et, attempts=row.attempts)
         return row.status
     except Exception as e:
         await nested.rollback()
-        await session.refresh(row)
+        await ds.refresh(session, row)
         await _retry_later(session, row, f"{type(e).__name__}: {e}")
         log.exception("webhook_processing_error", event_type=et)
         return row.status
@@ -179,7 +181,7 @@ async def process_event(session: AsyncSession, gw: PaymentGateway, row_id: uuid.
     row.status = "processed"
     row.processed_at = utcnow()
     row.next_attempt_at = None
-    await session.flush()
+    await ds.flush(session)
     return row.status
 
 
@@ -197,7 +199,7 @@ async def _retry_later(session: AsyncSession, row: PaymentWebhookEvent, error: s
     if now - row.received_at >= policy.WEBHOOK_RETRY_HORIZON:
         row.status = "failed"
         row.next_attempt_at = None
-        await session.flush()
+        await ds.flush(session)
         log.error("webhook_failed_permanently", event_type=row.event_type, attempts=row.attempts)
         await emit_event(
             session,
@@ -215,7 +217,7 @@ async def _retry_later(session: AsyncSession, row: PaymentWebhookEvent, error: s
         return
     row.status = "received"
     row.next_attempt_at = now + backoff(row.attempts)
-    await session.flush()
+    await ds.flush(session)
 
 
 async def _apply(
@@ -257,10 +259,11 @@ async def _apply(
         gs = await gw.fetch_subscription(sid)
         row.refetched_at, row.refetch_status = now, "ok"
         sub = (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(Subscription)
                 .where(Subscription.gateway == gw.name, Subscription.gateway_subscription_id == sid)
-                .with_for_update()
+                .with_for_update(),
             )
         ).scalar_one_or_none()
         if sub is None:
@@ -295,7 +298,8 @@ async def process_pending_events(
     now = now or utcnow()
     ids = (
         (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(PaymentWebhookEvent.id)
                 .where(
                     PaymentWebhookEvent.gateway == gw.name,
@@ -306,7 +310,7 @@ async def process_pending_events(
                     ),
                 )
                 .order_by(PaymentWebhookEvent.received_at)
-                .limit(limit)
+                .limit(limit),
             )
         )
         .scalars()

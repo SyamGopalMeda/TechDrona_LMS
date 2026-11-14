@@ -69,10 +69,14 @@ def reencrypt_value(
 
 async def reencrypt_all(session: AsyncSession, *, apply: bool) -> tuple[int, int]:
     """Returns ``(rows_needing_change, failures)``; caller owns the transaction."""
+    from app.core.firestore.backend import uses_firestore
+
+    legacy_key = load_env_mapping().get("TD_LOCAL_ENVELOPE_KEY")
+    if uses_firestore("identity"):
+        return await _reencrypt_firestore(legacy_key, apply=apply)
     from app.core.db import system_context
 
     await system_context(session, "reencrypt_totp")
-    legacy_key = load_env_mapping().get("TD_LOCAL_ENVELOPE_KEY")
     rows = (
         await session.execute(select(MfaFactor).where(MfaFactor.totp_secret_encrypted.is_not(None)))
     ).scalars()
@@ -93,14 +97,42 @@ async def reencrypt_all(session: AsyncSession, *, apply: bool) -> tuple[int, int
     return changed, failed
 
 
+async def _reencrypt_firestore(legacy_key: str | None, *, apply: bool) -> tuple[int, int]:
+    """``TD_STORE_IDENTITY=firestore``: same pass over ``mfa_factors`` (named job)."""
+    from app.modules.identity.repo_firestore import system_repo
+    from app.modules.identity.store_specs import MFA
+
+    repo = system_repo("identity.reencrypt_totp")
+    changed = failed = 0
+    for f in await repo._objs(MfaFactor, MFA):
+        if f.totp_secret_encrypted is None:
+            continue
+        try:
+            new = reencrypt_value(f.totp_secret_encrypted, f.totp_wrapped_key, legacy_key)
+        except CryptoError:
+            failed += 1
+            continue
+        if new is None:
+            continue
+        changed += 1
+        if apply:
+            f.totp_secret_encrypted = new
+            f.totp_wrapped_key = None
+            await repo.save_factor(f)
+    return changed, failed
+
+
 def main(argv: list[str] | None = None) -> int:  # pragma: no cover - CLI
     p = argparse.ArgumentParser(description="Re-encrypt TOTP secrets under the active k_totp version")
     p.add_argument("--apply", action="store_true")
     args = p.parse_args(argv)
 
     async def _run() -> tuple[int, int]:
-        from app.core.db import dispose_engine, get_sessionmaker
+        from app.core.db import NO_POSTGRES, dispose_engine, get_sessionmaker
+        from app.core.firestore.backend import uses_firestore
 
+        if uses_firestore("identity"):
+            return await reencrypt_all(NO_POSTGRES, apply=args.apply)
         try:
             async with get_sessionmaker()() as s, s.begin():
                 return await reencrypt_all(s, apply=args.apply)

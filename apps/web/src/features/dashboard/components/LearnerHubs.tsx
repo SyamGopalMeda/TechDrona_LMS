@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { Badge, Card, EmptyState, ErrorState, Skeleton, type BadgeTone } from "@/components/ui";
+import type { ReactNode } from "react";
+import { Card, EmptyState, ErrorState, LinkButton, LoadingBlock, StatusBadge, type EmptyStateIcon } from "@/components/ui";
 import { formatDateTime } from "@/features/auth/lib/format";
 import { useResource } from "@/features/account/lib/use-resource";
 import type { MyTestsResponse, TestListItem } from "@/features/assessment/lib/types";
@@ -17,31 +18,13 @@ import type { RecommendationsResponse, SubjectsResponse, TaxonomyNode } from "@/
  */
 
 const enc = encodeURIComponent;
-const linkBtn =
-  "inline-flex min-h-touch items-center justify-center rounded-md px-3 text-sm font-medium focus-visible:shadow-focus focus-visible:outline-none";
-const primaryLink = `${linkBtn} bg-brand text-brand-on hover:bg-brand-hover`;
-const secondaryLink = `${linkBtn} border border-line-control bg-surface text-fg hover:bg-surface-hover`;
-
-const STATUS: Record<string, { label: string; tone: BadgeTone }> = {
-  available: { label: "Available", tone: "success" },
-  scheduled: { label: "Scheduled", tone: "info" },
-  in_progress: { label: "In progress", tone: "warning" },
-  completed: { label: "Completed", tone: "neutral" },
-  closed: { label: "Closed", tone: "neutral" },
-};
+const cardLink = "inline-flex min-h-6 items-center text-sm font-semibold text-fg-link hover:text-fg-link-hover";
 
 function Loading({ label }: { label: string }) {
-  return (
-    <div aria-busy="true" className="space-y-2">
-      <span className="sr-only">{label}</span>
-      <Skeleton className="h-12 w-full" />
-      <Skeleton className="h-12 w-full" />
-    </div>
-  );
+  return <LoadingBlock label={label} rows={2} size="row" />;
 }
 
 function TestRow({ t }: { t: TestListItem }) {
-  const st = STATUS[t.status] ?? { label: t.status, tone: "neutral" as BadgeTone };
   const when = t.status === "scheduled" ? (t.available_from ? `opens ${formatDateTime(t.available_from)}` : "") : t.available_until ? `closes ${formatDateTime(t.available_until)}` : "";
   return (
     <li className="flex flex-col gap-1 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
@@ -49,7 +32,7 @@ function TestRow({ t }: { t: TestListItem }) {
         <Link href={`/app/tests/${enc(t.test_id)}`} className="font-medium text-fg-link hover:text-fg-link-hover">
           {t.title}
         </Link>{" "}
-        <Badge tone={st.tone}>{st.label}</Badge>
+        <StatusBadge status={t.status} />
       </span>
       <span className="shrink-0 text-fg-muted">
         {Math.round(t.duration_seconds / 60)} min{when ? ` · ${when}` : ""}
@@ -69,19 +52,19 @@ export function TestsCard({
   title: string;
   kinds?: string[];
   statuses?: string[];
-  empty: { title: string; description?: string };
+  empty: { title: string; description?: string; icon?: EmptyStateIcon; action?: ReactNode };
   limit?: number;
 }) {
   const tests = useResource<MyTestsResponse>("me/tests");
   const items = (tests.data?.items ?? []).filter((t) => (!kinds || kinds.includes(t.test_kind)) && (!statuses || statuses.includes(t.status))).slice(0, limit ?? 50);
   return (
-    <Card title={title} actions={<Link href="/app/tests" className="text-sm font-medium text-fg-link">All tests</Link>}>
+    <Card title={title} actions={<Link href="/app/tests" className={cardLink}>All tests</Link>}>
       {tests.error ? (
         <ErrorState error={tests.error} onRetry={tests.reload} />
       ) : tests.loading && !tests.data ? (
         <Loading label="Loading tests…" />
       ) : items.length === 0 ? (
-        <EmptyState title={empty.title} description={empty.description} />
+        <EmptyState variant="inline" icon={empty.icon ?? "calendar"} title={empty.title} description={empty.description} action={empty.action} />
       ) : (
         <ul className="divide-y divide-line" aria-label={title}>
           {items.map((t) => (
@@ -114,7 +97,7 @@ function SubjectsCard({ title, description }: { title: string; description: stri
       ) : subjects.loading && !subjects.data ? (
         <Loading label="Loading subjects…" />
       ) : items.length === 0 ? (
-        <EmptyState title="No practice subjects published yet" />
+        <EmptyState variant="inline" icon="book" title="No practice subjects published yet" description="Subjects appear here as soon as our trainers publish them." />
       ) : (
         <ul className="grid gap-2 sm:grid-cols-2" aria-label="Subjects">
           {items.map((s) => (
@@ -131,31 +114,59 @@ function SubjectsCard({ title, description }: { title: string; description: stri
   );
 }
 
+/**
+ * Step 1 of Get started. Links straight to an open diagnostic test when ASM-01 lists one; when
+ * none is published it offers a mock test (or practice) instead of a page that says "none".
+ */
+function DiagnosticStep() {
+  const tests = useResource<MyTestsResponse>("me/tests");
+  const items = tests.data?.items ?? [];
+  const isOpen = (t: TestListItem) => t.status === "available" || t.status === "in_progress";
+  const diag = items.find((t) => t.test_kind === "diagnostic" && isOpen(t));
+  const anyOpen = items.some(isOpen);
+  return (
+    <Card title="1. Check where you stand">
+      {tests.loading && !tests.data ? (
+        <Loading label="Checking for a diagnostic test…" />
+      ) : diag ? (
+        <>
+          <p className="text-sm text-fg-secondary">A short diagnostic test shows your strong and weak topics so practice can focus on what matters.</p>
+          <div className="mt-3">
+            <LinkButton href={`/app/tests/${enc(diag.test_id)}`}>Take the free diagnostic</LinkButton>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-fg-secondary">
+            {anyOpen
+              ? "The diagnostic test isn't open yet. A mock test shows your strong and weak topics in the same way."
+              : "The diagnostic test isn't open yet. Practise a subject to see your mastery by topic; the diagnostic will be listed here when it opens."}
+          </p>
+          <div className="mt-3">{anyOpen ? <LinkButton href="/app/tests">Take a mock test</LinkButton> : <LinkButton href="/app/practice">Start practising</LinkButton>}</div>
+        </>
+      )}
+    </Card>
+  );
+}
+
 /** STU-002 Get started. */
 export function GetStarted() {
   return (
     <div className="space-y-6">
-      <Card title="1. Check where you stand">
-        <p className="text-sm text-fg-secondary">A short diagnostic test shows your strong and weak topics so practice can focus on what matters.</p>
-        <div className="mt-3">
-          <Link href="/app/diagnostic" className={primaryLink}>
-            Take the free diagnostic
-          </Link>
-        </div>
-      </Card>
+      <DiagnosticStep />
       <SubjectsCard title="2. Pick what to practise" description="Choose a subject to see its topics and your mastery." />
       <Card title="3. Learn with a course">
         <p className="text-sm text-fg-secondary">Video courses with notes, quizzes and a certificate.</p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <Link href="/courses" className={secondaryLink}>
-            Browse courses
-          </Link>
-          <Link href="/app/learning" className={secondaryLink}>
+          <LinkButton href="/app/learning" variant="secondary">
             My learning
-          </Link>
+          </LinkButton>
+          <LinkButton href="/app/courses" variant="ghost">
+            Browse courses
+          </LinkButton>
         </div>
       </Card>
-      <p className="text-xs text-fg-muted">Saving a target role, companies and exam date isn&apos;t available yet. Your recommendations come from your practice and test results.</p>
+      <p className="text-[0.8125rem] text-fg-muted">Saving a target role, companies and exam date isn&apos;t available yet. Your recommendations come from your practice and test results.</p>
     </div>
   );
 }
@@ -166,7 +177,16 @@ export function DiagnosticLauncher() {
     <TestsCard
       title="Diagnostic tests"
       kinds={["diagnostic"]}
-      empty={{ title: "No diagnostic test is available right now", description: "When one is published for you, it appears here. Meanwhile you can practise by subject." }}
+      empty={{
+        title: "No diagnostic test is open right now",
+        description: "When one is published for you, it appears here. Meanwhile, practise by subject to see your mastery by topic.",
+        icon: "chart",
+        action: (
+          <LinkButton href="/app/practice" variant="secondary" size="sm">
+            Go to practice
+          </LinkButton>
+        ),
+      }}
     />
   );
 }
@@ -181,13 +201,20 @@ export function InterviewPrep() {
           { href: "/app/resume", title: "Résumé", text: "Build an ATS-friendly résumé and ask for a review." },
           { href: "/app/companies", title: "Company paths", text: "Practise for a specific company's pattern." },
         ].map((c) => (
-          <Link key={c.href} href={c.href} className="rounded-xl border border-line bg-surface p-4 hover:bg-surface-hover focus-visible:shadow-focus focus-visible:outline-none">
-            <p className="font-display font-semibold text-fg">{c.title}</p>
-            <p className="mt-1 text-sm text-fg-secondary">{c.text}</p>
+          <Link
+            key={c.href}
+            href={c.href}
+            className="group flex flex-col rounded-xl border border-line bg-surface p-4 shadow-xs hover:border-brand/40 hover:bg-surface-hover focus-visible:shadow-focus focus-visible:outline-none"
+          >
+            <span className="font-display font-bold text-fg-heading">{c.title}</span>
+            <span className="mt-1 flex-1 text-sm text-fg-secondary">{c.text}</span>
+            <span aria-hidden="true" className="mt-3 text-sm font-semibold text-fg-link group-hover:underline">
+              Open →
+            </span>
           </Link>
         ))}
       </div>
-      <TestsCard title="Mock tests" kinds={["mock", "company_mock", "drive"]} empty={{ title: "No mock tests for you yet", description: "Mock and company tests assigned to you or published for free appear here." }} />
+      <TestsCard title="Mock tests" kinds={["mock", "company_mock", "drive"]} empty={{ title: "No mock tests for you yet", description: "Mock and company tests assigned to you or published for free appear here.", icon: "calendar" }} />
     </div>
   );
 }
@@ -213,7 +240,16 @@ export function LearningPath() {
         ) : dash.loading && !dash.data ? (
           <Loading label="Loading…" />
         ) : cont.length === 0 ? (
-          <EmptyState title="No courses in progress" action={<Link href="/courses" className={secondaryLink}>Browse courses</Link>} />
+          <EmptyState
+            variant="inline"
+            icon="book"
+            title="No courses in progress"
+            action={
+              <LinkButton href="/app/courses" variant="secondary" size="sm">
+                Browse courses
+              </LinkButton>
+            }
+          />
         ) : (
           <ul className="divide-y divide-line text-sm">
             {cont.map((c) => (
@@ -221,9 +257,9 @@ export function LearningPath() {
                 <span className="font-medium text-fg">{c.course_title}</span>
                 <span className="flex items-center gap-3">
                   <span className="text-fg-muted">{Math.round(c.progress_pct)}%</span>
-                  <Link href={c.course_slug ? `/app/courses/${enc(c.course_slug)}` : "/app/learning"} className={secondaryLink} aria-label={`Resume ${c.course_title ?? "course"}`}>
+                  <LinkButton href={c.course_slug ? `/app/courses/${enc(c.course_slug)}` : "/app/learning"} variant="secondary" size="sm" aria-label={`Resume ${c.course_title ?? "course"}`}>
                     Resume
-                  </Link>
+                  </LinkButton>
                 </span>
               </li>
             ))}
@@ -237,6 +273,8 @@ export function LearningPath() {
           <Loading label="Loading recommendations…" />
         ) : (recs.data?.items ?? []).length === 0 ? (
           <EmptyState
+            variant="inline"
+            icon="chart"
             title="No recommendations yet"
             description={
               recs.data && !recs.data.personalised ? (
@@ -261,9 +299,9 @@ export function LearningPath() {
                   <p className="font-medium text-fg">{(r.target_type === "topic" && topicName(r.target_id)) || "Practise a weak topic"}</p>
                   <p className="mt-0.5 text-fg-muted">Why: {r.why_recommended}</p>
                   <div className="mt-2">
-                    <Link href={subject ? `/app/practice/${enc(subject.slug)}` : "/app/practice"} className={secondaryLink}>
+                    <LinkButton href={subject ? `/app/practice/${enc(subject.slug)}` : "/app/practice"} variant="secondary" size="sm">
                       Practise
-                    </Link>
+                    </LinkButton>
                   </div>
                 </li>
               );

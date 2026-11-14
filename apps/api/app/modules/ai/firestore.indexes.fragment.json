@@ -1,0 +1,86 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "lms_ai_usage",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_ai_quota",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_ai_tutor_turns",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "thread",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "seq",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lms_ai_tutor_turns",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "lms_ai_tutor_turns",
+      "fieldPath": "content",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_ai_quota",
+      "fieldPath": "reserved",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_ai_usage_months",
+      "fieldPath": "by_feature",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "lms_ai_usage_months",
+      "fieldPath": "by_day",
+      "indexes": []
+    }
+  ]
+}

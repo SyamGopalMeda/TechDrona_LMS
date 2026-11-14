@@ -27,6 +27,11 @@ function cadence(plan: PlanDto): string {
   return "";
 }
 
+/** Visible pricing CTA: short verb only; the product name goes in the accessible name. */
+function ctaLabel(plan: PlanDto | null): string {
+  return plan?.billing_type === "recurring" ? "Subscribe" : "Buy now";
+}
+
 /** product_json `unlocks[]` as readable lines: features by key, other items counted by type. */
 function unlockLines(unlocks: ProductUnlockDto[] | undefined): string[] {
   const counts = new Map<string, number>();
@@ -95,21 +100,29 @@ export function PricingPlans({ products, signedIn }: { products: ProductDto[]; s
                     ))}
                   </ul>
                 ) : null}
-                <div className="mt-auto pt-5">
+                {/* Note sits above the button and the block is pushed to the card bottom, so every
+                    card's CTA lines up across the row (UI audit: pricing). */}
+                <div className="mt-auto space-y-2 pt-5">
+                  {plan?.billing_type === "recurring" && !free ? (
+                    <p className="text-xs text-fg-muted">Renews automatically. Cancel any time in one click.</p>
+                  ) : null}
                   {free ? (
                     <LinkButton href={signedIn ? "/courses?price_type=free" : "/signup"} variant="secondary" className="w-full">
                       Start free
                     </LinkButton>
                   ) : checkout ? (
-                    <LinkButton href={signedIn ? checkout : `/login?next=${encodeURIComponent(checkout)}`} className="w-full">
-                      Get {product.name}
+                    // Short visible label (product names overflow a 44px button); the accessible name
+                    // starts with it (WCAG 2.5.3 label-in-name) and carries the full product name.
+                    <LinkButton
+                      href={signedIn ? checkout : `/login?next=${encodeURIComponent(checkout)}`}
+                      className="w-full"
+                      aria-label={`${ctaLabel(plan)} ${product.name}`}
+                    >
+                      {ctaLabel(plan)}
                     </LinkButton>
                   ) : (
                     <p className="text-sm text-fg-muted">Not on sale right now.</p>
                   )}
-                  {plan?.billing_type === "recurring" && !free ? (
-                    <p className="mt-2 text-xs text-fg-muted">Renews automatically. Cancel any time in one click.</p>
-                  ) : null}
                 </div>
               </article>
             </li>

@@ -10,7 +10,6 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import select
 
 from app.core.access import register_access_checker
 from app.core.auth import require_active_principal, require_permission, require_step_up
@@ -21,11 +20,10 @@ from app.core.principal import Principal
 from app.core.routing import authenticated_router
 from app.core.time import utcnow
 from app.modules.commerce import policy
-from app.modules.commerce.models import Product
 from app.modules.commerce.pricing import as_system
 from app.modules.commerce.ratelimit import limit
 from app.modules.entitlements import service as svc
-from app.modules.entitlements.models import Entitlement, EntitlementEvent
+from app.modules.entitlements.models import Entitlement
 
 register_access_checker(svc.EntitlementAccessChecker())
 svc.register_outbox_handlers()
@@ -117,9 +115,9 @@ async def _check_one(session: Any, principal: Principal, res: ResourceIn) -> dic
         products, _, _ = await svc.covering_scope(session, res.kind, res.id)
         opts = []
         if products:
-            from app.modules.commerce.admin import catalogue
+            from app.modules.commerce import public as commerce
 
-            for p in await catalogue(session, include_drafts=False):
+            for p in await commerce.catalogue(session, include_drafts=False):
                 if uuid.UUID(p["product_id"]) in products:
                     for pl in p["plans"]:
                         for pr in pl["prices"]:
@@ -152,11 +150,12 @@ async def check_batch(
 
 
 async def _titles(session: Any, ents: list[Entitlement]) -> dict[uuid.UUID, str]:
+    from app.modules.commerce import public as commerce
+
     ids = {e.product_id for e in ents if e.product_id}
     if not ids:
         return {}
-    rows = await session.execute(select(Product.id, Product.name).where(Product.id.in_(ids)))
-    return {i: n for i, n in rows.all()}
+    return await commerce.product_names(session, ids)
 
 
 @acct.get("/me/entitlements")
@@ -164,15 +163,7 @@ async def my_entitlements(
     session: PrincipalDbSession, principal: Principal = Depends(require_active_principal)
 ) -> dict[str, Any]:
     """ENT-03 (account_status: visible during a restriction; dates are unchanged)."""
-    ents = list(
-        (
-            await session.execute(
-                select(Entitlement)
-                .where(Entitlement.user_id == principal.user_id)
-                .order_by(Entitlement.created_at.desc())
-            )
-        ).scalars()
-    )
+    ents = await svc.user_entitlements(session, principal.user_id, principal=principal)
     titles = await _titles(session, ents)
     now = utcnow()
     data = []
@@ -208,8 +199,7 @@ async def user_entitlements(
         and await checker.has_permission(principal, "entitlement.read", PLATFORM_SCOPE, request)
     ):
         raise ProblemError("permission_denied", permission="entitlement.read")
-    q = select(Entitlement).where(Entitlement.user_id == user_id)
-    rows = [svc.entitlement_json(e) for e in (await session.execute(q)).scalars()]
+    rows = [svc.entitlement_json(e) for e in await svc.user_entitlements(session, user_id)]
     from app.core.audit import audit
 
     await audit(session, principal, "entitlement.read", "user", user_id)
@@ -219,22 +209,27 @@ async def user_entitlements(
 @acct.get("/entitlements/{entitlement_id}/events")
 async def entitlement_events(
     entitlement_id: uuid.UUID,
+    request: Request,
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
-    """ENT-05: own entitlement, or anyone the RLS lets see it (org staff / platform)."""
-    e = (
-        await session.execute(select(Entitlement).where(Entitlement.id == entitlement_id))
-    ).scalar_one_or_none()
-    if e is None or (e.user_id != principal.user_id and not principal.is_platform):
+    """ENT-05: own entitlement, or platform staff holding ``entitlement.read`` (QA 2026-11-11, D2:
+    being platform staff alone, e.g. a content manager, is not enough)."""
+    from app.core.auth import PLATFORM_SCOPE, get_permission_checker
+
+    e = await svc.get_entitlement(session, entitlement_id)
+    if e is None:
         raise ProblemError("not_found")
-    rows = (
-        await session.execute(
-            select(EntitlementEvent)
-            .where(EntitlementEvent.entitlement_id == e.id)
-            .order_by(EntitlementEvent.occurred_at)
+    if e.user_id != principal.user_id:
+        checker = get_permission_checker()
+        allowed = (
+            principal.is_platform
+            and checker is not None
+            and await checker.has_permission(principal, "entitlement.read", PLATFORM_SCOPE, request)
         )
-    ).scalars()
+        if not allowed:
+            raise ProblemError("not_found")
+    rows = await svc.entitlement_history(session, e)
     return {
         "data": [
             {
@@ -326,7 +321,10 @@ async def manual_grant(
                 required_approver_role="super_admin",
             )
             return IdemResult({"status": "approval_pending", "approval_request_id": str(req.id)}, 202)
-        async with as_system(session, "entitlements.manual_grant", principal):
+        if session:
+            async with as_system(session, "entitlements.manual_grant", principal):
+                out = await do_manual_grant(session, principal, payload, granted_by=principal.user_id)
+        else:  # no Postgres session: no RLS context to lift
             out = await do_manual_grant(session, principal, payload, granted_by=principal.user_id)
         return IdemResult(out, 201)
 

@@ -83,7 +83,20 @@ async def purge_case_rows(
     return dict(out)
 
 
-async def purge_closed_cases(run: Runner = call_maintenance) -> dict[str, Any] | None:
+def default_runner() -> Runner:
+    """``maint.*`` on Postgres (``td_maintenance``), or the same functions over the Firestore
+    security store when ``TD_STORE_SECURITY=firestore`` (``repo_fs_controls.maintenance_runner``)."""
+    from app.core.firestore.backend import uses_firestore
+
+    if uses_firestore("security"):
+        from app.modules.security.repo_fs_controls import maintenance_runner
+
+        return maintenance_runner
+    return call_maintenance
+
+
+async def purge_closed_cases(run: Runner | None = None) -> dict[str, Any] | None:
+    run = run or default_runner()
     objects = await purge_case_attachments(run)
     if objects is None:
         return None

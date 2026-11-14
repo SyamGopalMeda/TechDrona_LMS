@@ -367,3 +367,48 @@ async def test_evaluator_portal_and_landing(browser, db) -> None:
     r = await staff_login(b2, both)
     assert r.json()["redirect"] == "/trainer", r.text
     assert (await b2.get("/me/grants")).json()["portals"] == ["/evaluator", "/trainer"]
+
+
+async def test_sole_admin_rule(db) -> None:
+    """Owner decision 2026-11-11: with exactly one active Admin, that Admin may decide their own
+    dual-control requests; a second active Admin restores the normal SoD-05 rule."""
+    from app.modules.rbac.service import is_sole_admin
+
+    await system_context(db, "test")
+    existing = await is_sole_admin(db, uuid7())  # never true for a stranger
+    assert existing is False
+    a = await make_user(db)
+    await grant(db, a.id, "super_admin")
+    others = (
+        await db.execute(
+            select(Role.role_key).where(Role.role_key == "super_admin")  # sanity: role exists
+        )
+    ).scalar_one()
+    assert others == "super_admin"
+    sole_a = await is_sole_admin(db, a.id)
+    b = await make_user(db)
+    await grant(db, b.id, "super_admin")
+    assert await is_sole_admin(db, a.id) is False and await is_sole_admin(db, b.id) is False
+    # A is sole only if no other active Admin existed in this database before the test
+    if sole_a is False:
+        pytest.skip("another active Admin exists in this test database")
+
+
+async def test_self_decision_needs_the_sole_admin_flag(db) -> None:
+    """rbac_0006: ck_apr_distinct refuses decided_by = requested_by unless the row is flagged
+    sole_admin_decision (set only after rbac.service.is_sole_admin)."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+
+    await system_context(db, "test")
+    u = await make_user(db)
+    sql = (
+        "INSERT INTO approval_requests (id, action_type, target_type, payload, payload_hash, requested_by, "
+        "request_reason, required_approver_role, status, decided_by, decided_at, expires_at, sole_admin_decision) "
+        "VALUES (:id, 'policy.change', 'policy', '{}'::jsonb, decode(repeat('00', 32), 'hex'), :u, 'test', "
+        "'super_admin', 'approved', :u, now(), now() + interval '1 day', :sole)"
+    )
+    await db.execute(text(sql), {"id": uuid7(), "u": u.id, "sole": True})
+    with pytest.raises(IntegrityError):
+        async with db.begin_nested():
+            await db.execute(text(sql), {"id": uuid7(), "u": u.id, "sole": False})

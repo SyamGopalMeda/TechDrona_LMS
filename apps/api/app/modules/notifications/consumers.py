@@ -17,7 +17,6 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import structlog
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.outbox import OutboxMessage, register_handler
@@ -35,11 +34,11 @@ def _rupees(paise: int | None) -> str:
 
 
 async def _user_email(session: AsyncSession, user_id: uuid.UUID | None) -> tuple[str | None, bool]:
-    from app.modules.identity.models import User
+    from app.modules.identity import public as identity
 
     if user_id is None:
         return None, False
-    u = await session.get(User, user_id)
+    u = await identity.get_user(session, user_id)
     if u is None or u.status in ("deleted", "deactivated"):
         return None, False
     return u.email, u.is_minor
@@ -58,16 +57,16 @@ def _uuid(v: Any) -> uuid.UUID | None:
 async def on_invoice_issued(session: AsyncSession, msg: OutboxMessage) -> None:
     """``invoice.issued`` → email the buyer a link to the order page (PRD "Invoice emailed").
     Institution (contract) invoices have no individual buyer and are skipped."""
-    from app.modules.commerce.models import Invoice, Order
+    from app.modules.commerce import public as commerce
 
     inv_id = _uuid(msg.payload.get("invoice_id"))
-    inv = await session.get(Invoice, inv_id) if inv_id else None
+    inv = await commerce.get_invoice(session, inv_id) if inv_id else None
     if inv is None:
         log.warning("invoice_issued_unknown_invoice", event_id=str(msg.id))
         return
     if inv.user_id is None or inv.invoice_type != "tax_invoice":
         return  # institution invoices go to the org contact; credit notes have their own flow
-    order = await session.get(Order, inv.order_id)
+    order = await commerce.get_order(session, inv.order_id)
     email, is_minor = await _user_email(session, inv.user_id)
     link = web_link("order", order_id=str(inv.order_id))
     text = (
@@ -97,10 +96,10 @@ async def on_invoice_issued(session: AsyncSession, msg: OutboxMessage) -> None:
 async def on_subscription_cancel_requested(session: AsyncSession, msg: OutboxMessage) -> None:
     """Email confirmation of a cancellation (FR-COM-005). The in-app confirmation is written
     by commerce in the request transaction; this row is email-only."""
-    from app.modules.commerce.models import Subscription
+    from app.modules.commerce import public as commerce
 
     sub_id = _uuid(msg.payload.get("subscription_id"))
-    sub = await session.get(Subscription, sub_id) if sub_id else None
+    sub = await commerce.get_subscription(session, sub_id) if sub_id else None
     if sub is None:
         return
     email, is_minor = await _user_email(session, sub.user_id)
@@ -134,22 +133,10 @@ async def on_subscription_cancel_requested(session: AsyncSession, msg: OutboxMes
 async def send_renewal_reminders(session: AsyncSession, now: datetime) -> int:
     """FR-COM-005: remind 7 days before an annual (12-month or longer) renewal. One reminder per
     subscription period (``dedupe_key`` = subscription + period end)."""
-    from app.modules.commerce.models import Plan, Subscription
+    from app.modules.commerce import public as commerce
 
     horizon = now + timedelta(days=RENEWAL_REMINDER_DAYS)
-    rows = (
-        await session.execute(
-            select(Subscription, Plan)
-            .join(Plan, Plan.id == Subscription.plan_id)
-            .where(
-                Subscription.status == "active",
-                Subscription.cancel_at_period_end.is_(False),
-                Subscription.current_period_end.is_not(None),
-                Subscription.current_period_end > now,
-                Subscription.current_period_end <= horizon,
-            )
-        )
-    ).all()
+    rows = await commerce.renewing_subscriptions(session, now, horizon)
     sent = 0
     for sub, plan in rows:
         unit, count = (plan.interval_unit or "").lower(), plan.interval_count or 1
@@ -182,20 +169,12 @@ async def send_renewal_reminders(session: AsyncSession, now: datetime) -> int:
 
 async def finance_admin_ids(session: AsyncSession, now: datetime) -> list[uuid.UUID]:
     """Every live Admin (single company, D2: finance duties are folded into ``super_admin``)."""
+    from app.modules.rbac import public as rbac
     from app.modules.rbac.catalogue import admin_roles
-    from app.modules.rbac.models import Role, RoleGrant
 
-    rows = await session.execute(
-        select(RoleGrant.user_id)
-        .join(Role, Role.id == RoleGrant.role_id)
-        .where(
-            Role.role_key.in_(sorted(admin_roles())),
-            RoleGrant.revoked_at.is_(None),
-            (RoleGrant.expires_at.is_(None)) | (RoleGrant.expires_at > now),
-        )
-        .distinct()
-    )
-    return list(rows.scalars())
+    # unrevoked, unexpired grants of an admin role at any scope (DISTINCT user ids)
+    grants = await rbac.live_grants(session, role_keys=sorted(admin_roles()), now=now)
+    return list(dict.fromkeys(g.user_id for g, _k in grants))
 
 
 _ALERT_FIELDS = (

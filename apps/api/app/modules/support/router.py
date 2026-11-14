@@ -38,7 +38,7 @@ from app.core.routing import authenticated_router
 from app.core.time import to_rfc3339, within
 from app.modules.identity import clock
 from app.modules.identity.contacts import mask_email, mask_phone
-from app.modules.identity.models import MfaFactor, User, UserProfile
+from app.modules.identity.public import User
 from app.modules.support import service as sv
 from app.modules.support.models import SupportTicket, SupportTicketMessage, SupportUserNote
 
@@ -185,10 +185,10 @@ async def _unblock_owner(
 ) -> tuple[uuid.UUID, uuid.UUID]:
     """(owner user id, security case id) of an unblock request. Security tables are read
     under a system context, then the caller's RLS context is restored."""
-    from app.modules.security.models import UnblockRequest
+    from app.modules.security import public as security
 
     async with system_context(session, "support.link_unblock"):
-        ur = await session.get(UnblockRequest, request_id)
+        ur = await security.get_unblock_request(session, request_id)
     if ur is None:
         raise ProblemError("not_found")
     return ur.user_id, ur.case_id
@@ -243,19 +243,22 @@ async def create_ticket(
 ) -> JSONResponse:
     async def op() -> IdemResult:
         since = clock.now() - timedelta(days=1)
-        recent = (
-            await session.execute(
-                select(func.count()).where(
-                    SupportTicket.requester_id == principal.user_id, SupportTicket.created_at > since
+        if sv.on_firestore():
+            recent = await (await sv.fs_repo(session)).count_tickets_since(principal.user_id, since)
+        else:
+            recent = (
+                await session.execute(
+                    select(func.count()).where(
+                        SupportTicket.requester_id == principal.user_id, SupportTicket.created_at > since
+                    )
                 )
-            )
-        ).scalar_one()
+            ).scalar_one()
         if recent >= TICKETS_PER_DAY:
             raise ProblemError("rate_limited", headers={"Retry-After": "86400"})
         if body.related_order_id is not None:
-            from app.modules.commerce.models import Order
+            from app.modules.commerce import public as commerce
 
-            order = await session.get(Order, body.related_order_id)
+            order = await commerce.get_order(session, body.related_order_id)
             if order is None or order.user_id != principal.user_id:
                 raise _vf("related_order_id", "not_found", "Order not found")
         case_id: uuid.UUID | None = None
@@ -264,9 +267,9 @@ async def create_ticket(
             if owner != principal.user_id:
                 raise _vf("related_unblock_request_id", "not_found", "Unblock request not found")
         if body.related_attempt_id is not None:
-            from app.modules.assessments.models import TestAttempt
+            from app.modules.assessments import public as assessments
 
-            attempt = await session.get(TestAttempt, body.related_attempt_id)
+            attempt = await assessments.get_attempt(session, body.related_attempt_id)
             if attempt is None or attempt.user_id != principal.user_id:
                 raise _vf("related_attempt_id", "not_found", "Test attempt not found")
         files = _attachments(body.attachments, principal)
@@ -274,9 +277,8 @@ async def create_ticket(
         grievance = body.category == "grievance"
         priority = await sv.derive_priority(session, principal.user_id, body.category)
         first_due, res_due = sv.sla_due(priority, grievance, now)
-        t = SupportTicket(
+        t = sv.new_ticket(
             id=uuid7(),
-            ticket_number=await sv.next_ticket_number(session),
             requester_id=principal.user_id,
             organization_id=None,
             category=body.category,
@@ -299,8 +301,7 @@ async def create_ticket(
             created_at=now,
             updated_at=now,
         )
-        session.add(t)
-        await session.flush()
+        await sv.insert_ticket(session, t)
         await audit(
             session,
             principal,
@@ -334,6 +335,15 @@ async def my_tickets(
     cursor: str | None = None,
     limit: Limit = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
+    if sv.on_firestore():
+        rows, nxt = await (await sv.fs_repo(session)).tickets_of(
+            principal.user_id, status=status, cursor=cursor, limit=limit
+        )
+        counts = await sv.message_counts(session, [t.id for t in rows], internal=False)
+        return {
+            "data": [sv.ticket_out(t, message_count=counts.get(t.id, 0)) for t in rows],
+            "page": {"next_cursor": nxt, "has_more": nxt is not None, "limit": limit},
+        }
     q = select(SupportTicket).where(SupportTicket.requester_id == principal.user_id)
     if status:
         q = q.where(SupportTicket.status == status)
@@ -363,12 +373,16 @@ async def get_ticket(
     _is_owner, agent = await _visible(session, principal, t)
     # Internal notes are platform-lane only.
     internal = agent is not None and agent.sees_internal(t)
-    q = select(SupportTicketMessage).where(SupportTicketMessage.support_ticket_id == t.id)
-    if not internal:
-        q = q.where(SupportTicketMessage.visibility == "public")
-    msgs = (
-        await session.execute(q.order_by(SupportTicketMessage.created_at, SupportTicketMessage.id))
-    ).scalars()
+    msgs: Any
+    if sv.on_firestore():
+        msgs = await (await sv.fs_repo(session)).thread(None, t, internal=internal)
+    else:
+        q = select(SupportTicketMessage).where(SupportTicketMessage.support_ticket_id == t.id)
+        if not internal:
+            q = q.where(SupportTicketMessage.visibility == "public")
+        msgs = (
+            await session.execute(q.order_by(SupportTicketMessage.created_at, SupportTicketMessage.id))
+        ).scalars()
     if agent is not None and t.requester_id != principal.user_id:
         await audit(
             session,
@@ -409,14 +423,19 @@ async def post_message(
         if t.status == "closed" or t.merged_into_id is not None:
             raise ProblemError("invalid_state_transition", current_state=t.status, allowed=["reopen"])
         hour_ago = clock.now() - timedelta(hours=1)
-        recent = (
-            await session.execute(
-                select(func.count()).where(
-                    SupportTicketMessage.author_id == principal.user_id,
-                    SupportTicketMessage.created_at > hour_ago,
-                )
+        if sv.on_firestore():
+            recent = await (await sv.fs_repo(session)).count_messages_by_author_since(
+                principal.user_id, hour_ago
             )
-        ).scalar_one()
+        else:
+            recent = (
+                await session.execute(
+                    select(func.count()).where(
+                        SupportTicketMessage.author_id == principal.user_id,
+                        SupportTicketMessage.created_at > hour_ago,
+                    )
+                )
+            ).scalar_one()
         if recent >= MESSAGES_PER_HOUR:
             raise ProblemError("rate_limited", headers={"Retry-After": "3600"})
         m = await sv.add_message(
@@ -439,7 +458,7 @@ async def post_message(
             elif t.status == "resolved":
                 t.status = "open"
                 t.resolved_at = None
-        await session.flush()
+        await sv.save(session, t)
         if as_agent:
             await audit(
                 session,
@@ -485,13 +504,17 @@ async def attachment_download(
             mid = uuid.UUID(ref)
         except ValueError as e:
             raise ProblemError("not_found") from e
-        m = (
-            await session.execute(
-                select(SupportTicketMessage).where(
-                    SupportTicketMessage.id == mid, SupportTicketMessage.support_ticket_id == t.id
+        m: Any
+        if sv.on_firestore():
+            m = await (await sv.fs_repo(session)).get_message(None, t, mid)
+        else:
+            m = (
+                await session.execute(
+                    select(SupportTicketMessage).where(
+                        SupportTicketMessage.id == mid, SupportTicketMessage.support_ticket_id == t.id
+                    )
                 )
-            )
-        ).scalar_one_or_none()
+            ).scalar_one_or_none()
         if m is None or m.redacted_at is not None:
             raise ProblemError("not_found")
         if m.visibility != "public" and not (agent is not None and agent.sees_internal(t)):
@@ -547,6 +570,7 @@ async def reopen(
         author_kind="requester",
         body=f"Reopened: {body.reason.strip()}" if body.reason and body.reason.strip() else "Reopened.",
     )
+    await sv.save(session, t)
     await audit(
         session,
         principal,
@@ -573,7 +597,7 @@ async def csat(
     t.csat_score = body.score
     t.csat_comment = body.comment
     t.csat_at = clock.now()
-    await session.flush()
+    await sv.save(session, t)
     return await _ticket_view(session, t, internal=False, staff=False)
 
 
@@ -595,6 +619,10 @@ async def queue(
     sc = await sv.staff_scope(session, principal)
     if not sc.any:
         raise ProblemError("permission_denied", permission="ticket.read")
+    if sv.on_firestore():
+        return await _queue_firestore(
+            session, principal, sc, status, priority, category, assigned, q, cursor, limit
+        )
     conds: list[Any] = []
     if not sc.all_categories:
         lane: list[Any] = []
@@ -650,6 +678,73 @@ async def queue(
         summary[st] += 1
         unassigned += assignee is None
         breached += bool((rd and now > rd) or (frd and fr is None and now > frd))
+    return {
+        "data": [
+            sv.ticket_out(t, message_count=counts.get(t.id, 0), requester=req.get(t.requester_id))
+            for t in rows
+        ],
+        "page": page_meta(
+            {"due": (rows[-1].resolution_due_at or _FAR_DUE).isoformat(), "id": str(rows[-1].id)}
+            if more and rows
+            else None,
+            limit,
+        ),
+        "counts": {**summary, "breached": breached, "unassigned": unassigned},
+    }
+
+
+async def _queue_firestore(
+    session: Any,
+    principal: Principal,
+    sc: sv.StaffScope,
+    status: str | None,
+    priority: str | None,
+    category: str | None,
+    assigned: str,
+    q: str | None,
+    cursor: str | None,
+    limit: int,
+) -> dict[str, Any]:
+    """SUP-07 on Firestore: the status filter runs in the store; the lane (category OR
+    escalation), the other filters, the search and the SLA keyset order run in memory over the
+    company's open queue. Same response and cursor shape as Postgres."""
+    repo = await sv.fs_repo(session)
+    open_rows = [t for t in await repo.lane_tickets(sv.OPEN_STATUSES) if sc.sees(t)]
+    rows = open_rows if not status else [t for t in await repo.lane_tickets([status]) if sc.sees(t)]
+    needle = q.strip().lower() if q else None
+
+    def keep(t: Any) -> bool:
+        if priority and t.priority != priority:
+            return False
+        if category and t.category != category:
+            return False
+        if assigned == "me" and t.assigned_to != principal.user_id:
+            return False
+        if assigned == "unassigned" and t.assigned_to is not None:
+            return False
+        return not needle or needle in t.subject.lower() or needle in t.ticket_number.lower()
+
+    def key(t: Any) -> tuple[datetime, str]:
+        return (t.resolution_due_at or _FAR_DUE, str(t.id))
+
+    rows = sorted((t for t in rows if keep(t)), key=key)
+    pos = _queue_cursor(cursor)
+    if pos is not None:
+        rows = [t for t in rows if key(t) > (pos[0], str(pos[1]))]
+    more = len(rows) > limit
+    rows = rows[:limit]
+    full = await sv.message_counts(session, [t.id for t in rows if sc.sees_internal(t)], internal=True)
+    public = await sv.message_counts(session, [t.id for t in rows if not sc.sees_internal(t)], internal=False)
+    counts = {**public, **full}
+    req = await sv.requester_info(session, {t.requester_id for t in rows})
+    now = clock.now()
+    summary = {s: 0 for s in sv.OPEN_STATUSES}
+    breached = unassigned = 0
+    for t in open_rows:
+        summary[t.status] += 1
+        unassigned += t.assigned_to is None
+        rd, frd = t.resolution_due_at, t.first_response_due_at
+        breached += bool((rd and now > rd) or (frd and t.first_responded_at is None and now > frd))
     return {
         "data": [
             sv.ticket_out(t, message_count=counts.get(t.id, 0), requester=req.get(t.requester_id))
@@ -723,7 +818,7 @@ async def patch_ticket(
             if "related_case_id" not in fields:
                 t.related_case_id = case_id
         t.related_unblock_request_id = body.related_unblock_request_id
-    await session.flush()
+    await sv.save(session, t)
     await audit(
         session,
         principal,
@@ -764,6 +859,7 @@ async def escalate(
         visibility="internal",
         body=f"Escalated to {body.to}: {body.note.strip()}",
     )
+    await sv.save(session, t)
     await audit(
         session,
         principal,
@@ -817,6 +913,7 @@ async def merge(
         author_kind="system",
         body=f"{src.ticket_number} was merged into this ticket.",
     )
+    await sv.save(session, src, dst)
     await audit(
         session,
         principal,
@@ -850,13 +947,19 @@ def _reason(code: str | None) -> str:
 async def _ticket_ref(session: Any, ticket_id: uuid.UUID | None, user_id: uuid.UUID) -> None:
     if ticket_id is None:
         return
-    t = await session.get(SupportTicket, ticket_id)
+    t: Any
+    if sv.on_firestore():
+        t = await (await sv.fs_repo(session)).get_ticket(None, ticket_id)
+    else:
+        t = await session.get(SupportTicket, ticket_id)
     if t is None or t.requester_id != user_id:
         raise _vf("ticket_id", "not_found", "Ticket not found for this user")
 
 
 async def _target(session: Any, user_id: uuid.UUID) -> User:
-    u = await session.get(User, user_id)
+    from app.modules.identity import public as identity
+
+    u = await identity.get_user(session, user_id)
     if u is None or u.status == "deleted":
         raise ProblemError("not_found")
     return u
@@ -873,93 +976,33 @@ async def user_lookup(
     code = _reason(reason_code)
     u = await _target(session, user_id)
     await _ticket_ref(session, ticket_id, user_id)
-    from app.modules.commerce.models import Order
-    from app.modules.entitlements.models import Entitlement
-    from app.modules.security.models import AccountRestriction
-    from app.modules.sessions.models import AuthSession, UserDevice
+    from app.modules.commerce import public as commerce
+    from app.modules.entitlements import public as entitlements
+    from app.modules.identity import public as identity
+    from app.modules.security import public as security
+    from app.modules.sessions import public as sessions
     from app.modules.sessions.ua import mask_ip
 
-    prof = await session.get(UserProfile, u.id)
+    prof = await identity.get_profile(session, u.id)
     now = clock.now()
-    restr = (
-        await session.execute(
-            select(AccountRestriction)
-            .where(AccountRestriction.user_id == u.id, AccountRestriction.ended_at.is_(None))
-            .order_by(AccountRestriction.level.desc(), AccountRestriction.starts_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    devices = (
-        await session.execute(
-            select(UserDevice.trust_status).where(UserDevice.user_id == u.id, UserDevice.removed_at.is_(None))
-        )
-    ).all()
-    sess = (
-        (
-            await session.execute(
-                select(AuthSession)
-                .where(AuthSession.user_id == u.id, AuthSession.status == "active")
-                .order_by(AuthSession.last_seen_at.desc())
-                .limit(20)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    ents = (
-        (
-            await session.execute(
-                select(Entitlement)
-                .where(Entitlement.user_id == u.id)
-                .order_by(Entitlement.starts_at.desc())
-                .limit(20)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    orders = (
-        (
-            await session.execute(
-                select(Order).where(Order.user_id == u.id).order_by(Order.created_at.desc()).limit(10)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    notes = (
-        (
-            await session.execute(
-                select(SupportUserNote)
-                .where(SupportUserNote.user_id == u.id)
-                .order_by(SupportUserNote.created_at.desc())
-                .limit(50)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    tickets = (
-        (
-            await session.execute(
-                select(SupportTicket)
-                .where(SupportTicket.requester_id == u.id)
-                .order_by(SupportTicket.created_at.desc())
-                .limit(20)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    mfa = (
-        await session.execute(
-            select(func.count()).where(
-                MfaFactor.user_id == u.id,
-                MfaFactor.revoked_at.is_(None),
-                MfaFactor.factor_type != "recovery_codes",
-            )
-        )
-    ).scalar_one()
+    # active restriction with the highest level, then the latest start (security orders it)
+    active = await security.user_restrictions(session, u.id, active_only=True)
+    restr = active[0] if active else None
+    devices = [
+        (d.trust_status,) for d in await sessions.list_user_devices(session, user_id=u.id, not_removed=True)
+    ]
+    # ORDER BY last_seen_at DESC (Postgres puts NULLs first) LIMIT 20
+    sess = sorted(
+        await sessions.list_sessions(session, user_id=u.id, status="active"),
+        key=lambda s: (s.last_seen_at is None, s.last_seen_at or now),
+        reverse=True,
+    )[:20]
+    ents = sorted(
+        await entitlements.user_entitlements(session, u.id), key=lambda e: e.starts_at, reverse=True
+    )[:20]
+    orders = await commerce.recent_orders(session, u.id, 10)
+    notes, tickets = await _notes_and_tickets(session, u.id)
+    mfa = sum(1 for f in await identity.active_factors(session, u.id) if f.factor_type != "recovery_codes")
     level = restr.level if restr else (u.restriction_level or 0)
     # Visibility tier: minors' names are reduced to the first name for every staff viewer.
     name = (prof.display_name or prof.full_name) if prof else None
@@ -1045,7 +1088,40 @@ async def user_lookup(
     }
 
 
-def _note_out(n: SupportUserNote) -> dict[str, Any]:
+async def _notes_and_tickets(session: Any, user_id: uuid.UUID) -> tuple[list[Any], list[Any]]:
+    """The 50 newest notes and 20 newest tickets of a user (SUP-11), either store."""
+    if sv.on_firestore():
+        repo = await sv.fs_repo(session)
+        tickets, _ = await repo.tickets_of(user_id, limit=20, order=("created_at", "desc"))
+        return await repo.notes_for(user_id, 50), tickets
+    notes = (
+        (
+            await session.execute(
+                select(SupportUserNote)
+                .where(SupportUserNote.user_id == user_id)
+                .order_by(SupportUserNote.created_at.desc())
+                .limit(50)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    tickets = (
+        (
+            await session.execute(
+                select(SupportTicket)
+                .where(SupportTicket.requester_id == user_id)
+                .order_by(SupportTicket.created_at.desc())
+                .limit(20)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(notes), list(tickets)
+
+
+def _note_out(n: Any) -> dict[str, Any]:
     return {
         "note_id": str(n.id),
         "body": n.body,
@@ -1057,10 +1133,14 @@ def _note_out(n: SupportUserNote) -> dict[str, Any]:
 
 async def _tokens_last_day(session: Any, model: Any, user_id: uuid.UUID, **filters: Any) -> int:
     """Links issued to a user in the last 24 h (identity token tables; system context)."""
+    from app.modules.identity import public as identity
+
     since = clock.now() - timedelta(days=1)
-    conds = [model.user_id == user_id, model.created_at > since]
-    conds += [getattr(model, k) == v for k, v in filters.items()]
-    return int((await session.execute(select(func.count()).where(*conds))).scalar_one())
+    if model == "verification":
+        rows: Any = await identity.verification_tokens_of(session, user_id, created_after=since, **filters)
+    else:
+        rows = await identity.reset_tokens_of(session, user_id, created_after=since)
+    return len(rows)
 
 
 @r.post("/support/users/{user_id}/resend-verification", status_code=202)
@@ -1078,11 +1158,10 @@ async def resend_verification(
         await _ticket_ref(session, body.ticket_id, user_id)
         if not u.email or u.email_verified_at is not None:
             raise ProblemError("invalid_state_transition", current_state="verified", allowed=[])
-        from app.modules.identity.models import VerificationToken
         from app.modules.identity.router import send_verification_email
 
         async with system_context(session, "support.resend_verification"):
-            if await _tokens_last_day(session, VerificationToken, u.id, purpose="email_verify") >= 5:
+            if await _tokens_last_day(session, "verification", u.id, purpose="email_verify") >= 5:
                 raise ProblemError("rate_limited", headers={"Retry-After": "86400"})
             await send_verification_email(session, u, None)
             await session.flush()
@@ -1122,11 +1201,10 @@ async def password_reset_email(
         await _ticket_ref(session, body.ticket_id, user_id)
         if not u.email:
             raise _vf("user_id", "no_email", "The account has no email address")
-        from app.modules.identity.models import PasswordResetToken
         from app.modules.identity.router import issue_password_reset
 
         async with system_context(session, "support.password_reset"):
-            if await _tokens_last_day(session, PasswordResetToken, u.id) >= 3:
+            if await _tokens_last_day(session, "reset", u.id) >= 3:
                 raise ProblemError("rate_limited", headers={"Retry-After": "86400"})
             sent = await issue_password_reset(session, u, ip=None, actor=principal)
             await session.flush()
@@ -1155,16 +1233,23 @@ async def add_note(
 ) -> dict[str, Any]:
     await _target(session, user_id)
     await _ticket_ref(session, body.ticket_id, user_id)
-    n = SupportUserNote(
-        id=uuid7(),
-        user_id=user_id,
-        author_id=principal.user_id,
-        support_ticket_id=body.ticket_id,
-        body=body.body.strip(),
-        created_at=clock.now(),
-    )
-    session.add(n)
-    await session.flush()
+    fields: dict[str, Any] = {
+        "id": uuid7(),
+        "user_id": user_id,
+        "author_id": principal.user_id,
+        "support_ticket_id": body.ticket_id,
+        "body": body.body.strip(),
+        "created_at": clock.now(),
+    }
+    n: Any
+    if sv.on_firestore():
+        from app.modules.support.repo_firestore import NoteRow
+
+        n = await (await sv.fs_repo(session)).add_note(NoteRow(**fields))
+    else:
+        n = SupportUserNote(**fields)
+        session.add(n)
+        await session.flush()
     await audit(session, principal, "support.user_note_added", "user", user_id, subject_user_id=user_id)
     return _note_out(n)
 

@@ -23,11 +23,11 @@ export function VerifyCodeForm({ initial = "", invalid = false }: { initial?: st
         className="font-mono uppercase"
       />
       <p id="certificate-code-hint" className="text-xs text-fg-muted">
-        10–16 letters and digits, as printed on the certificate.
+        10–16 letters and digits as printed on a course certificate, or a reference such as TD-AL-2026-7K3QX9 on a letter or other certificate.
       </p>
       {invalid ? (
         <p id="certificate-code-err" role="alert" className="text-xs font-medium text-danger-fg">
-          Enter a code of 10–16 letters and digits.
+          Enter a code of 10–16 letters and digits, or a reference like TD-AL-2026-7K3QX9.
         </p>
       ) : null}
       <Button type="submit">Verify</Button>

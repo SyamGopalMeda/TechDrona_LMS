@@ -218,6 +218,10 @@ def require_step_up(window: int | str = "privileged") -> Callable[..., Awaitable
         raise ValueError("step-up window must be positive")
 
     async def _dep(principal: Principal = Depends(require_active_principal)) -> Principal:
+        from app.core.config import get_settings
+
+        if get_settings().simple_auth:  # TD_SIMPLE_AUTH: no re-confirm prompts
+            return principal
         if not within(principal.last_step_up_at, timedelta(seconds=seconds)):
             methods = ["totp"]  # SEC-11: no WebAuthn passkeys yet
             if principal.tier == "student":

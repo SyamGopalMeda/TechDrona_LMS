@@ -38,6 +38,7 @@ async def _token(b, asset, **kw):
     return await b.post("/media/playback-tokens", {"lesson_asset_id": str(asset), **kw})
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_playback_token_watermark_entitlement_and_free_preview(browser, db, fake_video) -> None:
     author = await make_user(db)
     free = await make_published_course(db, author.id, is_free=True)
@@ -78,6 +79,7 @@ async def test_playback_token_watermark_entitlement_and_free_preview(browser, db
     assert r.status_code == 503
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_stream_cap_conflict_takeover_and_heartbeats(browser, db, mail) -> None:
     author = await make_user(db)
     pc = await make_published_course(db, author.id, is_free=True)
@@ -170,6 +172,7 @@ async def test_stream_cap_conflict_takeover_and_heartbeats(browser, db, mail) ->
     assert r.json()["end_reason"] == "stopped"
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_restricted_principal_cannot_play(browser, db) -> None:
     from app.modules.sessions import hooks
     from app.modules.sessions.hooks import RestrictionState
@@ -199,6 +202,7 @@ async def test_restricted_principal_cannot_play(browser, db) -> None:
         hooks.register_restriction_lookup(None)
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_uploads_presign_and_permissions(browser, db) -> None:
     author = await make_user(db)
     pc = await make_published_course(db, author.id)
@@ -281,6 +285,7 @@ async def test_uploads_presign_and_permissions(browser, db) -> None:
     assert r.status_code == 409
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_downloads_short_lived_and_entitlement(browser, db) -> None:
     author = await make_user(db)
     paid = await make_published_course(db, author.id, is_free=False)

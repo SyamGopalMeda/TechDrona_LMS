@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Badge, Button, EmptyState, ErrorState, Input, PageHeader, StatTile } from "@/components/ui";
+import { Badge, Button, EmptyState, ErrorState, Input, PageHeader, StatGrid, StatTile } from "@/components/ui";
 import { LoadingBlock } from "@/features/trainer/shared/ui";
 import { seg, useApi } from "@/features/trainer/shared/use-api";
 import { cn } from "@/lib/ui/cn";
@@ -74,11 +74,11 @@ export function BankList() {
           </>
         }
       />
-      <div className="mb-6 grid grid-cols-3 gap-3">
+      <StatGrid columns={3} className="mb-6">
         <StatTile label="Banks" value={data ? data.counters.banks : null} />
         <StatTile label="Questions" value={data ? data.counters.questions : null} />
         <StatTile label="Subjects" value={data ? data.counters.subjects : null} />
-      </div>
+      </StatGrid>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="min-w-48 flex-1">
           <Input type="search" aria-label="Search banks" placeholder="Search banks…" value={q} maxLength={200} onChange={(e) => setQ(e.target.value)} />
@@ -93,7 +93,7 @@ export function BankList() {
               type="button"
               aria-pressed={view === v}
               onClick={() => choose(v)}
-              className={cn("h-9 px-3 text-sm focus-visible:shadow-focus focus-visible:outline-none", view === v ? "bg-brand-subtle font-medium text-brand-on-subtle" : "text-fg-secondary hover:bg-surface-hover")}
+              className={cn("h-touch px-3 text-sm md:h-9 focus-visible:shadow-focus focus-visible:outline-none", view === v ? "bg-brand-subtle font-medium text-brand-on-subtle" : "text-fg-secondary hover:bg-surface-hover")}
             >
               {v === "grid" ? "Grid" : "List"}
             </button>
@@ -134,7 +134,7 @@ export function BankList() {
                     </Badge>
                   ))}
                 </div>
-                <Link href={href(b)} className="mt-auto pt-3 text-sm font-medium text-fg-link underline" aria-label={`Open bank ${b.name}`}>
+                <Link href={href(b)} className="mt-auto inline-flex min-h-touch items-end pt-3 text-sm font-medium text-fg-link underline md:min-h-0" aria-label={`Open bank ${b.name}`}>
                   Open bank →
                 </Link>
               </li>

@@ -6,15 +6,14 @@ from __future__ import annotations
 
 from celery import shared_task
 
-from app.core.db import get_sessionmaker, system_context
+from app.core.db import job_session
 from app.core.jobs import register_periodic, run_async
 
 
 async def scan_sweep() -> int:
     from app.modules.media.service import sweep_pending_scans
 
-    async with get_sessionmaker()() as session, session.begin():
-        await system_context(session, "media.scan_sweep")
+    async with job_session("media.scan_sweep") as session:  # NO_POSTGRES on the Firebase stack
         return await sweep_pending_scans(session)
 
 

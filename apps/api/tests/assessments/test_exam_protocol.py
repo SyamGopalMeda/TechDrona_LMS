@@ -147,7 +147,11 @@ async def test_events_counted_flagged_and_idempotent(client, world: World, db) -
     st = (await client.get(f"{API}/attempts/{aid}/state", headers=student.headers)).json()
     assert st["integrity"]["counts"]["window_blur"] == 3
     # evidence, not a verdict: submit works and is graded normally, the notice is shown
-    r = await client.post(f"{API}/attempts/{aid}/submit", json={}, headers={**student.headers, **idem()})
+    r = await client.post(
+        f"{API}/attempts/{aid}/submit",
+        json={"confirm_unanswered": 999},
+        headers={**student.headers, **idem()},
+    )
     assert r.status_code == 200 and r.json()["integrity_flagged"] is True
     assert r.json()["status"] == "graded"
     # staff review queue (ASM-19) lists it
@@ -225,6 +229,7 @@ async def test_evaluation_ai_suggestion_then_human_finalize(client, world: World
     r = await client.post(
         f"{API}/attempts/{aid}/submit",
         json={
+            "confirm_unanswered": 999,
             "final_items": [
                 {
                     "question_version_id": str(essay.qv_id),
@@ -232,7 +237,7 @@ async def test_evaluation_ai_suggestion_then_human_finalize(client, world: World
                     "client_seq": 1,
                 },
                 item(mcq, 2),
-            ]
+            ],
         },
         headers={**student.headers, **idem()},
     )
@@ -294,9 +299,10 @@ async def test_ai_grading_error_maps_to_problem(client, world: World, db, monkey
     await client.post(
         f"{API}/attempts/{aid}/submit",
         json={
+            "confirm_unanswered": 999,
             "final_items": [
                 {"question_version_id": str(essay.qv_id), "response": {"text": "x"}, "client_seq": 1}
-            ]
+            ],
         },
         headers={**student.headers, **idem()},
     )
@@ -359,12 +365,47 @@ async def test_essay_max_words_setting_enforced_on_autosave(client, world: World
         return await client.post(f"{API}/attempts/{aid}/autosave", json=body, headers=student.headers)
 
     r = await save("far too many words here", 1)
-    assert r.status_code == 422 and r.json()["code"] == "validation_failed"
-    assert r.json()["errors"][0] == {
-        "field": "response.text",
-        "code": "too_many_words",
-        "message": "At most 3 words",
-    }
+    # An invalid answer no longer blocks the whole autosave batch: it comes back in `rejected`.
+    assert r.status_code == 200, r.text
+    rej = r.json()["rejected"]
+    assert len(rej) == 1 and rej[0]["question_version_id"] == str(q.qv_id)
+    assert rej[0]["field"] == "response.text" and rej[0]["code"] == "too_many_words"
+    assert rej[0]["message"] == "At most 3 words"
     assert (await save("just three words", 2)).status_code == 200
-    r = await client.post(f"{API}/attempts/{aid}/submit", json={}, headers={**student.headers, **idem()})
+    r = await client.post(
+        f"{API}/attempts/{aid}/submit",
+        json={"confirm_unanswered": 999},
+        headers={**student.headers, **idem()},
+    )
     assert r.json()["status"] == "awaiting_manual"  # essays stay pending human/AI grading
+
+
+async def test_evaluation_open_before_first_attempt_for_assigned_batch_staff(
+    client, world: World, db
+) -> None:
+    """A platform test assigned to batch A: its batch-scoped trainer and evaluator can open the
+    (still empty) evaluation instead of a 403; staff of another batch still cannot."""
+    test_id, _, _ = await essay_test(db, world)
+    for who in ("trainer_a", "evaluator_a"):
+        r = await client.get(f"{API}/tests/{test_id}/evaluation", headers=world.personas[who].headers)
+        assert r.status_code == 200, (who, r.text)
+        body = r.json()
+        assert body["items"] == [] and body["totals"]["attempts"] == 0
+    r = await client.post(
+        f"{API}/tests/{test_id}/evaluation/ai-grade", json={}, headers=world.personas["trainer_a"].headers
+    )
+    assert r.status_code == 200 and r.json()["graded"] == 0, r.text
+    r = await client.get(f"{API}/tests/{test_id}/evaluation", headers=world.personas["trainer_b"].headers)
+    assert r.status_code == 403
+    r = await client.get(f"{API}/tests/{test_id}/evaluation", headers=world.personas["student"].headers)
+    assert r.status_code in (403, 404)
+
+
+async def test_evaluator_lists_assignments_it_releases(client, world: World, db) -> None:
+    """Evaluators release results (``test.results.release``) but cannot assign tests; the report
+    page still needs the batch's assignments, so they are listed for them (not for batch B)."""
+    test_id, assignment, _ = await essay_test(db, world)
+    r = await client.get(f"{API}/tests/{test_id}/assignments", headers=world.personas["evaluator_a"].headers)
+    assert r.status_code == 200 and [a["id"] for a in r.json()["items"]] == [str(assignment)]
+    r = await client.get(f"{API}/tests/{test_id}/assignments", headers=world.personas["trainer_b"].headers)
+    assert r.status_code == 200 and r.json()["items"] == []

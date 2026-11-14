@@ -6,6 +6,7 @@ import { ApiError } from "@/lib/api/errors";
 import { cn } from "@/lib/ui/cn";
 import type { AITutorMode, AITutorReply } from "../types";
 import { AIErrorState, aiProblemCode } from "./AIErrorState";
+import { AiNotIntegratedNotice } from "@/features/studio/components/NotIntegrated";
 
 export interface AITutorPanelProps {
   /** Tutor interactions already used for this activity. */
@@ -128,6 +129,7 @@ export function AITutorPanel({ used: usedProp, limit: limitProp, disabled = fals
           {limit === null ? "Unlimited" : `${Math.min(used, limit)} of ${limit} used`}
         </p>
       </header>
+      <AiNotIntegratedNotice className="mt-2" />
       <p className="mt-1 text-sm text-fg-secondary">Stuck? Ask me to guide you or explain a concept — I won&apos;t hand over the full answer.</p>
 
       {history.length ? (

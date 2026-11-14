@@ -4,9 +4,9 @@ import type { ReactNode } from "react";
 import {
   Badge,
   ErrorState,
-  Skeleton,
+  LoadingBlock as KitLoadingBlock,
+  StatusBadge as KitStatusBadge,
   useToast,
-  type BadgeTone,
 } from "@/components/ui";
 import { ApiError } from "@/lib/api/errors";
 import type { ApiState } from "./use-api";
@@ -104,6 +104,7 @@ export function NotAvailable({
 
 /* ------------------------------------------------------------------ boundaries */
 
+/** The kit LoadingBlock (one polite status + skeleton rows), kept under the trainer signature. */
 export function LoadingBlock({
   rows = 3,
   label = "Loading",
@@ -111,13 +112,7 @@ export function LoadingBlock({
   rows?: number;
   label?: string;
 }) {
-  return (
-    <div aria-busy="true" aria-label={label} className="space-y-2">
-      {Array.from({ length: rows }, (_, i) => (
-        <Skeleton key={i} className="h-6 w-full" />
-      ))}
-    </div>
-  );
+  return <KitLoadingBlock label={label} rows={rows} size="row" />;
 }
 
 /** L / X / k-floor states around one resource, then renders children with the data. */
@@ -185,50 +180,15 @@ export function fieldErrorsOf(err: unknown): Record<string, string> {
 
 /* ---------------------------------------------------------------------- badges */
 
-const STATUS: Record<string, { tone: BadgeTone; label: string }> = {
-  draft: { tone: "neutral", label: "Draft" },
-  in_review: { tone: "info", label: "In review" },
-  changes_requested: { tone: "warning", label: "Changes requested" },
-  approved: { tone: "success", label: "Approved" },
-  published: { tone: "success", label: "Published" },
-  archived: { tone: "neutral", label: "Archived" },
-  retired: { tone: "neutral", label: "Retired" },
-  active: { tone: "success", label: "Active" },
-  planned: { tone: "info", label: "Planned" },
-  completed: { tone: "neutral", label: "Completed" },
-  invited: { tone: "info", label: "Invited" },
-  removed: { tone: "neutral", label: "Removed" },
-  graduated: { tone: "neutral", label: "Graduated" },
-  sent: { tone: "info", label: "Sent" },
-  opened: { tone: "info", label: "Opened" },
-  accepted: { tone: "success", label: "Accepted" },
-  expired: { tone: "neutral", label: "Expired" },
-  bounced: { tone: "warning", label: "Bounced" },
-  revoked: { tone: "neutral", label: "Revoked" },
-  proposed: { tone: "warning", label: "Pending verification" },
-  verified: { tone: "success", label: "Verified" },
-  rejected: { tone: "danger", label: "Rejected" },
-  submitted: { tone: "info", label: "Submitted" },
-  graded: { tone: "success", label: "Graded" },
-  returned: { tone: "warning", label: "Returned" },
-  late: { tone: "warning", label: "Late" },
-  in_progress: { tone: "info", label: "In progress" },
-  auto_submitted: { tone: "info", label: "Auto-submitted" },
-  invalidated: { tone: "danger", label: "Invalidated" },
-  scheduled: { tone: "info", label: "Scheduled" },
-  confirmed: { tone: "info", label: "Confirmed" },
-  no_show_student: { tone: "warning", label: "Student no-show" },
-  no_show_mentor: { tone: "warning", label: "Mentor no-show" },
-  cancelled: { tone: "neutral", label: "Cancelled" },
+/* Tones come from the kit vocabulary (one colour per status across portals); only wording that
+   is specific to trainer screens is overridden here. */
+const TRAINER_LABELS: Record<string, string> = {
+  proposed: "Pending verification",
 };
 
 export function StatusBadge({ status }: { status: string | null | undefined }) {
   if (!status) return <Badge>Unknown</Badge>;
-  const s = STATUS[status] ?? {
-    tone: "neutral" as const,
-    label: status.replace(/_/g, " "),
-  };
-  return <Badge tone={s.tone}>{s.label}</Badge>;
+  return <KitStatusBadge status={status} label={TRAINER_LABELS[status]} />;
 }
 
 /* -------------------------------------------------------------------- bar list */
@@ -321,13 +281,5 @@ export function safeExternalUrl(u: string | null | undefined): string | null {
 
 /* -------------------------------------------------------------------- textarea */
 
-export function TextArea(props: import("react").ComponentProps<"textarea">) {
-  const { className, ...rest } = props;
-  return (
-    <textarea
-      rows={4}
-      {...rest}
-      className={`w-full rounded-md border border-line-control bg-surface p-2 text-sm text-fg focus-visible:shadow-focus focus-visible:outline-none ${className ?? ""}`}
-    />
-  );
-}
+/** The kit Textarea, kept under this name for existing importers. */
+export { TextArea } from "@/components/ui";

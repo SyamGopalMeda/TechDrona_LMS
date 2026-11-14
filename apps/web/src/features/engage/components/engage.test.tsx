@@ -12,7 +12,7 @@ import { PresenterView } from "./Presenter";
 
 const push = vi.fn();
 const replace = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace }), usePathname: () => "/trainer/engage" }));
 
 let restore: (() => void) | undefined;
 afterEach(() => {
@@ -77,7 +77,18 @@ describe("EngageActivities (TRN-020)", () => {
     expect(screen.getByText("Quiz · 5 questions")).toBeInTheDocument();
     expect(screen.getByText("Public · Named · Fastest first")).toBeInTheDocument();
     expect(screen.getByText("Live")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open control room" })).toHaveAttribute("href", "/trainer/engage/a1");
+    expect(screen.getByRole("link", { name: "Open control room for Arrays quiz" })).toHaveAttribute("href", "/trainer/engage/a1");
+    // The card title also opens the control room.
+    expect(screen.getByRole("link", { name: "Arrays quiz" })).toHaveAttribute("href", "/trainer/engage/a1");
+  });
+
+  it("keeps per-card actions secondary (the header's New is the one primary)", async () => {
+    const api = mockApi({ "GET engage/activities": { body: { data: [activity], counts: { total: 1 } } } });
+    restore = api.restore;
+    renderWithProviders(<EngageActivities />);
+    const open = await screen.findByRole("link", { name: "Open control room for Arrays quiz" });
+    expect(open.className.split(" ")).not.toContain("bg-brand");
+    expect(screen.getByRole("link", { name: "Edit Arrays quiz" }).className.split(" ")).not.toContain("bg-brand");
   });
 
   it("points links at a custom scope base", async () => {
@@ -88,7 +99,7 @@ describe("EngageActivities (TRN-020)", () => {
         <EngageActivities />
       </EngageScopeProvider>,
     );
-    expect(await screen.findByRole("link", { name: "Open control room" })).toHaveAttribute("href", "/evaluator/engage/a1");
+    expect(await screen.findByRole("link", { name: "Open control room for Arrays quiz" })).toHaveAttribute("href", "/evaluator/engage/a1");
     expect(screen.getByRole("link", { name: "Edit Arrays quiz" })).toHaveAttribute("href", "/evaluator/engage/a1/edit");
   });
 
@@ -115,10 +126,10 @@ describe("EngageActivities (TRN-020)", () => {
     restore = api.restore;
     renderWithProviders(<EngageActivities />);
     await userEvent.click(await screen.findByRole("button", { name: "Delete Arrays quiz" }));
-    expect(screen.getByText('Delete "Arrays quiz"? This cannot be undone.')).toBeInTheDocument();
+    expect(screen.getByText(/Delete "Arrays quiz"\?.*This cannot be undone\./)).toBeInTheDocument();
     expect(api.calls.some((c) => c.method === "DELETE")).toBe(false);
     const dialog = screen.getByRole("dialog", { hidden: true });
-    await userEvent.click(within(dialog).getByRole("button", { name: "Delete", hidden: true }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete activity", hidden: true }));
     await waitFor(() => expect(api.calls.some((c) => c.method === "DELETE" && c.path === "engage/activities/a1")).toBe(true));
   });
 

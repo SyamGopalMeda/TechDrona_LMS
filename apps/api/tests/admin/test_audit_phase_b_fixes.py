@@ -9,6 +9,7 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
+import pytest
 from sqlalchemy import select, update
 
 from app.core.db import system_context
@@ -81,23 +82,25 @@ async def test_adm19_grantee_cannot_approve_own_privileged_grant(client, db) -> 
     assert await _status(db, aid) == "pending"
 
 
-async def test_adm20_admin_cannot_self_grant_trainer(client, db) -> None:
+async def test_adm20_admin_self_grants_only_trainer_of_a_batch(client, db) -> None:
+    """ADM-20 still blocks self-grants, except the owner's "Be a Teacher" case (2026-11-12): an
+    Admin may make themselves the trainer of a batch (see rbac.router ``_self_grant_allowed``)."""
     org = company_org()
     sa = await staff(db, "super_admin")
     batch = await make_batch(db, org, sa.id)
     b = await staff_browser(client, sa, ip="198.18.3.5")
-    r = await b.post(
-        "/rbac/grants",
-        {
-            "user_id": str(sa.id),
-            "role_key": "trainer",
-            "scope_type": "batch",
-            "scope_id": str(batch),
-            "reason": "self",
-        },
-        headers=idem(),
-    )
-    assert r.status_code == 403 and r.json()["code"] == "sod_violation", r.text
+    base = {"user_id": str(sa.id), "scope_type": "batch", "scope_id": str(batch), "reason": "self"}
+    for body in (
+        {**base, "role_key": "evaluator"},
+        {**base, "role_key": "trainer", "scope_type": "course", "scope_id": str(uuid.uuid4())},
+        {**base, "role_key": "content_manager", "scope_type": "platform", "scope_id": None},
+        {**base, "role_key": "evaluator", "scope_type": "platform", "scope_id": None},
+    ):
+        r = await b.post("/rbac/grants", body, headers=idem())
+        assert r.status_code == 403 and r.json()["code"] == "sod_violation", (body, r.text)
+    r = await b.post("/rbac/grants", {**base, "role_key": "trainer"}, headers=idem())
+    assert r.status_code == 201, r.text
+    assert await _has_role(db, sa.id, "trainer")
 
 
 async def _expire(db: Any, aid: str) -> None:
@@ -152,6 +155,7 @@ async def test_adm22_dashboard_counts_only_actionable_approvals(client, db) -> N
     assert await pending(b2) == c2 + 1
 
 
+@pytest.mark.usefixtures("admin_backend")
 async def test_adm17_zero_percent_rollout_is_off_and_allowlists_apply(client, db) -> None:
     sa = await staff(db, "super_admin")
     bsa = await staff_browser(client, sa, ip="198.18.3.10")

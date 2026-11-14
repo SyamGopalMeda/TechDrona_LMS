@@ -10,8 +10,13 @@ from app.core.jobs import register_periodic, run_async
 
 
 async def break_glass_expiry() -> int:
+    from app.core.runtime import postgres_enabled
     from app.modules.admin.accounts import expire_break_glass
 
+    if not postgres_enabled():  # Firebase stack: the job runs on Firestore only
+        from app.core.db import NO_POSTGRES
+
+        return await expire_break_glass(NO_POSTGRES)
     async with get_sessionmaker()() as session, session.begin():
         await system_context(session, "admin.break_glass_expiry")
         return await expire_break_glass(session)

@@ -2,11 +2,16 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Badge, Button, Card, ErrorState, PageHeader, useToast } from "@/components/ui";
+import { Button, Card, ErrorState, PageHeader, SectionHeader, StatusBadge, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
+import { isApiError } from "@/lib/api/errors";
+import { CourseAccess } from "@/features/catalog/components/CourseAccess";
+import { accessOptionsForCourse } from "@/features/catalog/lib/products";
+import type { CourseDetailDto, Paged, ProductDto } from "@/features/catalog/lib/types";
 import { formatDate, formatDuration, humanize } from "@/features/catalog/lib/format";
 import { LinkButton, ProgressBar } from "@/features/catalog/components/LinkButton";
 import { lessonHref, useEnrolledCourse } from "../lib/use-course";
+import { useResource } from "../lib/use-resource";
 import type { CourseLessonRef } from "../lib/types";
 import { ContentErrorState, LoadingBlock } from "./States";
 
@@ -24,6 +29,10 @@ export function CourseOverview({ slug }: { slug: string }) {
   const [migrateError, setMigrateError] = useState<unknown>(null);
 
   if (catalog.error) return <ContentErrorState error={catalog.error} onRetry={catalog.reload} />;
+  // LRN-04 answers 404 until the learner is enrolled: show the course and how to get access
+  // (the "Explore courses" catalogue links here) instead of "We couldn't find this".
+  if (course.error && catalog.data && isApiError(course.error) && course.error.status === 404)
+    return <NotEnrolledCourse course={catalog.data} onEnrolled={() => void course.reload()} />;
   if (course.error) return <ContentErrorState error={course.error} onRetry={course.reload} />;
   const c = course.data;
   if (!c) return <LoadingBlock label="Loading course" rows={4} />;
@@ -50,13 +59,14 @@ export function CourseOverview({ slug }: { slug: string }) {
   return (
     <div className="space-y-6">
       <PageHeader
+        breadcrumbs={[{ label: "My learning", href: "/app/learning" }, { label: c.title }]}
         title={c.title}
         description={c.enrolment.expires_at ? `Access until ${formatDate(c.enrolment.expires_at)}` : undefined}
         actions={next ? <LinkButton href={lessonHref(slug, next)}>{started ? "Resume" : "Start course"}</LinkButton> : null}
       />
       <Card>
         <ProgressBar value={c.enrolment.progress_pct} label="Course progress" />
-        <p className="mt-2 text-xs text-fg-muted">Progress counts lessons you’ve completed: videos watched to 90% and readings finished, as recorded by the server.</p>
+        <p className="mt-2 text-xs text-fg-muted">Progress counts lessons you’ve completed: videos watched to 90% and readings finished.</p>
       </Card>
 
       {c.version_migration ? (
@@ -73,7 +83,7 @@ export function CourseOverview({ slug }: { slug: string }) {
         <Card title="Certificate">
           {cert.status === "issued" ? (
             <p className="text-sm text-fg-secondary">
-              <Badge tone="success">Issued</Badge> Download it from{" "}
+              <StatusBadge status="verified" label="Issued" /> Download it from{" "}
               <Link href="/app/certificates" className="font-medium text-fg-link">
                 Certificates
               </Link>
@@ -81,7 +91,7 @@ export function CourseOverview({ slug }: { slug: string }) {
             </p>
           ) : cert.status === "revoked" ? (
             <p className="text-sm text-fg-secondary">
-              <Badge tone="danger">Revoked</Badge> This certificate is no longer valid.
+              <StatusBadge status="revoked" /> This certificate is no longer valid.
             </p>
           ) : (
             <p className="text-sm text-fg-secondary">{("reason" in cert && cert.reason) || (cert.status === "pending" ? "You've met the requirements; your certificate is being issued." : "Complete the course requirements to earn a certificate.")}</p>
@@ -90,18 +100,16 @@ export function CourseOverview({ slug }: { slug: string }) {
       ) : null}
 
       <section aria-labelledby="contents-h">
-        <h2 id="contents-h" className="mb-3 font-display text-lg font-semibold text-fg">
-          Contents
-        </h2>
+        <SectionHeader id="contents-h" title="Contents" />
         <ol className="space-y-4">
           {c.modules.map((m) => (
             <li key={m.id} className="rounded-xl border border-line bg-surface">
-              <h3 className="border-b border-line px-4 py-3 font-medium text-fg">{m.title}</h3>
+              <h3 className="border-b border-line px-4 py-3 font-display font-bold text-fg-heading">{m.title}</h3>
               <ul className="divide-y divide-line">
                 {m.lessons.map((l) => (
-                  <li key={l.id} className="flex items-center gap-3 px-4 py-2 text-sm">
+                  <li key={l.id} className="flex items-center gap-3 px-4 py-1 text-sm">
                     <LessonStatusIcon lesson={l} />
-                    <Link href={lessonHref(slug, l.id)} className="flex-1 text-fg hover:underline focus-visible:shadow-focus focus-visible:outline-none">
+                    <Link href={lessonHref(slug, l.id)} className="flex min-h-touch flex-1 items-center text-fg hover:text-brand hover:underline focus-visible:shadow-focus focus-visible:outline-none">
                       {l.title}
                     </Link>
                     <span className="text-xs text-fg-muted">{[humanize(l.lesson_type), formatDuration(l.duration_seconds ? l.duration_seconds / 60 : l.est_reading_minutes)].filter(Boolean).join(" · ")}</span>
@@ -112,6 +120,60 @@ export function CourseOverview({ slug }: { slug: string }) {
           ))}
         </ol>
       </section>
+    </div>
+  );
+}
+
+/** STU-005 before enrolment: CAT-02 course info, free-preview lessons and the access options. */
+export function NotEnrolledCourse({ course, onEnrolled }: { course: CourseDetailDto; onEnrolled: () => void }) {
+  const paid = course.price_type !== "free";
+  const products = useResource<Paged<ProductDto>>(paid ? "commerce/products" : null);
+  const options = paid && products.data ? accessOptionsForCourse(products.data.data, course.id) : [];
+  const refundRule = products.data?.data.find((p) => p.refund_rule)?.refund_rule ?? course.refund_rule_text ?? null;
+  const preview = new Set(course.free_preview_lesson_ids ?? []);
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        breadcrumbs={[{ label: "Explore courses", href: "/app/courses" }, { label: course.title }]}
+        title={course.title}
+        description={course.summary ?? undefined}
+      />
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <section aria-labelledby="syllabus-h">
+          <SectionHeader id="syllabus-h" title="What's inside" />
+          <ol className="space-y-4">
+            {(course.syllabus ?? []).map((m) => (
+              <li key={`${m.position}-${m.title}`} className="rounded-xl border border-line bg-surface">
+                <h3 className="border-b border-line px-4 py-3 font-display font-bold text-fg-heading">{m.title}</h3>
+                <ul className="divide-y divide-line">
+                  {m.lessons.map((l) => (
+                    <li key={l.id} className="flex min-h-touch items-center gap-3 px-4 py-1 text-sm">
+                      {l.is_free_preview || preview.has(l.id) ? (
+                        <Link href={lessonHref(course.slug, l.id)} className="flex-1 text-fg hover:text-brand hover:underline focus-visible:shadow-focus focus-visible:outline-none">
+                          {l.title} <span className="text-xs font-medium text-success-fg">· Free preview</span>
+                        </Link>
+                      ) : (
+                        <span className="flex-1 text-fg">{l.title}</span>
+                      )}
+                      <span className="text-xs text-fg-muted">{[humanize(l.lesson_type), formatDuration(l.duration_seconds ? l.duration_seconds / 60 : l.est_reading_minutes)].filter(Boolean).join(" · ")}</span>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ol>
+        </section>
+        <Card title={paid ? "Get access" : "Free course"}>
+          <p className="mb-3 text-sm text-fg-secondary">
+            {paid ? "You're not enrolled in this course yet. Choose an option below, or start it if your plan or batch already includes it." : "You're not enrolled yet. Enrol for free to start learning and track your progress."}
+          </p>
+          {paid && products.loading && !products.data ? (
+            <LoadingBlock label="Loading prices" rows={1} />
+          ) : (
+            <CourseAccess course={{ ...course, refund_rule: refundRule, access_options: options }} signedIn onEnrolled={onEnrolled} />
+          )}
+        </Card>
+      </div>
     </div>
   );
 }

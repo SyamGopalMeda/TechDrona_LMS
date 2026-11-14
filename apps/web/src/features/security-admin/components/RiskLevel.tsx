@@ -16,6 +16,21 @@ export const STAFF_LEVEL_LABEL: Record<RiskLevelNumber, string> = {
   4: "L4 · Suspended",
 };
 
+/** Level in plain words for dashboards and summaries ("Temporarily restricted (L3)"). */
+export const LEVEL_NAME: Record<RiskLevelNumber, string> = {
+  0: "No restriction",
+  1: "Notice",
+  2: "Verification required",
+  3: "Temporarily restricted",
+  4: "Suspended",
+};
+
+/** "Temporarily restricted (L3)"; unknown keys are returned as given. */
+export function levelText(level: unknown): string {
+  const lv = toLevel(level);
+  return lv === null ? String(level ?? "—") : `${LEVEL_NAME[lv]} (L${lv})`;
+}
+
 const TOKENS: Record<RiskLevelNumber, { pill: string; pip: string }> = {
   0: { pill: "bg-risk-l0-subtle text-risk-l0-fg border-risk-l0-border", pip: "bg-risk-l0-border" },
   1: { pill: "bg-risk-l1-subtle text-risk-l1-fg border-risk-l1-border", pip: "bg-risk-l1-border" },

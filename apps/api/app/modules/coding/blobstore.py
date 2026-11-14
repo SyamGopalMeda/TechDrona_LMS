@@ -13,6 +13,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.firestore.backend import uses_firestore
 from app.core.ids import uuid7
 from app.modules.coding.models import CodingTestCaseBlob
 
@@ -27,6 +28,18 @@ async def put_blob(
     session: AsyncSession, *, problem_id: uuid.UUID, organization_id: uuid.UUID | None, ciphertext: bytes
 ) -> str:
     blob_id = uuid7()
+    if uses_firestore("coding"):
+        from app.modules.coding.repo_firestore import blob_repo
+
+        await blob_repo(write=True).put(
+            CodingTestCaseBlob(
+                id=blob_id,
+                coding_problem_id=problem_id,
+                organization_id=organization_id,
+                ciphertext=ciphertext,
+            )
+        )
+        return f"{PREFIX}{blob_id}"
     session.add(
         CodingTestCaseBlob(
             id=blob_id, coding_problem_id=problem_id, organization_id=organization_id, ciphertext=ciphertext
@@ -43,6 +56,13 @@ async def get_blob(session: AsyncSession, key: str) -> bytes:
         blob_id = uuid.UUID(key[len(PREFIX) :])
     except ValueError as e:
         raise BlobNotFound("malformed blob key") from e
+    if uses_firestore("coding"):
+        from app.modules.coding.repo_firestore import blob_repo
+
+        fdata = await blob_repo(write=False).ciphertext(blob_id)
+        if fdata is None:
+            raise BlobNotFound("blob not found")
+        return fdata
     data = (
         await session.execute(select(CodingTestCaseBlob.ciphertext).where(CodingTestCaseBlob.id == blob_id))
     ).scalar_one_or_none()

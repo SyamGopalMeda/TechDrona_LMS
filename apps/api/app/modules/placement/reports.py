@@ -31,10 +31,11 @@ from app.core.pagination import DEFAULT_LIMIT, MAX_LIMIT, decode_cursor, page_me
 from app.core.principal import Principal
 from app.core.routing import authenticated_router
 from app.core.time import to_rfc3339, utcnow
-from app.modules.placement.models import Question, QuestionReport, QuestionVersion
+from app.modules.placement.models import Question, QuestionReport
 from app.modules.placement.policies import can_in_org, has_permission
+from app.modules.placement.rls import bind_principal, no_postgres
 
-reports = authenticated_router(tags=["placement"])
+reports = authenticated_router(tags=["placement"], dependencies=[Depends(bind_principal)])
 
 Category = Literal["wrong_answer", "wrong_explanation", "typo", "unclear", "other"]
 Resolution = Literal["fixed", "no_change", "duplicate", "invalid"]
@@ -51,6 +52,12 @@ class ResolveIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     resolution: Resolution
     note: str | None = Field(default=None, max_length=1000)
+
+
+def _nopg(session: Any) -> Any:
+    """The request session, or ``None`` without Postgres (``db.NO_POSTGRES`` is falsy): core
+    ``idempotent`` then keeps no Postgres savepoint (it checks ``session is not None``)."""
+    return session or None
 
 
 def report_out(r: QuestionReport) -> dict[str, Any]:
@@ -71,20 +78,64 @@ def report_out(r: QuestionReport) -> dict[str, Any]:
     }
 
 
+def _fs() -> bool:
+    from app.modules.placement.bank import _fs as bank_fs
+
+    return bank_fs()
+
+
+async def _repo(session: AsyncSession) -> Any:
+    from app.modules.placement.bank import _repo as bank_repo
+
+    return await bank_repo(session)
+
+
+async def _fs_queue(
+    session: AsyncSession,
+    allowed: Callable[[uuid.UUID | None], Awaitable[bool]],
+    status: str | None,
+    cursor: str | None,
+    limit: int,
+) -> dict[str, Any]:
+    """``plc_34_report_queue`` on Firestore: same filters, id-descending keyset, same cursor."""
+    rows = await (await _repo(session)).visible_reports()
+    ok_orgs = [o for o in dict.fromkeys(r.organization_id for r in rows) if await allowed(o)]
+    if not ok_orgs:
+        return {"data": [], "meta": page_meta(None, limit), "open_count": 0}
+    scoped = [r for r in rows if r.organization_id in ok_orgs]
+    picked = [r for r in scoped if status is None or r.status == status]
+    if cursor:
+        try:
+            after = uuid.UUID(str(decode_cursor(cursor)["id"]))
+        except (KeyError, ValueError) as e:
+            raise ProblemError("invalid_cursor") from e
+        picked = [r for r in picked if r.id < after]
+    picked.sort(key=lambda r: r.id, reverse=True)
+    more = len(picked) > limit
+    picked = picked[:limit]
+    return {
+        "data": [report_out(r) for r in picked],
+        "meta": page_meta({"id": str(picked[-1].id)} if more and picked else None, limit),
+        "open_count": sum(1 for r in scoped if r.status == "open"),
+    }
+
+
 async def _resolve_target(
     session: AsyncSession, path_id: uuid.UUID, version_id: uuid.UUID | None
 ) -> tuple[Question, uuid.UUID | None]:
     """Question visible to the caller (RLS) that has been published at least once."""
-    q = await session.get(Question, path_id)
+    from app.modules.placement import public
+
+    q = await public.get_question(session, path_id)
     if q is None:
-        qv = await session.get(QuestionVersion, path_id)
+        qv = await public.get_version(session, path_id)
         if qv is not None:
-            q = await session.get(Question, qv.question_id)
+            q = await public.get_question(session, qv.question_id)
             version_id = version_id or qv.id
     if q is None or q.deleted_at is not None or q.current_version_id is None:
         raise ProblemError("not_found")
     if version_id is not None:
-        qv = await session.get(QuestionVersion, version_id)
+        qv = await public.get_version(session, version_id)
         if qv is None or qv.question_id != q.id:
             raise ProblemError("not_found")
     return q, version_id
@@ -107,6 +158,26 @@ async def plc_33_report_question(
         )
 
     async def op() -> IdemResult:
+        if _fs():
+            now = utcnow()
+            fr = QuestionReport(
+                id=uuid7(),
+                question_id=q.id,
+                question_version_id=version_id,
+                organization_id=q.organization_id,
+                user_id=principal.user_id,
+                category=body.category,
+                message=message,
+                status="open",
+                resolution=None,
+                resolution_note=None,
+                resolved_by=None,
+                resolved_at=None,
+                created_at=now,
+                updated_at=now,
+            )
+            await (await _repo(session)).create_report(principal.user_id, fr)
+            return IdemResult(body=report_out(fr), status=201, resource_id=fr.id)
         open_dup = (
             await session.execute(
                 select(QuestionReport.id).where(
@@ -139,7 +210,7 @@ async def plc_33_report_question(
         await session.flush()
         return IdemResult(body=report_out(r), status=201, resource_id=r.id)
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=False)
 
 
 async def _edits_anything(request: Request, principal: Principal) -> bool:
@@ -178,6 +249,8 @@ async def plc_34_report_queue(
     if not await _edits_anything(request, principal):
         raise ProblemError("permission_denied", permission="question.edit")
     allowed = _allowed_cache(request, session, principal)
+    if _fs():
+        return await _fs_queue(session, allowed, status, cursor, limit)
     # RLS U already limits rows to the caller's organizations (+ everything for platform staff)
     # and their own reports; keep only scopes where the caller holds question.edit.
     orgs = list((await session.execute(select(QuestionReport.organization_id).distinct())).scalars())
@@ -222,7 +295,11 @@ async def plc_35_resolve_report(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> JSONResponse:
-    r = await session.get(QuestionReport, report_id)
+    r = (
+        await (await _repo(session)).get_report(report_id)
+        if _fs()
+        else await session.get(QuestionReport, report_id)
+    )
     if r is None:
         raise ProblemError("not_found")
     if not await can_in_org(request, session, principal, "question.edit", r.organization_id):
@@ -232,21 +309,33 @@ async def plc_35_resolve_report(
         raise ProblemError("not_found")
 
     async def op() -> IdemResult:
-        row = (
-            await session.execute(
-                select(QuestionReport).where(QuestionReport.id == report_id).with_for_update()
-            )
-        ).scalar_one()
-        if row.status != "open":
-            raise ProblemError("invalid_state_transition", detail="This report is already resolved.")
         now = utcnow()
-        row.status = "resolved"
-        row.resolution = body.resolution
-        row.resolution_note = (body.note or "").strip() or None
-        row.resolved_by = principal.user_id
-        row.resolved_at = now
-        row.updated_at = now
-        await session.flush()
+        if _fs():
+            row = await (await _repo(session)).resolve_report(
+                report_id,
+                {
+                    "status": "resolved",
+                    "resolution": body.resolution,
+                    "resolution_note": (body.note or "").strip() or None,
+                    "resolved_by": principal.user_id,
+                    "resolved_at": now,
+                },
+            )
+        else:
+            row = (
+                await session.execute(
+                    select(QuestionReport).where(QuestionReport.id == report_id).with_for_update()
+                )
+            ).scalar_one()
+            if row.status != "open":
+                raise ProblemError("invalid_state_transition", detail="This report is already resolved.")
+            row.status = "resolved"
+            row.resolution = body.resolution
+            row.resolution_note = (body.note or "").strip() or None
+            row.resolved_by = principal.user_id
+            row.resolved_at = now
+            row.updated_at = now
+            await session.flush()
         await audit(
             session,
             principal,
@@ -259,12 +348,29 @@ async def plc_35_resolve_report(
         await _notify_reporter(session, principal, row)
         return IdemResult(body=report_out(row), status=200, resource_id=row.id)
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
+    return await idempotent(request, _nopg(session), user_id=principal.user_id, operation=op, required=False)
 
 
 async def _notify_reporter(session: AsyncSession, principal: Principal, r: QuestionReport) -> None:
     from app.modules.notifications.service import notify
 
+    if no_postgres(session):  # no Postgres: notifications writes through its own Firestore repository
+        await notify(
+            session,
+            r.user_id,
+            "placement.question_report_resolved",
+            category="learning",
+            data={
+                "report_id": str(r.id),
+                "question_id": str(r.question_id),
+                "resolution": r.resolution,
+                "note": r.resolution_note,
+            },
+            channels=("in_app",),
+            organization_id=r.organization_id,
+            dedupe_key=f"question_report_resolved:{r.id}",
+        )
+        return
     await system_context(session, "placement.question_report_resolved")  # write another user's inbox
     try:
         await notify(

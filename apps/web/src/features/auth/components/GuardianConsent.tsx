@@ -8,6 +8,7 @@ import { formatCountdown, retryAfterSeconds, toFormError, type FormErrorInfo } f
 import { PURPOSE_LABELS } from "../lib/consents";
 import type { GuardianConsentView, GuardianDecisionBody, OtpSentResponse } from "../lib/types";
 import { FormAlert, Notice, OtpInput, useCountdown } from "./shared";
+import { ServiceNotIntegrated } from "@/components/shell/Integrations";
 
 export type { GuardianConsentView } from "../lib/types";
 
@@ -167,6 +168,7 @@ export function GuardianConsent({ token }: { token: string }) {
         <Button variant={sentTo ? "ghost" : "secondary"} loading={busy === "send"} disabled={resendIn > 0 || busy !== null} onClick={send}>
           {sentTo ? (resendIn > 0 ? `Resend code in ${formatCountdown(resendIn)}` : "Resend code") : "Send code"}
         </Button>
+        <ServiceNotIntegrated service="email" />
         {sentTo ? (
           <>
             <p role="status" className="text-sm text-fg-secondary">

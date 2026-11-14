@@ -55,6 +55,7 @@ async def test_old_org_routes_are_gone(db, client, auth, make_principal) -> None
         assert r.status_code == 404, (suffix, r.status_code)
 
 
+@pytest.mark.usefixtures("ai_backend")
 async def test_settings_roundtrip_audited_and_secret_free(db, client, auth, make_principal, audited) -> None:
     h = await _admin(db, auth, make_principal, "feature_flag.manage")
     r = await client.get(f"{API}/admin/ai-settings", headers=h)
@@ -92,6 +93,7 @@ async def test_settings_roundtrip_audited_and_secret_free(db, client, auth, make
     assert r.status_code == 400  # keys are never accepted through the API
 
 
+@pytest.mark.usefixtures("ai_backend")
 async def test_permissions_and_step_up(db, client, auth, make_principal) -> None:
     nobody = await _admin(db, auth, make_principal)
     for path in ("/admin/ai-settings", "/admin/apps", "/admin/ai-usage"):
@@ -106,6 +108,7 @@ async def test_permissions_and_step_up(db, client, auth, make_principal) -> None
     assert r.status_code == 401
 
 
+@pytest.mark.usefixtures("ai_backend")
 async def test_apps_default_enabled_and_toggle(db, client, auth, make_principal, audited) -> None:
     h = await _admin(db, auth, make_principal, "feature_flag.manage")
     r = await client.get(f"{API}/admin/apps", headers=h)
@@ -151,12 +154,17 @@ async def test_usage_summary(db, client, auth, make_principal, fake_ai) -> None:
     assert r.status_code == 422
 
 
+@pytest.mark.usefixtures("ai_backend")
 async def test_me_enabled_apps_is_the_platform_set(db, client, auth, make_principal) -> None:
     admin = await _admin(db, auth, make_principal, "feature_flag.manage")
     learner = auth.login(make_principal(user_id=(await make_user(db)).id))
     r = await client.get(f"{API}/me/enabled-apps", headers=learner)
     assert r.status_code == 200, r.text
-    assert r.json() == {"apps": dict.fromkeys(r.json()["apps"], True), "ai_enabled": True}
+    assert r.json() == {
+        "apps": dict.fromkeys(r.json()["apps"], True),
+        "ai_enabled": True,
+        "ai_simulated": True,  # AI_PROVIDER=fake: screens say "not integrated yet"
+    }
     await client.patch(f"{API}/admin/apps", json={"apps": {"engage": False}}, headers=admin)
     await client.patch(f"{API}/admin/ai-settings", json={"enabled": False}, headers=admin)
     b = (await client.get(f"{API}/me/enabled-apps", headers=learner)).json()

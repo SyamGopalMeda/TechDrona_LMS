@@ -3,7 +3,11 @@ and outline mutations are audited), BE-34 (catalog ``limit`` validated, not clam
 
 from __future__ import annotations
 
+import pytest
+
 from tests.catalog.factory import staff
+
+pytestmark = pytest.mark.usefixtures("catalog_backend")
 
 
 async def test_adm57_lesson_and_outline_mutations_are_audited(browser, db, audited) -> None:

@@ -3,12 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockApi, problem, renderWithProviders } from "@/features/auth/test/mock-api";
 import { csvSink } from "../lib/download";
-import { HistoryTab } from "./EvidenceTabs";
-import { Incidents } from "./Incidents";
+import { CaseDetail as CaseDetailPage } from "./CaseDetail";
+import { HistoryTab, NotesTab } from "./EvidenceTabs";
+import { EngineControls } from "./EngineControls";
+import { Incidents, istLocalToIso } from "./Incidents";
 import { MyExports } from "./MyExports";
 import { ExportRequest, ReportView } from "./Reports";
-import { BulkLift } from "./Restrictions";
+import { BulkLift, Restrictions } from "./Restrictions";
+import { RuleVersions } from "./RuleVersions";
 import { SecurityDashboard } from "./SecurityDashboard";
+import { UserTimelinePage } from "./UserTimelinePage";
 import type { CaseDetail } from "../lib/types";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
@@ -64,10 +68,10 @@ describe("My exports (ADM-05 / INV-11)", () => {
     const save = vi.spyOn(csvSink, "save").mockImplementation(() => undefined);
 
     renderWithProviders(<MyExports tracked={[]} />);
-    expect(await screen.findByText("e1")).toBeInTheDocument();
+    expect(await screen.findByText("#E1")).toBeInTheDocument();
     expect(screen.getByText("Awaiting approval")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Download export e2" })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Download export e1" }));
+    expect(screen.queryByRole("button", { name: "Download export #E2" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Download export #E1" }));
     await waitFor(() => expect(save).toHaveBeenCalledWith("blocked-accounts-e1.csv", "a,b\n1,2\n"));
     expect(api.calls.find((c) => c.path === "security/reports/exports/e1")?.headers.accept).toContain("text/csv");
   });
@@ -80,7 +84,7 @@ describe("My exports (ADM-05 / INV-11)", () => {
     cleanups.push(api.restore);
     renderWithProviders(<MyExports tracked={[{ export_job_id: "e9", report_key: "blocked-accounts" }]} />);
     expect(await screen.findByText(/export list is not available/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Download export e9" }));
+    await userEvent.click(screen.getByRole("button", { name: "Download export #E9" }));
     expect(await screen.findByText("Awaiting approval")).toBeInTheDocument();
   });
 
@@ -176,10 +180,10 @@ describe("Section H filters and secondary data (w3web: ADM-06/07)", () => {
     cleanups.push(api.restore);
     vi.spyOn(csvSink, "save").mockImplementation(() => undefined);
     renderWithProviders(<MyExports tracked={[]} />);
-    await userEvent.click(await screen.findByRole("button", { name: "Download export e3" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Download export #E3" }));
     await waitFor(() => expect(api.calls.some((c) => c.path === "security/reports/exports/e3")).toBe(true));
     expect(api.calls.find((c) => c.path === "security/reports/exports/e3")?.url).toBe("/api/v1/security/reports/exports/e3?part=1");
-    expect(screen.queryByRole("button", { name: "Download export e4" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Download export #E4" })).not.toBeInTheDocument();
   });
 
   it("H10 shows sessions per user (suppressed cells as <k) and the students at the cap", async () => {
@@ -192,7 +196,7 @@ describe("Section H filters and secondary data (w3web: ADM-06/07)", () => {
     renderWithProviders(<ReportView reportKey="active-session-counts" />);
     const table = await screen.findByRole("table", { name: "Active student sessions per user" });
     expect(within(table).getByText("120")).toBeInTheDocument();
-    expect(within(table).getByText("<k suppressed")).toBeInTheDocument();
+    expect(within(table).getByText("Hidden (small group)")).toBeInTheDocument();
     expect(screen.getByText("Students at the session cap")).toBeInTheDocument();
     expect(screen.getByText("Student session cap")).toBeInTheDocument();
   });
@@ -235,7 +239,8 @@ describe("Security dashboard (INV-11 / SEC-40)", () => {
     renderWithProviders(<SecurityDashboard />);
     expect(await screen.findByText("Pending unblock requests")).toBeInTheDocument();
     expect(screen.getByText("Under review")).toBeInTheDocument();
-    expect(screen.getByText("L3")).toBeInTheDocument();
+    expect(screen.getByText("Temporarily restricted (L3)")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open\s*4/ })).toHaveAttribute("href", "/security/cases?status=open");
     expect(screen.getByRole("link", { name: "Incidents" })).toHaveAttribute("href", "/security/incidents");
   });
 
@@ -290,7 +295,7 @@ describe("Incidents and bulk-lift status (ADM-11)", () => {
     renderWithProviders(<BulkLift />);
     await fill(screen.getByLabelText("Rule key"), "HC-01");
     await fill(screen.getByLabelText(/^Reason/), "HC-01 false-positive surge on 2 Nov");
-    await userEvent.click(screen.getByRole("button", { name: "Dry run" }));
+    await userEvent.click(screen.getByRole("button", { name: "Check matches (dry run)" }));
     await userEvent.click(await screen.findByRole("button", { name: "Request bulk lift" }));
     expect(await screen.findByText("Awaiting approval")).toBeInTheDocument();
     expect(screen.getByLabelText("Bulk lift id")).toHaveValue("bl1");
@@ -321,5 +326,112 @@ describe("Case history: previous incidents (ADM-11)", () => {
     const call = api.calls[0]!;
     expect(call.url).toContain("types=case");
     expect(call.url).not.toContain("case_ref=");
+  });
+});
+
+describe("Confirmations before irreversible actions (audit 0.7)", () => {
+  const draft = { version_id: "v1", rule_key: "SH-01", family: "sharing", ruleset_version: null, semver: "1.2.0", status: "draft", definition: {}, shadow_started_at: null, eligible_at: null, proposed_by: "u1", approved_by: null, status_change_reason: null };
+
+  it("explains the 14-day shadow before starting it", async () => {
+    const api = mockApi({
+      "GET security/rule-versions": { body: { data: [draft], page: { next_cursor: null, has_more: false, limit: 25 } } },
+      "POST security/rule-versions/v1/start-shadow": { body: { ...draft, status: "shadow" } },
+    });
+    cleanups.push(api.restore);
+    renderWithProviders(<RuleVersions />);
+    await userEvent.click((await screen.findAllByRole("button", { name: "Start shadow" }))[0]!);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/14 days/)).toBeInTheDocument();
+    expect(api.calls.some((c) => c.method === "POST")).toBe(false);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Start shadow" }));
+    await waitFor(() => expect(api.calls.some((c) => c.method === "POST" && c.path === "security/rule-versions/v1/start-shadow")).toBe(true));
+  });
+
+  it("asks before posting a student-visible case note, but not an internal one", async () => {
+    const api = mockApi({ "POST security/cases/c1/notes": { status: 201, body: {} } });
+    cleanups.push(api.restore);
+    const onAdded = vi.fn();
+    renderWithProviders(<NotesTab caseId="c1" notes={[]} onAdded={onAdded} />);
+    await userEvent.selectOptions(screen.getByLabelText("Visibility"), "student");
+    await fill(screen.getByLabelText(/^Note/), "Please re-take the test on one device.");
+    await userEvent.click(screen.getByRole("button", { name: "Add note for student" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Please re-take the test on one device.")).toBeInTheDocument();
+    expect(api.calls.some((c) => c.method === "POST")).toBe(false);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Back to editing" }));
+    expect(api.calls.some((c) => c.method === "POST")).toBe(false);
+    await userEvent.click(screen.getByRole("button", { name: "Add note for student" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Add visible note" }));
+    await waitFor(() => expect(api.calls.find((c) => c.method === "POST")?.body).toEqual({ visibility: "student", body: "Please re-take the test on one device." }));
+    expect(onAdded).toHaveBeenCalled();
+
+    await userEvent.selectOptions(screen.getByLabelText("Visibility"), "internal");
+    await fill(screen.getByLabelText(/^Note/), "Internal only");
+    await userEvent.click(screen.getByRole("button", { name: "Add note" }));
+    await waitFor(() => expect(api.calls.filter((c) => c.method === "POST")).toHaveLength(2));
+  });
+});
+
+describe("Phase 2 readability (codes, ids, layout)", () => {
+  const engine = { "risk.mode": "shadow", "risk.hc.auto_restrict_enabled": true, rules: [], rulesets: {}, pending_ratifications: [] };
+
+  it("engine strip uses words instead of config keys and keeps the kill switch secondary", async () => {
+    const api = mockApi({ "GET security/engine/state": { body: engine } });
+    cleanups.push(api.restore);
+    renderWithProviders(<EngineControls />);
+    expect(await screen.findByText("Watching only (shadow)")).toBeInTheDocument();
+    expect(screen.getByText("Automatic restrictions")).toBeInTheDocument();
+    expect(screen.queryByText("risk.mode")).not.toBeInTheDocument();
+    expect(screen.queryByText(/HC auto-restrict/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Emergency stop/ })).toBeInTheDocument();
+  });
+
+  it("reports index and report view show titles and breadcrumbs, no H-codes", async () => {
+    const api = mockApi({
+      "GET security/reports": { body: { data: [] } },
+      "GET security/reports/blocked-accounts": { body: { report_key: "blocked-accounts", report_id: "H5", title: "Blocked accounts", generated_at: inHours(0), period: { from: inHours(-24), to: inHours(0) }, filters_applied: {}, rows: [{ user_id: UID, rule_key: "HC-01" }] } },
+    });
+    cleanups.push(api.restore);
+    renderWithProviders(<ReportView reportKey="blocked-accounts" />);
+    expect(screen.getByRole("heading", { level: 1, name: "Blocked accounts" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("link", { name: "Reports" })).toHaveAttribute("href", "/security/reports");
+    expect(await screen.findByRole("columnheader", { name: "Rule" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "User" })).toBeInTheDocument();
+    expect(screen.queryByText("H5")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Report key/)).not.toBeInTheDocument();
+  });
+
+  it("restrictions name the account by short reference and say when a filter only covers this page", async () => {
+    const api = mockApi({
+      "GET security/restrictions": {
+        body: { data: [{ restriction_id: "r1", user_id: UID, level: 2, family: "sharing", scope: "account", source: "hc_rule", hc_rule: "HC-01", starts_at: inHours(-5), ends_at: null, deferred_until: null, state: "active", case_id: null, case_ref: null, ended_at: null, end_reason: null }], page: { next_cursor: null, has_more: false } },
+      },
+    });
+    cleanups.push(api.restore);
+    renderWithProviders(<Restrictions />);
+    expect(await screen.findByRole("link", { name: /Security timeline for user #00000001/ })).toHaveAttribute("href", `/security/users/${UID}/timeline`);
+    expect(within(screen.getByRole("table")).getByText("High-confidence rule")).toBeInTheDocument();
+    expect(screen.queryByText(UID)).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText(/^Family/), "takeover");
+    expect(screen.getByText(/filter only the restrictions loaded on this page/)).toBeInTheDocument();
+    expect(screen.getByText("No matches on this page")).toBeInTheDocument();
+  });
+
+  it("user timeline page never shows the raw user id", () => {
+    renderWithProviders(<UserTimelinePage userId={UID} />);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("User #00000001");
+    expect(screen.queryByText(new RegExp(UID))).not.toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("link", { name: "Cases" })).toHaveAttribute("href", "/security/cases");
+  });
+
+  it("case gate shows where you are before the reason is chosen", () => {
+    renderWithProviders(<CaseDetailPage caseId="c1" />);
+    expect(screen.getByRole("heading", { level: 1, name: "Open case" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("link", { name: "Cases" })).toHaveAttribute("href", "/security/cases");
+    expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
+  });
+
+  it("treats the rule activation time as IST", () => {
+    expect(istLocalToIso("2026-11-10T09:30")).toBe("2026-11-10T04:00:00.000Z");
   });
 });

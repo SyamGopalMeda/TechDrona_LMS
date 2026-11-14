@@ -37,6 +37,21 @@ declare global {
   }
 }
 
+/**
+ * True for a token minted by the api's DEV/DEMO fake video adapter (`otp` "FAKE-…", or a
+ * `playbackInfo` payload carrying `"fake": true`). VdoCipher cannot play such a token, so the
+ * player says "not integrated yet" instead of embedding a broken iframe (owner rule).
+ */
+export function isDemoPlaybackToken(otp: string, playbackInfo: string): boolean {
+  if (otp.startsWith("FAKE-")) return true;
+  try {
+    const info = JSON.parse(atob(playbackInfo)) as { fake?: unknown };
+    return info?.fake === true;
+  } catch {
+    return false;
+  }
+}
+
 export function embedUrl(otp: string, playbackInfo: string): string {
   const qs = new URLSearchParams({ otp, playbackInfo });
   return `${VDO_ORIGIN}/v2/?${qs.toString()}`;

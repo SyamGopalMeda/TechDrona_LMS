@@ -1,5 +1,4 @@
-import Link from "next/link";
-import { Button } from "@/components/ui";
+import { Button, FormField, Input, LinkButton, Select } from "@/components/ui";
 
 export interface CatalogFilterValues {
   q?: string;
@@ -27,64 +26,29 @@ const LANGUAGES = [
   { value: "te", label: "Telugu" },
 ];
 
-const control =
-  "h-10 w-full rounded-md border border-line-control bg-surface px-3 text-sm text-fg focus-visible:shadow-focus focus-visible:outline-none";
-
 /**
  * Catalog filters as a plain GET form (works without JavaScript; the URL is shareable and
- * the server re-renders with CAT-01 filters).
+ * the server re-renders with CAT-01 filters). Kit controls (44 px, same labels as every form);
+ * not the kit `FilterBar`, which is client-side and prevents the native submit.
  */
 export function CatalogFilters({ values }: { values: CatalogFilterValues }) {
+  const active = Boolean(values.q || values.level || values.price_type || values.language || values.category);
   return (
-    <form method="get" action="/courses" role="search" aria-label="Filter courses" className="grid gap-3 rounded-xl border border-line bg-surface p-4 sm:grid-cols-2 lg:grid-cols-5">
-      <div className="lg:col-span-2">
-        <label htmlFor="cat-q" className="mb-1 block text-sm font-medium text-fg">
-          Search
-        </label>
-        <input id="cat-q" name="q" type="search" defaultValue={values.q ?? ""} placeholder="Course title or topic" className={control} />
+    <form method="get" action="/courses" role="search" aria-label="Filter courses" className="grid items-end gap-3 rounded-xl border border-line bg-surface p-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="sm:col-span-2">
+        <FormField label="Search">{(f) => <Input {...f} name="q" type="search" defaultValue={values.q ?? ""} placeholder="Course title or topic" />}</FormField>
       </div>
-      <div>
-        <label htmlFor="cat-level" className="mb-1 block text-sm font-medium text-fg">
-          Level
-        </label>
-        <select id="cat-level" name="level" defaultValue={values.level ?? ""} className={control}>
-          {LEVELS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <label htmlFor="cat-price" className="mb-1 block text-sm font-medium text-fg">
-          Price
-        </label>
-        <select id="cat-price" name="price_type" defaultValue={values.price_type ?? ""} className={control}>
-          {PRICES.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <label htmlFor="cat-lang" className="mb-1 block text-sm font-medium text-fg">
-          Language
-        </label>
-        <select id="cat-lang" name="language" defaultValue={values.language ?? ""} className={control}>
-          {LANGUAGES.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <FormField label="Level">{(f) => <Select {...f} name="level" defaultValue={values.level ?? ""} options={LEVELS} />}</FormField>
+      <FormField label="Price">{(f) => <Select {...f} name="price_type" defaultValue={values.price_type ?? ""} options={PRICES} />}</FormField>
+      <FormField label="Language">{(f) => <Select {...f} name="language" defaultValue={values.language ?? ""} options={LANGUAGES} />}</FormField>
       {values.category ? <input type="hidden" name="category" value={values.category} /> : null}
-      <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-5">
+      <div className="flex flex-wrap items-center gap-2 sm:col-span-2 lg:col-span-5">
         <Button type="submit">Apply filters</Button>
-        <Link href="/courses" className="text-sm font-medium text-fg-link hover:text-fg-link-hover">
-          Clear
-        </Link>
+        {active ? (
+          <LinkButton href="/courses" variant="ghost">
+            Clear filters
+          </LinkButton>
+        ) : null}
       </div>
     </form>
   );

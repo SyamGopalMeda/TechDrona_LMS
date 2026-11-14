@@ -12,11 +12,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _API_DIR = Path(__file__).resolve().parents[2]
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+# Clamped: in the Cloud Functions bundle the code sits at /workspace/app (only 4 parents).
+_REPO_ROOT = Path(__file__).resolve().parents[min(4, len(Path(__file__).resolve().parents) - 1)]
 ENV_FILES: tuple[Path, ...] = (_REPO_ROOT / ".env", _API_DIR / ".env")
 
 PRODUCTION_ENVS = frozenset({"prod", "production"})
@@ -50,6 +51,28 @@ class Settings(BaseSettings):
     TD_TRUSTED_PROXY_HOPS: int = 0
     TD_COOKIE_SECURE: bool = False
     TD_MAX_BODY_BYTES: int = 256 * 1024
+    # DEMO ONLY, owner override: comma-separated e-mails of accounts that sign in with password
+    # only (no mandatory MFA enrolment, no new-device code). Ignored when APP_ENV is production.
+    TD_MFA_EXEMPT_EMAILS: str = ""
+    # Central login (owner decision 2026-11-11): staff may also use "Continue with Google". Google
+    # replaces the password step only; staff MFA (or MFA enrolment) still follows. Default off.
+    TD_GOOGLE_SIGNIN_STAFF: bool = False
+    # TESTING ONLY, owner decision 2026-11-11: switch off the takeover engine (no "We've secured
+    # your account" protect-lock, no "Was this you?" step-up; existing protect-locks end at the
+    # next sign-in). Ignored when APP_ENV is production.
+    TD_ACCOUNT_PROTECTION_OFF: bool = False
+    # TESTING ONLY, owner decision 2026-11-12 ("remove the OTP option for now"): email is not
+    # integrated, so the new-device code can never arrive. When on, a new device is trusted after
+    # the password (and any MFA) without a code. Ignored when APP_ENV is production.
+    TD_DEVICE_CODE_OFF: bool = False
+    # PERMANENT owner decision 2026-11-12 ("simplify the entire authentication system"): plain
+    # email + password sign-in. When on: no MFA prompt or mandatory MFA enrolment, no new-device
+    # code, no risk step-up / takeover protect-lock, no "re-confirm it's you" step-up, no
+    # concurrent-session prompt (the oldest session ends instead), relaxed password policy, and an
+    # Admin's role grants apply at once (no dual-control approval). Password hashing, throttling,
+    # CSRF, session cookies and RBAC stay. Unlike the testing switches above this one is honoured
+    # in EVERY APP_ENV, production included (owner's choice).
+    TD_SIMPLE_AUTH: bool = False
 
     # 3. PostgreSQL
     DATABASE_URL: str = LOCAL_DB_URL
@@ -145,6 +168,45 @@ class Settings(BaseSettings):
     TD_WORKER_HEALTH_FILE: str = ""
     TD_WORKER_HEALTH_INTERVAL_SECONDS: float = Field(default=15.0, gt=0)
 
+    # Firebase / Firestore (docs/firebase/MIGRATION-PLAN.md, docs/firebase/p0.md). Only used by
+    # modules switched to Firestore with TD_STORE_<MODULE>=firestore (app.core.firestore.backend).
+    # Dev/tests: FIRESTORE_EMULATOR_HOST (e.g. 127.0.0.1:18080) + a ``demo-*`` project id, so nothing
+    # can reach the real project. Other envs: a service-account JSON kept OUTSIDE the repository.
+    FIREBASE_PROJECT_ID: str = ""
+    FIREBASE_SERVICE_ACCOUNT_FILE: str = ""
+    FIRESTORE_EMULATOR_HOST: str = ""
+    FIRESTORE_DATABASE_ID: str = "(default)"
+    # Informational: the location is fixed when the database is created (owner decision F6).
+    FIRESTORE_LOCATION: str = "asia-south1"
+    # Central login (app.modules.hub): the company website whose Admin Panel the module switcher
+    # opens with single sign-on. Its admin lives at <TD_WEBSITE_URL>/admin and reads web_* in the
+    # same Firebase project. Empty = the "Company Website Admin" module is hidden.
+    TD_WEBSITE_URL: str = "https://techdrona-website.web.app"
+
+    # Runtime host (Firebase migration, docs/firebase/agents/platform.md; read via app.core.runtime).
+    # Defaults keep the VM stack exactly as it is: Redis cache/rate limits, Celery + beat.
+    # ``firebase`` = the API runs inside the ``lmsApi`` Cloud Function; it then defaults the cache
+    # to Firestore and background work to Cloud Tasks + scheduled functions (each overridable).
+    TD_RUNTIME: Literal["vm", "firebase"] = "vm"
+    TD_CACHE_BACKEND: Literal["", "redis", "firestore"] = ""  # "" = follow TD_RUNTIME
+    TD_TASKS_BACKEND: Literal["", "celery", "cloudtasks"] = ""  # "" = follow TD_RUNTIME
+    # Cloud Tasks (task-queue functions in functions-lms/main.py): Celery queue -> function name.
+    TD_CLOUD_TASKS_LOCATION: str = "asia-south1"
+    TD_CLOUD_TASKS_QUEUES: str = "critical=lmsTasksCritical,default=lmsTasks,maintenance=lmsTasksMaintenance"
+
+    @model_validator(mode="after")
+    def _firebase_project_from_runtime(self) -> Settings:
+        """Cloud Functions reserve every ``FIREBASE_*`` name for user env, so on the Firebase runtime
+        the project comes from the platform's ``GOOGLE_CLOUD_PROJECT`` / ``GCLOUD_PROJECT`` (the
+        Functions emulator sets them to the ``--project`` id) when ``FIREBASE_PROJECT_ID`` is unset."""
+        if self.TD_RUNTIME == "firebase" and not self.FIREBASE_PROJECT_ID.strip():
+            import os
+
+            self.FIREBASE_PROJECT_ID = (
+                os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GCLOUD_PROJECT") or ""
+            )
+        return self
+
     @field_validator("TD_DB_SET_ROLE")
     @classmethod
     def _role_ident(cls, v: str) -> str:
@@ -155,6 +217,28 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.APP_ENV in PRODUCTION_ENVS
+
+    @property
+    def account_protection_off(self) -> bool:
+        """``TD_ACCOUNT_PROTECTION_OFF`` (testing phase; never in production) or simple auth."""
+        return (self.TD_ACCOUNT_PROTECTION_OFF and not self.is_production) or self.simple_auth
+
+    @property
+    def device_code_off(self) -> bool:
+        """``TD_DEVICE_CODE_OFF`` (testing phase, no email; never in production) or simple auth."""
+        return (self.TD_DEVICE_CODE_OFF and not self.is_production) or self.simple_auth
+
+    @property
+    def simple_auth(self) -> bool:
+        """``TD_SIMPLE_AUTH`` (permanent owner decision); honoured in every APP_ENV."""
+        return self.TD_SIMPLE_AUTH
+
+    def mfa_exempt(self, email: str | None) -> bool:
+        """``TD_MFA_EXEMPT_EMAILS`` (demo owner override); never in production."""
+        if self.is_production or not email or not self.TD_MFA_EXEMPT_EMAILS.strip():
+            return False
+        listed = {e.strip().lower() for e in self.TD_MFA_EXEMPT_EMAILS.split(",") if e.strip()}
+        return email.strip().lower() in listed
 
     @property
     def allowed_origins(self) -> list[str]:

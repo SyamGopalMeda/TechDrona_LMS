@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { Button, Card, ErrorState, FormField, PageHeader, Select, Skeleton } from "@/components/ui";
+import { Button, Card, ErrorState, FormField, LinkButton, PageHeader, Select, Skeleton } from "@/components/ui";
 import { uuid7 } from "@/lib/ids/uuid7";
 import { useLoader } from "@/features/assessment/lib/use-resource";
 import { difficultyRange, practiceApi } from "../lib/api";
@@ -107,9 +107,9 @@ export function PracticeHub() {
         title="Practice"
         description="Pattern-aligned practice with instant feedback and step-by-step explanations."
         actions={
-          <Link className="text-sm text-fg-link underline" href="/app/practice/review">
-            Review incorrect &amp; bookmarked
-          </Link>
+          <LinkButton href="/app/practice/review" variant="secondary">
+            Review questions you got wrong
+          </LinkButton>
         }
       />
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
@@ -134,7 +134,7 @@ export function PracticeHub() {
                     >
                       <span className="font-medium text-fg">{s.name}</span>
                       <span className="mt-1 block text-sm text-fg-muted">
-                        {s.children.length} topics · {s.question_count} questions
+                        {s.children.length} topic{s.children.length === 1 ? "" : "s"} · {s.question_count} question{s.question_count === 1 ? "" : "s"}
                       </span>
                     </Link>
                   </li>

@@ -1,30 +1,14 @@
 "use client";
 
-import { useId, useState, type FormEvent, type ReactNode } from "react";
-import { Badge, Button, Dialog, FormField, Select, type BadgeTone } from "@/components/ui";
+import { useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Button, Dialog, FormField, InlineProblem, KeyValueList, Select, StatusBadge } from "@/components/ui";
 import type { ApprovalPending } from "@/lib/api/client";
-import { ApiError } from "@/lib/api/errors";
-import { cn } from "@/lib/ui/cn";
-import { formatCountdown, formatDateTime, humanize, type MutationOutcome } from "../lib/console";
+import { cellText, formatCountdown, formatDateTime, humanize, type MutationOutcome } from "../lib/console";
 
 /* ------------------------------------------------------------ InlineProblem */
 
-/** Inline problem (title/detail/reference) for a failed action inside a dialog or panel. */
-export function InlineProblem({ error }: { error: unknown }) {
-  if (!error) return null;
-  const api = error instanceof ApiError ? error : null;
-  return (
-    <div role="alert" className="rounded-lg border border-danger-border bg-danger-subtle p-3 text-sm">
-      <p className="font-semibold text-danger-fg">{api?.title ?? "Something went wrong"}</p>
-      <p className="mt-0.5 text-fg-secondary">{api?.detail ?? "Please try again."}</p>
-      {api?.requestId ? (
-        <p className="mt-1 text-xs text-fg-muted">
-          Reference: <span className="select-all font-mono">{api.requestId}</span>
-        </p>
-      ) : null}
-    </div>
-  );
-}
+/** Inline problem (title/detail/reference) for a failed action inside a dialog or panel (kit version). */
+export { InlineProblem };
 
 /* ---------------------------------------------------- ApprovalPendingNotice */
 
@@ -62,6 +46,14 @@ export interface ActionDialogProps<T> {
   onDone?: (outcome: MutationOutcome<T>) => void;
   /** Client validation: return an error message to block submit. */
   validate?: () => string | null;
+  /**
+   * Called each time the dialog opens (closed -> open), before paint. Use it to reset the
+   * dialog's field state so text typed for one action can never be submitted with another
+   * (audit 0.5). Don't reset fields here that the opener pre-fills.
+   */
+  onOpen?: () => void;
+  /** Label of the dismiss button (default "Cancel"); set it when the submit label also says "Cancel". */
+  cancelLabel?: string;
   children?: ReactNode;
 }
 
@@ -70,11 +62,25 @@ export interface ActionDialogProps<T> {
  * approval_pending into the "waiting for a second approver" state instead of closing.
  * Step-up (401 step_up_required) is handled globally by the API client + StepUpDialog.
  */
-export function ActionDialog<T>({ open, onClose, title, description, submitLabel, danger, onSubmit, onDone, validate, children }: ActionDialogProps<T>) {
+export function ActionDialog<T>({ open, onClose, title, description, submitLabel, danger, onSubmit, onDone, validate, onOpen, cancelLabel = "Cancel", children }: ActionDialogProps<T>) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [clientError, setClientError] = useState<string | null>(null);
   const [pending, setPending] = useState<ApprovalPending | null>(null);
+
+  // Fresh dialog on every open: clear our own state and let the caller reset its fields.
+  const onOpenRef = useRef(onOpen);
+  onOpenRef.current = onOpen;
+  const wasOpen = useRef(false);
+  useLayoutEffect(() => {
+    if (open && !wasOpen.current) {
+      setError(null);
+      setClientError(null);
+      setPending(null);
+      onOpenRef.current?.();
+    }
+    wasOpen.current = open;
+  }, [open]);
 
   const close = () => {
     setError(null);
@@ -128,7 +134,7 @@ export function ActionDialog<T>({ open, onClose, title, description, submitLabel
           <InlineProblem error={error} />
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="secondary" onClick={close} disabled={busy}>
-              Cancel
+              {cancelLabel}
             </Button>
             <Button type="submit" variant={danger ? "danger" : "primary"} loading={busy}>
               {submitLabel}
@@ -140,21 +146,15 @@ export function ActionDialog<T>({ open, onClose, title, description, submitLabel
   );
 }
 
+/* ------------------------------------------------------------ ConfirmDialog */
+
+/** Plain "are you sure?" step before an irreversible or learner-visible action (audit 0.7): the kit ConfirmDialog. */
+export { ConfirmDialog, type ConfirmDialogProps } from "@/components/ui";
+
 /* --------------------------------------------------------------- TextArea */
 
-export function TextArea({ className, ...props }: React.ComponentProps<"textarea">) {
-  const invalid = props["aria-invalid"] === true || props["aria-invalid"] === "true";
-  return (
-    <textarea
-      className={cn(
-        "block min-h-[6rem] w-full rounded-md border bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-muted focus-visible:shadow-focus focus-visible:outline-none",
-        invalid ? "border-danger-border" : "border-line-control",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
+/** The kit Textarea (same look as Input); kept under this name for existing importers. */
+export { TextArea } from "@/components/ui";
 
 /* ---------------------------------------------------------------- ReasonGate */
 
@@ -200,79 +200,102 @@ export function ReasonGate({ title, description, children, defaultReason = "case
   );
 }
 
-/* -------------------------------------------------------------- KeyValueList */
+/* --------------------------------------------- KeyValueList / FilterBar (kit) */
 
-export function KeyValueList({ items, className }: { items: { label: string; value: ReactNode }[]; className?: string }) {
-  return (
-    <dl className={cn("grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2", className)}>
-      {items.map((it) => (
-        <div key={it.label} className="min-w-0">
-          <dt className="text-xs font-semibold uppercase tracking-wide text-fg-muted">{it.label}</dt>
-          <dd className="break-words text-fg">{it.value ?? "—"}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-/* --------------------------------------------------------------- FilterBar */
-
-/** Responsive row of filter controls; children are FormFields. */
-export function FilterBar({ children, label = "Filters" }: { children: ReactNode; label?: string }) {
-  return (
-    <form role="search" aria-label={label} onSubmit={(e) => e.preventDefault()} className="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-line bg-surface p-4 sm:grid-cols-2 lg:grid-cols-4">
-      {children}
-    </form>
-  );
-}
+export { FilterBar, KeyValueList } from "@/components/ui";
 
 /* ---------------------------------------------------------------- StateBadge */
 
-const STATE_TONES: Record<string, BadgeTone> = {
-  open: "info",
-  submitted: "info",
-  under_review: "brand",
-  info_requested: "warning",
-  escalated: "warning",
-  pending: "warning",
-  awaiting_approval: "warning",
-  approval_pending: "warning",
-  approved: "success",
-  executed: "success",
-  active: "success",
-  verified: "success",
-  paid: "success",
-  processed: "success",
-  resolved: "success",
-  rejected: "danger",
-  failed: "danger",
-  expired: "neutral",
-  cancelled: "neutral",
-  closed: "neutral",
-  draft: "neutral",
-  shadow: "info",
-  retired: "neutral",
-};
-
-/** Status pill: text always present; tone is secondary. */
+/**
+ * Status pill for console records. Tone comes from the shared kit vocabulary (STATUS_VOCABULARY),
+ * so a state has the same colour here as in every other portal; text is always present.
+ */
 export function StateBadge({ state, label }: { state: string | null | undefined; label?: string }) {
   if (!state) return <span className="text-fg-muted">—</span>;
-  return <Badge tone={STATE_TONES[state] ?? "neutral"}>{label ?? humanize(state)}</Badge>;
+  return <StatusBadge status={state} label={label ?? humanize(state)} />;
 }
 
 /* ---------------------------------------------------------------- JsonBlock */
 
-export function JsonBlock({ value, label }: { value: unknown; label: string }) {
-  return (
+/**
+ * Raw JSON for staff who need the exact payload (audit 1.11). Collapsed by default under a
+ * "Raw data" disclosure so the readable summary (ValueSummary, KeyValueList, a table) comes first;
+ * pass `collapsed={false}` only where JSON is the point (e.g. a selector editor preview).
+ */
+export function JsonBlock({ value, label, collapsed = true }: { value: unknown; label: string; collapsed?: boolean }) {
+  const pre = (
     <pre aria-label={label} className="max-h-80 overflow-auto rounded-md border border-line bg-surface-sunken p-3 font-mono text-xs text-fg">
       {JSON.stringify(value, null, 2)}
     </pre>
+  );
+  if (!collapsed) return pre;
+  return (
+    <details className="group rounded-md text-sm">
+      <summary className="inline-flex min-h-6 cursor-pointer items-center gap-1 font-medium text-fg-secondary hover:text-fg focus-visible:shadow-focus focus-visible:outline-none">
+        Raw data<span className="sr-only">: {label}</span>
+      </summary>
+      <div className="mt-2">{pre}</div>
+    </details>
+  );
+}
+
+/* ------------------------------------------------------------- ValueSummary */
+
+type Plain = Record<string, unknown>;
+const isPlain = (v: unknown): v is Plain => typeof v === "object" && v !== null && !Array.isArray(v);
+const isScalar = (v: unknown) => v === null || v === undefined || typeof v !== "object";
+
+function SummaryValue({ value, depth, labels }: { value: unknown; depth: number; labels?: Record<string, string> }): ReactNode {
+  const label = (k: string) => labels?.[k] ?? humanize(k);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <span className="text-fg-muted">None</span>;
+    if (value.every(isScalar)) return cellText(value);
+    if (depth >= 2) return `${value.length} item${value.length === 1 ? "" : "s"}`;
+    return (
+      <ol className="space-y-2">
+        {value.slice(0, 20).map((v, i) => (
+          <li key={i} className="rounded-md border border-line p-2">
+            <SummaryValue value={v} depth={depth + 1} labels={labels} />
+          </li>
+        ))}
+        {value.length > 20 ? <li className="text-xs text-fg-muted">…and {value.length - 20} more (see raw data)</li> : null}
+      </ol>
+    );
+  }
+  if (isPlain(value)) {
+    const entries = Object.entries(value);
+    if (entries.length === 0) return <span className="text-fg-muted">None</span>;
+    if (depth >= 2) return `${entries.length} field${entries.length === 1 ? "" : "s"}`;
+    return (
+      <KeyValueList
+        columns={depth === 0 ? 2 : 1}
+        items={entries.map(([k, v]) => ({ key: k, label: label(k), value: isScalar(v) ? cellText(v) : <SummaryValue value={v} depth={depth + 1} labels={labels} />, wide: !isScalar(v) }))}
+      />
+    );
+  }
+  return cellText(value);
+}
+
+/**
+ * Readable rendering of an API payload (audit before/after, approval payloads, reconciliation
+ * mismatches, shadow reports): scalar fields as a key/value list with humanized keys, nested
+ * objects as indented lists, and the exact JSON under a collapsed "Raw data" disclosure.
+ */
+export function ValueSummary({ value, label, labels, raw = true }: { value: unknown; label: string; labels?: Record<string, string>; raw?: boolean }) {
+  return (
+    <div className="space-y-3" aria-label={label} role="group">
+      <div className="text-sm">
+        <SummaryValue value={value} depth={0} labels={labels} />
+      </div>
+      {raw ? <JsonBlock label={label} value={value} /> : null}
+    </div>
   );
 }
 
 /* ------------------------------------------------------------- linkButton */
 
+/** Small secondary-looking link: 44px touch target on phones/tablets, 36px from `md` (WCAG 2.5.8). */
 export const linkButton =
-  "inline-flex h-8 items-center justify-center rounded-md border border-line-control bg-surface px-3 text-sm font-medium text-fg hover:bg-surface-hover focus-visible:shadow-focus focus-visible:outline-none";
+  "inline-flex min-h-touch md:min-h-9 items-center justify-center rounded-md border border-line-control bg-surface px-3 text-sm font-medium text-fg hover:bg-surface-hover focus-visible:shadow-focus focus-visible:outline-none";
 
 export const textLink = "font-medium text-fg-link underline-offset-2 hover:text-fg-link-hover hover:underline focus-visible:shadow-focus focus-visible:outline-none";

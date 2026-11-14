@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Badge, Button, Card, Dialog, FormField, Input, Select, Table, useToast } from "@/components/ui";
+import { Badge, Button, Card, Dialog, FormField, Input, PageHeader, Select, Table, useToast, type Crumb } from "@/components/ui";
 import { api, type Page } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { useApi, seg, type SendBody } from "@/features/trainer/shared/use-api";
@@ -12,6 +12,7 @@ import type { Body } from "@/lib/api-types";
 import type { CourseDetail, CourseSummary, CourseVersion, CourseVersionTree, Lesson } from "../lib/types";
 import { LessonEditor, REF_NOUN, useRefOptions } from "./LessonEditor";
 import { RefSelect, useTopics } from "./Pickers";
+import { EntityHeader } from "./EditorChrome";
 
 /** Course status for display: the editable draft being in review wins over the course status. */
 export function courseStatus(c: Pick<CourseSummary, "status"> & { draft: { status: string } | null }): string {
@@ -23,7 +24,7 @@ export function courseStatus(c: Pick<CourseSummary, "status"> & { draft: { statu
  * The api picks the owner (WS4): Content manager / Admin (platform scope) create platform courses;
  * a batch trainer (ADM-41) gets a company course that never appears in the public catalogue.
  */
-export function CourseList({ hrefPattern }: { hrefPattern: string }) {
+export function CourseList({ hrefPattern, header }: { hrefPattern: string; header?: { title: string; description?: string } }) {
   const editHref = (id: string) => hrefPattern.replace(":id", encodeURIComponent(id));
   const router = useRouter();
   const fail = useFailToast();
@@ -58,6 +59,7 @@ export function CourseList({ hrefPattern }: { hrefPattern: string }) {
 
   return (
     <div className="space-y-4">
+      {header ? <PageHeader title={header.title} description={header.description} actions={<Button onClick={() => setOpen(true)}>New course</Button>} /> : null}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="w-56">
           <FormField label="Status">
@@ -76,7 +78,7 @@ export function CourseList({ hrefPattern }: { hrefPattern: string }) {
             )}
           </FormField>
         </div>
-        <Button onClick={() => setOpen(true)}>New course</Button>
+        {header ? null : <Button onClick={() => setOpen(true)}>New course</Button>}
       </div>
       <Table
         caption="Courses"
@@ -99,7 +101,7 @@ export function CourseList({ hrefPattern }: { hrefPattern: string }) {
         loading={courses.loading}
         error={courses.error}
         onRetry={() => void courses.reload()}
-        empty={{ title: "No courses yet", action: <Button onClick={() => setOpen(true)}>New course</Button> }}
+        empty={{ title: "No courses yet", description: "Create a course draft, add modules and lessons, then submit it for review.", icon: "book" }}
       />
       <Dialog
         open={open}
@@ -209,7 +211,16 @@ export function moveLesson(outline: Outline, lessonId: string, dir: -1 | 1): Out
  * CAT-12 outline order, and the lesson editor (CAT-14/15/20/21/22, MED-01..03) for draft lessons.
  * `canPublish={false}` (trainer portal, audit ADM-56) hides Publish and Archive.
  */
-export function CourseEditor({ courseId, canPublish = true }: { courseId: string; canPublish?: boolean }) {
+export function CourseEditor({
+  courseId,
+  canPublish = true,
+  crumbs = [{ label: "Courses", href: "/studio/courses" }],
+}: {
+  courseId: string;
+  canPublish?: boolean;
+  /** Parent trail for the breadcrumbs; the course title is appended as the current page. */
+  crumbs?: Crumb[];
+}) {
   const toast = useToast();
   const fail = useFailToast();
   const course = useApi<CourseDetail>(`studio/courses/${seg(courseId)}`);
@@ -276,15 +287,34 @@ export function CourseEditor({ courseId, canPublish = true }: { courseId: string
     }
   };
 
+  // Lifecycle actions live in the page header (one primary: Submit for review or Publish).
+  const headerActions = d ? (
+    <>
+      {d.status === "published" && canPublish ? (
+        <Button variant="secondary" loading={busy === "archive"} onClick={() => void run("archive", () => api.post(`studio/courses/${seg(courseId)}/archive`, {}), "Course archived")}>
+          Archive
+        </Button>
+      ) : null}
+      {editable && d.draft?.status === "draft" ? (
+        <Button loading={busy === "review"} onClick={() => void run("review", () => api.post(`studio/courses/${seg(courseId)}/submit-review`, {}), "Submitted for review")}>
+          Submit for review
+        </Button>
+      ) : null}
+      {status === "in_review" && canPublish ? <Button onClick={() => setPublishOpen(true)}>Publish</Button> : null}
+    </>
+  ) : null;
+
   return (
+    <>
+    <EntityHeader title={version?.title ?? d?.title} fallback="Course builder" crumbs={crumbs} meta={d ? <StatusBadge status={status} /> : null} actions={headerActions} />
     <Boundary state={course}>
       {(c) => (
         <div className="space-y-6">
-          <div className="flex flex-wrap items-center gap-3">
-            <StatusBadge status={status} />
-            {status === "in_review" ? <span className="text-sm text-fg-muted">Waiting for a reviewer. Editing is locked.</span> : null}
-            {c.status === "published" && !c.draft ? <span className="text-sm text-fg-muted">Published versions can&apos;t change. Edits create a new draft version.</span> : null}
-          </div>
+          {status === "in_review" || (c.status === "published" && !c.draft) ? (
+            <p role="status" className="rounded-lg border border-line bg-surface-sunken p-3 text-sm text-fg-secondary">
+              {status === "in_review" ? "Waiting for a reviewer. Editing is locked." : "Published versions can't change. Saving the details below starts a new draft version."}
+            </p>
+          ) : null}
           <Card title="Details">
             <div className="grid gap-4 md:grid-cols-2">
               <FormField label="Title" required error={errors.title}>
@@ -373,7 +403,7 @@ export function CourseEditor({ courseId, canPublish = true }: { courseId: string
               </ol>
             )}
             {editable && !lessonsEditable && c.draft === null ? (
-              <p className="mt-3 text-sm text-fg-muted">To change lessons, save the draft details first — that starts a new draft version.</p>
+              <p className="mt-3 text-sm text-fg-muted">Lessons can&apos;t be added to a published version. Save the details above to start a new draft version, then add lessons.</p>
             ) : null}
             {editable ? (
               <div className="mt-4 grid gap-3 border-t border-line pt-4 md:grid-cols-3">
@@ -431,21 +461,6 @@ export function CourseEditor({ courseId, canPublish = true }: { courseId: string
               />
             </section>
           ) : null}
-          <div className="flex flex-wrap gap-2">
-            {editable && c.draft?.status === "draft" ? (
-              <Button loading={busy === "review"} onClick={() => void run("review", () => api.post(`studio/courses/${seg(courseId)}/submit-review`, {}), "Submitted for review")}>
-                Submit for review
-              </Button>
-            ) : null}
-            {status === "in_review" && canPublish ? (
-              <Button onClick={() => setPublishOpen(true)}>Publish</Button>
-            ) : null}
-            {c.status === "published" && canPublish ? (
-              <Button variant="secondary" loading={busy === "archive"} onClick={() => void run("archive", () => api.post(`studio/courses/${seg(courseId)}/archive`, {}), "Course archived")}>
-                Archive
-              </Button>
-            ) : null}
-          </div>
           <Table
             caption="Version history"
             showCaption
@@ -501,5 +516,6 @@ export function CourseEditor({ courseId, canPublish = true }: { courseId: string
         </div>
       )}
     </Boundary>
+    </>
   );
 }

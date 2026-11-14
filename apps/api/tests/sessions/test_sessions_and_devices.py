@@ -408,3 +408,33 @@ async def test_admin_device_reset_beyond_quota_is_audited(browser, db, mail, mon
     r = await browser.post(f"/users/{victim.id}/devices/{devs[1]['user_device_id']}/reset", body)
     assert r.status_code == 200, r.text
     assert [c.get("beyond_quota") for c in audited] == [False, True]
+
+
+async def test_device_cap_per_role_admins_unlimited(db, monkeypatch) -> None:
+    """Owner decision 2026-11-11: admins have no trusted-device cap (devices are still recorded),
+    faculty use devices.staff.max_trusted, students devices.student.max_trusted."""
+    from app.modules.sessions import service as ss
+
+    student = await make_user(db, email="cap.student@example.com")
+    trainer = await make_user(db, email="cap.trainer@example.com", with_totp=True)
+    admin = await make_user(db, email="cap.admin@example.com", with_totp=True)
+    await grant(db, trainer.id, "trainer")
+    await grant(db, admin.id, "super_admin")
+    await system_context(db, "t")
+
+    values = {
+        "devices.student.max_trusted": 3,
+        "devices.staff.max_trusted": 5,
+        "devices.admin.cap_enabled": False,
+    }
+
+    async def fake_policy(session, key, **kw):
+        return values.get(key, 2 if "replacements" in key else 90)
+
+    monkeypatch.setattr(ss, "get_policy", fake_policy)
+    assert (await ss.device_limits(db, student))["max_trusted"] == 3
+    assert (await ss.device_limits(db, trainer))["max_trusted"] == 5
+    lim = await ss.device_limits(db, admin)
+    assert lim["max_trusted"] is None and lim["cap_tier"] == "admin"
+    values["devices.admin.cap_enabled"] = True
+    assert (await ss.device_limits(db, admin))["max_trusted"] == 5

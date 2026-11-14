@@ -22,10 +22,12 @@ from app.core.time import to_rfc3339
 from app.modules.admin import approvals as apr
 from app.modules.admin import policy as pol
 from app.modules.identity import clock
+from app.modules.rbac import public as rbac_public
 from app.modules.rbac.catalogue import ADMIN_ROLE, admin_roles
-from app.modules.rbac.models import ApprovalRequest
+from app.modules.rbac.public import ApprovalRequest
 from app.modules.security import cases as cs
 from app.modules.security import engine
+from app.modules.security import repo_fs_controls as secx
 from app.modules.security.catalogue import BUILTIN_HC, BUILTIN_RULESETS, RULES_BY_KEY
 from app.modules.security.models import (
     AccountRestriction,
@@ -69,17 +71,8 @@ async def engine_state(session: AsyncSession) -> dict[str, Any]:
                 else "closed",
             }
         )
-    pending = (
-        (
-            await session.execute(
-                select(ApprovalRequest).where(
-                    ApprovalRequest.action_type == "risk.kill_switch.ratify",
-                    ApprovalRequest.status == "pending",
-                )
-            )
-        )
-        .scalars()
-        .all()
+    pending = await rbac_public.find_approvals(
+        session, action_type="risk.kill_switch.ratify", status="pending"
     )
     rulesets = {}
     for fam in BUILTIN_RULESETS:
@@ -137,7 +130,10 @@ async def kill_switch(
         v.status_changed_at = clock.now()
         v.status_changed_by = principal.user_id
         v.status_change_reason = "kill_switch"
-        await session.execute(update(RiskRule).where(RiskRule.key == rule_key).values(active_version_id=None))
+        v = await secx.persist_row(session, RiskRuleVersion, v)
+        await secx.execute(
+            session, update(RiskRule).where(RiskRule.key == rule_key).values(active_version_id=None)
+        )
         applied["rule_key"] = rule_key
         applied["status"] = "shadow"
     else:
@@ -152,7 +148,7 @@ async def kill_switch(
         reason=reason,
         required_approver_role=ADMIN_ROLE,
     )
-    await session.flush()
+    await secx.flush(session)
     await audit(session, principal, "risk.kill_switch", "risk_engine", None, reason=reason, after=applied)
     return {
         "applied": applied,
@@ -170,7 +166,7 @@ async def kill_switch(
 
 
 async def rule_id(session: AsyncSession, key: str) -> uuid.UUID:
-    rid = (await session.execute(select(RiskRule.id).where(RiskRule.key == key))).scalar_one_or_none()
+    rid = (await secx.execute(session, select(RiskRule.id).where(RiskRule.key == key))).scalar_one_or_none()
     if rid is None:
         raise ProblemError("not_found")
     return rid
@@ -220,8 +216,8 @@ async def create_version(
         status="draft",
         proposed_by=principal.user_id,
     )
-    session.add(v)
-    await session.flush()
+    secx.add(session, v)
+    await secx.flush(session)
     await audit(
         session,
         principal,
@@ -234,12 +230,12 @@ async def create_version(
 
 
 async def get_version(session: AsyncSession, version_id: uuid.UUID) -> tuple[RiskRuleVersion, str | None]:
-    v = await session.get(RiskRuleVersion, version_id)
+    v = await secx.get(session, RiskRuleVersion, version_id)
     if v is None:
         raise ProblemError("not_found")
     key = None
     if v.rule_id:
-        key = (await session.execute(select(RiskRule.key).where(RiskRule.id == v.rule_id))).scalar_one()
+        key = (await secx.execute(session, select(RiskRule.key).where(RiskRule.id == v.rule_id))).scalar_one()
     return v, key
 
 
@@ -251,7 +247,7 @@ async def start_shadow(session: AsyncSession, principal: Principal, v: RiskRuleV
     v.status_changed_at = clock.now()
     v.status_changed_by = principal.user_id
     v.status_change_reason = "shadow_start"
-    await session.flush()
+    await secx.flush(session)
 
 
 async def shadow_report(session: AsyncSession, v: RiskRuleVersion, rule_key: str | None) -> dict[str, Any]:
@@ -272,12 +268,13 @@ async def shadow_report(session: AsyncSession, v: RiskRuleVersion, rule_key: str
     policy = await sharing_policy(session)
     users = (
         (
-            await session.execute(
+            await secx.execute(
+                session,
                 select(SecuritySignal.user_id)
                 .where(
                     SecuritySignal.family == "sharing", SecuritySignal.occurred_at > now - timedelta(days=30)
                 )
-                .distinct()
+                .distinct(),
             )
         )
         .scalars()
@@ -308,7 +305,7 @@ async def shadow_report(session: AsyncSession, v: RiskRuleVersion, rule_key: str
         "generated_at": to_rfc3339(now),
     }
     v.shadow_report = report
-    await session.flush()
+    await secx.flush(session)
     return report
 
 
@@ -349,6 +346,7 @@ async def request_activation(
     )
 
 
+@secx.journaled_executor("security.rule_activation")
 async def _activate(session: AsyncSession, principal: Principal, req: ApprovalRequest) -> dict[str, Any]:
     v, key = await get_version(session, uuid.UUID(req.payload["version_id"]))
     rollback = req.action_type == "risk.ruleset.rollback"
@@ -361,12 +359,12 @@ async def _activate(session: AsyncSession, principal: Principal, req: ApprovalRe
         if v.rule_id
         else q.where(RiskRuleVersion.rule_id.is_(None), RiskRuleVersion.family == v.family)
     )
-    for old in (await session.execute(q)).scalars():
+    for old in (await secx.execute(session, q)).scalars():
         old.status = "retired"
         old.status_changed_at = now
         old.status_changed_by = principal.user_id
         old.status_change_reason = "retire"
-    await session.flush()
+    await secx.flush(session)
     v.status = "active"
     v.approved_by = principal.user_id
     v.approved_at = now
@@ -375,9 +373,11 @@ async def _activate(session: AsyncSession, principal: Principal, req: ApprovalRe
     v.status_changed_at = now
     v.status_changed_by = principal.user_id
     v.status_change_reason = "rollback" if rollback else "activation"
-    await session.flush()
+    await secx.flush(session)
     if v.rule_id:
-        await session.execute(update(RiskRule).where(RiskRule.id == v.rule_id).values(active_version_id=v.id))
+        await secx.execute(
+            session, update(RiskRule).where(RiskRule.id == v.rule_id).values(active_version_id=v.id)
+        )
     await audit(
         session,
         principal,
@@ -390,13 +390,14 @@ async def _activate(session: AsyncSession, principal: Principal, req: ApprovalRe
 
 
 async def _activation_check(session: AsyncSession, principal: Principal, req: ApprovalRequest) -> None:
-    v = await session.get(RiskRuleVersion, uuid.UUID(req.payload["version_id"]))
+    v = await secx.get(session, RiskRuleVersion, uuid.UUID(req.payload["version_id"]))
     if v is not None and v.proposed_by == principal.user_id:
         raise ProblemError(
             "sod_violation", rule="SoD-05", detail="The proposer of a rule version cannot approve it."
         )
 
 
+@secx.journaled_executor("security.kill_switch_ratify")
 async def _ratify(session: AsyncSession, principal: Principal, req: ApprovalRequest) -> dict[str, Any]:
     await audit(
         session, principal, "risk.kill_switch.ratified", "approval_request", req.id, after=req.payload
@@ -420,7 +421,9 @@ async def _matches_network(
         return True
     ev = (
         (
-            await session.execute(select(RiskEvaluation.signals).where(RiskEvaluation.id == r.evaluation_id))
+            await secx.execute(
+                session, select(RiskEvaluation.signals).where(RiskEvaluation.id == r.evaluation_id)
+            )
         ).scalar_one_or_none()
         if r.evaluation_id
         else None
@@ -455,7 +458,7 @@ async def bulk_select(
         q = q.where(AccountRestriction.starts_at >= frm)
     if to:
         q = q.where(AccountRestriction.starts_at <= to)
-    rows = list((await session.execute(q)).scalars())
+    rows = list((await secx.execute(session, q)).scalars())
     excluded = {"l4": 0, "high_risk": 0, "takeover": 0, "human_applied": 0, "pending_decision": 0}
     matched: list[AccountRestriction] = []
     cases: dict[uuid.UUID, SecurityCase] = {}
@@ -465,7 +468,7 @@ async def bulk_select(
             continue
         if rule_key and rule_key != r.hc_rule and rule_key not in (r.rule_keys or []):
             continue
-        case = await session.get(SecurityCase, r.case_id) if r.case_id else None
+        case = await secx.get(session, SecurityCase, r.case_id) if r.case_id else None
         if not await _matches_network(session, r, selector.get("network_cidr"), selector.get("asn")):
             continue
         if r.level >= 4:
@@ -481,15 +484,14 @@ async def bulk_select(
             excluded["high_risk"] += 1
             continue
         pending = (
-            (
-                await session.execute(
-                    select(ApprovalRequest.id).where(
-                        ApprovalRequest.action_type == "security.case.decision",
-                        ApprovalRequest.target_id == r.case_id,
-                        ApprovalRequest.status == "pending",
+            next(
+                iter(
+                    await rbac_public.find_approvals(
+                        session, action_type="security.case.decision", target_id=r.case_id, status="pending"
                     )
-                )
-            ).first()
+                ),
+                None,
+            )
             if r.case_id
             else None
         )
@@ -533,8 +535,8 @@ async def bulk_lift_request(
         status="awaiting_approval",
         progress={},
     )
-    session.add(bl)
-    await session.flush()
+    secx.add(session, bl)
+    await secx.flush(session)
     req = await apr.new_request(
         session,
         principal,
@@ -552,25 +554,27 @@ async def bulk_lift_request(
         required_approver_role=ADMIN_ROLE,
     )
     bl.approval_request_id = req.id
-    await session.flush()
+    await secx.flush(session)
     return 202, {**apr.pending_response(req), "bulk_lift_id": str(bl.id), "matched": len(matched)}
 
 
+@secx.journaled_executor("security.bulk_lift")
 async def _execute_bulk(session: AsyncSession, principal: Principal, req: ApprovalRequest) -> dict[str, Any]:
+    closed_users: set[uuid.UUID] = set()
     from app.modules.security.unblock import false_positive_credit
 
-    bl = await session.get(SecurityBulkLift, uuid.UUID(req.payload["bulk_lift_id"]))
+    bl = await secx.get(session, SecurityBulkLift, uuid.UUID(req.payload["bulk_lift_id"]))
     assert bl is not None
     bl.status = "running"
     done, skipped, failed = 0, 0, 0
     for rid in req.payload["restriction_ids"]:
         try:
-            async with session.begin_nested():
-                r = await session.get(AccountRestriction, uuid.UUID(rid))
+            async with await secx.begin_nested(session):
+                r = await secx.get(session, AccountRestriction, uuid.UUID(rid))
                 if r is None or r.ended_at is not None or r.case_id is None:
                     skipped += 1
                     continue
-                case = await session.get(SecurityCase, r.case_id)
+                case = await secx.get(session, SecurityCase, r.case_id)
                 assert case is not None
                 payload: dict[str, Any] = {
                     "restriction_id": str(r.id),
@@ -596,11 +600,12 @@ async def _execute_bulk(session: AsyncSession, principal: Principal, req: Approv
                 )
                 urs = (
                     (
-                        await session.execute(
+                        await secx.execute(
+                            session,
                             select(UnblockRequest).where(
                                 UnblockRequest.case_id == case.id,
                                 UnblockRequest.state.in_(("draft", *cs.OPEN_UR, "approved")),
-                            )
+                            ),
                         )
                     )
                     .scalars()
@@ -611,11 +616,12 @@ async def _execute_bulk(session: AsyncSession, principal: Principal, req: Approv
                 if bl.extension_credit:
                     from app.modules.security.models import CaseDecision
 
-                    d = await session.get(CaseDecision, r.decision_id) if r.decision_id else None
+                    d = await secx.get(session, CaseDecision, r.decision_id) if r.decision_id else None
                     if d is not None:
                         await false_positive_credit(session, case.user_id, case, d)
                 case.status = "closed"
                 case.closed_at = clock.now()
+                closed_users.add(case.user_id)
                 await engine.notify_user(
                     session,
                     case.user_id,
@@ -627,6 +633,13 @@ async def _execute_bulk(session: AsyncSession, principal: Principal, req: Approv
                 done += 1
         except Exception:  # one failing restriction never rolls back the others (BL-05)
             failed += 1
+    if closed_users:
+        # pass 2: evidence of these users may expire again once no open / held case remains;
+        # recomputed from the cases, so it runs after the cases are committed
+        from app.modules.security import repo_fs_engine as fx
+
+        users = sorted(closed_users, key=str)
+        secx.after_commit(session, lambda: fx.release_evidence(users))
     bl.status = "completed"
     bl.completed_at = clock.now()
     bl.progress = {
@@ -635,7 +648,7 @@ async def _execute_bulk(session: AsyncSession, principal: Principal, req: Approv
         "failed": failed,
         "reminder": "Move the rule to shadow if it is still active.",
     }
-    await session.flush()
+    await secx.flush(session)
     await audit(
         session, principal, "security.bulk_lift.executed", "security_bulk_lift", bl.id, after=bl.progress
     )
@@ -643,21 +656,23 @@ async def _execute_bulk(session: AsyncSession, principal: Principal, req: Approv
 
 
 async def _bulk_check(session: AsyncSession, principal: Principal, req: ApprovalRequest) -> None:
-    bl = await session.get(SecurityBulkLift, uuid.UUID(req.payload["bulk_lift_id"]))
+    bl = await secx.get(session, SecurityBulkLift, uuid.UUID(req.payload["bulk_lift_id"]))
     if bl is None or [str(x) for x in bl.matched_restriction_ids] != list(req.payload["restriction_ids"]):
         raise ProblemError("invalid_state_transition", current_state="payload_tampered", allowed=[])
 
 
+@secx.journaled_executor("security.bulk_lift")
 async def _bulk_rejected(session: AsyncSession, principal: Principal, req: ApprovalRequest) -> None:
-    bl = await session.get(SecurityBulkLift, uuid.UUID(req.payload["bulk_lift_id"]))
+    bl = await secx.get(session, SecurityBulkLift, uuid.UUID(req.payload["bulk_lift_id"]))
     if bl is not None:
         bl.status = "rejected"
-        await session.flush()
+        await secx.flush(session)
 
 
 # --------------------------------------------------------------------------- report exports
 
 
+@secx.journaled_executor("security.report_export")
 async def _execute_export(
     session: AsyncSession, principal: Principal, req: ApprovalRequest
 ) -> dict[str, Any]:
@@ -668,7 +683,7 @@ async def _execute_export(
 
         return await ax.execute_approved(session, principal, req)
 
-    job = await session.get(SecurityReportExport, uuid.UUID(req.payload["export_job_id"]))
+    job = await secx.get(session, SecurityReportExport, uuid.UUID(req.payload["export_job_id"]))
     assert job is not None
     job.approved_by = principal.user_id
     await render_export(session, job)
@@ -698,16 +713,17 @@ async def _notify_export(session: AsyncSession, job: SecurityReportExport, *, re
     )
 
 
+@secx.journaled_executor("security.report_export")
 async def _export_rejected(session: AsyncSession, principal: Principal, req: ApprovalRequest) -> None:
     if req.target_type == "export_job":
         from app.modules.analytics import exports as ax
 
         await ax.on_rejected(session, principal, req)
         return
-    job = await session.get(SecurityReportExport, uuid.UUID(req.payload["export_job_id"]))
+    job = await secx.get(session, SecurityReportExport, uuid.UUID(req.payload["export_job_id"]))
     if job is not None:
         job.status = "rejected"
-        await session.flush()
+        await secx.flush(session)
         if principal.user_id != job.requested_by:  # a self-cancel needs no notice
             await _notify_export(session, job, ready=False)
 

@@ -8,6 +8,10 @@ import { SessionChoice } from "./SessionChoice";
 import { GuardianConsent } from "./GuardianConsent";
 import { SignupForm } from "./SignupForm";
 
+/** Recorded api calls minus the shell's GET public/integrations status check. */
+const apiCalls = (api: { calls: { path: string }[] }) => api.calls.filter((c) => c.path !== "public/integrations") as ReturnType<typeof mockApi>["calls"];
+
+
 /**
  * FE-24: typing long strings key-by-key re-renders the whole form per character and made these
  * tests exceed the 5 s default under parallel load. Pasting fires one input event per field,
@@ -35,9 +39,9 @@ describe("LoginForm (AUTH-06)", () => {
     renderWithProviders(<LoginForm next="/app/learning" />);
     await fill(screen.getByLabelText(/Email or mobile/), "ananya@example.com");
     await fill(screen.getByLabelText(/^Password/), "correct-horse-battery-staple");
-    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(screen.getByRole("button", { name: "Log in" }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/app/learning"));
-    const call = api.calls[0]!;
+    const call = apiCalls(api)[0]!;
     expect(call.body).toEqual({ identifier: "ananya@example.com", password: "correct-horse-battery-staple", remember_device: false });
     expect(call.headers["x-csrf-token"]).toBe("test-csrf-token");
     expect(call.headers["idempotency-key"]).toBeTruthy();
@@ -51,7 +55,7 @@ describe("LoginForm (AUTH-06)", () => {
     renderWithProviders(<LoginForm />);
     await fill(screen.getByLabelText(/Email or mobile/), "ananya@example.com");
     await fill(screen.getByLabelText(/^Password/), "correct-horse-battery-staple");
-    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(screen.getByRole("button", { name: "Log in" }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/login/verify-device"));
     expect(readPendingLogin()?.channels?.[0]?.destination_masked).toBe("+91 98xxxxxx21");
     expect(JSON.stringify(sessionStorage)).not.toContain("correct-horse");
@@ -63,7 +67,7 @@ describe("LoginForm (AUTH-06)", () => {
     renderWithProviders(<LoginForm />);
     await fill(screen.getByLabelText(/Email or mobile/), "x@example.com");
     await fill(screen.getByLabelText(/^Password/), "wrong-password-123456");
-    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(screen.getByRole("button", { name: "Log in" }));
     expect(await screen.findByText("That email/mobile and password don't match. Check them and try again.")).toBeInTheDocument();
     expect(screen.getByText("req-123")).toBeInTheDocument();
     expect(screen.getByLabelText(/^Password/)).toHaveValue("");
@@ -81,7 +85,7 @@ describe("LoginForm (AUTH-06)", () => {
     renderWithProviders(<LoginForm />);
     await fill(screen.getByLabelText(/Email or mobile/), "x@example.com");
     await fill(screen.getByLabelText(/^Password/), "correct-horse-battery-staple");
-    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(screen.getByRole("button", { name: "Log in" }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/login/session-choice"));
     expect(readPendingLogin()?.capSessions).toHaveLength(1);
   });
@@ -90,9 +94,10 @@ describe("LoginForm (AUTH-06)", () => {
     const api = mockApi({});
     restore = api.restore;
     renderWithProviders(<LoginForm />);
-    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(screen.getByText("Enter your email or mobile number.")).toBeInTheDocument();
-    expect(api.calls).toHaveLength(0);
+    await userEvent.click(screen.getByRole("button", { name: "Log in" }));
+    expect(screen.getByText("Enter your email, username or mobile number.")).toBeInTheDocument();
+    expect(screen.getByText("Sign in with your email or the username we sent you (e.g. td123456).")).toBeInTheDocument();
+    expect(apiCalls(api)).toHaveLength(0);
   });
 });
 
@@ -113,7 +118,7 @@ describe("SessionChoice (AUTH-14)", () => {
     expect(screen.getByText(/Signing out this device would interrupt your test/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Sign out selected and continue" }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/app"));
-    expect(api.calls[0]!.body).toEqual({ end_session_id: "old", cancel: false, confirm_attempt_session: false });
+    expect(apiCalls(api)[0]!.body).toEqual({ end_session_id: "old", cancel: false, confirm_attempt_session: false });
   });
 
   it("requires explicit confirmation to end a session with a test in progress", async () => {
@@ -128,10 +133,10 @@ describe("SessionChoice (AUTH-14)", () => {
     renderWithProviders(<SessionChoice />);
     await userEvent.click(await screen.findByRole("radio", { name: /Android phone/ }));
     await userEvent.click(screen.getByRole("button", { name: "Sign out selected and continue" }));
-    expect(api.calls).toHaveLength(0);
+    expect(apiCalls(api)).toHaveLength(0);
     await userEvent.click(screen.getByRole("checkbox", { name: /will be interrupted/ }));
     await userEvent.click(screen.getByRole("button", { name: "Sign out selected and continue" }));
-    await waitFor(() => expect(api.calls[0]?.body).toEqual({ end_session_id: "busy", cancel: false, confirm_attempt_session: true }));
+    await waitFor(() => expect(apiCalls(api)[0]?.body).toEqual({ end_session_id: "busy", cancel: false, confirm_attempt_session: true }));
   });
 
   it("shows the expired state when nothing is pending", async () => {
@@ -155,7 +160,7 @@ describe("SignupForm (AUTH-01)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Create account" }));
     expect(screen.getByText(/Please fix these/)).toBeInTheDocument();
     expect(screen.getAllByText("Enter your full name.").length).toBeGreaterThan(0);
-    expect(api.calls).toHaveLength(0);
+    expect(apiCalls(api)).toHaveLength(0);
   });
 
   it("applies the under-18 gate: guardian notice, no optional consents, adult-only purposes not granted", async () => {
@@ -174,7 +179,7 @@ describe("SignupForm (AUTH-01)", () => {
     await userEvent.click(screen.getByRole("checkbox", { name: /I agree to the/ }));
     await userEvent.click(screen.getByRole("button", { name: "Create account" }));
     await screen.findByText("Almost there");
-    const body = api.calls[0]!.body as { consents: { purpose: string; granted: boolean }[]; date_of_birth: string; guardian: unknown };
+    const body = apiCalls(api)[0]!.body as { consents: { purpose: string; granted: boolean }[]; date_of_birth: string; guardian: unknown };
     expect(body.date_of_birth).toBe(`${year}-06-05`);
     expect(body.guardian).toEqual({ name: "Sunita Kumar", email: "sunita@example.com", phone: null, relationship: "parent" });
     expect(body.consents.filter((c) => c.granted).map((c) => c.purpose).sort()).toEqual(["core_service", "privacy_notice", "terms"]);

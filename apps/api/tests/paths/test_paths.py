@@ -329,6 +329,7 @@ async def _build_path(db: Any, w: World) -> tuple[str, dict[str, Any], uuid.UUID
 # --------------------------------------------------------------------------- flows
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_author_allocate_sequential_player_and_dwell(browser, db) -> None:
     w = await _world(db, browser)
     pid, art, _, _ = await _build_path(db, w)
@@ -391,6 +392,7 @@ async def test_author_allocate_sequential_player_and_dwell(browser, db) -> None:
     assert r.status_code == 200, r.text
     row = r.json()["learners"][0]
     assert row["full_name"] == "Asha Learner" and row["completed_steps"] == 1 and row["credits_earned"] == 5
+    assert row["email"] is None  # F9: learner emails are Admin-only
     # learners cannot see staff endpoints
     assert (await w.b1.get(f"/path-allocations/{aid}/progress")).status_code in (403, 404)
     assert (await w.b1.post("/paths", {"title": "x"})).status_code == 403
@@ -400,6 +402,7 @@ async def test_author_allocate_sequential_player_and_dwell(browser, db) -> None:
     assert (await w.b1.get("/me/paths")).json()["data"] == []
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_strict_flow_late_penalty_and_event_driven_completion(browser, db) -> None:
     w = await _world(db, browser)
     pid, _, asg, tst = await _build_path(db, w)
@@ -478,6 +481,7 @@ async def test_strict_flow_late_penalty_and_event_driven_completion(browser, db)
     assert r.json()["learners"][0]["behind"] is True
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_article_share_audiences(browser, db) -> None:
     w = await _world(db, browser)
     tb = w.tb
@@ -515,6 +519,7 @@ async def test_article_share_audiences(browser, db) -> None:
     assert (await w.b1.patch(f"/path-articles/{art}", {"title": "x"})).status_code == 403
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_sec01_other_batch_trainer_cannot_touch_batch_allocation(browser, db) -> None:
     """SEC-01 regression (was tests/_review_scratch/test_sec_paths_probe.py): a trainer holding
     path.allocate only on batch Y cannot read, revoke or re-target batch X's allocation or
@@ -558,6 +563,7 @@ async def test_sec01_other_batch_trainer_cannot_touch_batch_allocation(browser, 
     assert (await tyb.get("/paths/batch-members", params={"batch_id": str(w.batch)})).status_code == 403
     r = await tyb.get("/paths/batch-members", params={"batch_id": str(batch_y)})
     assert r.status_code == 200 and [m["full_name"] for m in r.json()["data"]] == ["Yamuna Learner"]
+    assert [m["email"] for m in r.json()["data"]] == [None]  # names only for trainers (F9)
     assert (await tyb.get("/paths/batch-members", params={"batch_id": str(uuid.uuid4())})).status_code == 404
     # trainer Y may allocate to their own learner individually; trainer X cannot manage that one
     body = {"target_type": "users", "user_ids": [str(sy.id)], "pace": pace}
@@ -580,6 +586,7 @@ async def test_sec01_other_batch_trainer_cannot_touch_batch_allocation(browser, 
     assert (await w.tb.request("DELETE", f"/path-allocations/{alloc}")).status_code == 204
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_removed_batch_member_loses_path_access(browser, db) -> None:
     """SEC-03 analogue: only *active* batch membership counts (allocations, pickers)."""
     w = await _world(db, browser)
@@ -603,6 +610,7 @@ async def test_removed_batch_member_loses_path_access(browser, db) -> None:
     assert (await w.tb.post(f"/paths/{pid}/allocations", body)).status_code == 403
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_ai_generate_draft_and_errors(browser, db, monkeypatch) -> None:
     from app.modules.ai import service as ai
 
@@ -683,6 +691,7 @@ async def test_ai_generate_draft_and_errors(browser, db, monkeypatch) -> None:
     assert (await w.b1.post("/paths/ai-generate", body)).status_code == 403
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_admin_creates_publishes_allocates_company_wide(browser, db) -> None:
     """Admin (platform grant) replaces the college coordinator: every batch, any batch learner."""
     reset_role_permission_cache()
@@ -744,6 +753,8 @@ async def test_admin_creates_publishes_allocates_company_wide(browser, db) -> No
     assert [m["full_name"] for m in members] == ["Meena Learner"]
     progress = (await cb.get(f"/path-allocations/{r.json()['id']}/progress")).json()
     assert progress["learners"][0]["total_steps"] == 2
+    # Admin still sees learner emails (F9)
+    assert members[0]["email"] and progress["learners"][0]["email"]
     mine = (await lb.get("/me/paths")).json()["data"]
     assert len(mine) == 2
     pl = (await lb.get(f"/me/paths/{mine[0]['allocation_id']}")).json()

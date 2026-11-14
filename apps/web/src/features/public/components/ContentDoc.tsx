@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { PageHeader } from "@/components/ui";
 import { NOTICE_VERSION } from "@/features/auth/lib/consents";
 import type { ContentDoc, ContentSection } from "../content/types";
 
@@ -21,7 +22,7 @@ function Section({ section }: { section: ContentSection }) {
   const hid = `sec-${section.id}`;
   return (
     <section aria-labelledby={hid} className="space-y-3">
-      <h2 id={hid} className="font-display text-lg font-semibold text-fg">
+      <h2 id={hid} className="font-display text-lg font-bold text-fg-heading">
         {section.heading}
       </h2>
       {section.paragraphs?.map((p) => (
@@ -90,20 +91,14 @@ function Section({ section }: { section: ContentSection }) {
 export function ContentDocView({ doc, kind, children, back }: { doc: ContentDoc; kind: "policy" | "article"; children?: ReactNode; back?: { href: string; label: string } }) {
   return (
     <article className="mx-auto max-w-3xl space-y-6">
-      {back ? (
-        <Link href={back.href} className="text-sm font-medium text-fg-link hover:text-fg-link-hover">
-          ← {back.label}
-        </Link>
-      ) : null}
-      <header className="space-y-2">
-        <h1 className="font-display text-2xl font-bold text-fg sm:text-3xl">{doc.title}</h1>
-        <p className="max-w-prose text-fg-secondary">{doc.summary}</p>
+      <div>
+        <PageHeader breadcrumbs={back ? [{ label: back.label, href: back.href }, { label: doc.title }] : undefined} title={doc.title} description={doc.summary} />
         {kind === "policy" ? (
-          <p className="text-xs text-fg-muted">
+          <p className="-mt-3 text-xs text-fg-muted sm:-mt-5">
             Version: draft for notice {NOTICE_VERSION} · Effective date: not set yet (set when the text is approved)
           </p>
         ) : null}
-      </header>
+      </div>
       {doc.draft ? <DraftBanner /> : null}
       {doc.sections.map((s) => (
         <Section key={s.id} section={s} />

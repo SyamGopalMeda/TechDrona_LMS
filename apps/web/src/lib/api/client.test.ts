@@ -169,6 +169,42 @@ describe("api client", () => {
     expect(mfaEnrolPath(undefined)).toBe("/app/settings/security/mfa");
   });
 
+  it("403 password_change_required sends the user to /change-password with a way back", async () => {
+    restore = configureApiClient({
+      fetchImpl: vi.fn(async () => problem(403, { code: "password_change_required", change_url: "/change-password" })),
+      navigate,
+      currentPath: () => "/admin/users?q=a",
+    });
+    await expect(api.get("admin/users")).rejects.toMatchObject({ status: 403, code: "password_change_required" });
+    expect(navigate).toHaveBeenCalledWith(`/change-password?next=${encodeURIComponent("/admin/users?q=a")}`);
+  });
+
+  it("password_change_required does not loop when already on /change-password", async () => {
+    restore = configureApiClient({
+      fetchImpl: vi.fn(async () => problem(403, { code: "password_change_required", change_url: "/change-password" })),
+      navigate,
+      currentPath: () => "/change-password?next=%2Fapp",
+    });
+    await expect(api.get("me")).rejects.toBeInstanceOf(ApiError);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("403 consent_required for the required terms goes to /accept-terms; other consent problems don't navigate", async () => {
+    restore = configureApiClient({
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(problem(403, { code: "consent_required", purposes: ["terms", "privacy_notice"], notice_version: "current" }))
+        .mockResolvedValueOnce(problem(403, { code: "consent_required", purposes: ["security_monitoring"] })),
+      navigate,
+      currentPath: () => "/app",
+    });
+    await expect(api.get("me/courses")).rejects.toMatchObject({ status: 403, code: "consent_required" });
+    expect(navigate).toHaveBeenCalledWith("/accept-terms?next=%2Fapp");
+    navigate.mockReset();
+    await expect(api.post("checkout", {})).rejects.toMatchObject({ code: "consent_required" });
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it("apiRequestRaw returns the raw Response and throws ApiError on a problem", async () => {
     const fetchImpl = vi
       .fn()

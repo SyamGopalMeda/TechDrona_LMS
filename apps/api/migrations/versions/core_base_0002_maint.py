@@ -37,7 +37,10 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = (
     "admin_0001",
     "sessions_0002",
-    "security_0001",
+    # security_0002, not security_0001: with security_0001 here Alembic 1.20 could drop it from
+    # alembic_version before security_0002 ran (fresh DB, hash-seed dependent:
+    # KeyError: 'security_0001' in update_to_step). ws1-close.md §5.
+    "security_0002",
     "media_0001",
     "assessments_0001",
     "analytics_0001",

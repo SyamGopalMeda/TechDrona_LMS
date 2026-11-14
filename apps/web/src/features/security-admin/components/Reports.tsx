@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Badge, Button, Card, EmptyState, ErrorState, FormField, Input, PageHeader, Select, Skeleton, Table, type Column } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, ErrorState, FormField, Input, LinkButton, PageHeader, Select, Table, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { useResource } from "@/features/account/lib/use-resource";
@@ -11,9 +11,31 @@ import { cellText, cleanQuery, formatDateTime, humanize, useVersioned } from "@/
 import { defaultReportDays, REPORT_FILTER_DEFS, REPORT_FILTERS, REQUIRED_REPORT_FILTERS, reportByKey, SECTION_H_REPORTS, type ReportFilterDef } from "../lib/catalogue";
 import type { ExportResponse, ReportCatalogueEntry, ReportResult } from "../lib/types";
 import { MyExports, readTrackedExports, trackExport, type TrackedExport } from "./MyExports";
-import { ReportExtras } from "./ReportExtras";
+import { ReportExtras, Suppressed } from "./ReportExtras";
 
-/** Report catalogue (SEC-30) merged with the static H1–H12 + ENG list. */
+/** Readable column headers for report row keys; the rest are humanized ("_id" dropped). */
+const COLUMN_LABELS: Record<string, string> = {
+  user_id: "User",
+  case_ref: "Case",
+  rule_key: "Rule",
+  hc_rule: "Automatic rule",
+  sla_state: "Response time",
+  level: "Level",
+  score: "Risk score",
+  assignee_id: "Assignee",
+  reviewer_id: "Reviewer",
+  device_count: "Devices",
+  account_count: "Accounts",
+  net: "Network",
+  first_seen: "First seen",
+  last_seen: "Last seen",
+};
+
+export function columnLabel(key: string): string {
+  return COLUMN_LABELS[key] ?? humanize(key.replace(/_id$/, ""));
+}
+
+/** Report catalogue (SEC-30) merged with the static report list. */
 export function ReportsIndex() {
   // verified: api_engine.py report_catalogue → {data: [{report_key, id, title, per_user, accessible, export_approval}]}
   const res = useResource<{ data: ReportCatalogueEntry[] }>("security/reports");
@@ -22,25 +44,30 @@ export function ReportsIndex() {
   const items = res.data ? SECTION_H_REPORTS.filter((r) => byKey.get(r.key)?.accessible) : SECTION_H_REPORTS;
   return (
     <div>
-      <PageHeader eyebrow="SEC-001 · Section H" title="Security reports" description="H1–H12 and engine health. Exports need step-up; exports with per-user rows also need a second security reviewer." />
+      <PageHeader
+        breadcrumbs={[{ label: "Security", href: "/security" }, { label: "Reports" }]}
+        title="Reports"
+        description="Suspicious accounts, restrictions, review times and engine health. Exports with personal data need a second security reviewer."
+      />
       {res.error ? <ErrorState error={res.error} onRetry={() => void res.reload()} /> : null}
       <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy={res.loading || undefined}>
         {items.map((r) => {
           const api = byKey.get(r.key);
           return (
             <li key={r.key} className="rounded-xl border border-line bg-surface p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-fg-muted">{r.code}</p>
-              <Link href={`/security/reports/${r.key}`} className={`${textLink} font-display text-base`}>
+              <Link href={`/security/reports/${r.key}`} className={`${textLink} inline-flex min-h-6 items-center font-display text-base`}>
                 {api?.title ?? r.title}
               </Link>
               <p className="mt-2 flex flex-wrap gap-1">
-                {(api?.per_user ?? r.perUser) ? <Badge tone="info">Per-user rows</Badge> : <Badge>Aggregate</Badge>}
+                {(api?.per_user ?? r.perUser) ? <Badge tone="info">Lists individual users</Badge> : <Badge>Totals only</Badge>}
               </p>
             </li>
           );
         })}
       </ul>
-      {res.data && items.length === 0 ? <EmptyState title="No reports available for your role" /> : null}
+      {res.data && items.length === 0 ? (
+        <EmptyState icon="lock" title="No reports available for your role" description="Ask a super admin for the security reviewer or security admin role." />
+      ) : null}
       <MyExportsFromSession />
     </div>
   );
@@ -123,19 +150,39 @@ export function ReportView({ reportKey }: { reportKey: string }) {
   // 422 validation_failed names the filter (e.g. H12 `user_id` required/unknown): show it on that input.
   const fieldErrors = useMemo(() => filterErrors(res.error), [res.error]);
 
-  if (!def) return <EmptyState title="Unknown report" description={`There is no Section H report with the key “${reportKey}”.`} />;
+  if (!def) {
+    return (
+      <div>
+        <PageHeader breadcrumbs={[{ label: "Security", href: "/security" }, { label: "Reports", href: "/security/reports" }, { label: "Unknown report" }]} title="Unknown report" />
+        <EmptyState
+          icon="search"
+          title="We couldn't find this report"
+          description="The link may be out of date."
+          action={
+            <LinkButton href="/security/reports" variant="secondary">
+              See all reports
+            </LinkButton>
+          }
+        />
+      </div>
+    );
+  }
 
   const rows = res.data?.rows ?? [];
   const keys = Array.from(new Set(rows.flatMap((r) => Object.keys(r)).filter((k) => k !== "suppressed")));
   const cols: Column<Record<string, unknown>>[] = keys.map((k) => ({
     key: k,
-    header: humanize(k),
-    cell: (r) => (r.suppressed === true && (r[k] === null || r[k] === undefined) ? <span title="Fewer than the k-minimum subjects">&lt;k suppressed</span> : cellText(r[k])),
+    header: columnLabel(k),
+    cell: (r) => (r.suppressed === true && (r[k] === null || r[k] === undefined) ? <Suppressed /> : cellText(r[k])),
   }));
 
   return (
     <div>
-      <PageHeader eyebrow={def.code} title={def.title} description={`Report key ${def.key}`} actions={<Link href="/security/reports" className={textLink}>All reports</Link>} />
+      <PageHeader
+        breadcrumbs={[{ label: "Security", href: "/security" }, { label: "Reports", href: "/security/reports" }, { label: def.title }]}
+        title={def.title}
+        description={def.perUser ? "Lists individual users. Viewing is recorded in the audit log." : "Totals only; no individual users are listed."}
+      />
       <form
         role="search"
         aria-label="Report filters"
@@ -162,19 +209,26 @@ export function ReportView({ reportKey }: { reportKey: string }) {
           Enter {missing.map((n) => REPORT_FILTER_DEFS[n]?.label.toLowerCase() ?? n).join(", ")} and apply the filters to run this report.
         </p>
       ) : null}
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-xs text-fg-muted">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 flex-1 basis-60 text-xs text-fg-muted">
           {res.data?.generated_at ? `Generated ${formatDateTime(res.data.generated_at)} · ${formatDateTime(res.data.period.from)} to ${formatDateTime(res.data.period.to)}` : null}
-          {typeof res.data?.k_min === "number" ? ` · cells under ${res.data.k_min} subjects are suppressed` : null}
+          {typeof res.data?.k_min === "number" ? ` · Groups of fewer than ${res.data.k_min} people are hidden to protect privacy.` : null}
         </p>
         <Button size="sm" variant="secondary" disabled={missing.length > 0} onClick={() => void res.reload()}>
           Refresh
         </Button>
       </div>
-      {missing.length ? null : res.loading && !res.data ? (
-        <Skeleton className="h-40 w-full" />
-      ) : (
-        <Table caption={`${def.code} ${def.title}`} columns={cols} rows={res.data ? rows : undefined} rowKey={(r) => JSON.stringify(r)} loading={res.loading} error={res.error} onRetry={() => void res.reload()} empty={{ title: "No rows for this period" }} />
+      {missing.length ? null : (
+        <Table
+          caption={def.title}
+          columns={cols}
+          rows={res.data ? rows : undefined}
+          rowKey={(r) => JSON.stringify(r)}
+          loading={res.loading}
+          error={res.error}
+          onRetry={() => void res.reload()}
+          empty={{ title: "Nothing to report for this period", description: "Try an earlier start date or fewer filters." }}
+        />
       )}
       {res.data && !missing.length ? <ReportExtras result={res.data} /> : null}
       <ExportRequest key={JSON.stringify(sent)} reportKey={reportKey} perUserAllowed={def.perUser} filters={sent} onRequested={(job) => setTracked(trackExport(job))} />
@@ -247,7 +301,7 @@ export function ExportRequest({
             </>
           ) : (
             <p role="status" className="text-sm text-fg">
-              Export <span className="font-mono">{result.export_job_id}</span> is <StateBadge state={result.status} />.{" "}
+              Your export is <StateBadge state={result.status} />.{" "}
               {result.status === "completed" ? "Download it from My exports below." : "Check its status under My exports below."}
             </p>
           )

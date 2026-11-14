@@ -1,0 +1,20 @@
+{
+  "name": "techdrona-outreach-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tech Drona outreach portal: colleges, branches, ambassadors, targets and enrollments across Andhra Pradesh.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node server/server.js",
+    "seed": "node server/seed.js",
+    "seed:demo": "node server/seed.js --demo",
+    "seed:clear-demo": "node server/seed.js --clear-demo",
+    "selftest": "node server/selftest.js",
+    "export:static": "node export_static_data.js",
+    "test:live": "node --test server/live.test.js",
+    "test:proxy": "node --test server/proxy.test.js"
+  }
+}

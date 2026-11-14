@@ -1,0 +1,50 @@
+{
+  "name": "@techdrona/lms-spa",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tech Drona LMS as a static React SPA (Vite + React Router) for Firebase Hosting. Port of apps/web; see docs/firebase/agents/spa.md.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "sync": "node scripts/sync-from-web.mjs && node scripts/gen-routes.mjs && node scripts/gen-static.mjs",
+    "gen:routes": "node scripts/gen-routes.mjs",
+    "predev": "node scripts/copy-monaco.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/copy-monaco.mjs && node scripts/gen-routes.mjs && node scripts/gen-static.mjs",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "firebase": "^12.19.0",
+    "monaco-editor": "^0.52.2",
+    "qrcode": "1.5.4",
+    "react": "19.2.9",
+    "react-dom": "19.2.9",
+    "react-router": "^7.18.5",
+    "recharts": "^3.10.1"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^22.18.0",
+    "@types/qrcode": "1.5.5",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "autoprefixer": "^10.4.21",
+    "jsdom": "^26.1.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.19",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.8",
+    "vitest": "^3.2.7"
+  }
+}

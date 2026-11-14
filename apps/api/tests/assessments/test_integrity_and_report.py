@@ -80,7 +80,9 @@ async def flagged_attempt(db: Any, w: World, client: Any, *, submit: bool = True
     await events(db, aid, "paste", 1)  # below threshold: counted, not a reason
     if submit:
         r = await client.post(
-            f"{API}/attempts/{aid}/submit", json={}, headers={**w.personas["student"].headers, **idem()}
+            f"{API}/attempts/{aid}/submit",
+            json={"confirm_unanswered": 999},
+            headers={**w.personas["student"].headers, **idem()},
         )
         assert r.status_code == 200, r.text
     return test_id, aid
@@ -271,7 +273,9 @@ async def flagged_attempt_for(db: Any, w: World, client: Any) -> tuple[uuid.UUID
     r = await start(client, s, test_id)
     aid = r.json()["attempt_id"]
     await events(db, aid, "disconnect", integ.DISCONNECT_REVIEW_MIN)
-    await client.post(f"{API}/attempts/{aid}/submit", json={}, headers={**s.headers, **idem()})
+    await client.post(
+        f"{API}/attempts/{aid}/submit", json={"confirm_unanswered": 999}, headers={**s.headers, **idem()}
+    )
     return test_id, aid
 
 

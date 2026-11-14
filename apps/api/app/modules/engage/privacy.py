@@ -23,6 +23,12 @@ def _n(result: Any) -> int:
 
 
 async def erase_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]:
+    from app.core.firestore.backend import uses_firestore
+
+    if uses_firestore("engage"):
+        from app.modules.engage import service_fs
+
+        return await service_fs.erase_user(user_id)
     names = await session.execute(
         update(EngageParticipant)
         .where(EngageParticipant.user_id == user_id, EngageParticipant.display_name.is_not(None))
@@ -41,6 +47,6 @@ async def erase_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, Any
 
 
 def register() -> None:
-    from app.modules.admin.privacy import register_erasure_provider
+    from app.modules.admin.public import register_erasure_provider
 
     register_erasure_provider("engage", erase_user)

@@ -183,13 +183,13 @@ async def test_gst_export_over_threshold_needs_super_admin_approval(
     assert appr and store.objects == {}
     assert (await f.get(f"/finance/gst-exports/{job}/download")).status_code == 409
     # requester cannot approve own export; a platform user without the Admin role cannot either
-    fsa = api.as_(principal(fid, roles=("super_admin",), platform=True), *EXPORT_PERMS)
+    fsa = api.as_(principal(fid, roles=("super_admin",), platform=True), *EXPORT_PERMS, "approval.decide")
     r = await fsa.post(f"/admin/approvals/{appr}/approve", {"note": "self"}, idem=True)
     assert r.status_code == 403 and r.json()["code"] == "sod_violation"
     other_fin = api.as_(principal(await make_buyer(db), platform=True), "report.export.approve")
     r = await other_fin.post(f"/admin/approvals/{appr}/approve", {"note": "x"}, idem=True)
     assert r.status_code == 403
-    sa = api.as_(principal(await make_buyer(db), roles=("super_admin",), platform=True))
+    sa = api.as_(principal(await make_buyer(db), roles=("super_admin",), platform=True), "approval.decide")
     r = await sa.post(f"/admin/approvals/{appr}/approve", {"note": "ok"}, idem=True)
     assert r.status_code == 200 and r.json()["status"] == "executed", r.text
     assert (await f.get(f"/finance/gst-exports/{job}")).json()["status"] == "ready"

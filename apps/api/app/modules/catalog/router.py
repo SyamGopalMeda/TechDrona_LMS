@@ -12,6 +12,10 @@ answer ``404`` (TI-02).
 
 Not implemented here (other owners): CAT-03/04 company hubs and CAT-05 topic pages
 (placement module).
+
+``TD_STORE_CATALOG=firestore``: endpoints that run inline SQL branch to ``repo_firestore``
+(same responses, same permission checks; reads filtered with the session's TN context, writes in
+one Firestore transaction each). The Postgres path is unchanged.
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ from app.core.auth import (
 from app.core.company import COMPANY_ORG_ID
 from app.core.db import DbSession, PrincipalDbSession
 from app.core.errors import ProblemError
+from app.core.firestore.backend import uses_firestore
 from app.core.idempotency import IdemResult, idempotent
 from app.core.ids import uuid7
 from app.core.outbox import emit_event
@@ -62,6 +67,31 @@ PUBLIC_CACHE = "public, max-age=300"
 
 def _perm(key: str, scope: Any = None) -> Any:
     return Depends(require_permission(key, scope=scope))
+
+
+def _fs() -> bool:
+    return uses_firestore("catalog")
+
+
+def _cursor_id(cursor: str | None) -> str | None:
+    """The ``{"id": ...}`` keyset cursor of the catalog lists (same wire format on both stores)."""
+    if not cursor:
+        return None
+    pos = decode_cursor(cursor)
+    try:
+        return str(uuid.UUID(str(pos["id"])))
+    except (KeyError, ValueError) as e:
+        raise ProblemError("invalid_cursor") from e
+
+
+async def _assets_of(session: Any, lesson_id: uuid.UUID) -> list[LessonAsset]:
+    if _fs():
+        from app.modules.catalog.repo_firestore import reader
+
+        return await (await reader(session)).lesson_assets(lesson_id, True)
+    return list(
+        (await session.execute(select(LessonAsset).where(LessonAsset.lesson_id == lesson_id))).scalars()
+    )
 
 
 # =========================================================================== public catalogue
@@ -116,6 +146,8 @@ async def _public_list(
     q: str | None,
 ) -> dict[str, Any]:
     limit = _limit(limit)
+    if _fs():
+        return await _public_list_firestore(session, cursor, limit, category, level, price_type, language, q)
     conds = [*svc.public_course_filter(), Course.visibility == "public"]
     if category:
         conds.append(CourseVersion.category == category)
@@ -163,6 +195,33 @@ async def _public_list(
     return {"data": data, "page": page_meta(nxt, limit)}
 
 
+async def _public_list_firestore(
+    session: Any,
+    cursor: str | None,
+    limit: int,
+    category: str | None,
+    level: str | None,
+    price_type: str | None,
+    language: str | None,
+    q: str | None,
+) -> dict[str, Any]:
+    from app.modules.catalog.repo_firestore import card_counts, card_version, course_of, reader
+
+    docs, more = await (await reader(session)).public_list(
+        category=category,
+        level=level,
+        price_type=price_type,
+        language=language,
+        q=q,
+        is_free=None,
+        after_id=_cursor_id(cursor),
+        limit=limit,
+    )
+    data = [svc.public_card(course_of(d), card_version(d), card_counts(d)) for d in docs]
+    nxt = {"id": str(docs[-1]["id"])} if more and docs else None
+    return {"data": data, "page": page_meta(nxt, limit)}
+
+
 @pub.get("/courses/{slug}", operation_id="cat_02_course_detail")
 async def course_detail(slug: str, response: Response, session: DbSession) -> dict[str, Any]:
     course, version = await svc.public_course_by_slug(session, slug)
@@ -203,6 +262,23 @@ async def free_resources(
 ) -> dict[str, Any]:
     limit = _limit(limit)
     response.headers["Cache-Control"] = PUBLIC_CACHE
+    if _fs():
+        from app.modules.catalog.repo_firestore import card_counts, card_version, course_of, reader
+
+        repo = await reader(session)
+        res: Any = await repo.free_resources(limit)
+        docs, _more = await repo.public_list(
+            category=None,
+            level=None,
+            price_type=None,
+            language=None,
+            q=None,
+            is_free=True,
+            after_id=None,
+            limit=limit,
+        )
+        free_courses = [svc.public_card(course_of(d), card_version(d), card_counts(d)) for d in docs]
+        return _free_out(res, free_courses)
     res = (
         await session.execute(
             select(Resource, Course.slug)
@@ -229,6 +305,10 @@ async def free_resources(
         )
     ).all()
     counts = await svc.published_lesson_counts(session, [v.id for _, v in courses])
+    return _free_out(res, [svc.public_card(c, v, counts.get(v.id)) for c, v in courses])
+
+
+def _free_out(res: Any, free_courses: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "data": {
             "resources": [
@@ -242,7 +322,7 @@ async def free_resources(
                 }
                 for r, slug in res
             ],
-            "free_courses": [svc.public_card(c, v, counts.get(v.id)) for c, v in courses],
+            "free_courses": free_courses,
         }
     }
 
@@ -289,6 +369,18 @@ async def studio_courses(
     # edit (course-scoped grants plus their batch orgs' private courses), so the trainer portal
     # renders instead of 403.
     limit = _limit(limit)
+    if _fs():
+        from app.modules.catalog.repo_firestore import reader
+
+        rows, drafts, more = await (await reader(session)).studio_list(
+            platform=platform,
+            orgs=orgs,
+            course_ids=course_ids,
+            status=status,
+            after_id=_cursor_id(cursor),
+            limit=limit,
+        )
+        return _studio_page(rows, drafts, more, limit)
     conds: list[Any] = [Course.deleted_at.is_(None)]
     if not platform:
         conds.append(
@@ -315,6 +407,12 @@ async def studio_courses(
             )
         ).scalars()
     }
+    return _studio_page(rows, drafts, more, limit)
+
+
+def _studio_page(
+    rows: list[Course], drafts: dict[uuid.UUID, CourseVersion], more: bool, limit: int
+) -> dict[str, Any]:
     data = []
     for c in rows:
         out = svc.course_out(c)
@@ -397,6 +495,8 @@ async def patch_draft(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
+    if _fs():
+        return await _patch_draft_firestore(course_id, body, session, principal)
     course = await svc.get_course(session, course_id)
     draft = await svc.ensure_draft(session, course, principal)
     data = body.model_dump(exclude_unset=True)
@@ -444,6 +544,28 @@ async def patch_draft(
     return await svc.version_out(session, draft)
 
 
+async def _patch_draft_firestore(
+    course_id: uuid.UUID, body: DraftPatch, session: Any, principal: Principal
+) -> dict[str, Any]:
+    from app.modules.catalog.repo_firestore import AUTHOR_PERMS, CREATE_PERMS, writer
+
+    data = body.model_dump(exclude_unset=True)
+    repo = await writer(session, principal, CREATE_PERMS if "slug" in data else AUTHOR_PERMS)
+    course, draft, before = await repo.patch_draft(principal.user_id, course_id, data)
+    if before:
+        await audit(
+            session,
+            principal,
+            "course.settings_change",
+            "course",
+            course.id,
+            organization_id=course.organization_id,
+            before=before,
+            after={k: getattr(course, k) for k in before},
+        )
+    return await svc.version_out(session, draft)
+
+
 @studio.put(
     "/courses/{course_id}/draft/outline",
     operation_id="cat_12_put_outline",
@@ -455,9 +577,16 @@ async def put_outline(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
-    course = await svc.get_course(session, course_id)
-    draft = await svc.ensure_draft(session, course, principal)
-    await svc.replace_outline(session, course, draft, [m.model_dump() for m in body.modules])
+    if _fs():
+        from app.modules.catalog.repo_firestore import writer
+
+        course, draft = await (await writer(session, principal)).replace_outline(
+            principal.user_id, course_id, [m.model_dump() for m in body.modules]
+        )
+    else:
+        course = await svc.get_course(session, course_id)
+        draft = await svc.ensure_draft(session, course, principal)
+        await svc.replace_outline(session, course, draft, [m.model_dump() for m in body.modules])
     await audit(
         session,
         principal,
@@ -484,12 +613,28 @@ async def add_lesson(
     principal: Principal = Depends(require_active_principal),
 ) -> Any:
     async def op() -> IdemResult:
-        course = await svc.get_course(session, course_id)
-        draft = await svc.ensure_draft(session, course, principal)
         values = body.model_dump(exclude={"module_key", "module_title"}, exclude_none=True)
-        lesson = await svc.add_lesson(
-            session, course, draft, module_key=body.module_key, module_title=body.module_title, values=values
-        )
+        if _fs():
+            from app.modules.catalog.repo_firestore import writer
+
+            course, lesson = await (await writer(session, principal)).add_lesson(
+                principal.user_id,
+                course_id,
+                module_key=body.module_key,
+                module_title=body.module_title,
+                values=values,
+            )
+        else:
+            course = await svc.get_course(session, course_id)
+            draft = await svc.ensure_draft(session, course, principal)
+            lesson = await svc.add_lesson(
+                session,
+                course,
+                draft,
+                module_key=body.module_key,
+                module_title=body.module_title,
+                values=values,
+            )
         await audit(
             session,
             principal,
@@ -521,19 +666,24 @@ async def patch_lesson(
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
     course_id = await _lesson_perm(request, session, principal, lesson_id, "course.edit")
-    lesson, version = await svc.editable_lesson(session, lesson_id)
     data = body.model_dump(exclude_unset=True)
-    merged = {
-        k: data.get(k, getattr(lesson, k))
-        for k in ("test_id", "coding_problem_id", "assignment_id", "live_url")
-    }
-    svc.check_lesson_refs(lesson.lesson_type, merged)
-    for k, v in data.items():
-        if k in ("is_required", "is_free_preview", "title") and v is None:
-            continue
-        setattr(lesson, k, v)
-    svc.touch_draft(version)
-    await session.flush()
+    if _fs():
+        from app.modules.catalog.repo_firestore import writer
+
+        lesson = await (await writer(session, principal)).patch_lesson(principal.user_id, lesson_id, data)
+    else:
+        lesson, version = await svc.editable_lesson(session, lesson_id)
+        merged = {
+            k: data.get(k, getattr(lesson, k))
+            for k in ("test_id", "coding_problem_id", "assignment_id", "live_url")
+        }
+        svc.check_lesson_refs(lesson.lesson_type, merged)
+        for k, v in data.items():
+            if k in ("is_required", "is_free_preview", "title") and v is None:
+                continue
+            setattr(lesson, k, v)
+        svc.touch_draft(version)
+        await session.flush()
     await audit(
         session,
         principal,
@@ -543,9 +693,9 @@ async def patch_lesson(
         organization_id=lesson.organization_id,
         after={"course_id": course_id, "fields": sorted(data)},
     )
-    assets = (await session.execute(select(LessonAsset).where(LessonAsset.lesson_id == lesson.id))).scalars()
+    assets = await _assets_of(session, lesson.id)
     topics = (await svc.lesson_topics_map(session, [lesson.id]))[lesson.id]
-    return svc.lesson_out(lesson, list(assets), topics=topics)
+    return svc.lesson_out(lesson, assets, topics=topics)
 
 
 @studio.put("/lessons/{lesson_id}/topics", operation_id="cat_15_lesson_topics")
@@ -557,9 +707,16 @@ async def put_topics(
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
     course_id = await _lesson_perm(request, session, principal, lesson_id, "course.edit")
-    lesson, version = await svc.editable_lesson(session, lesson_id)
-    await svc.set_lesson_topics(session, lesson, [t.model_dump() for t in body.topics])
-    svc.touch_draft(version)
+    if _fs():
+        from app.modules.catalog.repo_firestore import writer
+
+        lesson = await (await writer(session, principal)).set_topics(
+            principal.user_id, lesson_id, [t.model_dump() for t in body.topics]
+        )
+    else:
+        lesson, version = await svc.editable_lesson(session, lesson_id)
+        await svc.set_lesson_topics(session, lesson, [t.model_dump() for t in body.topics])
+        svc.touch_draft(version)
     await audit(
         session,
         principal,
@@ -654,12 +811,17 @@ async def archive(
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
     await svc.ensure_permission(request, session, principal, "course.archive", ScopeRef("course", course_id))
-    course = await svc.get_course(session, course_id)
-    if course.status == "archived":
-        raise ProblemError("invalid_state_transition", detail="Course is already archived.")
-    before = course.status
-    course.status = "archived"
-    await session.flush()
+    if _fs():
+        from app.modules.catalog.repo_firestore import writer
+
+        course, before = await (await writer(session, principal)).archive(principal.user_id, course_id)
+    else:
+        course = await svc.get_course(session, course_id)
+        if course.status == "archived":
+            raise ProblemError("invalid_state_transition", detail="Course is already archived.")
+        before = course.status
+        course.status = "archived"
+        await session.flush()
     await audit(
         session,
         principal,
@@ -689,13 +851,19 @@ async def archive(
 )
 async def versions(course_id: uuid.UUID, session: PrincipalDbSession) -> dict[str, Any]:
     await svc.get_course(session, course_id)
-    rows = (
-        await session.execute(
-            select(CourseVersion)
-            .where(CourseVersion.course_id == course_id)
-            .order_by(CourseVersion.version_no.desc())
-        )
-    ).scalars()
+    rows: Any
+    if _fs():
+        from app.modules.catalog.repo_firestore import reader
+
+        rows = await (await reader(session)).course_versions(course_id)
+    else:
+        rows = (
+            await session.execute(
+                select(CourseVersion)
+                .where(CourseVersion.course_id == course_id)
+                .order_by(CourseVersion.version_no.desc())
+            )
+        ).scalars()
     return {"data": [svc.version_meta(v) for v in rows], "page": page_meta(None, MAX_LIMIT)}
 
 
@@ -708,15 +876,28 @@ async def preview(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
-    await _lesson_perm(request, session, principal, lesson_id, "course.preview")
-    lesson = await session.get(Lesson, lesson_id)
+    try:
+        await _lesson_perm(request, session, principal, lesson_id, "course.preview")
+    except ProblemError as e:
+        if e.code != "permission_denied":
+            raise
+        # Whoever may edit the draft may preview it: batch trainers author org-private courses
+        # through course.edit (ADM-41) but hold no course-scoped course.preview grant (QA 2026-11).
+        await _lesson_perm(request, session, principal, lesson_id, "course.edit")
+    lesson: Lesson | None
+    if _fs():
+        from app.modules.catalog.repo_firestore import reader
+
+        lesson = (await (await reader(session)).lessons([lesson_id])).get(lesson_id)
+    else:
+        lesson = await session.get(Lesson, lesson_id)
     if lesson is None:
         raise ProblemError("not_found")
-    assets = (await session.execute(select(LessonAsset).where(LessonAsset.lesson_id == lesson.id))).scalars()
+    assets = await _assets_of(session, lesson.id)
     topics = (await svc.lesson_topics_map(session, [lesson.id]))[lesson.id]
     return {
         "banner": "Preview — not visible to students",
-        "lesson": svc.lesson_out(lesson, list(assets), topics=topics),
+        "lesson": svc.lesson_out(lesson, assets, topics=topics),
     }
 
 
@@ -769,6 +950,18 @@ async def list_resources(
         raise svc.vf("course_id", "required", "Give a course_id, lesson_id or company_id")
     scope = ScopeRef("course", course_id) if course_id else PLATFORM_SCOPE
     await svc.ensure_permission(request, session, principal, "resource.manage", scope)
+    if _fs():
+        from app.modules.catalog.repo_firestore import reader
+
+        res_rows, res_more = await (await reader(session)).list_resources(
+            course_id=course_id,
+            lesson_id=lesson_id,
+            company_id=company_id,
+            after_id=_cursor_id(cursor),
+            limit=limit,
+        )
+        res_next = {"id": str(res_rows[-1].id)} if res_more and res_rows else None
+        return {"data": [_resource_out(r) for r in res_rows], "page": page_meta(res_next, limit)}
     conds: list[Any] = []
     if course_id is not None:
         conds.append(Resource.course_id == course_id)
@@ -819,22 +1012,28 @@ async def create_resource(
         org = (await svc.get_course(session, course_id)).organization_id
 
     async def op() -> IdemResult:
-        r = Resource(
-            id=uuid7(),
-            organization_id=org,
-            course_id=course_id,
-            lesson_id=body.lesson_id,
-            company_id=body.company_id,
-            title=body.title,
-            resource_type=body.resource_type,
-            access_level=body.access_level,
-            is_public=body.access_level == "public",
-            s3_key=body.s3_key,
-            url=body.url,
-            created_by=principal.user_id,
-        )
-        session.add(r)
-        await session.flush()
+        fields: dict[str, Any] = {
+            "organization_id": org,
+            "course_id": course_id,
+            "lesson_id": body.lesson_id,
+            "company_id": body.company_id,
+            "title": body.title,
+            "resource_type": body.resource_type,
+            "access_level": body.access_level,
+            "is_public": body.access_level == "public",
+            "s3_key": body.s3_key,
+            "url": body.url,
+        }
+        if _fs():
+            from app.modules.catalog.repo_firestore import RESOURCE_PERMS, writer
+
+            r = await (await writer(session, principal, RESOURCE_PERMS)).create_resource(
+                principal.user_id, fields
+            )
+        else:
+            r = Resource(id=uuid7(), created_by=principal.user_id, **fields)
+            session.add(r)
+            await session.flush()
         return IdemResult(_resource_out(r), 201, r.id)
 
     return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
@@ -848,15 +1047,30 @@ async def patch_resource(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
-    row = await svc.system_lookup(
-        session,
-        principal,
-        select(Resource.course_id, Resource.organization_id).where(Resource.id == resource_id),
-    )
+    row: Any
+    if _fs():
+        from app.modules.catalog.repo_firestore import system_reader
+
+        row = await system_reader().resource_scope(resource_id)
+    else:
+        row = await svc.system_lookup(
+            session,
+            principal,
+            select(Resource.course_id, Resource.organization_id).where(Resource.id == resource_id),
+        )
     if row is None:
         raise ProblemError("not_found")
     scope = ScopeRef("course", row[0]) if row[0] else PLATFORM_SCOPE
     await svc.ensure_permission(request, session, principal, "resource.manage", scope)
+    if _fs():
+        from app.modules.catalog.repo_firestore import RESOURCE_PERMS, writer
+
+        patch = body.model_dump(exclude_unset=True)
+        _check_resource_key(patch.get("s3_key"))
+        fr = await (await writer(session, principal, RESOURCE_PERMS)).patch_resource(
+            principal.user_id, resource_id, patch
+        )
+        return _resource_out(fr)
     r = await session.get(Resource, resource_id)
     if r is None:
         raise ProblemError("not_found")
@@ -882,6 +1096,22 @@ def _register_hooks() -> None:
 
 _register_hooks()
 
+
+async def _anonymous_view() -> None:
+    """Public catalog routes read with the anonymous TN view (no Postgres session needed)."""
+    from app.modules.catalog.repo_firestore import Visibility, bind_view
+
+    bind_view(Visibility())
+
+
+async def _principal_view(principal: Principal = Depends(require_active_principal)) -> None:
+    """Studio routes read with the principal's TN view (org ids / platform), the same predicate
+    ``tenant_context`` sets on Postgres, so Firestore reads never need the request session."""
+    from app.modules.catalog.repo_firestore import bind_view, principal_view
+
+    bind_view(principal_view(principal))
+
+
 router = APIRouter()
-for _r in (pub, studio):
-    router.include_router(_r)
+router.include_router(pub, dependencies=[Depends(_anonymous_view)])
+router.include_router(studio, dependencies=[Depends(_principal_view)])

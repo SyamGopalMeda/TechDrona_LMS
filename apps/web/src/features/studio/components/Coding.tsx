@@ -3,18 +3,20 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Button, Card, Dialog, FormField, Input, Select, Table, useToast } from "@/components/ui";
+import { Button, Card, Dialog, FormField, Input, PageHeader, Select, Table, useToast } from "@/components/ui";
 import { api, type Page } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { useApi, seg, type ApiState, type SendBody } from "@/features/trainer/shared/use-api";
 import { Boundary, StatusBadge, TextArea, fieldErrorsOf, useFailToast } from "@/features/trainer/shared/ui";
 import { slugify } from "./Courses";
+import { EntityHeader, SectionNav, StickyActionBar } from "./EditorChrome";
 import type { Body } from "@/lib/api-types";
 import { readText } from "@/lib/files/readText";
+import { JudgeNotIntegratedNotice } from "./NotIntegrated";
 import type { CodingProblem, CodingProblemSummary, HiddenCaseContentLinks, ProblemValidation, ReferenceSolution, TestCase, ValidationCase } from "../lib/types";
 
 /** Coding problems in scope (`GET /studio/coding/problems`, envelope `{data, meta}`) + create (COD-13). */
-export function CodingProblemList() {
+export function CodingProblemList({ header }: { header?: { title: string; description?: string } } = {}) {
   const router = useRouter();
   const fail = useFailToast();
   const list = useApi<{ data: CodingProblemSummary[]; meta: Page<unknown>["page"] }>("studio/coding/problems", { limit: 100 });
@@ -52,9 +54,13 @@ export function CodingProblemList() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button onClick={() => setOpen(true)}>New problem</Button>
-      </div>
+      {header ? (
+        <PageHeader title={header.title} description={header.description} actions={<Button onClick={() => setOpen(true)}>New problem</Button>} />
+      ) : (
+        <div className="flex justify-end">
+          <Button onClick={() => setOpen(true)}>New problem</Button>
+        </div>
+      )}
       <Table
         caption="Coding problems"
         columns={[
@@ -77,7 +83,7 @@ export function CodingProblemList() {
         loading={list.loading}
         error={list.error}
         onRetry={() => void list.reload()}
-        empty={{ title: "No coding problems yet" }}
+        empty={{ title: "No coding problems yet", description: "Create a problem, add sample and hidden test cases, validate a reference solution, then publish." }}
       />
       <Dialog
         open={open}
@@ -121,6 +127,13 @@ export function CodingProblemList() {
  * the list shows ordinal / weight / size / hash only, and COD-17 hands out single-use
  * download links that are opened directly (content never enters React state).
  */
+const EDITOR_SECTIONS = [
+  { id: "coding-statement", label: "Statement and limits" },
+  { id: "coding-samples", label: "Sample cases" },
+  { id: "coding-hidden", label: "Hidden cases" },
+  { id: "coding-validation", label: "Reference solution" },
+];
+
 export function CodingProblemEditor({ problemId }: { problemId: string }) {
   const toast = useToast();
   const fail = useFailToast();
@@ -174,15 +187,37 @@ export function CodingProblemEditor({ problemId }: { problemId: string }) {
     }
   };
 
+  const save = () =>
+    void run(
+      "save",
+      () =>
+        api.patch(`studio/coding/problems/${seg(problemId)}`, {
+          title: f.title.trim(),
+          statement_md: f.statement_md,
+          difficulty: Number(f.difficulty),
+          time_limit_ms: Number(f.time_limit_ms),
+          memory_limit_kb: Number(f.memory_limit_mb) * 1024,
+          scoring_mode: f.scoring_mode as "weighted_cases" | "all_or_nothing",
+        } satisfies Body<"studio/coding/problems/{problem_id}", "patch">),
+      "Problem saved",
+    );
+
   return (
+    <>
+    <EntityHeader
+      title={p?.title}
+      fallback="Coding problem"
+      crumbs={[{ label: "Coding problems", href: "/studio/coding" }]}
+      meta={p ? <StatusBadge status={p.status} /> : null}
+    />
     <Boundary state={problem}>
       {(prob) => (
         <div className="space-y-6">
           <div className="flex flex-wrap items-center gap-3">
-            <StatusBadge status={prob.status} />
             <span className="text-sm text-fg-muted">Version {prob.version_no}</span>
           </div>
-          <Card title="Statement and limits">
+          <SectionNav sections={EDITOR_SECTIONS} label="Coding problem sections" />
+          <Card id="coding-statement" className="scroll-mt-20" title="Statement and limits">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="md:col-span-2">
                 <FormField label="Title" required error={errors.title}>
@@ -218,46 +253,36 @@ export function CodingProblemEditor({ problemId }: { problemId: string }) {
                 )}
               </FormField>
             </div>
-            {editable ? (
-              <Button
-                className="mt-4"
-                variant="secondary"
-                loading={busy === "save"}
-                onClick={() =>
-                  void run(
-                    "save",
-                    () =>
-                      api.patch(`studio/coding/problems/${seg(problemId)}`, {
-                        title: f.title.trim(),
-                        statement_md: f.statement_md,
-                        difficulty: Number(f.difficulty),
-                        time_limit_ms: Number(f.time_limit_ms),
-                        memory_limit_kb: Number(f.memory_limit_mb) * 1024,
-                        scoring_mode: f.scoring_mode as "weighted_cases" | "all_or_nothing",
-                      } satisfies Body<"studio/coding/problems/{problem_id}", "patch">),
-                    "Problem saved",
-                  )
-                }
-              >
-                Save
-              </Button>
-            ) : null}
           </Card>
           <TestCases problemId={problemId} state={cases} editable={!!editable} />
           <ValidationPanel problemId={problemId} languages={prob.allowed_languages ?? prob.languages ?? []} editable={!!editable} />
-          <div className="flex flex-wrap gap-2">
+          <StickyActionBar
+            status={
+              <span className="text-fg-muted">
+                {prob.test_cases.sample === 0 || prob.test_cases.hidden === 0
+                  ? "Add at least one sample and one hidden case, then validate, to publish."
+                  : "Publishing needs a passing validation of the reference solution on the current test cases and limits."}
+              </span>
+            }
+          >
+            {editable ? (
+              <Button loading={busy === "save"} onClick={save}>
+                Save
+              </Button>
+            ) : null}
             <Button
+              variant="secondary"
               loading={busy === "publish"}
               disabled={prob.status === "published" || prob.status === "retired" || prob.test_cases.sample === 0 || prob.test_cases.hidden === 0}
               onClick={() => void run("publish", () => api.post(`studio/coding/problems/${seg(problemId)}/publish`, {}), "Problem published")}
             >
               Publish
             </Button>
-          </div>
-          <p className="text-sm text-fg-muted">Publishing needs a passing validation of the reference solution on the current test cases and limits.</p>
+          </StickyActionBar>
         </div>
       )}
     </Boundary>
+    </>
   );
 }
 
@@ -283,7 +308,11 @@ function ValidationPanel({ problemId, languages, editable }: { problemId: string
   const toast = useToast();
   const fail = useFailToast();
   const refs = useApi<{ data: ReferenceSolution[] }>(`studio/coding/problems/${seg(problemId)}/reference-solutions`);
-  const latest = useApi<ProblemValidation>(`studio/coding/problems/${seg(problemId)}/validation`);
+  // COD-18 GET …/validation answers 404 until a validation has run, and a validation needs a
+  // stored reference solution. Ask only once one exists, so a new problem makes no 404 call.
+  const hasStored = (refs.data?.data.length ?? 0) > 0;
+  const latest = useApi<ProblemValidation>(hasStored ? `studio/coding/problems/${seg(problemId)}/validation` : null);
+  const neverValidated = latest.error instanceof ApiError && latest.error.status === 404;
   const [lang, setLang] = useState(languages[0] ?? "");
   const [code, setCode] = useState("");
   const [result, setResult] = useState<ProblemValidation | null>(null);
@@ -324,8 +353,9 @@ function ValidationPanel({ problemId, languages, editable }: { problemId: string
   };
 
   return (
-    <Card title="Reference solution and validation">
+    <Card id="coding-validation" className="scroll-mt-20" title="Reference solution and validation">
       <p className="mb-3 text-sm text-fg-muted">The reference solution runs against every sample and hidden case. Results show verdicts only.</p>
+      <JudgeNotIntegratedNotice className="mb-3" />
       <div className="space-y-3">
         <div className="max-w-xs">
           <FormField label="Language">
@@ -369,8 +399,10 @@ function ValidationPanel({ problemId, languages, editable }: { problemId: string
               />
             ))}
           </div>
-        ) : latest.loading ? (
+        ) : latest.loading || refs.loading ? (
           <p className="text-sm text-fg-muted">Loading the latest validation…</p>
+        ) : latest.error && !neverValidated ? (
+          <p className="text-sm text-fg-muted">Couldn&apos;t load the latest validation. Run Validate to check the solution again.</p>
         ) : (
           <p className="text-sm text-fg-muted">Not validated yet.</p>
         )}
@@ -544,7 +576,7 @@ function TestCases({ problemId, state, editable }: { problemId: string; state: A
 
   return (
     <>
-      <Card title="Sample cases (shown to students)">
+      <Card id="coding-samples" className="scroll-mt-20" title="Sample cases (shown to students)">
         <Boundary state={state}>
           {() =>
             samples.length === 0 ? (
@@ -583,7 +615,7 @@ function TestCases({ problemId, state, editable }: { problemId: string; state: A
           </div>
         ) : null}
       </Card>
-      <Card title="Hidden cases">
+      <Card id="coding-hidden" className="scroll-mt-20" title="Hidden cases">
         <p className="mb-3 text-sm text-fg-muted">
           Hidden cases are encrypted at rest. Only their metadata is listed; students see verdicts only. Opening a case&apos;s content needs a reason and is audited.
         </p>

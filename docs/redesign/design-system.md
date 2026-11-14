@@ -110,7 +110,9 @@ then sanity-check dark. Never use `dark:` variants — tokens switch automatical
 | Role | Classes | Spec |
 |---|---|---|
 | Page title (h1) | `PageHeader` (or `font-display text-2xl sm:text-[1.75rem] font-extrabold text-fg-heading`) | Jakarta 800, 24→28px |
-| Section / card title (h2) | `font-display text-base font-bold text-fg-heading` (Card does this) | Jakarta 700 16px |
+| Section heading (h2) | `SectionHeader` (or `Card titleSize="lg"`): `font-display text-lg font-extrabold` | Jakarta 800 20px |
+| Card title (h2/h3) | `font-display text-base font-bold text-fg-heading` (Card does this) | Jakarta 700 16px |
+| Table cells, card descriptions | `text-[0.9375rem]` (kit default) | 15px |
 | Eyebrow | `font-display text-xs font-bold uppercase tracking-[0.12em] text-accent` | website `.eyebrow` |
 | Body | default (`font-sans` Inter 16px / 1.6) | |
 | Secondary / help | `text-sm text-fg-secondary` / `text-[0.8125rem] text-fg-muted` | 14 / 13px |
@@ -134,7 +136,7 @@ then sanity-check dark. Never use `dark:` variants — tokens switch automatical
 | `shadow-sm` | website `--sh-card` | Hoverable cards |
 | `shadow-md` / `shadow-lg` / `shadow-xl` | header / raised / float | Menus, toasts, dialogs |
 | Spacing | Tailwind 4px scale | Page sections `space-y-6`; card padding `p-5 sm:p-6`; grid gaps `gap-4` (tiles) / `gap-6` (sections) |
-| Layout | `h-topbar` 56px, `w-sidebar` 264px, main max 80rem, `min-h-touch` 44px | |
+| Layout | `h-topbar` 56px, `w-sidebar` 264px, main max `max-w-wide` (90rem; pages pick `PageContainer` widths), `min-h-touch` 44px | |
 
 Buttons and inputs are **44px** tall by default (`md`); `sm` is 44px below `md` and 36px on desktop (tables/toolbars).
 
@@ -164,6 +166,19 @@ All APIs are backward compatible; new props are optional.
 | `ErrorState` `error` `onRetry` | Failed load | Pass the ApiError so the reference id shows. |
 | `Pagination` | Cursor lists | Unchanged. |
 | `Logo` `variant="lockup|mark"` `tone="navy|white"` | Brand | Size with a height class only. White only on `bg-surface-brand`. |
+| `PageContainer` `width="prose|content|wide|full"` / `pageWidthClass()` | Page width | prose 45rem (forms, settings, reading), content 72rem (default), wide 90rem (data-heavy). Don't use ad-hoc `max-w-2xl/3xl/4xl` for pages. |
+| `SectionHeader` `title` `description` `actions` | Section heading (h2, 20px) | Between the 28px h1 and 16px card titles. `Card titleSize="lg"` gives the same level on a card. |
+| `StatGrid` `columns` + `StatTile` `href` `tone` `size="compact"` | Dashboard numbers | 2 per row on phones. `href` makes the tile a link to the queue behind the number; `tone="warning|danger"` (no icon) adds an accent bar. |
+| `KeyValueList` `items` `columns` | Facts about one record | Missing values show "—". |
+| `FilterBar` `label` `columns` `actions` `variant` | Filters above a list | A named `search` landmark. Pass it as `Table toolbar={…}` with `variant="plain"` so it stays visible when the list is empty. |
+| `Segmented` `variant="cards|pills"` / `Chip` | Single choice / quick filter toggles | Native radios / `aria-pressed`; 44px on touch. |
+| `ProgressBar` `value` `label` `showValue` / `ProgressRing` | Progress | Server-reported values only. |
+| `ConfirmDialog` `title` `confirmLabel` `danger` `onConfirm` | "Are you sure?" | Use instead of `window.confirm`; a thrown error shows inline and keeps it open. |
+| `Dialog` `size="sm|md|lg|xl"` | | Has a × button, a scrolling body, a pinned footer, and is a bottom sheet on phones. |
+| `Table` `toolbar` `stickyHeader` · column `priority="secondary"` | | Secondary columns hide at tablet widths; blank cells ("—") are dropped from the stacked phone card. |
+| `EmptyState` `variant="inline"` `icon="search|calendar|book|document|chart|lock|users|bell|code|card|chat|award|shield|check|inbox"` | | Use `inline` inside a Card; pick a topic icon. |
+| `PageHeader` `breadcrumbs` `back` `meta` | | Detail pages: breadcrumbs + the entity's name as the h1 + `meta={<StatusBadge …/>}`. |
+| `LoadingBlock` `rows` `size="line|row|card"` | Loading | The one loading pattern (feature `Loading`/`LoadingBlock` copies now wrap it). |
 
 Shells (`src/components/shell`) already render the logo, portal name, sidebar/drawer, mobile tab
 bar, sign-out, portal switcher and notification bell. **Pages must not render their own app header,
@@ -206,6 +221,7 @@ logo or sidebar.**
 | danger (red) | Problem / refused | rejected, failed, blocked, suspended, overdue |
 | neutral (grey) | Parked / off / ended | inactive, disabled → Off, draft, archived, closed, expired, cancelled, refunded, not_started |
 
+The full list (≈100 statuses, incl. admin, commerce, support, trainer and learner states) is `STATUS_VOCABULARY` in `Display.tsx`; `statusTone()` / `statusLabel()` read it. Feature badges (`StateBadge`, `TicketStatusBadge`, `EnquiryStatusBadge`, trainer/engage `StatusBadge`, `OrderStatusBadge`) take their tone from it and only override wording. Add new statuses there, never in a local colour map.
 Unknown statuses render neutral with a humanised label (`in_review` → "In review"). Override with
 `label`/`tone` only when the domain needs a better word (e.g. `status="pending" label="Awaiting evaluator"`).
 Use the same word everywhere for the same state.
@@ -256,4 +272,16 @@ Use the same word everywhere for the same state.
 - Kit: `apps/web/src/components/ui/*` (new: `Logo.tsx`, `LinkButton`, `Textarea`, `StatusBadge`, `Breadcrumbs`, `ErrorSummary.tsx`, `LoadingBlock`)
 - Shells: `apps/web/src/components/shell/{PortalShell,PortalNav,MobileTabBar,PortalSwitcher,PublicShell}.tsx`
 - Root: `apps/web/src/app/layout.tsx` (icons, theme colour, font preload), `apps/web/src/app/manifest.ts`
-- Screenshots: `docs/redesign/shots/design/` (before = running container :13000, after = `next start -p 13100` of this build); the first pass is in `shots/design-system/`
+- Screenshots: `docs/redesign/shots/design/` — `before-*` = running container :13000, `after-*` = `next start -p 13100` of this build (same dev API :18000); login, student dashboard and admin dashboard at 1440 (`-desktop`) and 390 px (`-mobile`), each signed in fresh in its own browser context (2026-11-08). All 12 captured and checked: the after shots show the real logo, navy brand, and no `ADM-001` eyebrow. The first pass in `shots/design-system/` has invalid `after-*-dashboard-*` shots (they landed on the login page); use this folder.
+
+## Dashboards (2026-11-10)
+
+Portal landing pages follow one layout (`components/ui/Dashboard.tsx`):
+
+- **Sidebar**: dark navy (`bg-surface-brand`) on desktop, grouped sections, active item with an accent bar; footer with "Public website" and "Sign out" (`PortalFrame` → `PortalNav tone="dark"`). The phone Menu sheet keeps the light nav.
+- **`DashboardHero`**: full-bleed navy band with the h1, one-line purpose and today's date (IST). Pass a `<StatGrid>` as children: the tiles overlap the band's lower edge.
+- **`StatTile`**: status dot + label, corner icon (`icon="users"` etc. from the kit `Icon` set), large value, hint. Use `tone="highlight"` for the one solid-navy tile a dashboard leads with; `warning`/`danger` only when the number needs action. `size="compact"` tiles (inside cards) are flat, without a shadow.
+- **Panels**: `Card icon="…" actions={<ViewAllLink href="…" />}`.
+- **`QuickActions`**: icon + label + one-line hint + arrow tiles; `columns={3}` in a full-width card, default 2 in a half-width card.
+
+Used on `/admin`, `/app`, `/trainer`, `/evaluator`, `/studio`. Other pages keep the light `PageHeader`.

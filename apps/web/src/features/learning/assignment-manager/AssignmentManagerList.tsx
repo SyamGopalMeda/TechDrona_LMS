@@ -1,13 +1,10 @@
 "use client";
 
-import Link from "next/link";
-import { useGradingBase } from "@/features/trainer/shared/portal-base";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Badge, Button, Card, Dialog, EmptyState, ErrorState, FormField, Input, Select, useToast } from "@/components/ui";
+import { Badge, Button, Card, Dialog, EmptyState, ErrorState, FormField, Input, LinkButton, Select, useToast } from "@/components/ui";
 import { isApiError } from "@/lib/api/errors";
-import { LinkButton } from "@/features/catalog/components/LinkButton";
-import { useTrainerBatches } from "@/features/trainer/lib/batches";
+import { useTeachingQuery, useTrainerBatches } from "@/features/trainer/lib/batches";
 import { useMyGrants } from "@/features/trainer/shared/grants";
 import { useApi } from "@/features/trainer/shared/use-api";
 import { LoadingBlock, StatusBadge, fieldErrorsOf, useFailToast } from "@/features/trainer/shared/ui";
@@ -120,7 +117,7 @@ export function AssignmentManagerList() {
   const router = useRouter();
   const toast = useToast();
   const fail = useFailToast();
-  const list = useApi<{ data: StaffAssignmentRow[] }>("assignments", { scope: "mine", limit: 100 });
+  const list = useApi<{ data: StaffAssignmentRow[] }>("assignments", { scope: "mine", limit: 100, ...useTeachingQuery() });
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [cloning, setCloning] = useState<string | null>(null);
@@ -143,13 +140,13 @@ export function AssignmentManagerList() {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <p className="max-w-prose text-sm text-fg-muted">Build assignments from sections and bank questions, set marks per question, then allocate them to a batch with a schedule.</p>
+        <div className="w-full max-w-sm">
+          <FormField label="Search assignments">
+            {(p) => <Input {...p} type="search" value={search} onChange={(e) => setSearch(e.target.value)} />}
+          </FormField>
+        </div>
+        {/* The one primary action of this view; card actions stay secondary. */}
         <Button onClick={() => setOpen(true)}>New assignment</Button>
-      </div>
-      <div className="max-w-sm">
-        <FormField label="Search assignments">
-          {(p) => <Input {...p} type="search" value={search} onChange={(e) => setSearch(e.target.value)} />}
-        </FormField>
       </div>
       {list.error ? (
         isApiError(list.error) && list.error.status === 403 ? (
@@ -163,7 +160,7 @@ export function AssignmentManagerList() {
         <EmptyState
           title={search ? "No assignments match" : "No structured assignments yet"}
           description={search ? undefined : "Create one, add sections and questions, then allocate it to a batch."}
-          action={search ? undefined : <Button onClick={() => setOpen(true)}>New assignment</Button>}
+          action={search ? undefined : <Button variant="secondary" onClick={() => setOpen(true)}>New assignment</Button>}
         />
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Structured assignments">
@@ -184,7 +181,7 @@ export function AssignmentManagerList() {
                   </p>
                   {a.grades_released ? <Badge tone="success" className="mt-2 self-start">Results published</Badge> : null}
                   <div className="mt-auto flex flex-wrap gap-2 pt-4">
-                    <LinkButton size="sm" href={`/trainer/assignments/${encodeURIComponent(id)}`} aria-label={`Edit ${a.title}`}>
+                    <LinkButton size="sm" variant="secondary" href={`/trainer/assignments/${encodeURIComponent(id)}`} aria-label={`Edit ${a.title}`}>
                       Edit
                     </LinkButton>
                     <Button size="sm" variant="secondary" loading={cloning === id} onClick={() => void clone(a)} aria-label={`Clone ${a.title}`}>
@@ -202,27 +199,5 @@ export function AssignmentManagerList() {
       )}
       <NewAssignmentDialog open={open} onClose={() => setOpen(false)} />
     </div>
-  );
-}
-
-/** Grading page entry: structured assignments with a link to their evaluation screen. */
-export function StructuredEvaluationLinks() {
-  const { base } = useGradingBase();
-  const list = useApi<{ data: StaffAssignmentRow[] }>("assignments", { scope: "mine", limit: 100 });
-  const rows = (list.data?.data ?? []).filter(isStructured);
-  if (list.error || (list.loading && !list.data) || rows.length === 0) return null;
-  return (
-    <Card title="Structured assignments">
-      <ul className="divide-y divide-line" aria-label="Structured assignments to evaluate">
-        {rows.map((a) => (
-          <li key={rowId(a)} className="flex flex-wrap items-center justify-between gap-2 py-2">
-            <span className="text-sm text-fg">{a.title}</span>
-            <Link href={`${base}/grading/assignments/${encodeURIComponent(rowId(a))}`} className="text-sm font-medium text-fg-link hover:text-fg-link-hover">
-              Evaluate<span className="sr-only"> {a.title}</span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </Card>
   );
 }

@@ -146,7 +146,10 @@ describe("ADM-56 release and publish controls", () => {
     const released = await screen.findByRole("button", { name: "Release results for CSE 2027 A" });
     expect(released).toBeDisabled();
     expect(released).toHaveTextContent("Released");
-    expect(screen.getByRole("button", { name: "Release results for Batch" })).toBeEnabled();
+    // An unknown batch name is never invented ("Batch"): the row reads "—" and the button names the window.
+    const unknown = screen.getByRole("button", { name: /^Release results for the assignment / });
+    expect(unknown).toBeEnabled();
+    expect(within(unknown.closest("tr")!).getAllByRole("cell")[0]).toHaveTextContent("—");
   });
 
   it("trainer course editor page hides publishing (canPublish=false)", async () => {
@@ -316,7 +319,7 @@ describe("ADM-47 grading: files, code and rubric", () => {
   });
 
   const openGrade = async () => {
-    await userEvent.selectOptions(await screen.findByLabelText("Assignment"), "as1");
+    await userEvent.click(await screen.findByRole("button", { name: "Show submissions for Arrays worksheet" }));
     await userEvent.click(await screen.findByRole("button", { name: "Grade Ravi Kumar" }));
   };
 
@@ -355,7 +358,7 @@ describe("ADM-47 grading: files, code and rubric", () => {
     const api = mockApi(routes({ status: "graded", score: 7.2, raw_score: 8, late_penalty_pct: 10 }, null));
     restore = api.restore;
     renderWithProviders(<GradingQueue />);
-    await userEvent.selectOptions(await screen.findByLabelText("Assignment"), "as1");
+    await userEvent.click(await screen.findByRole("button", { name: "Show submissions for Arrays worksheet" }));
     expect(await screen.findByText(/8 before −10% late penalty/)).toBeInTheDocument();
   });
 

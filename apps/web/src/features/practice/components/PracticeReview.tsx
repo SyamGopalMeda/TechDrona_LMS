@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo } from "react";
-import { Badge, Button, EmptyState, ErrorState, PageHeader, Skeleton } from "@/components/ui";
+import { Badge, Button, EmptyState, ErrorState, LinkButton, PageHeader, Skeleton } from "@/components/ui";
 import { formatIstDateTime } from "@/features/assessment/lib/format";
 import { useLoader } from "@/features/assessment/lib/use-resource";
 import { indexTopics, practiceApi } from "../lib/api";
@@ -22,10 +21,9 @@ export function PracticeReview() {
   return (
     <div>
       <PageHeader
-        eyebrow="Practice"
+        breadcrumbs={[{ label: "Practice", href: "/app/practice" }, { label: "Review" }]}
         title="Review"
         description="Questions you got wrong. Re-practise their topics to lift your mastery."
-        actions={<Link className="text-sm text-fg-link underline" href="/app/practice">Back to practice</Link>}
       />
       {error ? <div className="mb-4">{isEntitlementError(error) ? <PaywallCard error={error} /> : <ErrorState error={error} />}</div> : null}
       {res.error ? (
@@ -33,7 +31,16 @@ export function PracticeReview() {
       ) : !res.data ? (
         <Skeleton className="h-40 w-full" />
       ) : res.data.length === 0 ? (
-        <EmptyState title="Nothing to review" description="Questions you answer incorrectly appear here." action={<Link className="text-sm text-fg-link underline" href="/app/practice">Start practising</Link>} />
+        <EmptyState
+          icon="check"
+          title="Nothing to review"
+          description="Questions you answer incorrectly appear here."
+          action={
+            <LinkButton href="/app/practice" variant="secondary" size="sm">
+              Start practising
+            </LinkButton>
+          }
+        />
       ) : (
         <ul className="space-y-3">
           {res.data.map((q) => (

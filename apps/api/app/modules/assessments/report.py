@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ProblemError
 from app.core.principal import Principal
+from app.modules.assessments import datastore as adb
 from app.modules.assessments.integrity import Scope, scope_of
 from app.modules.assessments.models import AttemptResponse, AttemptResult, Test, TestAttempt, TestSection
 
@@ -96,7 +97,7 @@ async def build_report(
     )
     if batch_id is not None:
         q = q.where(TestAttempt.batch_id == batch_id)
-    rows = [(a, r) for a, r in (await session.execute(q)).all() if _in_scope(a, scope)]
+    rows = [(a, r) for a, r in (await adb.execute(session, q)).all() if _in_scope(a, scope)]
     n = len(rows)
     totals = {a.id: float(r.percentage) for a, r in rows}
     out: dict[str, Any] = {
@@ -111,10 +112,16 @@ async def build_report(
     }
     secs = {
         s.id: s
-        for s in (await session.execute(select(TestSection).where(TestSection.test_id == test.id))).scalars()
+        for s in (
+            await adb.execute(session, select(TestSection).where(TestSection.test_id == test.id))
+        ).scalars()
     }
     responses = (
-        (await session.execute(select(AttemptResponse).where(AttemptResponse.attempt_id.in_(list(totals)))))
+        (
+            await adb.execute(
+                session, select(AttemptResponse).where(AttemptResponse.attempt_id.in_(list(totals)))
+            )
+        )
         .scalars()
         .all()
         if totals
@@ -162,8 +169,6 @@ async def _items(
             "reason": f"Item statistics need at least {K_MIN_ITEM} graded attempts (k-anonymity floor).",
             "data": [],
         }
-    from app.modules.placement.models import QuestionVersion
-
     by_item: dict[uuid.UUID, list[tuple[int, float]]] = {}
     item_section: dict[uuid.UUID, uuid.UUID] = {}
     for resp in responses:
@@ -173,16 +178,9 @@ async def _items(
         item_section[resp.question_version_id] = resp.test_section_id
     qmap: dict[uuid.UUID, uuid.UUID] = {}
     if by_item:
-        qmap = {
-            qv: qid
-            for qv, qid in (
-                await session.execute(
-                    select(QuestionVersion.id, QuestionVersion.question_id).where(
-                        QuestionVersion.id.in_(list(by_item))
-                    )
-                )
-            ).all()
-        }
+        from app.modules.assessments import xmod
+
+        qmap = {qv: v.question_id for qv, v in (await xmod.version_topics(session, list(by_item))).items()}
 
     def order(qv: uuid.UUID) -> tuple[int, str]:
         s = secs.get(item_section[qv])

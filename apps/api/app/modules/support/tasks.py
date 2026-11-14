@@ -5,15 +5,14 @@ from __future__ import annotations
 
 from celery import shared_task
 
-from app.core.db import get_sessionmaker, system_context
+from app.core.db import job_session
 from app.core.jobs import register_periodic, run_async
 
 
 async def auto_close() -> int:
     from app.modules.support.service import auto_close_resolved
 
-    async with get_sessionmaker()() as session, session.begin():
-        await system_context(session, "support.auto_close")
+    async with job_session("support.auto_close") as session:  # NO_POSTGRES on the Firebase stack
         return await auto_close_resolved(session)
 
 

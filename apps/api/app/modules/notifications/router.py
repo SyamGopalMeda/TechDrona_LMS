@@ -17,6 +17,7 @@ from app.core.audit import audit
 from app.core.auth import require_active_principal, require_permission, scope_from_path
 from app.core.db import PrincipalDbSession, system_context, tenant_context
 from app.core.errors import ProblemError
+from app.core.firestore.backend import uses_firestore
 from app.core.idempotency import IdemResult, idempotent
 from app.core.pagination import DEFAULT_LIMIT, MAX_LIMIT, decode_cursor, page_meta
 from app.core.principal import Principal
@@ -41,7 +42,7 @@ class AnnouncementIn(BaseModel):
     send_email: bool = False
 
 
-def _out(n: Notification) -> dict[str, Any]:
+def _out(n: Any) -> dict[str, Any]:
     return {
         "notification_id": str(n.id),
         "template_key": n.template_key,
@@ -61,6 +62,16 @@ async def list_inbox(
     cursor: str | None = None,
     limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
+    if uses_firestore("notifications"):
+        from app.modules.notifications.repo_firestore import NotificationRow, user_repo
+
+        repo = user_repo(principal)
+        page = await repo.inbox(principal.user_id, unread_only=unread_only, cursor=cursor, limit=limit)
+        return {
+            "data": [_out(NotificationRow.of(d.data)) for d in page.items],
+            "unread_count": await repo.unread_count(principal.user_id),
+            "page": page.meta(),
+        }
     q = select(Notification).where(
         Notification.user_id == principal.user_id, literal("in_app") == any_(Notification.channels)
     )
@@ -97,6 +108,13 @@ async def mark_read(
     session: PrincipalDbSession,
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
+    if uses_firestore("notifications"):
+        from app.modules.notifications.repo_firestore import user_repo
+
+        read_at = await user_repo(principal).mark_read(principal.user_id, notification_id, clock.now())
+        if read_at is None:
+            raise ProblemError("not_found")
+        return {"notification_id": str(notification_id), "read_at": to_rfc3339(read_at)}
     n = (
         await session.execute(
             select(Notification).where(
@@ -115,6 +133,10 @@ async def mark_read(
 async def mark_all_read(
     session: PrincipalDbSession, principal: Principal = Depends(require_active_principal)
 ) -> dict[str, Any]:
+    if uses_firestore("notifications"):
+        from app.modules.notifications.repo_firestore import user_repo
+
+        return {"marked": await user_repo(principal).mark_all_read(principal.user_id, clock.now())}
     r = await session.execute(
         update(Notification)
         .where(Notification.user_id == principal.user_id, Notification.read_at.is_(None))
@@ -133,38 +155,23 @@ async def batch_announcement(
         require_permission("notification.batch_announce", scope=scope_from_path("batch_id", "batch"))
     ),
 ) -> Any:
-    from app.modules.identity.models import User
-    from app.modules.orgs.models import Batch, BatchMember
+    from app.modules.identity import public as identity
+    from app.modules.orgs import public as orgs
 
     async def op() -> IdemResult:
-        b = await session.get(Batch, batch_id)
+        b = await orgs.get_batch(session, batch_id)
         if b is None:
             raise ProblemError("not_found")
-        members = list(
-            (
-                await session.execute(
-                    select(BatchMember.user_id, User.email, User.is_minor)
-                    .join(User, User.id == BatchMember.user_id)
-                    .where(
-                        BatchMember.batch_id == batch_id,
-                        BatchMember.status == "active",
-                        BatchMember.member_role == "student",
-                    )
-                )
-            ).all()
-        )
+        # active student members joined to their user rows (inner join)
+        bms = await orgs.batch_members(session, batch_ids=[batch_id], member_role="student")
+        users = await identity.get_users(session, [m.user_id for m in bms])
+        members = [
+            (m.user_id, users[m.user_id].email, users[m.user_id].is_minor) for m in bms if m.user_id in users
+        ]
         # Fan-out writes other users' inbox rows: named system job, then back to the principal.
         await system_context(session, "notifications.batch_announce")
         since = clock.now() - timedelta(days=1)
-        sent_today = (
-            await session.execute(
-                select(func.count(func.distinct(Notification.dedupe_key))).where(
-                    Notification.template_key == "batch.announcement",
-                    Notification.data["batch_id"].astext == str(batch_id),
-                    Notification.created_at > since,
-                )
-            )
-        ).scalar_one()
+        sent_today = await _announcements_since(session, batch_id, since)
         if sent_today >= ANNOUNCEMENTS_PER_BATCH_PER_DAY:
             raise ProblemError(
                 "rate_limited",
@@ -201,6 +208,27 @@ async def batch_announcement(
         return IdemResult(status=201, body={"recipients": len(members), "announcement_id": announcement_id})
 
     return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
+
+
+async def _announcements_since(session: Any, batch_id: uuid.UUID, since: Any) -> int:
+    """Distinct announcements to one batch since ``since`` (the per-day cap), either store."""
+    if uses_firestore("notifications"):
+        from app.modules.notifications.repo_firestore import system_repo
+
+        return await system_repo("notifications.batch_announce").distinct_dedupe_keys_since(
+            "batch.announcement", str(batch_id), since
+        )
+    return int(
+        (
+            await session.execute(
+                select(func.count(func.distinct(Notification.dedupe_key))).where(
+                    Notification.template_key == "batch.announcement",
+                    Notification.data["batch_id"].astext == str(batch_id),
+                    Notification.created_at > since,
+                )
+            )
+        ).scalar_one()
+    )
 
 
 router = APIRouter()

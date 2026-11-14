@@ -25,6 +25,7 @@ from app.core.errors import ProblemError
 from app.core.principal import Principal
 from app.core.time import utcnow
 from app.modules.assessments import attempts as svc
+from app.modules.assessments import datastore as adb
 from app.modules.assessments import exam, studio
 from app.modules.assessments.models import (
     AttemptItemGrade,
@@ -51,8 +52,8 @@ async def _scoped(
     request: Request, session: AsyncSession, principal: Principal, t: Test, permission: str
 ) -> list[TestAttempt]:
     rows = (
-        await session.execute(
-            select(TestAttempt).where(TestAttempt.test_id == t.id).order_by(TestAttempt.started_at)
+        await adb.execute(
+            session, select(TestAttempt).where(TestAttempt.test_id == t.id).order_by(TestAttempt.started_at)
         )
     ).scalars()
     out: list[TestAttempt] = []
@@ -68,6 +69,33 @@ async def _scoped(
         if cache[key]:
             out.append(att)
     return out
+
+
+async def _allowed_on_test(
+    request: Request, session: AsyncSession, principal: Principal, t: Test, permission: str
+) -> bool:
+    """Staff may open a test's (possibly still empty) evaluation when they hold ``permission`` on
+    the test's owning batch / org / platform scope *or* on a batch the test is assigned to. The
+    second branch matters for platform / org tests assigned to a batch: batch-scoped trainers and
+    evaluators otherwise got 403 before the first attempt existed."""
+    if await studio.attempt_scope_allows(
+        request, principal, permission, batch_id=t.batch_id, org_id=t.organization_id
+    ):
+        return True
+    batches = (
+        await adb.execute(
+            session,
+            select(TestAssignment.batch_id).where(
+                TestAssignment.test_id == t.id, TestAssignment.batch_id.is_not(None)
+            ),
+        )
+    ).scalars()
+    for b in set(batches):
+        if b is not None and await studio.attempt_scope_allows(
+            request, principal, permission, batch_id=b, org_id=None
+        ):
+            return True
+    return False
 
 
 def _manual_items(att: TestAttempt, types: dict[uuid.UUID, str]) -> list[dict[str, Any]]:
@@ -91,7 +119,7 @@ async def _grades(
 ) -> dict[tuple[uuid.UUID, uuid.UUID], AttemptItemGrade]:
     if not ids:
         return {}
-    rows = await session.execute(select(AttemptItemGrade).where(AttemptItemGrade.attempt_id.in_(ids)))
+    rows = await adb.execute(session, select(AttemptItemGrade).where(AttemptItemGrade.attempt_id.in_(ids)))
     return {(g.attempt_id, g.question_version_id): g for g in rows.scalars()}
 
 
@@ -99,10 +127,11 @@ async def _answered(session: AsyncSession, ids: list[uuid.UUID]) -> dict[uuid.UU
     out: dict[uuid.UUID, set[uuid.UUID]] = {i: set() for i in ids}
     if not ids:
         return out
-    rows = await session.execute(
+    rows = await adb.execute(
+        session,
         select(
             AttemptResponse.attempt_id, AttemptResponse.question_version_id, AttemptResponse.response
-        ).where(AttemptResponse.attempt_id.in_(ids))
+        ).where(AttemptResponse.attempt_id.in_(ids)),
     )
     for aid, qv, resp in rows.all():
         if resp is not None:  # JSONB ``null`` = cleared
@@ -111,17 +140,12 @@ async def _answered(session: AsyncSession, ids: list[uuid.UUID]) -> dict[uuid.UU
 
 
 async def _names(session: AsyncSession, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str | None]:
-    from sqlalchemy import text
-
     if not user_ids:
         return {}
-    rows = await session.execute(
-        text(
-            "SELECT user_id, coalesce(display_name, full_name) FROM user_profiles WHERE user_id = ANY(:ids)"
-        ),
-        {"ids": list(user_ids)},
-    )
-    return {r[0]: r[1] for r in rows.all()}
+    from app.modules.identity import public as identity_public
+
+    profiles = await identity_public.get_profiles(session, user_ids)
+    return {u: (p.display_name or p.full_name) for u, p in profiles.items()}
 
 
 # --------------------------------------------------------------------------- list
@@ -132,9 +156,7 @@ async def evaluation_list(
 ) -> dict[str, Any]:
     visible = {r["attempt_id"] for r in await studio.list_attempts(request, session, principal, t)}
     atts = [a for a in await _scoped(request, session, principal, t, READ_PERMISSION) if str(a.id) in visible]
-    if not atts and not await studio.attempt_scope_allows(
-        request, principal, READ_PERMISSION, batch_id=t.batch_id, org_id=t.organization_id
-    ):
+    if not atts and not await _allowed_on_test(request, session, principal, t, READ_PERMISSION):
         raise ProblemError("permission_denied", permission=READ_PERMISSION)
     ids = [a.id for a in atts]
     protocol = exam.protocol_of(t)
@@ -147,7 +169,7 @@ async def evaluation_list(
         {
             r.attempt_id: r
             for r in (
-                await session.execute(select(AttemptResult).where(AttemptResult.attempt_id.in_(ids)))
+                await adb.execute(session, select(AttemptResult).where(AttemptResult.attempt_id.in_(ids)))
             ).scalars()
         }
         if ids
@@ -202,7 +224,7 @@ async def evaluation_list(
         totals["manual_pending"] += manual_pending
         totals["flagged"] += int(integ["flagged"])
     assignments = (
-        await session.execute(select(TestAssignment).where(TestAssignment.test_id == t.id))
+        await adb.execute(session, select(TestAssignment).where(TestAssignment.test_id == t.id))
     ).scalars()
     return {
         "test": {"id": str(t.id), "title": t.title, "status": t.status},
@@ -231,7 +253,7 @@ async def _attempt_for_staff(
     if permission != READ_PERMISSION and att.user_id == principal.user_id:
         # SEC-10: nobody grades their own attempt (evaluators, trainers and admins alike).
         raise ProblemError("conflict_of_interest", detail="You cannot grade your own attempt.")
-    t = await session.get(Test, att.test_id)
+    t = await adb.get(session, Test, att.test_id)
     if t is None:  # pragma: no cover - FK
         raise ProblemError("not_found")
     return att, t
@@ -263,7 +285,7 @@ async def attempt_review(
     responses = {
         r.question_version_id: r
         for r in (
-            await session.execute(select(AttemptResponse).where(AttemptResponse.attempt_id == att.id))
+            await adb.execute(session, select(AttemptResponse).where(AttemptResponse.attempt_id == att.id))
         ).scalars()
     }
     grades = await _grades(session, [att.id])
@@ -293,7 +315,7 @@ async def attempt_review(
                 }
             )
         sections.append({"section_id": s["section_id"], "title": s["title"], "items": items})
-    res = await session.get(AttemptResult, att.id)
+    res = await adb.get(session, AttemptResult, att.id)
     return {
         "attempt_id": str(att.id),
         "test_id": str(t.id),
@@ -315,7 +337,7 @@ async def attempt_review(
 async def _grade_row(
     session: AsyncSession, att: TestAttempt, qv: uuid.UUID, max_marks: Decimal
 ) -> AttemptItemGrade:
-    g = await session.get(AttemptItemGrade, (att.id, qv), with_for_update=True)
+    g = await adb.get(session, AttemptItemGrade, (att.id, qv), with_for_update=True)
     if g is None:
         g = AttemptItemGrade(
             attempt_id=att.id,
@@ -326,7 +348,7 @@ async def _grade_row(
             max_marks=max_marks,
             ai_status="none",
         )
-        session.add(g)
+        adb.add(session, g)
     return g
 
 
@@ -339,7 +361,7 @@ async def run_ai_grading(
     attempt_id: uuid.UUID | None,
     redo: bool,
 ) -> dict[str, Any]:
-    from app.modules.ai import service as ai
+    from app.modules.ai import public as ai  # grade_response + AIError (store-neutral API)
 
     atts = [
         a
@@ -348,9 +370,7 @@ async def run_ai_grading(
     ]
     if attempt_id is not None and not atts:
         raise ProblemError("not_found")
-    if not atts and not await studio.attempt_scope_allows(
-        request, principal, GRADE_PERMISSION, batch_id=t.batch_id, org_id=t.organization_id
-    ):
+    if not atts and not await _allowed_on_test(request, session, principal, t, GRADE_PERMISSION):
         raise ProblemError("permission_denied", permission=GRADE_PERMISSION)
     ids = [a.id for a in atts]
     types = await _types(session, atts)
@@ -359,7 +379,7 @@ async def run_ai_grading(
         {
             (r.attempt_id, r.question_version_id): r
             for r in (
-                await session.execute(select(AttemptResponse).where(AttemptResponse.attempt_id.in_(ids)))
+                await adb.execute(session, select(AttemptResponse).where(AttemptResponse.attempt_id.in_(ids)))
             ).scalars()
             if r.response is not None
         }
@@ -418,7 +438,7 @@ async def run_ai_grading(
         g.ai_error = None
         g.ai_graded_at = utcnow()
         graded += 1
-    await session.flush()
+    await adb.flush(session)
     await audit(
         session,
         principal,
@@ -473,8 +493,8 @@ async def finalize_item(
     g.final_feedback = feedback
     g.finalized_by = principal.user_id
     g.finalized_at = now
-    await session.flush()
-    existing = await session.get(AttemptResult, att.id)
+    await adb.flush(session)
+    existing = await adb.get(session, AttemptResult, att.id)
     await svc.score_attempt(
         session, att, t, scoring_version=(existing.scoring_version + 1) if existing else 1
     )
@@ -493,7 +513,7 @@ async def finalize_item(
             "ai_marks": str(g.ai_marks) if g.ai_marks is not None else None,
         },
     )
-    res = await session.get(AttemptResult, att.id)
+    res = await adb.get(session, AttemptResult, att.id)
     return {
         "attempt_id": str(att.id),
         "question_version_id": str(qv),

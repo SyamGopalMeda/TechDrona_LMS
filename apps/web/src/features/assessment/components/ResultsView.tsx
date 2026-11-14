@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Badge, Card, EmptyState, ErrorState, PageHeader, Skeleton, StatTile, Tabs } from "@/components/ui";
+import { Badge, Card, EmptyState, ErrorState, LinkButton, LoadingBlock, PageHeader, StatTile, Tabs } from "@/components/ui";
 import { isApiError } from "@/lib/api/errors";
 import { assessmentApi } from "../lib/api";
 import { formatDuration, formatIstDateTime, formatPercent, formatScore } from "../lib/format";
@@ -120,7 +120,7 @@ function Review({ attemptId }: { attemptId: string }) {
     if (isApiError(res.error) && res.error.code === "results_not_released") return null;
     return <ErrorState error={res.error} onRetry={() => void res.reload()} />;
   }
-  if (!res.data) return <Skeleton className="h-40 w-full" />;
+  if (!res.data) return <LoadingBlock label="Loading your answers" rows={2} size="card" />;
   const items = res.data.sections.flatMap((s) => s.questions);
   const content = (f: Filter) => {
     const rows = items.map((it, i) => ({ it, n: i + 1 })).filter(({ it }) => matches(it, f));
@@ -131,7 +131,7 @@ function Review({ attemptId }: { attemptId: string }) {
         ))}
       </ul>
     ) : (
-      <EmptyState title="No questions in this view" />
+      <EmptyState icon="search" title="No questions in this view" />
     );
   };
   return (
@@ -149,6 +149,8 @@ function Review({ attemptId }: { attemptId: string }) {
   );
 }
 
+const CRUMBS = [{ label: "Tests", href: "/app/tests" }, { label: "Results" }];
+
 /** STU-010 Results & review (ATT-11, ATT-12): shows only what the review policy releases. */
 export function ResultsView({ attemptId }: { attemptId: string }) {
   const res = useLoader(attemptId, () => assessmentApi.result(attemptId));
@@ -157,22 +159,24 @@ export function ResultsView({ attemptId }: { attemptId: string }) {
     if (isApiError(res.error) && res.error.code === "results_not_released") {
       const at = res.error.problem?.release_at as string | undefined;
       return (
-        <EmptyState
-          title={at ? `Results on ${formatIstDateTime(at)}` : "Results aren't released yet"}
-          description="We'll notify you when they're ready."
-          action={<Link className="text-sm font-medium text-fg-link underline" href="/app/tests">Back to tests</Link>}
-        />
+        <div>
+          <PageHeader breadcrumbs={CRUMBS} title="Test results" />
+          <EmptyState
+            icon="calendar"
+            title={at ? `Results on ${formatIstDateTime(at)}` : "Results aren't released yet"}
+            description="We'll notify you when they're ready."
+            action={
+              <LinkButton href="/app/tests" variant="secondary" size="sm">
+                Back to tests
+              </LinkButton>
+            }
+          />
+        </div>
       );
     }
     return <ErrorState error={res.error} onRetry={() => void res.reload()} />;
   }
-  if (!res.data)
-    return (
-      <div aria-busy="true" className="space-y-4">
-        <Skeleton className="h-10 w-1/2" />
-        <Skeleton className="h-32 w-full" />
-      </div>
-    );
+  if (!res.data) return <LoadingBlock label="Loading your results" rows={3} size="card" />;
 
   const r = res.data;
   if (r.status === "invalidated") {
@@ -191,12 +195,7 @@ export function ResultsView({ attemptId }: { attemptId: string }) {
   const showScore = r.visible?.score !== false && r.score !== undefined;
   return (
     <div>
-      <PageHeader
-        eyebrow="Results"
-        title="Test results"
-        description={r.submitted_at ? `Submitted ${formatIstDateTime(r.submitted_at)}` : undefined}
-        actions={<Link className="text-sm text-fg-link underline" href="/app/tests">Back to tests</Link>}
-      />
+      <PageHeader breadcrumbs={CRUMBS} title="Test results" description={r.submitted_at ? `Submitted ${formatIstDateTime(r.submitted_at)}` : undefined} />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatTile label="Score" value={showScore ? `${formatScore(r.score)} / ${formatScore(r.max_score)}` : null} hint={showScore ? formatPercent(r.percentage, 1) : "Not released"} />
         <StatTile

@@ -12,6 +12,8 @@ from collections.abc import Callable
 
 from app.core.config import Settings
 from app.core.crypto import REQUIRED_AEAD_KEYRINGS, AeadKeyring, CryptoError
+from app.core.firestore import checks as firestore_checks
+from app.core.firestore.backend import raw_switch_env as store_switch_env
 from app.core.security import REQUIRED_KEYRINGS, KeyringError, get_keyring
 
 FakeCheck = Callable[[Settings], bool]
@@ -91,6 +93,7 @@ def production_problems(s: Settings) -> list[str]:
     problems = [f"fake/local adapter selected: {name}" for name, chk in _fake_checks.items() if chk(s)]
     problems += _provider_problems(s)
     problems += _commerce_problems(s)
+    problems += firestore_checks.production_problems(s, store_switch_env())
     if s.LOG_LEVEL == "DEBUG":
         problems.append("LOG_LEVEL=DEBUG is forbidden in production")
     if not s.TD_DISABLE_API_DOCS:
@@ -136,6 +139,10 @@ def run_startup_checks(s: Settings) -> None:
             get_keyring(name)
         except KeyringError as e:
             raise UnsafeConfigurationError(str(e)) from e
+    # Every env: TD_STORE_<MODULE> switches parse; no service-account key inside the repo.
+    always = firestore_checks.always_problems(s, store_switch_env())
+    if always:
+        raise UnsafeConfigurationError("refusing to start: " + "; ".join(always))
     if s.is_production:
         problems = production_problems(s)
         if problems:

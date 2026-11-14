@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockApi, renderWithProviders } from "@/features/auth/test/mock-api";
@@ -50,5 +50,39 @@ describe("Corporate enquiry queue (D8)", () => {
     await waitFor(() => expect(api.calls.some((c) => c.method === "PATCH")).toBe(true));
     expect(api.calls.find((c) => c.method === "PATCH")!.body).toEqual({ assign_to_me: true, status: "in_progress" });
     expect(await screen.findByText("Assigned to you.")).toBeInTheDocument();
+  });
+
+  it("asks before marking as spam or closing (audit 0.7)", async () => {
+    const api = mockApi({
+      "GET support/enquiries/e1": { body: full },
+      "PATCH support/enquiries/e1": (c) => ({ body: { ...full, ...(c.body as object) } }),
+    });
+    cleanups.push(api.restore);
+    renderWithProviders(<EnquiryDetail enquiryId="e1" />);
+    await userEvent.click(await screen.findByRole("button", { name: "Mark as spam" }));
+    let dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Mark this enquiry as spam?")).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Keep open" }));
+    expect(api.calls.some((c) => c.method === "PATCH")).toBe(false);
+
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close enquiry" }));
+    await waitFor(() => expect(api.calls.find((c) => c.method === "PATCH")?.body).toEqual({ status: "closed" }));
+    expect(await screen.findByText("Enquiry closed.")).toBeInTheDocument();
+  });
+});
+
+describe("Corporate enquiry detail layout (Phase 2)", () => {
+  it("has breadcrumbs back to the queue, the company as h1 and staff-only note wording", async () => {
+    const api = mockApi({ "GET support/enquiries/e1": { body: { ...full, assigned_to: "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0" } } });
+    cleanups.push(api.restore);
+    renderWithProviders(<EnquiryDetail enquiryId="e1" />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Acme Systems" })).toBeInTheDocument();
+    const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(crumbs).getByRole("link", { name: "Corporate enquiries" })).toHaveAttribute("href", "/desk/enquiries");
+    expect(screen.getByText(/Only staff can see this note/)).toBeInTheDocument();
+    expect(screen.queryByText(/Only Admin can see this/)).not.toBeInTheDocument();
+    expect(screen.getByText("Agent #C7D8E9F0")).toBeInTheDocument();
   });
 });

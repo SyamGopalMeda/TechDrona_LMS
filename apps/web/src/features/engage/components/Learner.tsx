@@ -72,7 +72,7 @@ export function LearnerEngage() {
         ) : runs.error ? (
           <ErrorState error={runs.error} onRetry={() => void runs.reload()} />
         ) : !runs.data?.data.length ? (
-          <EmptyState title="Nothing yet" description="When your trainer runs a live poll or quiz, enter the code above or scan the QR code." />
+          <EmptyState icon="users" title="Nothing yet" description="When your trainer runs a live poll or quiz, enter the code above or scan the QR code." />
         ) : (
           <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
             {runs.data.data.map((r) => (

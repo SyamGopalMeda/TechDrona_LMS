@@ -75,6 +75,8 @@ export interface Override {
 export interface AttemptRow {
   attempt_id: string;
   user_id: string;
+  /** Learner display name (staff views only; evaluators cannot read the batch roster). */
+  learner_name?: string | null;
   attempt_no: number;
   status: string;
   submit_reason: string | null;
@@ -128,6 +130,8 @@ export interface Submission {
   id: string;
   assignment_id: string;
   user_id: string;
+  /** Learner display name from the grading queue / staff submission read (evaluators can't read the roster). */
+  learner_name?: string | null;
   attempt_no: number;
   status: "submitted" | "late" | "graded" | "returned" | string;
   submitted_at: string | null;

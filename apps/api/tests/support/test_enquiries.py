@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import func, select
+import pytest
 
 from app.core.db import system_context
-from app.modules.notifications.models import Notification
-from app.modules.support.models import CorporateEnquiry
+from app.modules.notifications.service import notifications_for_user
 from tests.identity.factory import Browser
 from tests.security.helpers import adult, staff, staff_browser
+from tests.support import helpers as h
+
+pytestmark = pytest.mark.usefixtures("support_backend")
 
 SECRET_EMAIL = "priya.secret@acme-example.com"
 SECRET_PHONE = "9876501234"
@@ -30,7 +32,7 @@ def form(**kw):
 
 async def _count(db) -> int:
     await system_context(db, "t")
-    return int((await db.execute(select(func.count()).select_from(CorporateEnquiry))).scalar_one())
+    return await h.enquiry_count(db)
 
 
 async def test_public_enquiry_stored_notified_and_admin_queue(client, db, browser, mail) -> None:
@@ -41,14 +43,12 @@ async def test_public_enquiry_stored_notified_and_admin_queue(client, db, browse
     assert r.status_code == 202, r.text
     assert r.json() == {"status": "received"}
     assert await _count(db) == before + 1
-    row = (
-        await db.execute(select(CorporateEnquiry).order_by(CorporateEnquiry.created_at.desc()).limit(1))
-    ).scalar_one()
+    row = await h.latest_enquiry(db)
     assert row.email == SECRET_EMAIL and row.phone == "+919876501234" and row.status == "new"
     assert row.reference.startswith("TD-E-") and row.consent_at is not None
 
     # Every Admin is notified (in-app + email); the message carries only the reference.
-    notes = (await db.execute(select(Notification).where(Notification.user_id == admin.id))).scalars().all()
+    notes = await notifications_for_user(db, admin.id)
     assert any(n.template_key == "support.corporate_enquiry_received" for n in notes)
     sent = [m for m in mail.sent if row.reference in m.subject]
     assert sent and all(SECRET_EMAIL not in m.text and "Priya" not in m.text for m in sent)

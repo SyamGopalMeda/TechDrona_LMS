@@ -1,4 +1,4 @@
-# WS1 close-out (REMOVAL-PLAN §5 step 9) — PARTIAL, blocked by disk space
+# WS1 close-out (REMOVAL-PLAN §5 step 9) — DONE (2026-11-08, see §5)
 
 | | |
 |---|---|
@@ -78,3 +78,67 @@
   - `ruff` and `mypy` over the whole tree.
   - The RLS family `U` review.
   - The WS6 request that `GET me/grants` return `/evaluator` in `portals` (`sessions/login.py` `PORTALS`).
+
+---
+
+## 4. Resume (2026-11-08) — first pass blocked (Docker down); completed in §5
+
+| | |
+|---|---|
+| Status | **Blocked for DB work.** During this session the Docker Desktop engine went away (`failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine`); port 5432 is now answered by a different, native Windows Postgres (rejects the techdrona credentials). Per the rules Docker/containers were **not** started. Dev DB `techdrona` was only read (policy/grant listings). |
+
+### 4.1 Test conversions (task 1) — code-reviewed
+Already done by the paused agent (files dated 2026-11-07 17:44–19:24): `tests/identity/factory.py` (`company_org()`, no `make_org`), `tests/placement/world.py` (A and B are both the company org; isolation is cross-**batch**: `trainer_b`/`student_b` live in `batch_b`), `tests/analytics/conftest.py` (`make_org` returns `COMPANY_ORG_ID`), rbac, authz matrix, admin, learning, coding, engage, assessments, placement suites. Re-check now: no test inserts into `organizations` or builds `Organization(...)`; no synthetic foreign org ids. No further deletions in this pass (earlier deletions are listed in ws1.md / ws2–ws5.md).
+
+### 4.2 Evaluator portal (task 2) — automated-tested (earlier run), code-reviewed
+`sessions/login.py` `PORTALS["evaluator"] = "/evaluator"`, `LANDING_ORDER` includes evaluator; `GET /me/grants` builds `portals` from `PORTALS`. Covered by `tests/rbac/test_rbac.py::test_evaluator_portal_and_landing` (evaluator → `/evaluator`; evaluator+trainer → `["/evaluator", "/trainer"]`).
+
+### 4.3 RLS family `U` review (task 3)
+- **Finding:** 52 `p_u` policies on the dev DB (attempts, attempt events/responses/results/grades/overrides/integrity, assignment submissions/responses/regrades, code submissions, certificates, enrolments, lesson/path progress, practice, engage participants/responses, mentor bookings, interview feedback, question reports, recommendations, topic mastery, analytics events/heartbeats/intervals/aggregates incl. partitions). Predicate `user_id = me OR organization_id = ANY(app.org_ids()) OR platform`. With one company org every batch **student** has the company org in `app.org_ids()`, so at DB level any batch student could read every batch-mate's org-attributed rows. The app layer filters by user/batch (and engage participant reads run in `system_context`), so this was a defence-in-depth hole, same class as the `users` hole `identity_0005` closed.
+- **Fix:** new migration `apps/api/migrations/versions/orgs_0004_u_family_staff_only.py` (revises `orgs_0003`; `alembic heads` = `orgs_0004` only). Adds `app.caller_is_org_staff()` (active `staff` membership in one of `app.org_ids()`, or a live non-student grant carrying that org — trainer/evaluator batch grants do), no row argument so it is evaluated once per statement, and `ALTER POLICY p_u` on every table/partition: org branch now also requires `app.caller_is_org_staff()`. Own rows and platform bypass unchanged; downgrade restores. `maint.ensure_partitions` copies the parent policy to new partitions. `app/core/migration_helpers.py` gains family `US` (the new predicate) for future tables; `U` is kept verbatim so historic migrations replay.
+- **Test:** `tests/identity/test_u_family_rls.py` (every `p_u` has the staff guard in USING and WITH CHECK; a student cannot read or write a batch-mate's row; staff by grant and by membership can; a revoked grant loses access). Passing — see §5.
+
+### 4.4 Seeds standalone (task 4) — see §5.3
+Runner prepared (scratch, not in repo): migrates a template DB `techdrona_rd_seedtpl`, then for each seed creates `techdrona_rd_seed_<name>` from it, runs the seed alone, drops it, then runs the full chain twice on `techdrona_rd_seed_chain` (idempotency). Env override swaps only the database name of the `.env` URLs; it asserts the base DB is `techdrona` and never connects to it.
+
+### 4.5 Full suite (task 5)
+- Run 1 (fresh `techdrona_rd_backend`, before `orgs_0004` existed): reached **96 %** of ~970 tests with **3 failures** shown as `F` (at ~22 %, ~51 %, ~66 %), **0 errors**, before Docker went away; the process was then killed, so no summary/test ids were captured. Versus the baseline (747 passed / 40 failed / 181 errors) the second-org errors are gone.
+- `ruff check .`: pass. `ruff format --check .`: 512 files formatted. `mypy app`: no issues in 260 files (re-run after the pause).
+- **Still to do once Docker Desktop is up:** full suite on fresh `techdrona_rd_backend` (now including `orgs_0004` + the new test), identify and re-run the 3 failures alone, run the seed runner, then drop `techdrona_rd_*` (never `techdrona_test`).
+
+## 5. Completion (2026-11-08, Docker back; project Postgres on port 15432)
+
+### 5.1 Alembic fresh-DB bug found and fixed — automated-tested
+- Run 2 (fresh `techdrona_rd_backend`) errored on every test: `alembic upgrade heads` failed with `KeyError: 'security_0001'` in `update_to_step`. It depends on the hash seed: seeds 8, 9 and 10 fail, others pass. It **predates `orgs_0004`**: removing `orgs_0004` still fails with seeds 8 and 9. It is the same class as the earlier `support_0003` pitfall (docs/audit/fixes/w3be.md).
+- Cause: `core_base_0002` listed `security_0001` in `depends_on`. In some orders Alembic deleted `security_0001` from `alembic_version` before `security_0002` (down `security_0001`) ran.
+- Fix: `apps/api/migrations/versions/core_base_0002_maint.py` now depends on `security_0002` instead, with a comment. Its DDL is unchanged. The dev DB is not affected: all these revisions are already applied there, and only `orgs_0004` is pending.
+- Verified: a fresh migrate passes with `PYTHONHASHSEED` 1–16. Full suites also ran with seeds 8 and 9.
+
+### 5.2 Full suite — automated-tested
+| Run | Setup | Result |
+|---|---|---|
+| 3 | fresh DB, `PYTHONHASHSEED=8`, after 5.1 | **973 passed, 4 failed** (22 m 38 s) |
+| 3a | the 4 failures alone | the same 4 failed (deterministic, not flaky) |
+| 4 | fresh DB, `PYTHONHASHSEED=9`, after the fixes below | **977 passed, 0 failed** (18 m 44 s) |
+
+The 4 failures and how each was handled:
+1. **Real authz gap, fixed in code.** `assessments/test_attempts.py::test_trainer_scoping_and_cross_tenant_assignment`: batch B's trainer **could assign batch A's test** to their own batch (201). The old org boundary used to separate batches, but in a single company every test shares the org. Fix in `app/modules/assessments/studio.py::create_assignment`: an org-owned test may be assigned only by a caller for whom `can_read_test` holds; anyone else gets 404 (no disclosure). The test's 404 assertion is unchanged and now passes.
+2. **Fixture now creates the DB grant.** `coding/test_w2a_access.py::test_batch_trainer_reads_own_batch_submissions_only`: the trainer existed only as a synthetic `Principal`, with no `role_grants` row. `orgs_0004` requires that a staff member really exists, so the test now creates the real batch grant. The 200/404 assertions are unchanged.
+3. **Status code changed from 404 to 403; access is still denied.** In a single company the other batch's row is no longer hidden by RLS, so the batch-scope check answers instead. This is the same status that the existing `trainer_a2` and `submissions` assertions already expected.
+   - `engage/test_engage.py::test_authz_student_admin_and_cross_batch`: trainer B on launch, control and presenter now gets 403.
+   - `learning/test_learning.py::test_assignments_submission_grading_release_override`: trainer B on assignment PATCH now gets 403.
+   - In the assessments test, trainer B on the studio test GET gets 403, and the test still never appears in B's list.
+   - Student B opening batch A's test gets 403 `entitlement_required` with no test body.
+   - No assertion was deleted.
+- `ruff check .` passes. `ruff format --check .` reports 512 files already formatted. `mypy app` reports no issues in 260 files.
+
+### 5.3 Seeds on empty scratch DBs — automated-tested
+I migrated a template DB and then ran each seed alone on a fresh copy of it (env override: only the database name changes; `APP_ENV=dev`):
+- `rbac_seed` and `commerce_demo` succeed standalone. `dev_users` also succeeds standalone; it prints the dev TOTP secrets, which are not reproduced here.
+- `catalog_demo`, `placement_demo`, `coding_demo`, `security_demo`, `e2e_demo` and `company_demo` stop with a clear `RuntimeError: <email> not found - run python -m app.seeds.dev_users first`. This is their intended precondition.
+- The full `seed-dev.sh` order ran twice on one DB, and every seed passed both times (idempotent).
+
+### 5.4 Cleanup
+- I dropped `techdrona_rd_backend` and `techdrona_rd_seedtpl`; the per-seed DBs were dropped by the runner. `techdrona` and `techdrona_test` were untouched.
+- Earlier agents' scratch DBs remain, left for the coordinator: `techdrona_final_sc`, `techdrona_ws1_fix`, `techdrona_ws1_seedrun`.
+- **`orgs_0004` is NOT applied to dev.** The coordinator applies it with `alembic upgrade heads`.

@@ -144,10 +144,11 @@ function Blocks({ blocks }: { blocks: Block[] }) {
       {blocks.map((b, i) => {
         switch (b.type) {
           case "heading": {
-            const cls = b.level === 1 ? "mt-6 text-2xl" : b.level === 2 ? "mt-8 text-xl" : "mt-6 text-lg";
+            // Body headings sit below the page h1 and the article title: one step down in size too.
+            const cls = b.level === 1 ? "mt-8 text-xl" : b.level === 2 ? "mt-6 text-lg" : "mt-5 text-base";
             const Tag = b.level === 1 ? "h2" : b.level === 2 ? "h3" : "h4";
             return (
-              <Tag key={i} id={b.id} className={cn("scroll-mt-20 font-display font-semibold text-fg", cls)}>
+              <Tag key={i} id={b.id} className={cn("scroll-mt-20 font-display font-bold text-fg-heading", cls)}>
                 <Inline text={b.text} />
               </Tag>
             );

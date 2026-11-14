@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
-import { Button, Checkbox, FormField, Input, Select } from "@/components/ui";
+import { Button, Checkbox, FormField, Input, LinkButton, Select } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
+import { trackEvent } from "@/lib/firebase/analytics";
 import { ADULT_ONLY, NOTICE_VERSION, REQUIRED_PURPOSES, SIGNUP_OPTIONAL, type Purpose } from "../lib/consents";
 import { formatCountdown, problemFieldErrors, retryAfterSeconds, toFormError, type FormErrorInfo } from "../lib/errors";
 import type { GuardianBody, SignupBody, SignupResponse } from "../lib/types";
-import { ageOn, isEmail, normaliseIndianMobile, validatePassword } from "../lib/validation";
+import { PASSWORD_MIN, ageOn, isEmail, normaliseIndianMobile, validatePassword } from "../lib/validation";
 import { ErrorSummary, FormAlert, Notice, PasswordInput } from "./shared";
+import { ServiceNotIntegrated, useSimpleAuth } from "@/components/shell/Integrations";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -30,6 +32,7 @@ const API_FIELD: Record<string, Field> = {
  * `next` is an already-validated same-origin path (safeNextPath) to continue to after signup (FE-10).
  */
 export function SignupForm({ next }: { next?: string | null }) {
+  const simple = useSimpleAuth();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [mobile, setMobile] = useState("");
@@ -135,7 +138,10 @@ export function SignupForm({ next }: { next?: string | null }) {
         { idempotencyKey: true, handle: { auth: false, restriction: false, sessionChoice: false } },
       );
       setPassword("");
-      if (res.kind === "ok") setResult(res.data);
+      if (res.kind === "ok") {
+        setResult(res.data);
+        trackEvent("sign_up", { method: "password" });
+      }
     } catch (err) {
       const fe = problemFieldErrors(err);
       const mapped: Partial<Record<Field, string>> = {};
@@ -174,10 +180,10 @@ export function SignupForm({ next }: { next?: string | null }) {
       </FormField>
 
       <fieldset aria-describedby={`${base}-dob-hint${errors.date_of_birth ? ` ${base}-dob-err` : ""}`} className="space-y-1.5">
-        <legend className="text-sm font-medium text-fg">
+        <legend className="text-sm font-semibold text-fg">
           Date of birth<span className="text-danger-fg" aria-hidden="true"> *</span>
         </legend>
-        <div className="grid grid-cols-[5rem_1fr_6rem] gap-2">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1.2fr)] gap-2">
           <label className="sr-only" htmlFor={ids.date_of_birth}>Day</label>
           <Select id={ids.date_of_birth} aria-invalid={errors.date_of_birth ? true : undefined} value={day} onChange={(e) => setDay(e.target.value)} placeholder="DD" options={Array.from({ length: 31 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }))} />
           <label className="sr-only" htmlFor={`${base}-dob-month`}>Month</label>
@@ -185,11 +191,11 @@ export function SignupForm({ next }: { next?: string | null }) {
           <label className="sr-only" htmlFor={`${base}-dob-year`}>Year</label>
           <Select id={`${base}-dob-year`} aria-invalid={errors.date_of_birth ? true : undefined} value={year} onChange={(e) => setYear(e.target.value)} placeholder="YYYY" options={years.map((y) => ({ value: y, label: y }))} />
         </div>
-        <p id={`${base}-dob-hint`} className="text-xs text-fg-muted">
+        <p id={`${base}-dob-hint`} className="text-[0.8125rem] leading-snug text-fg-muted">
           Used to apply the right privacy protections.
         </p>
         {errors.date_of_birth ? (
-          <p id={`${base}-dob-err`} role="alert" className="text-xs font-medium text-danger-fg">
+          <p id={`${base}-dob-err`} className="flex items-start gap-1.5 text-[0.8125rem] font-medium leading-snug text-danger-fg before:mt-px before:inline-flex before:h-4 before:w-4 before:shrink-0 before:items-center before:justify-center before:rounded-full before:bg-danger-solid before:text-[0.625rem] before:font-bold before:text-danger-on-solid before:content-['!']">
             {errors.date_of_birth}
           </p>
         ) : null}
@@ -201,7 +207,7 @@ export function SignupForm({ next }: { next?: string | null }) {
             Because you&apos;re under 18, a parent or guardian needs to agree before you can start. We&apos;ll send them a link. You can still browse free content.
           </Notice>
           <fieldset className="space-y-3">
-            <legend className="text-sm font-medium text-fg">Your parent or guardian</legend>
+            <legend className="text-sm font-semibold text-fg">Your parent or guardian</legend>
             <FormField label="Their name" error={errors.guardian} required>
               {(f) => <Input {...f} name="guardian_name" autoComplete="off" value={guardianName} onChange={(e) => setGuardianName(e.target.value)} />}
             </FormField>
@@ -229,18 +235,19 @@ export function SignupForm({ next }: { next?: string | null }) {
         </>
       ) : null}
 
-      <FormField label="Password" hint="15+ characters, or 8+ if you turn on 2-step verification." error={errors.password} required>
+      <FormField label="Password" hint={simple ? `At least ${PASSWORD_MIN} characters.` : "15+ characters, or 8+ if you turn on 2-step verification."} error={errors.password} required>
         {(f) => <PasswordInput {...f} name="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />}
       </FormField>
 
       <fieldset className="space-y-3">
-        <legend className="text-sm font-medium text-fg">Your choices</legend>
+        <legend className="text-sm font-semibold text-fg">Your choices</legend>
         <div>
           <Checkbox
             id={ids.consents}
             checked={agree}
             onChange={(e) => setAgree(e.target.checked)}
             aria-invalid={errors.consents ? true : undefined}
+            aria-describedby={errors.consents ? `${ids.consents}-err` : undefined}
             label={
               <>
                 I agree to the{" "}
@@ -256,7 +263,7 @@ export function SignupForm({ next }: { next?: string | null }) {
             }
           />
           {errors.consents ? (
-            <p role="alert" className="mt-1 text-xs font-medium text-danger-fg">
+            <p id={`${ids.consents}-err`} className="mt-1 flex items-start gap-1.5 text-[0.8125rem] font-medium leading-snug text-danger-fg before:mt-px before:inline-flex before:h-4 before:w-4 before:shrink-0 before:items-center before:justify-center before:rounded-full before:bg-danger-solid before:text-[0.625rem] before:font-bold before:text-danger-on-solid before:content-['!']">
               {errors.consents}
             </p>
           ) : null}
@@ -277,10 +284,10 @@ export function SignupForm({ next }: { next?: string | null }) {
       <Button type="submit" loading={busy} size="lg" className="w-full">
         Create account
       </Button>
-      <p className="text-sm text-fg-muted">
+      <p className="text-center text-sm text-fg-muted">
         Already have an account?{" "}
         <Link href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"} className="text-fg-link underline">
-          Sign in
+          Log in
         </Link>
       </p>
     </form>
@@ -298,9 +305,10 @@ export function SignupResult({ result, email, next }: { result: SignupResponse; 
   const continueHref = next ?? "/app";
   return (
     <div className="space-y-4" role="status">
-      <h2 ref={headingRef} tabIndex={-1} className="font-display text-xl font-semibold text-fg focus:outline-none">
+      <h2 ref={headingRef} tabIndex={-1} className="font-display text-xl font-bold text-fg-heading focus:outline-none">
         {steps.includes("guardian_consent") ? "Almost there" : "Check your inbox"}
       </h2>
+      <ServiceNotIntegrated service="email" text="Email sending isn't connected yet, so the verification email won't arrive. You can still sign in; contact the Tech Drona admin if you need help." />
       {steps.includes("guardian_consent") || result.is_minor ? (
         <Notice title="A parent or guardian needs to agree">
           Because you&apos;re under 18, a parent or guardian needs to agree before you can start. We&apos;ll send them a link. You can still browse free content.
@@ -310,7 +318,7 @@ export function SignupResult({ result, email, next }: { result: SignupResponse; 
         <p className="text-sm text-fg-secondary">
           If you can create an account with these details, we&apos;ve sent the next steps to {email || "your email"}. An account with this email may already exist —{" "}
           <Link href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"} className="text-fg-link underline">
-            Sign in
+            Log in
           </Link>{" "}
           or{" "}
           <Link href="/forgot-password" className="text-fg-link underline">
@@ -324,13 +332,11 @@ export function SignupResult({ result, email, next }: { result: SignupResponse; 
       ) : null}
       <div className="flex flex-wrap gap-3">
         {steps.includes("verify_mobile") ? (
-          <Link href="/verify/mobile" className="inline-flex h-10 items-center rounded-md bg-brand px-4 text-sm font-medium text-brand-on hover:bg-brand-hover focus-visible:shadow-focus focus-visible:outline-none">
-            Verify your mobile
-          </Link>
+          <LinkButton href="/verify/mobile">Verify your mobile</LinkButton>
         ) : null}
-        <Link href={continueHref} className="inline-flex h-10 items-center rounded-md border border-line-control px-4 text-sm font-medium text-fg hover:bg-surface-hover focus-visible:shadow-focus focus-visible:outline-none">
+        <LinkButton href={continueHref} variant={steps.includes("verify_mobile") ? "secondary" : "primary"}>
           {next ? "Continue" : "Go to my dashboard"}
-        </Link>
+        </LinkButton>
       </div>
     </div>
   );

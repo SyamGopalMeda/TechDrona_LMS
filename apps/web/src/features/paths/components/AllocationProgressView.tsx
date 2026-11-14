@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { Badge, StatTile, Table } from "@/components/ui";
+import { Badge, PageHeader, StatGrid, StatTile, StatusBadge, Table } from "@/components/ui";
 import { formatDateTime } from "@/features/trainer/shared/ui";
 import { useApi } from "@/features/trainer/shared/use-api";
 import { seg } from "../lib/api";
@@ -19,31 +18,41 @@ export function AllocationProgressView({ allocationId }: { allocationId: string 
   const avg = learners && learners.length ? Math.round(learners.reduce((s, l) => s + l.pct, 0) / learners.length) : null;
   const done = learners ? learners.filter((l) => l.total_steps > 0 && l.completed_steps >= l.total_steps).length : null;
   const behind = learners ? learners.filter((l) => l.behind).length : null;
+  const target = d ? (d.allocation.target_type === "batch" ? (d.allocation.batch_name ?? "Batch") : "Individual learners") : null;
 
   return (
     <div className="space-y-6">
       {d ? (
-        <div>
-          <Link href={`${base}/${encodeURIComponent(d.path.id)}`} className="text-sm text-fg-link underline">
-            ← {d.path.title}
-          </Link>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-fg-muted">
-            <FlowBadge flow={d.allocation.flow} />
-            <OrderBadge sequential={d.allocation.sequential} />
-            <span>
-              {d.allocation.target_type === "batch" ? (d.allocation.batch_name ?? "Batch") : "Individual learners"} · v{d.allocation.version_no} · {formatHours(d.allocation.total_hours)} ·{" "}
-              {formatPlanDate(d.allocation.start_date)} → {formatPlanDate(d.allocation.finish_date)}
-            </span>
-            {d.allocation.status === "revoked" ? <Badge tone="danger">Removed</Badge> : null}
-          </div>
-        </div>
-      ) : null}
-      <div className="grid gap-3 sm:grid-cols-4">
+        <PageHeader
+          breadcrumbs={[
+            { label: "Learning paths", href: base },
+            { label: d.path.title, href: `${base}/${encodeURIComponent(d.path.id)}` },
+            { label: "Progress" },
+          ]}
+          title={target ?? "Path progress"}
+          meta={
+            <>
+              <FlowBadge flow={d.allocation.flow} />
+              <OrderBadge sequential={d.allocation.sequential} />
+              {d.allocation.status === "revoked" ? <StatusBadge status="removed" /> : null}
+            </>
+          }
+          description={`Progress on ${d.path.title} · v${d.allocation.version_no} · ${formatHours(d.allocation.total_hours)} · ${formatPlanDate(d.allocation.start_date)} to ${formatPlanDate(d.allocation.finish_date)}`}
+        />
+      ) : (
+        <PageHeader breadcrumbs={[{ label: "Learning paths", href: base }, { label: "Progress" }]} title="Path progress" />
+      )}
+      <StatGrid columns={4}>
         <StatTile label="Learners" value={learners ? learners.length : null} />
         <StatTile label="Average progress" value={avg === null ? null : `${avg}%`} />
         <StatTile label="Completed" value={done} />
-        <StatTile label="Behind plan" value={behind} hint={d?.allocation.flow === "strict" ? "Past a step's due date" : "Suggested plan only"} />
-      </div>
+        <StatTile
+          label="Behind plan"
+          value={behind}
+          tone={behind ? "warning" : "neutral"}
+          hint={d?.allocation.flow === "strict" ? "Past a step's due date" : "Suggested plan only"}
+        />
+      </StatGrid>
       <Table<LearnerProgress>
         caption="Learner progress"
         rows={learners}
@@ -56,7 +65,7 @@ export function AllocationProgressView({ allocationId }: { allocationId: string 
           { key: "name", header: "Learner", cell: (r) => (
             <div>
               <p className="font-medium">{r.full_name ?? "Learner"}</p>
-              <p className="text-xs text-fg-muted">{r.email}</p>
+              {r.email ? <p className="text-xs text-fg-muted">{r.email}</p> : null}
             </div>
           ) },
           { key: "steps", header: "Steps", cell: (r) => `${r.completed_steps}/${r.total_steps}`, align: "right" },
@@ -68,7 +77,7 @@ export function AllocationProgressView({ allocationId }: { allocationId: string 
             </div>
           ) },
           { key: "last", header: "Last activity", cell: (r) => (r.last_activity_at ? formatDateTime(r.last_activity_at) : "—") },
-          { key: "status", header: "Status", cell: (r) => (r.behind ? <Badge tone="warning">Behind</Badge> : <Badge tone="success">On track</Badge>) },
+          { key: "status", header: "Status", cell: (r) => (r.behind ? <Badge tone="warning" dot>Behind</Badge> : <Badge tone="success" dot>On track</Badge>) },
         ]}
       />
     </div>

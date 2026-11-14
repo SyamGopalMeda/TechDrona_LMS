@@ -35,6 +35,7 @@ from app.modules.placement.policies import (
 )
 from app.modules.placement.qbank_router import qbank_media, qbank_studio
 from app.modules.placement.reports import reports
+from app.modules.placement.rls import bind_principal
 from app.modules.placement.schemas import (
     CompanyCreate,
     CompanyPathPut,
@@ -50,11 +51,21 @@ from app.modules.placement.schemas import (
 )
 
 pub = public_router(tags=["placement"])
-studio = authenticated_router(prefix="/studio", tags=["placement-studio"])
-dflt = authenticated_router(tags=["placement"])
-l3r = authenticated_router(tags=["placement"], route_tag="l3_readonly")
+studio = authenticated_router(
+    prefix="/studio", tags=["placement-studio"], dependencies=[Depends(bind_principal)]
+)
+dflt = authenticated_router(tags=["placement"], dependencies=[Depends(bind_principal)])
+l3r = authenticated_router(
+    tags=["placement"], route_tag="l3_readonly", dependencies=[Depends(bind_principal)]
+)
 
 Op = Callable[[], Awaitable[Any]]
+
+
+def _nopg(session: Any) -> Any:
+    """The request session, or ``None`` without Postgres (``db.NO_POSTGRES`` is falsy): core
+    ``idempotent`` then keeps no Postgres savepoint (it checks ``session is not None``)."""
+    return session or None
 
 
 async def _idem(
@@ -69,7 +80,9 @@ async def _idem(
     async def op() -> IdemResult:
         return IdemResult(body=await fn(), status=status)
 
-    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=required)
+    return await idempotent(
+        request, _nopg(session), user_id=principal.user_id, operation=op, required=required
+    )
 
 
 # --------------------------------------------------------------------------- taxonomy
@@ -162,7 +175,13 @@ async def plc_04_search_questions(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
-    orgs = await _bank_orgs(request, session, principal, "question.create")
+    try:
+        orgs = await _bank_orgs(request, session, principal, "question.create")
+    except ProblemError as e:
+        # Reviewers who don't author (Admin) list the review queue only.
+        if e.code != "permission_denied" or version_status not in ("in_review", "awaiting_review"):
+            raise
+        orgs = await _bank_orgs(request, session, principal, "question.review")
     items = await bank.search_questions(
         session,
         topic_id=topic_id,
@@ -227,7 +246,10 @@ async def _keys_visible(request: Request, session: Any, principal: Principal, q:
     versions = await bank.versions_of(session, q.id)
     if any(principal.user_id in (v.authored_by, v.reviewed_by) for v in versions):
         return True
-    return await can_in_org(request, session, principal, "question.answer_key.read", q.organization_id)
+    if await can_in_org(request, session, principal, "question.answer_key.read", q.organization_id):
+        return True
+    # A reviewer judges the key too.
+    return await can_in_org(request, session, principal, "question.review", q.organization_id)
 
 
 @studio.get("/questions/{question_id}")
@@ -238,7 +260,8 @@ async def plc_06_get_question(
     principal: Principal = Depends(require_active_principal),
 ) -> dict[str, Any]:
     q = await bank.get_question(session, question_id)
-    await require_in_org(request, session, principal, "question.edit", q.organization_id)
+    if not await can_in_org(request, session, principal, "question.edit", q.organization_id):
+        await require_in_org(request, session, principal, "question.review", q.organization_id)
     return await bank.question_detail(
         session, q, include_keys=await _keys_visible(request, session, principal, q)
     )
@@ -284,7 +307,10 @@ async def _transition(
     await require_in_org(request, session, principal, permission, q.organization_id)
 
     async def run() -> dict[str, Any]:
+        nonlocal q
         await fn()
+        # Postgres returns the same identity-mapped row; Firestore objects are transient: re-read.
+        q = await bank.get_question(session, question_id)
         latest = await bank.latest_version(session, question_id)
         await audit(
             session,

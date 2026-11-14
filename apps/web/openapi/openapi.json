@@ -375,6 +375,778 @@
         "title": "AdminRevokeIn",
         "type": "object"
       },
+      "AdmissionClaimIn": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_paise": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 100000000.0,
+            "title": "Amount Paise",
+            "type": "integer"
+          },
+          "method": {
+            "maxLength": 10,
+            "title": "Method",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "paid_on": {
+            "format": "date",
+            "title": "Paid On",
+            "type": "string"
+          },
+          "utr": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Utr",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_paise",
+          "method",
+          "utr",
+          "paid_on"
+        ],
+        "title": "AdmissionClaimIn",
+        "type": "object"
+      },
+      "AdmissionClaimRequestIn": {
+        "additionalProperties": false,
+        "properties": {
+          "claim": {
+            "$ref": "#/components/schemas/AdmissionClaimIn"
+          },
+          "email": {
+            "maxLength": 160,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "proof": {
+            "$ref": "#/components/schemas/AdmissionFileIn"
+          },
+          "reg_no": {
+            "maxLength": 20,
+            "minLength": 8,
+            "title": "Reg No",
+            "type": "string"
+          },
+          "website": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Website"
+          }
+        },
+        "required": [
+          "reg_no",
+          "email",
+          "claim",
+          "proof"
+        ],
+        "title": "AdmissionClaimRequestIn",
+        "type": "object"
+      },
+      "AdmissionContactIn": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          }
+        },
+        "title": "AdmissionContactIn",
+        "type": "object"
+      },
+      "AdmissionFeeIn": {
+        "additionalProperties": false,
+        "properties": {
+          "fee_paise": {
+            "maximum": 100000000.0,
+            "minimum": 0.0,
+            "title": "Fee Paise",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fee_paise",
+          "reason"
+        ],
+        "title": "AdmissionFeeIn",
+        "type": "object"
+      },
+      "AdmissionFileIn": {
+        "additionalProperties": false,
+        "properties": {
+          "data_b64": {
+            "maxLength": 2900000,
+            "minLength": 100,
+            "title": "Data B64",
+            "type": "string"
+          },
+          "filename": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Filename",
+            "type": "string"
+          },
+          "original_sha256": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Sha256"
+          }
+        },
+        "required": [
+          "filename",
+          "data_b64"
+        ],
+        "title": "AdmissionFileIn",
+        "type": "object"
+      },
+      "AdmissionInstalmentIn": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_paise": {
+            "maximum": 100000000.0,
+            "minimum": 0.0,
+            "title": "Amount Paise",
+            "type": "integer"
+          },
+          "due": {
+            "default": "",
+            "maxLength": 10,
+            "title": "Due",
+            "type": "string"
+          },
+          "label": {
+            "default": "",
+            "maxLength": 60,
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_paise"
+        ],
+        "title": "AdmissionInstalmentIn",
+        "type": "object"
+      },
+      "AdmissionLookupIn": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "maxLength": 160,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "reg_no": {
+            "maxLength": 20,
+            "minLength": 8,
+            "title": "Reg No",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reg_no",
+          "email"
+        ],
+        "title": "AdmissionLookupIn",
+        "type": "object"
+      },
+      "AdmissionPayIn": {
+        "additionalProperties": false,
+        "properties": {
+          "instructions": {
+            "anyOf": [
+              {
+                "maxLength": 800,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instructions"
+          },
+          "payee_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payee Name"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "preferred_app": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "PhonePe",
+            "title": "Preferred App"
+          },
+          "upi_id": {
+            "anyOf": [
+              {
+                "maxLength": 330,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upi Id"
+          }
+        },
+        "title": "AdmissionPayIn",
+        "type": "object"
+      },
+      "AdmissionPlanIn": {
+        "additionalProperties": false,
+        "properties": {
+          "access_min_paise": {
+            "anyOf": [
+              {
+                "maximum": 100000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Min Paise"
+          },
+          "active": {
+            "default": false,
+            "title": "Active",
+            "type": "boolean"
+          },
+          "allow_instalments": {
+            "default": false,
+            "title": "Allow Instalments",
+            "type": "boolean"
+          },
+          "bank_details": {
+            "anyOf": [
+              {
+                "maxLength": 600,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Details"
+          },
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
+          "course_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
+          },
+          "fee_paise": {
+            "maximum": 100000000.0,
+            "minimum": 0.0,
+            "title": "Fee Paise",
+            "type": "integer"
+          },
+          "instructions": {
+            "anyOf": [
+              {
+                "maxLength": 800,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instructions"
+          },
+          "min_first_paise": {
+            "anyOf": [
+              {
+                "maximum": 100000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min First Paise"
+          },
+          "payee_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payee Name"
+          },
+          "schedule": {
+            "items": {
+              "$ref": "#/components/schemas/AdmissionInstalmentIn"
+            },
+            "maxItems": 6,
+            "title": "Schedule",
+            "type": "array"
+          },
+          "slug": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Slug",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "upi_id": {
+            "anyOf": [
+              {
+                "maxLength": 330,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upi Id"
+          }
+        },
+        "required": [
+          "slug",
+          "title",
+          "fee_paise"
+        ],
+        "title": "AdmissionPlanIn",
+        "type": "object"
+      },
+      "AdmissionReasonIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "AdmissionReasonIn",
+        "type": "object"
+      },
+      "AdmissionRecordIn": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_paise": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 100000000.0,
+            "title": "Amount Paise",
+            "type": "integer"
+          },
+          "checked": {
+            "title": "Checked",
+            "type": "boolean"
+          },
+          "method": {
+            "enum": [
+              "upi",
+              "bank",
+              "cash",
+              "other"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "paid_on": {
+            "format": "date",
+            "title": "Paid On",
+            "type": "string"
+          },
+          "utr": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Utr"
+          }
+        },
+        "required": [
+          "amount_paise",
+          "method",
+          "paid_on",
+          "checked"
+        ],
+        "title": "AdmissionRecordIn",
+        "type": "object"
+      },
+      "AdmissionRegistrationIn": {
+        "additionalProperties": false,
+        "properties": {
+          "branch": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Branch",
+            "type": "string"
+          },
+          "claim": {
+            "$ref": "#/components/schemas/AdmissionClaimIn"
+          },
+          "college": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "College",
+            "type": "string"
+          },
+          "consent": {
+            "title": "Consent",
+            "type": "boolean"
+          },
+          "course_slug": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Course Slug",
+            "type": "string"
+          },
+          "current_status": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Status"
+          },
+          "email": {
+            "maxLength": 160,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "marketing": {
+            "default": false,
+            "title": "Marketing",
+            "type": "boolean"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "maxLength": 20,
+            "minLength": 10,
+            "title": "Phone",
+            "type": "string"
+          },
+          "preferred_mode": {
+            "anyOf": [
+              {
+                "maxLength": 30,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preferred Mode"
+          },
+          "proof": {
+            "$ref": "#/components/schemas/AdmissionFileIn"
+          },
+          "reg_no": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reg No"
+          },
+          "resume": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdmissionFileIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "show_public": {
+            "default": false,
+            "title": "Show Public",
+            "type": "boolean"
+          },
+          "website": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Website"
+          },
+          "year": {
+            "maxLength": 30,
+            "minLength": 1,
+            "title": "Year",
+            "type": "string"
+          }
+        },
+        "required": [
+          "course_slug",
+          "name",
+          "email",
+          "phone",
+          "college",
+          "branch",
+          "year",
+          "consent",
+          "claim",
+          "proof"
+        ],
+        "title": "AdmissionRegistrationIn",
+        "type": "object"
+      },
+      "AdmissionRejectIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "release_locks": {
+            "default": false,
+            "title": "Release Locks",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "AdmissionRejectIn",
+        "type": "object"
+      },
+      "AdmissionStatusIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "enum": [
+              "rejected",
+              "cancelled",
+              "completed",
+              "reopen"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "AdmissionStatusIn",
+        "type": "object"
+      },
+      "AdmissionVerifyIn": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_paise": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 100000000.0,
+            "title": "Amount Paise",
+            "type": "integer"
+          },
+          "checked": {
+            "title": "Checked",
+            "type": "boolean"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "amount_paise",
+          "checked"
+        ],
+        "title": "AdmissionVerifyIn",
+        "type": "object"
+      },
       "AiGradeIn": {
         "additionalProperties": false,
         "properties": {
@@ -1295,6 +2067,57 @@
         "title": "AttemptStart",
         "type": "object"
       },
+      "AttendanceMark": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "P",
+                  "L",
+                  "A"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "status"
+        ],
+        "title": "AttendanceMark",
+        "type": "object"
+      },
+      "AttendanceMarksIn": {
+        "additionalProperties": false,
+        "properties": {
+          "marks": {
+            "items": {
+              "$ref": "#/components/schemas/AttendanceMark"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Marks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "marks"
+        ],
+        "title": "AttendanceMarksIn",
+        "type": "object"
+      },
       "AuditEventDetailOut": {
         "additionalProperties": false,
         "properties": {
@@ -1990,6 +2813,21 @@
               }
             ],
             "title": "Starts On"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "planned",
+                  "active"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
           }
         },
         "required": [
@@ -2128,6 +2966,98 @@
           }
         },
         "title": "BatchPatch",
+        "type": "object"
+      },
+      "BatchPlanPreview": {
+        "additionalProperties": false,
+        "properties": {
+          "plan": {
+            "$ref": "#/components/schemas/PlanBody"
+          },
+          "starts_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts On"
+          }
+        },
+        "required": [
+          "plan"
+        ],
+        "title": "BatchPlanPreview",
+        "type": "object"
+      },
+      "BatchPlanPut": {
+        "additionalProperties": false,
+        "properties": {
+          "course_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
+          },
+          "min_attendance_percent": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Attendance Percent"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/PlanBody"
+          },
+          "starts_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts On"
+          },
+          "sync_end_date": {
+            "default": true,
+            "title": "Sync End Date",
+            "type": "boolean"
+          },
+          "website_course_slug": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Website Course Slug"
+          }
+        },
+        "required": [
+          "plan"
+        ],
+        "title": "BatchPlanPut",
         "type": "object"
       },
       "BillingIn": {
@@ -2582,6 +3512,220 @@
           "resource"
         ],
         "title": "CheckIn",
+        "type": "object"
+      },
+      "ClassGenerateIn": {
+        "additionalProperties": false,
+        "description": "Create one class per scheduled date of the plan (existing dates are kept).",
+        "properties": {
+          "from_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Date"
+          }
+        },
+        "title": "ClassGenerateIn",
+        "type": "object"
+      },
+      "ClassSessionIn": {
+        "additionalProperties": false,
+        "properties": {
+          "cancelled": {
+            "default": false,
+            "title": "Cancelled",
+            "type": "boolean"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "maximum": 720.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
+          },
+          "meet_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "pattern": "^https://\\S+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meet Url"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "recording_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "pattern": "^https://\\S+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recording Url"
+          },
+          "session_date": {
+            "format": "date",
+            "title": "Session Date",
+            "type": "string"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          },
+          "topic": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_date"
+        ],
+        "title": "ClassSessionIn",
+        "type": "object"
+      },
+      "ClassSessionPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "cancelled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancelled"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "maximum": 720.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
+          },
+          "meet_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "pattern": "^https://\\S+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meet Url"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "recording_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "pattern": "^https://\\S+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recording Url"
+          },
+          "session_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Date"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic"
+          }
+        },
+        "title": "ClassSessionPatch",
         "type": "object"
       },
       "CompanyCreate": {
@@ -3229,6 +4373,91 @@
         "title": "CourseIn",
         "type": "object"
       },
+      "CreateUserIn": {
+        "additionalProperties": false,
+        "description": "ADM-06 staff-created account. The admin sets a starting password and tells the person;\nan optional role is granted in the same step (Admin roles go to dual control as usual).",
+        "properties": {
+          "confirm_adult": {
+            "default": false,
+            "title": "Confirm Adult",
+            "type": "boolean"
+          },
+          "email": {
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "full_name": {
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Full Name",
+            "type": "string"
+          },
+          "mobile": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mobile"
+          },
+          "password": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 5,
+            "title": "Reason",
+            "type": "string"
+          },
+          "role_key": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Key"
+          },
+          "scope_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Id"
+          },
+          "scope_type": {
+            "default": "platform",
+            "pattern": "^(platform|batch|course)$",
+            "title": "Scope Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "full_name",
+          "email",
+          "password",
+          "reason"
+        ],
+        "title": "CreateUserIn",
+        "type": "object"
+      },
       "CreditNoteIn": {
         "additionalProperties": false,
         "properties": {
@@ -3529,6 +4758,58 @@
           "institution"
         ],
         "title": "Education",
+        "type": "object"
+      },
+      "EmailIn": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "anyOf": [
+              {
+                "maxLength": 20000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body"
+          },
+          "mode": {
+            "default": "send",
+            "enum": [
+              "send",
+              "queue"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To"
+          }
+        },
+        "title": "EmailIn",
         "type": "object"
       },
       "EnquiryIn": {
@@ -4160,6 +5441,79 @@
         "title": "GenerateIn",
         "type": "object"
       },
+      "GoogleLoginIn": {
+        "additionalProperties": false,
+        "description": "POST /auth/login/google: a Firebase Auth ID token from Google sign-in (students only).",
+        "properties": {
+          "id_token": {
+            "maxLength": 4096,
+            "minLength": 100,
+            "title": "Id Token",
+            "type": "string"
+          },
+          "remember_device": {
+            "default": false,
+            "title": "Remember Device",
+            "type": "boolean"
+          },
+          "signup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GoogleSignupIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id_token"
+        ],
+        "title": "GoogleLoginIn",
+        "type": "object"
+      },
+      "GoogleSignupIn": {
+        "additionalProperties": false,
+        "description": "Details a new account needs (same rules as AUTH-01; no password: Google proves the email).",
+        "properties": {
+          "consents": {
+            "items": {
+              "$ref": "#/components/schemas/ConsentItem"
+            },
+            "maxItems": 20,
+            "title": "Consents",
+            "type": "array"
+          },
+          "date_of_birth": {
+            "format": "date",
+            "title": "Date Of Birth",
+            "type": "string"
+          },
+          "full_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Full Name",
+            "type": "string"
+          },
+          "guardian": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardianIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "full_name",
+          "date_of_birth"
+        ],
+        "title": "GoogleSignupIn",
+        "type": "object"
+      },
       "GradeIn": {
         "additionalProperties": false,
         "properties": {
@@ -4425,6 +5779,42 @@
           "position_seconds"
         ],
         "title": "HeartbeatIn",
+        "type": "object"
+      },
+      "IdsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "title": "IdsIn",
+        "type": "object"
+      },
+      "ImageIn": {
+        "additionalProperties": false,
+        "properties": {
+          "data_url": {
+            "maxLength": 420000,
+            "minLength": 20,
+            "title": "Data Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data_url"
+        ],
+        "title": "ImageIn",
         "type": "object"
       },
       "ImportIn": {
@@ -5106,6 +6496,147 @@
           "reason"
         ],
         "title": "InvalidateIn",
+        "type": "object"
+      },
+      "IssueDueIn": {
+        "additionalProperties": false,
+        "properties": {
+          "course_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
+          },
+          "enrolment_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enrolment Ids"
+          }
+        },
+        "title": "IssueDueIn",
+        "type": "object"
+      },
+      "IssueIn": {
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
+          "course_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
+          },
+          "doc_type": {
+            "enum": [
+              "offer_internship",
+              "offer_employment",
+              "offer_course",
+              "cert_completion",
+              "cert_internship",
+              "cert_appreciation",
+              "cert_participation",
+              "lor"
+            ],
+            "title": "Doc Type",
+            "type": "string"
+          },
+          "email": {
+            "default": "send",
+            "enum": [
+              "send",
+              "queue",
+              "none"
+            ],
+            "title": "Email",
+            "type": "string"
+          },
+          "enrolment_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enrolment Id"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "object"
+          },
+          "issue_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue Date"
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/RecipientIn"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "doc_type",
+          "recipient"
+        ],
+        "title": "IssueIn",
         "type": "object"
       },
       "ItemGradeIn": {
@@ -5960,6 +7491,93 @@
         "title": "MfaVerifyIn",
         "type": "object"
       },
+      "MyClaimIn": {
+        "additionalProperties": false,
+        "properties": {
+          "claim": {
+            "$ref": "#/components/schemas/AdmissionClaimIn"
+          },
+          "proof": {
+            "$ref": "#/components/schemas/AdmissionFileIn"
+          },
+          "registration_id": {
+            "format": "uuid",
+            "title": "Registration Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "registration_id",
+          "claim",
+          "proof"
+        ],
+        "title": "MyClaimIn",
+        "type": "object"
+      },
+      "MyRegistrationIn": {
+        "additionalProperties": false,
+        "properties": {
+          "branch": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Branch",
+            "type": "string"
+          },
+          "claim": {
+            "$ref": "#/components/schemas/AdmissionClaimIn"
+          },
+          "college": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "College",
+            "type": "string"
+          },
+          "consent": {
+            "title": "Consent",
+            "type": "boolean"
+          },
+          "course_slug": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Course Slug",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "maxLength": 20,
+            "minLength": 10,
+            "title": "Phone",
+            "type": "string"
+          },
+          "proof": {
+            "$ref": "#/components/schemas/AdmissionFileIn"
+          },
+          "year": {
+            "maxLength": 30,
+            "minLength": 1,
+            "title": "Year",
+            "type": "string"
+          }
+        },
+        "required": [
+          "course_slug",
+          "name",
+          "phone",
+          "college",
+          "branch",
+          "year",
+          "consent",
+          "claim",
+          "proof"
+        ],
+        "title": "MyRegistrationIn",
+        "type": "object"
+      },
       "NoShowIn": {
         "additionalProperties": false,
         "properties": {
@@ -6632,6 +8250,134 @@
         "title": "PhaseVisibility",
         "type": "object"
       },
+      "PlanActivity": {
+        "additionalProperties": false,
+        "properties": {
+          "due": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due"
+          },
+          "id": {
+            "pattern": "^[\\w-]{4,40}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "default": "assignment",
+            "enum": [
+              "project",
+              "assignment",
+              "presentation",
+              "assessment",
+              "test",
+              "mock_interview"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "required": {
+            "default": true,
+            "title": "Required",
+            "type": "boolean"
+          },
+          "title": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "PlanActivity",
+        "type": "object"
+      },
+      "PlanBody": {
+        "additionalProperties": false,
+        "description": "The stored plan (``batch_plans.plan``) and the body of ``PUT /batches/{id}/plan``'s\n``plan`` member. Unknown keys are refused (the website's lesson ``items`` are content and\nbelong in the LMS catalog course, not here).",
+        "properties": {
+          "class_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "HH:MM, IST",
+            "title": "Class Time"
+          },
+          "daily_hours": {
+            "default": 0,
+            "maximum": 12.0,
+            "minimum": 0.0,
+            "title": "Daily Hours",
+            "type": "number"
+          },
+          "holidays": {
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "maxItems": 120,
+            "title": "Holidays",
+            "type": "array"
+          },
+          "meet_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meet Url"
+          },
+          "registrations_open": {
+            "default": false,
+            "title": "Registrations Open",
+            "type": "boolean"
+          },
+          "total_hours": {
+            "default": 0,
+            "maximum": 2000.0,
+            "minimum": 0.0,
+            "title": "Total Hours",
+            "type": "number"
+          },
+          "weeks": {
+            "items": {
+              "$ref": "#/components/schemas/PlanWeek"
+            },
+            "maxItems": 104,
+            "title": "Weeks",
+            "type": "array"
+          },
+          "working_days": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 7,
+            "title": "Working Days",
+            "type": "array"
+          }
+        },
+        "title": "PlanBody",
+        "type": "object"
+      },
       "PlanIn": {
         "additionalProperties": false,
         "properties": {
@@ -6709,6 +8455,35 @@
           "billing_type"
         ],
         "title": "PlanIn",
+        "type": "object"
+      },
+      "PlanWeek": {
+        "additionalProperties": false,
+        "properties": {
+          "activities": {
+            "items": {
+              "$ref": "#/components/schemas/PlanActivity"
+            },
+            "maxItems": 20,
+            "title": "Activities",
+            "type": "array"
+          },
+          "title": {
+            "default": "",
+            "maxLength": 160,
+            "title": "Title",
+            "type": "string"
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Topics",
+            "type": "array"
+          }
+        },
+        "title": "PlanWeek",
         "type": "object"
       },
       "PlaybackIn": {
@@ -6850,6 +8625,56 @@
           }
         },
         "title": "PracticeStart",
+        "type": "object"
+      },
+      "PreviewIn": {
+        "additionalProperties": false,
+        "properties": {
+          "doc_type": {
+            "enum": [
+              "offer_internship",
+              "offer_employment",
+              "offer_course",
+              "cert_completion",
+              "cert_internship",
+              "cert_appreciation",
+              "cert_participation",
+              "lor"
+            ],
+            "title": "Doc Type",
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "object"
+          },
+          "issue_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue Date"
+          },
+          "recipient": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Recipient",
+            "type": "object"
+          }
+        },
+        "required": [
+          "doc_type"
+        ],
+        "title": "PreviewIn",
         "type": "object"
       },
       "PriceIn": {
@@ -8114,6 +9939,53 @@
         "title": "RebindOverrideIn",
         "type": "object"
       },
+      "RecipientIn": {
+        "additionalProperties": false,
+        "properties": {
+          "college": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College"
+          },
+          "email": {
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "reg_no": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reg No"
+          }
+        },
+        "required": [
+          "name",
+          "email"
+        ],
+        "title": "RecipientIn",
+        "type": "object"
+      },
       "ReconciliationIn": {
         "additionalProperties": false,
         "properties": {
@@ -8299,6 +10171,59 @@
           "reason"
         ],
         "title": "RegradeIn",
+        "type": "object"
+      },
+      "ReissueIn": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "default": "queue",
+            "enum": [
+              "send",
+              "queue",
+              "none"
+            ],
+            "title": "Email",
+            "type": "string"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fields"
+          },
+          "issue_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue Date"
+          },
+          "recipient": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecipientIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "ReissueIn",
         "type": "object"
       },
       "RejectIn": {
@@ -9330,6 +11255,29 @@
         "title": "SessionChoiceIn",
         "type": "object"
       },
+      "SetPasswordIn": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 5,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password",
+          "reason"
+        ],
+        "title": "SetPasswordIn",
+        "type": "object"
+      },
       "SignupIn": {
         "additionalProperties": false,
         "properties": {
@@ -9894,6 +11842,21 @@
           "tag_type"
         ],
         "title": "TagIn",
+        "type": "object"
+      },
+      "TemplateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "additionalProperties": true,
+            "title": "Content",
+            "type": "object"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "TemplateIn",
         "type": "object"
       },
       "TestCaseIn": {
@@ -11962,6 +13925,230 @@
         "title": "RevokeIn",
         "type": "object"
       },
+      "app__modules__learning__cert_admin__SettingsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "auto_send": {
+            "title": "Auto Send",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "auto_send"
+        ],
+        "title": "SettingsIn",
+        "type": "object"
+      },
+      "app__modules__learning__doc_admin__RevokeIn": {
+        "additionalProperties": false,
+        "properties": {
+          "public_reason": {
+            "default": false,
+            "title": "Public Reason",
+            "type": "boolean"
+          },
+          "reason": {
+            "maxLength": 300,
+            "minLength": 5,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "RevokeIn",
+        "type": "object"
+      },
+      "app__modules__learning__doc_admin__SettingsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "auto_admission_letter": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Admission Letter"
+          },
+          "company": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company"
+          },
+          "designation": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Designation"
+          },
+          "designation2": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Designation2"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "legal_name": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legal Name"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "portal_url": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Portal Url"
+          },
+          "reg_lines": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 4,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reg Lines"
+          },
+          "signatory": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signatory"
+          },
+          "signatory2": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signatory2"
+          },
+          "signatory_email": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signatory Email"
+          },
+          "signatory_phone": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signatory Phone"
+          },
+          "website": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Website"
+          }
+        },
+        "title": "SettingsIn",
+        "type": "object"
+      },
       "app__modules__learning__router__AssignmentPatch": {
         "additionalProperties": false,
         "properties": {
@@ -12632,7 +14819,8 @@
               "lift_conditions",
               "uphold",
               "convert_L4",
-              "reduce_level"
+              "reduce_level",
+              "close_no_action"
             ],
             "title": "Outcome",
             "type": "string"
@@ -12657,6 +14845,7 @@
             "title": "Resulting Level"
           },
           "student_summary": {
+            "default": "",
             "maxLength": 2000,
             "title": "Student Summary",
             "type": "string"
@@ -12676,8 +14865,7 @@
         },
         "required": [
           "outcome",
-          "rationale",
-          "student_summary"
+          "rationale"
         ],
         "title": "DecisionIn",
         "type": "object"
@@ -12983,6 +15171,1223 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/admin/admissions/claims": {
+      "get": {
+        "operationId": "list_claims_api_v1_admin_admissions_claims_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "open",
+              "enum": [
+                "pending",
+                "needs_info",
+                "verified",
+                "rejected",
+                "reversed",
+                "open"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "registration_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Registration Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Claims Api V1 Admin Admissions Claims Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Claims",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/claims/{claim_id}/needs-info": {
+      "post": {
+        "operationId": "needs_info_api_v1_admin_admissions_claims__claim_id__needs_info_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claim_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Claim Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionReasonIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Needs Info Api V1 Admin Admissions Claims  Claim Id  Needs Info Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Needs Info",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/claims/{claim_id}/proof": {
+      "get": {
+        "operationId": "claim_proof_api_v1_admin_admissions_claims__claim_id__proof_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claim_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Claim Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Claim Proof Api V1 Admin Admissions Claims  Claim Id  Proof Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Claim Proof",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/claims/{claim_id}/proof/file": {
+      "get": {
+        "description": "The receipt itself, through the session (the web shows it inline as a blob: image; the\npresigned link's storage origin isn't allowed by the LMS CSP).",
+        "operationId": "claim_proof_file_api_v1_admin_admissions_claims__claim_id__proof_file_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claim_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Claim Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {},
+              "image/jpeg": {},
+              "image/png": {},
+              "image/webp": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Claim Proof File",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/claims/{claim_id}/reject": {
+      "post": {
+        "operationId": "reject_api_v1_admin_admissions_claims__claim_id__reject_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claim_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Claim Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionRejectIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Reject Api V1 Admin Admissions Claims  Claim Id  Reject Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reject",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/claims/{claim_id}/release-locks": {
+      "post": {
+        "operationId": "release_api_v1_admin_admissions_claims__claim_id__release_locks_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claim_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Claim Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Release Api V1 Admin Admissions Claims  Claim Id  Release Locks Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Release",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/claims/{claim_id}/reverse": {
+      "post": {
+        "operationId": "reverse_api_v1_admin_admissions_claims__claim_id__reverse_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claim_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Claim Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionReasonIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Reverse Api V1 Admin Admissions Claims  Claim Id  Reverse Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reverse",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/claims/{claim_id}/verify": {
+      "post": {
+        "operationId": "verify_api_v1_admin_admissions_claims__claim_id__verify_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claim_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Claim Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionVerifyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Verify Api V1 Admin Admissions Claims  Claim Id  Verify Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/claims/{claim_id}/verify-and-enrol": {
+      "post": {
+        "operationId": "verify_and_enrol_api_v1_admin_admissions_claims__claim_id__verify_and_enrol_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claim_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Claim Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "AdmissionVerifyEnrolIn",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Verify And Enrol",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify And Enrol",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/overview": {
+      "get": {
+        "operationId": "overview_api_v1_admin_admissions_overview_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Overview Api V1 Admin Admissions Overview Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Overview",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/pay-settings": {
+      "put": {
+        "operationId": "save_pay_api_v1_admin_admissions_pay_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionPayIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Save Pay Api V1 Admin Admissions Pay Settings Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Pay",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/plans": {
+      "get": {
+        "operationId": "list_plans_api_v1_admin_admissions_plans_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Plans Api V1 Admin Admissions Plans Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Plans",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      },
+      "put": {
+        "operationId": "save_plan_api_v1_admin_admissions_plans_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionPlanIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Save Plan Api V1 Admin Admissions Plans Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Plan",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/registrations": {
+      "get": {
+        "operationId": "list_registrations_api_v1_admin_admissions_registrations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "registered",
+                    "pending_verification",
+                    "partially_paid",
+                    "payment_verified",
+                    "enrolled",
+                    "rejected",
+                    "cancelled",
+                    "completed"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "course_slug",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 80,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Course Slug"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Registrations Api V1 Admin Admissions Registrations Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Registrations",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/registrations/{registration_id}": {
+      "get": {
+        "operationId": "get_registration_api_v1_admin_admissions_registrations__registration_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Registration Api V1 Admin Admissions Registrations  Registration Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Registration",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/registrations/{registration_id}/contact": {
+      "patch": {
+        "operationId": "set_contact_api_v1_admin_admissions_registrations__registration_id__contact_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionContactIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Contact Api V1 Admin Admissions Registrations  Registration Id  Contact Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Contact",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/registrations/{registration_id}/enrol": {
+      "post": {
+        "operationId": "enrol_api_v1_admin_admissions_registrations__registration_id__enrol_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Enrol Api V1 Admin Admissions Registrations  Registration Id  Enrol Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enrol",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/registrations/{registration_id}/fee": {
+      "post": {
+        "operationId": "set_fee_api_v1_admin_admissions_registrations__registration_id__fee_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionFeeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Fee Api V1 Admin Admissions Registrations  Registration Id  Fee Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Fee",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/registrations/{registration_id}/login-email": {
+      "post": {
+        "operationId": "login_email_api_v1_admin_admissions_registrations__registration_id__login_email_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "AdmissionLoginEmailIn",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Login Email",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login Email",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/registrations/{registration_id}/payments": {
+      "post": {
+        "operationId": "record_api_v1_admin_admissions_registrations__registration_id__payments_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionRecordIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Record Api V1 Admin Admissions Registrations  Registration Id  Payments Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/registrations/{registration_id}/resume": {
+      "get": {
+        "operationId": "registration_resume_api_v1_admin_admissions_registrations__registration_id__resume_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Registration Resume Api V1 Admin Admissions Registrations  Registration Id  Resume Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Registration Resume",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/registrations/{registration_id}/status": {
+      "post": {
+        "operationId": "set_status_api_v1_admin_admissions_registrations__registration_id__status_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionStatusIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Status Api V1 Admin Admissions Registrations  Registration Id  Status Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Status",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
     "/api/v1/admin/ai-settings": {
       "get": {
         "operationId": "get_ai_settings_api_v1_admin_ai_settings_get",
@@ -13116,6 +16521,14 @@
             "required": false,
             "schema": {
               "default": "pending",
+              "enum": [
+                "pending",
+                "approved",
+                "rejected",
+                "expired",
+                "cancelled",
+                "executed"
+              ],
               "title": "Status",
               "type": "string"
             }
@@ -13583,6 +16996,802 @@
         "x-td-route-tag": "default"
       }
     },
+    "/api/v1/admin/certificates": {
+      "get": {
+        "operationId": "lrn_30_admin_certificates",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "course_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Course Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "valid",
+                    "revoked"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Lrn 30 Admin Certificates",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Certificates",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/certificates/due": {
+      "get": {
+        "operationId": "lrn_32_admin_cert_due",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "course_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Course Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Lrn 32 Admin Cert Due",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Due",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/certificates/due/issue": {
+      "post": {
+        "operationId": "lrn_33_admin_cert_issue_due",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueDueIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Lrn 33 Admin Cert Issue Due"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Issue Due",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/certificates/outbox": {
+      "get": {
+        "operationId": "lrn_34_admin_cert_outbox",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "awaiting",
+                    "pending",
+                    "sent",
+                    "failed",
+                    "cancelled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "course_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Course Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "certificate",
+                    "document"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Lrn 34 Admin Cert Outbox",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Outbox",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/certificates/outbox/approve": {
+      "post": {
+        "operationId": "lrn_35_admin_cert_outbox_approve",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Lrn 35 Admin Cert Outbox Approve"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Outbox Approve",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/certificates/outbox/cancel": {
+      "post": {
+        "operationId": "lrn_36_admin_cert_outbox_cancel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Lrn 36 Admin Cert Outbox Cancel"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Outbox Cancel",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/certificates/settings": {
+      "get": {
+        "operationId": "lrn_37_admin_cert_settings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Lrn 37 Admin Cert Settings",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Settings",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      },
+      "put": {
+        "operationId": "lrn_38_admin_cert_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__modules__learning__cert_admin__SettingsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Lrn 38 Admin Cert Settings Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Settings",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/certificates/summary": {
+      "get": {
+        "operationId": "lrn_31_admin_cert_summary",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "course_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Course Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Lrn 31 Admin Cert Summary",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Summary",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/certificates/{certificate_id}": {
+      "get": {
+        "operationId": "lrn_39_admin_certificate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "certificate_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Certificate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Lrn 39 Admin Certificate",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Certificate",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/certificates/{certificate_id}/pdf": {
+      "get": {
+        "operationId": "lrn_40_admin_cert_pdf",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "certificate_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Certificate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Lrn 40 Admin Cert Pdf",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Certificate Pdf",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/certificates/{certificate_id}/regenerate": {
+      "post": {
+        "operationId": "lrn_41_admin_cert_regenerate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "certificate_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Certificate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Lrn 41 Admin Cert Regenerate"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Regenerate",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/courses/overview": {
+      "get": {
+        "operationId": "courses_overview_api_v1_admin_courses_overview_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Courses Overview Api V1 Admin Courses Overview Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Courses Overview",
+        "tags": [
+          "admin"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/courses/status": {
+      "get": {
+        "operationId": "course_status_list_api_v1_admin_courses_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Course Status List",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Course Status List",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/courses/{slug}/status": {
+      "put": {
+        "operationId": "course_status_set_api_v1_admin_courses__slug__status_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "CourseStatusIn",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Course Status Set",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Course Status Set",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
     "/api/v1/admin/dashboard": {
       "get": {
         "operationId": "dashboard_api_v1_admin_dashboard_get",
@@ -13605,6 +17814,992 @@
           "admin"
         ],
         "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents": {
+      "get": {
+        "operationId": "doc_02_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "doc_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "offer_internship",
+                    "offer_employment",
+                    "offer_course",
+                    "cert_completion",
+                    "cert_internship",
+                    "cert_appreciation",
+                    "cert_participation",
+                    "lor"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Doc Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "valid",
+                    "revoked",
+                    "superseded"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "course_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Course Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 02 List",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Documents",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      },
+      "post": {
+        "operationId": "doc_03_issue",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Doc 03 Issue"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Issue",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/prefill": {
+      "get": {
+        "operationId": "doc_05_prefill",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "enrolment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Enrolment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 05 Prefill",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Prefill",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/preview": {
+      "post": {
+        "operationId": "doc_04_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 04 Preview",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/settings": {
+      "get": {
+        "operationId": "doc_06_settings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 06 Settings",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Settings",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      },
+      "put": {
+        "operationId": "doc_07_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__modules__learning__doc_admin__SettingsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 07 Settings Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Settings",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/settings/images/{slot}": {
+      "delete": {
+        "operationId": "doc_09_image_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slot",
+            "required": true,
+            "schema": {
+              "enum": [
+                "signature",
+                "seal",
+                "signature2"
+              ],
+              "title": "Slot",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 09 Image Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Image",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      },
+      "get": {
+        "operationId": "doc_10_image_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slot",
+            "required": true,
+            "schema": {
+              "enum": [
+                "signature",
+                "seal",
+                "signature2"
+              ],
+              "title": "Slot",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 10 Image Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Image",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      },
+      "put": {
+        "operationId": "doc_08_image_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slot",
+            "required": true,
+            "schema": {
+              "enum": [
+                "signature",
+                "seal",
+                "signature2"
+              ],
+              "title": "Slot",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 08 Image Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Image",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/templates": {
+      "get": {
+        "operationId": "doc_11_templates",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 11 Templates",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Templates",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/templates/{kind}/{key}": {
+      "delete": {
+        "operationId": "doc_13_template_reset",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "document",
+                "email"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 13 Template Reset",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reset Template",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      },
+      "put": {
+        "operationId": "doc_12_template_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "document",
+                "email"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 12 Template Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Template",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/types": {
+      "get": {
+        "operationId": "doc_01_types",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 01 Types",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Types",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/{document_id}": {
+      "get": {
+        "operationId": "doc_14_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 14 Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Document",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/{document_id}/email": {
+      "post": {
+        "operationId": "doc_17_email",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Doc 17 Email"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Email",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/{document_id}/pdf": {
+      "get": {
+        "operationId": "doc_15_pdf",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 15 Pdf",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Document Pdf",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/{document_id}/regenerate": {
+      "post": {
+        "operationId": "doc_16_regenerate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Doc 16 Regenerate"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Regenerate",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/{document_id}/reissue": {
+      "post": {
+        "operationId": "doc_19_reissue",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReissueIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Doc 19 Reissue"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reissue",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/{document_id}/revoke": {
+      "post": {
+        "operationId": "doc_18_revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__modules__learning__doc_admin__RevokeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Doc 18 Revoke"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
         "x-td-route-tag": "default"
       }
     },
@@ -14105,7 +19300,8 @@
                     "pending_guardian_consent",
                     "active",
                     "deactivated",
-                    "deleted"
+                    "deleted",
+                    "current"
                   ],
                   "type": "string"
                 },
@@ -14174,6 +19370,45 @@
           "admin"
         ],
         "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      },
+      "post": {
+        "operationId": "create_user_api_v1_admin_users_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create User",
+        "tags": [
+          "admin"
+        ],
+        "x-td-idle": "extends",
         "x-td-route-tag": "default"
       }
     },
@@ -14323,6 +19558,60 @@
           }
         },
         "summary": "Mfa Reset",
+        "tags": [
+          "admin"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/users/{user_id}/password": {
+      "post": {
+        "description": "Admin sets a new password for someone (owner request 2026-11-12: while email is not\nintegrated a reset link can never arrive, so this is the only way back in). Step-up, reason\nand audit required; the person's sessions end so the new password is needed everywhere.",
+        "operationId": "set_user_password_api_v1_admin_users__user_id__password_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPasswordIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set User Password",
         "tags": [
           "admin"
         ],
@@ -15131,7 +20420,7 @@
     },
     "/api/v1/assignments": {
       "get": {
-        "description": "Staff assignment list (trainer grading console; used by the web app, not in the spec\ntable). ``scope=mine``: assignments whose batch/course scope grants the caller\n``assignment.grade`` or ``assignment.manage``. Newest first, cursor-paginated.",
+        "description": "Staff assignment list (trainer grading console; used by the web app, not in the spec\ntable). ``scope=mine``: assignments whose batch/course scope grants the caller\n``assignment.grade`` or ``assignment.manage``. Newest first, cursor-paginated.\n``teaching=true`` (Teacher portal): platform grants are ignored for the pre-filter, so an\nAdmin who teaches a batch sees that batch's work there, not every assignment.",
         "operationId": "lrn_14a_list_assignments",
         "parameters": [
           {
@@ -15223,6 +20512,16 @@
               "default": 25,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "teaching",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Teaching",
+              "type": "boolean"
             }
           }
         ],
@@ -17292,6 +22591,47 @@
         "x-td-route-tag": "public"
       }
     },
+    "/api/v1/auth/login/google": {
+      "post": {
+        "description": "Sign in (or finish creating a student account) with a Firebase Auth Google ID token.\n\nSame response shape and pipeline as AUTH-06 ``/auth/login`` (risk gates, login_attempts,\ndevice verification, restrictions, session cap, ``td_session`` cookie, audit). Errors:\n``google_token_invalid`` 401, ``google_signin_not_allowed`` 403 (staff),\n``google_signup_required`` 409 (no account yet: resend with ``signup`` details and a fresh\ntoken), ``google_signin_unavailable`` 503 (not configured / switched off).",
+        "operationId": "login_google_api_v1_auth_login_google_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleLoginIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login Google",
+        "tags": [
+          "auth"
+        ],
+        "x-td-route-tag": "public"
+      }
+    },
     "/api/v1/auth/logout": {
       "post": {
         "operationId": "logout_api_v1_auth_logout_post",
@@ -17909,6 +23249,7 @@
     },
     "/api/v1/batches": {
       "get": {
+        "description": "``mine=true``: only the batches the caller holds a batch grant on (trainer/evaluator),\neven for an Admin. The Teacher portal uses it so an Admin who made themselves the trainer of\na batch sees the batches they teach there, not every batch (that is the Admin portal).",
         "operationId": "list_batches_api_v1_batches_get",
         "parameters": [
           {
@@ -17931,6 +23272,16 @@
                 }
               ],
               "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "mine",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Mine",
+              "type": "boolean"
             }
           }
         ],
@@ -18213,6 +23564,111 @@
         "x-td-route-tag": "default"
       }
     },
+    "/api/v1/batches/{batch_id}/attendance": {
+      "get": {
+        "description": "Attendance per learner (active students) and for the batch as a whole.",
+        "operationId": "batch_attendance_api_v1_batches__batch_id__attendance_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Batch Attendance Api V1 Batches  Batch Id  Attendance Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Batch Attendance",
+        "tags": [
+          "batches"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/batches/{batch_id}/attendance/{user_id}": {
+      "get": {
+        "operationId": "learner_attendance_api_v1_batches__batch_id__attendance__user_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Learner Attendance Api V1 Batches  Batch Id  Attendance  User Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Learner Attendance",
+        "tags": [
+          "batches"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
     "/api/v1/batches/{batch_id}/members": {
       "get": {
         "operationId": "batch_members_api_v1_batches__batch_id__members_get",
@@ -18365,6 +23821,653 @@
           }
         },
         "summary": "Remove Batch Member",
+        "tags": [
+          "batches"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/batches/{batch_id}/plan": {
+      "get": {
+        "operationId": "get_plan_api_v1_batches__batch_id__plan_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Plan Api V1 Batches  Batch Id  Plan Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Plan",
+        "tags": [
+          "batches"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      },
+      "put": {
+        "operationId": "put_plan_api_v1_batches__batch_id__plan_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchPlanPut"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Put Plan Api V1 Batches  Batch Id  Plan Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Plan",
+        "tags": [
+          "batches"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/batches/{batch_id}/plan/preview": {
+      "post": {
+        "description": "Schedule of an unsaved plan (the editor's live preview). Writes nothing.",
+        "operationId": "preview_plan_api_v1_batches__batch_id__plan_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchPlanPreview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Preview Plan Api V1 Batches  Batch Id  Plan Preview Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Plan",
+        "tags": [
+          "batches"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/batches/{batch_id}/schedule": {
+      "get": {
+        "operationId": "get_schedule_api_v1_batches__batch_id__schedule_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Schedule Api V1 Batches  Batch Id  Schedule Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Schedule",
+        "tags": [
+          "batches"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/batches/{batch_id}/sessions": {
+      "get": {
+        "operationId": "list_sessions_api_v1_batches__batch_id__sessions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Sessions Api V1 Batches  Batch Id  Sessions Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Sessions",
+        "tags": [
+          "batches"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      },
+      "post": {
+        "operationId": "create_session_api_v1_batches__batch_id__sessions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassSessionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Session Api V1 Batches  Batch Id  Sessions Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Session",
+        "tags": [
+          "batches"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/batches/{batch_id}/sessions/generate": {
+      "post": {
+        "description": "One class per scheduled date of the plan, titled with the week's title. Needs a start\ndate and a plan; dates that already have a class are left alone (idempotent).",
+        "operationId": "generate_sessions_api_v1_batches__batch_id__sessions_generate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassGenerateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Generate Sessions Api V1 Batches  Batch Id  Sessions Generate Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate Sessions",
+        "tags": [
+          "batches"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/batches/{batch_id}/sessions/{session_id}": {
+      "delete": {
+        "description": "Delete a class that has no attendance yet (mark it cancelled otherwise).",
+        "operationId": "delete_session_api_v1_batches__batch_id__sessions__session_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Session Api V1 Batches  Batch Id  Sessions  Session Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Session",
+        "tags": [
+          "batches"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      },
+      "patch": {
+        "operationId": "patch_session_api_v1_batches__batch_id__sessions__session_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassSessionPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Patch Session Api V1 Batches  Batch Id  Sessions  Session Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Session",
+        "tags": [
+          "batches"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/batches/{batch_id}/sessions/{session_id}/attendance": {
+      "get": {
+        "operationId": "session_attendance_api_v1_batches__batch_id__sessions__session_id__attendance_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Session Attendance Api V1 Batches  Batch Id  Sessions  Session Id  Attendance Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session Attendance",
+        "tags": [
+          "batches"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      },
+      "put": {
+        "description": "Bulk mark (upsert) P / L / A for the batch's active students; ``status: null`` clears.",
+        "operationId": "mark_attendance_api_v1_batches__batch_id__sessions__session_id__attendance_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttendanceMarksIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Mark Attendance Api V1 Batches  Batch Id  Sessions  Session Id  Attendance Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mark Attendance",
         "tags": [
           "batches"
         ],
@@ -18706,9 +24809,66 @@
         "x-td-route-tag": "default"
       }
     },
+    "/api/v1/certificates/verify/{code}/check": {
+      "get": {
+        "description": "Public: compare the SHA-256 of a PDF (computed in the visitor's browser; the file is never\nuploaded) with the copies issued for this certificate number / document reference.",
+        "operationId": "doc_20_verify_pdf_check",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 64,
+              "title": "Sha256",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 20 Verify Pdf Check",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify Pdf Check",
+        "tags": [
+          "learning"
+        ],
+        "x-td-route-tag": "public"
+      }
+    },
     "/api/v1/certificates/verify/{public_code}": {
       "get": {
-        "description": "Public verification: minimal fields only; no reason for revocation; uniform 404.",
+        "description": "Public verification: minimal fields only; no reason for revocation; uniform 404.\nIssued-document references (``TD-AL-2026-7K3QX9``, also ``TD/AL/2026/7K3QX9``) resolve to the\ndocument (``learning.documents.verify_public``); certificate codes work as before.",
         "operationId": "lrn_13_verify_certificate",
         "parameters": [
           {
@@ -20806,7 +26966,7 @@
     },
     "/api/v1/entitlements/{entitlement_id}/events": {
       "get": {
-        "description": "ENT-05: own entitlement, or anyone the RLS lets see it (org staff / platform).",
+        "description": "ENT-05: own entitlement, or platform staff holding ``entitlement.read`` (QA 2026-11-11, D2:\nbeing platform staff alone, e.g. a content manager, is not enough).",
         "operationId": "entitlement_events_api_v1_entitlements__entitlement_id__events_get",
         "parameters": [
           {
@@ -22894,6 +29054,159 @@
         "x-td-route-tag": "account_status"
       }
     },
+    "/api/v1/me/admissions": {
+      "get": {
+        "operationId": "adm_me_list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Adm Me List",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "My Admissions",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/me/admissions/claims": {
+      "post": {
+        "operationId": "adm_me_claim",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MyClaimIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "My Claim",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/me/admissions/plans/{slug}": {
+      "get": {
+        "operationId": "adm_me_plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Adm Me Plan",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "My Plan",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/me/admissions/registrations": {
+      "post": {
+        "operationId": "adm_me_register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MyRegistrationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "My Register",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
     "/api/v1/me/ai/tutor-history": {
       "get": {
         "description": "The caller's own tutor history for one activity (SEC-17; RLS: own rows).",
@@ -23734,6 +30047,31 @@
         "x-td-route-tag": "l3_readonly"
       }
     },
+    "/api/v1/me/attendance": {
+      "get": {
+        "operationId": "my_attendance_api_v1_me_attendance_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response My Attendance Api V1 Me Attendance Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "My Attendance",
+        "tags": [
+          "batches"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
     "/api/v1/me/certificates": {
       "get": {
         "operationId": "lrn_11_my_certificates",
@@ -23842,6 +30180,68 @@
         ],
         "x-td-idle": "extends",
         "x-td-route-tag": "l3_readonly"
+      }
+    },
+    "/api/v1/me/classes": {
+      "get": {
+        "description": "The learner's batches: next classes (join link), past classes (recordings, own mark),\nweek of the plan and own attendance.",
+        "operationId": "my_classes_api_v1_me_classes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "upcoming_limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Upcoming Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "recent_limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 0,
+              "title": "Recent Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response My Classes Api V1 Me Classes Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "My Classes",
+        "tags": [
+          "batches"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
       }
     },
     "/api/v1/me/coding/submissions": {
@@ -25000,6 +31400,32 @@
         ],
         "x-td-idle": "extends",
         "x-td-route-tag": "mfa_enrolment"
+      }
+    },
+    "/api/v1/me/modules": {
+      "get": {
+        "description": "The modules this user may open (only those), in launcher order.",
+        "operationId": "my_modules_api_v1_me_modules_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response My Modules Api V1 Me Modules Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "My Modules",
+        "tags": [
+          "hub"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "account_status"
       }
     },
     "/api/v1/me/notifications": {
@@ -29510,6 +35936,200 @@
         "x-td-route-tag": "default"
       }
     },
+    "/api/v1/public/admissions/claims": {
+      "post": {
+        "operationId": "adm_pub_claim",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionClaimRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Public Claim",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-route-tag": "public"
+      }
+    },
+    "/api/v1/public/admissions/plans/{slug}": {
+      "get": {
+        "operationId": "adm_pub_plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Adm Pub Plan",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Public Plan",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-route-tag": "public"
+      }
+    },
+    "/api/v1/public/admissions/registrations": {
+      "post": {
+        "operationId": "adm_pub_register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionRegistrationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Public Register",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-route-tag": "public"
+      }
+    },
+    "/api/v1/public/admissions/status": {
+      "post": {
+        "operationId": "adm_pub_status",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionLookupIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Adm Pub Status",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Public Status",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-route-tag": "public"
+      }
+    },
+    "/api/v1/public/courses/status": {
+      "get": {
+        "operationId": "adm_pub_course_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Adm Pub Course Status",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Public Course Status",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "public"
+      }
+    },
     "/api/v1/public/enquiries": {
       "post": {
         "operationId": "sup_16_corporate_enquiry",
@@ -29547,6 +36167,31 @@
         "tags": [
           "support"
         ],
+        "x-td-route-tag": "public"
+      }
+    },
+    "/api/v1/public/integrations": {
+      "get": {
+        "operationId": "integrations_api_v1_public_integrations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Integrations Api V1 Public Integrations Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Integrations",
+        "tags": [
+          "hub"
+        ],
+        "x-td-idle": "neutral",
         "x-td-route-tag": "public"
       }
     },
@@ -33349,6 +39994,32 @@
         "x-td-route-tag": "default"
       }
     },
+    "/api/v1/sso/website": {
+      "post": {
+        "description": "Single sign-on into the website admin: a one-hour Firebase custom token for the caller's\nverified email, issued only to an active web_team member. The website's own rules still decide\nwhat that role may do. The token opens another system's admin panel, so it needs a fresh\nstep-up (staff window, S10) like other sensitive staff actions; the web page calls this from\nthe browser, where the API client's step-up dialog answers the 401 and retries.",
+        "operationId": "website_sso_api_v1_sso_website_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Website Sso Api V1 Sso Website Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Website Sso",
+        "tags": [
+          "hub"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
     "/api/v1/studio/coding/problems": {
       "get": {
         "description": "Studio problem list (used by the web studio; not in the spec table). Rows visible under\nRLS (platform + own org) filtered to scopes where the caller holds\n``coding_problem.manage``. Newest first.",
@@ -36986,6 +43657,50 @@
           }
         },
         "summary": "Asm 06 Patch Test",
+        "tags": [
+          "assessments"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/studio/tests/{test_id}/archive": {
+      "post": {
+        "description": "Retire a test: whoever may edit it (``test.edit``) archives it; open assignment windows\nclose now; existing attempts and results stay readable.",
+        "operationId": "asm_09b_archive_api_v1_studio_tests__test_id__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "test_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Test Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Asm 09B Archive",
         "tags": [
           "assessments"
         ],

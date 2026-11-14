@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Button, Card, EmptyState, ErrorState, Skeleton } from "@/components/ui";
+import { LMS_COURSES_HREF } from "@/lib/site/website";
 import { isApiError } from "@/lib/api/errors";
 import { cn } from "@/lib/ui/cn";
 import { useLoader } from "@/features/assessment/lib/use-resource";
@@ -30,8 +31,8 @@ export function PaywallCard({ error }: { error: unknown }) {
     <Card>
       <p className="font-semibold text-fg">This is part of a paid plan</p>
       <p className="mt-1 text-sm text-fg-muted">{detail ?? "Get a plan or path to unlock it."}</p>
-      <Link className="mt-3 inline-block text-sm font-medium text-fg-link underline" href="/pricing">
-        See plans
+      <Link className="mt-3 inline-block text-sm font-medium text-fg-link underline" href={LMS_COURSES_HREF}>
+        Explore courses and plans
       </Link>
     </Card>
   );
@@ -64,7 +65,7 @@ export function RecommendationsPanel({
           <Skeleton className="h-12 w-full" />
         </div>
       ) : items.length === 0 ? (
-        <EmptyState
+        <EmptyState icon="chart"
           title="No recommendations yet"
           description={
             res.data && !res.data.personalised

@@ -90,7 +90,8 @@ export function IntegrityReview() {
       setStack([undefined]);
     };
   const batchName = (id: string | null) =>
-    id ? (batches?.find((b) => b.id === id)?.name ?? "Batch") : "—";
+    // Unknown (e.g. no batch.read for evaluators) reads as "—", not a placeholder name.
+    id ? (batches?.find((b) => b.id === id)?.name ?? "—") : "—";
 
   return (
     <div className="space-y-4">

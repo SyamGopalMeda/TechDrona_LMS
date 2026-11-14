@@ -2,7 +2,9 @@ import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import type { ReactNode } from "react";
 import { preload } from "react-dom";
+import { AnalyticsBridge } from "@/components/shell/AnalyticsBridge";
 import { Providers } from "@/components/shell/Providers";
+import { analyticsConfig } from "@/lib/firebase/config";
 import "./globals.css";
 
 const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME ?? "Tech Drona";
@@ -21,11 +23,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  colorScheme: "light dark",
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#10141c" },
-  ],
+  colorScheme: "light",
+  themeColor: "#ffffff",
 };
 
 /* Self-hosted brand fonts (src/styles/fonts.css); preload the latin subsets used on every page. */
@@ -38,7 +37,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   await headers();
   for (const href of FONT_PRELOADS) preload(href, { as: "font", type: "font/woff2", crossOrigin: "anonymous" });
   return (
-    <html lang="en-IN">
+    // Always the light theme (like the company website): the redesigned pages are light-only, and the
+    // OS dark preference mixed dark tokens into light cards (unreadable labels, dark-on-dark buttons).
+    <html lang="en-IN" data-theme="light">
       <body>
         <a
           href="#main"
@@ -47,6 +48,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           Skip to content
         </a>
         <Providers>{children}</Providers>
+        {/* Firebase Analytics: loads only after analytics consent (null config = off). */}
+        <AnalyticsBridge config={analyticsConfig()} />
       </body>
     </html>
   );

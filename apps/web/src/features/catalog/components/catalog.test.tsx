@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockApi, problem, renderWithProviders } from "@/features/auth/test/mock-api";
-import { formatDate, formatDateTime, formatMoney } from "../lib/format";
+import { formatDate, formatDateTime, formatMoney, languageName } from "../lib/format";
 import { accessOptionsForCourse } from "../lib/products";
 import type { ProductDto } from "../lib/types";
 import { CertificateVerification } from "./CertificateVerification";
@@ -58,7 +58,7 @@ describe("CourseAccess (PUB-003)", () => {
       />,
     );
     const link = screen.getByRole("link", { name: "Buy DSA path for ₹1,499" });
-    expect(link.getAttribute("href")).toBe("/app/checkout/new?price_id=p1&return_to=%2Fcourses%2Fdsa-foundations");
+    expect(link.getAttribute("href")).toBe("/app/checkout/new?price_id=p1&return_to=%2Fapp%2Fcourses%2Fdsa-foundations");
     expect(screen.getByText(/180 days access/)).toBeInTheDocument();
     expect(screen.getByText("Full refund within 7 days.")).toBeInTheDocument();
   });
@@ -96,6 +96,15 @@ describe("accessOptionsForCourse", () => {
   });
 });
 
+describe("languageName", () => {
+  it("maps language codes to names for course meta", () => {
+    expect(languageName("en")).toBe("English");
+    expect(languageName("hi")).toBe("Hindi");
+    expect(languageName(null)).toBeNull();
+    expect(languageName("not a code!")).toBe("not a code!");
+  });
+});
+
 describe("PricingPlans (PUB-008)", () => {
   const products: ProductDto[] = [
     { product_id: "f", sku: "FREE", name: "Free", product_kind: "free_course", plans: [] },
@@ -117,17 +126,26 @@ describe("PricingPlans (PUB-008)", () => {
     render(<PricingPlans products={products} signedIn />);
     expect(screen.getByText("Mock tests")).toBeInTheDocument();
     expect(screen.getByText("₹3,999")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Get All-access" }).getAttribute("href")).toContain("price_id=py");
+    expect(screen.getByRole("link", { name: "Subscribe All-access" }).getAttribute("href")).toContain("price_id=py");
     await userEvent.click(screen.getByRole("radio", { name: "Monthly" }));
     expect(screen.getByText("₹499")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Get All-access" }).getAttribute("href")).toContain("price_id=pm");
+    expect(screen.getByRole("link", { name: "Subscribe All-access" }).getAttribute("href")).toContain("price_id=pm");
     expect(screen.getByText(/Full refund within 7 days/)).toBeInTheDocument();
   });
 
   it("sends signed-out visitors to log in first", () => {
     render(<PricingPlans products={products} signedIn={false} />);
-    expect(screen.getByRole("link", { name: "Get All-access" }).getAttribute("href")).toMatch(/^\/login\?next=%2Fapp%2Fcheckout%2Fnew/);
+    expect(screen.getByRole("link", { name: "Subscribe All-access" }).getAttribute("href")).toMatch(/^\/login\?next=%2Fapp%2Fcheckout%2Fnew/);
     expect(screen.getByRole("link", { name: "Start free" })).toHaveAttribute("href", "/signup");
+  });
+
+  it("keeps the visible CTA short and puts the product name in the accessible name", () => {
+    render(<PricingPlans products={products} signedIn />);
+    const cta = screen.getByRole("link", { name: "Subscribe All-access" });
+    expect(cta).toHaveTextContent(/^Subscribe$/);
+    // The renewal note sits above the button so CTAs line up across cards.
+    const note = screen.getByText(/Renews automatically/);
+    expect(note.compareDocumentPosition(cta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 

@@ -11,6 +11,7 @@ import { KINDS } from "../lib/labels";
 import type { GenerateDifficulty, GenerateMode, GenerateResult, ImportKind, ImportResult } from "../lib/types";
 import { problemsOf } from "./BulkImportDialog";
 import { KindTiles, NEW_BANK, ProblemsPanel, SaveToFields, TagChips, useBankOptions } from "./parts";
+import { AiNotIntegratedNotice } from "@/features/studio/components/NotIntegrated";
 
 export interface GenerateDialogProps {
   open: boolean;
@@ -166,6 +167,7 @@ export function GenerateDialog({ open, onClose, defaultBankId, onSaved }: Genera
         )
       }
     >
+      <AiNotIntegratedNotice className="mb-3" />
       {reviewing && result ? (
         <div className="max-h-[65vh] space-y-3 overflow-y-auto pr-1">
           <div className="flex flex-wrap items-center gap-3 text-sm">

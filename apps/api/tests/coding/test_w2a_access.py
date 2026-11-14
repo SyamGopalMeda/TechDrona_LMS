@@ -15,7 +15,7 @@ from app.core.principal import Principal, RoleGrant
 from app.modules.coding import service
 from app.modules.rbac.service import RbacPermissionChecker
 from tests.coding.conftest import idem, seed_problem
-from tests.identity.factory import add_member, company_org, make_batch, make_user
+from tests.identity.factory import add_member, company_org, grant, make_batch, make_user
 
 
 @pytest.fixture
@@ -104,6 +104,9 @@ async def test_batch_trainer_reads_own_batch_submissions_only(
 
     mine, theirs = await learner(b_mine), await learner(b_other)
     tu = await make_user(db)
+    # The grant must exist in the DB too: RLS family U (orgs_0004) admits the org branch only
+    # for callers who really are company staff (a live non-student grant or staff membership).
+    await grant(db, tu.id, "trainer", "batch", b_mine)
     trainer = Principal(
         user_id=tu.id, session_id=uuid7(), org_ids=(org,), grants=(RoleGrant("trainer", "batch", b_mine),)
     )

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.access import check_access, require_access
 from app.core.errors import ProblemError
+from app.core.firestore.collation import sort_key
 from app.core.ids import uuid7
 from app.core.outbox import emit_event
 from app.core.principal import Principal
@@ -52,8 +53,18 @@ def _iso(dt: datetime) -> str:
     return to_rfc3339(dt)
 
 
+def _fs() -> bool:
+    return bank._fs()
+
+
+async def _repo(session: AsyncSession) -> Any:
+    return await bank._repo(session)
+
+
 async def _root_topic_id(session: AsyncSession, topic: Topic) -> uuid.UUID:
     root_slug = topic.path.split("/", 1)[0]
+    if _fs():
+        return (await (await _repo(session)).topic_id_by_path(root_slug)) or topic.id
     rid = (await session.execute(select(Topic.id).where(Topic.path == root_slug))).scalar_one_or_none()
     return rid or topic.id
 
@@ -63,6 +74,13 @@ async def get_owned_session(
 ) -> PracticeSession:
     """``lock=True`` takes ``SELECT ... FOR UPDATE`` on the session row so concurrent answers /
     reveals / completion of one set serialise (audit BE-15: no lost counter updates)."""
+    if _fs():
+        # No row lock on Firestore: every write that must not lose updates (answer counters,
+        # reveal flags, completion) is its own transaction in the repository.
+        fps = await (await _repo(session)).get_session(principal.user_id, ps_id)
+        if fps is None:
+            raise ProblemError("not_found")
+        return fps
     stmt = select(PracticeSession).where(PracticeSession.id == ps_id)
     if lock:
         stmt = stmt.with_for_update().execution_options(populate_existing=True)
@@ -74,6 +92,15 @@ async def get_owned_session(
 
 async def _published_step(session: AsyncSession, step_id: uuid.UUID) -> CompanyPathStep:
     """A practice step of a PUBLISHED company path (audit BE-27: draft/archived paths -> 404)."""
+    if _fs():
+        r = await _repo(session)
+        fstep = await r.get_step(step_id)
+        fpath = await r.get_path(fstep.company_path_id) if fstep else None
+        if fstep is None or fpath is None or fpath.status != "published":
+            raise ProblemError("not_found")
+        if fstep.step_type != "practice_set" or fstep.topic_id is None:
+            raise ProblemError("not_found")
+        return fstep
     row = (
         await session.execute(
             select(CompanyPathStep)
@@ -127,18 +154,30 @@ async def start(session: AsyncSession, principal: Principal, body: PracticeStart
     pool = await bank.published_pool(
         session, topic_id=topic.id, difficulty_min=body.difficulty_min, difficulty_max=body.difficulty_max
     )
-    history = await session.execute(
-        select(
-            PracticeResponse.question_version_id, PracticeResponse.is_correct, PracticeResponse.answered_at
-        )
-        .where(PracticeResponse.user_id == principal.user_id)
-        .order_by(PracticeResponse.answered_at.desc())
-    )
+    held_back = await _in_graded_tests(session, pool)
+    pool = [q for q in pool if q not in held_back]
+    if _fs():
+        hist_rows: Any = [
+            (h.question_version_id, h.is_correct, h.answered_at)
+            for h in await (await _repo(session)).history(principal.user_id)
+        ]
+    else:
+        hist_rows = (
+            await session.execute(
+                select(
+                    PracticeResponse.question_version_id,
+                    PracticeResponse.is_correct,
+                    PracticeResponse.answered_at,
+                )
+                .where(PracticeResponse.user_id == principal.user_id)
+                .order_by(PracticeResponse.answered_at.desc())
+            )
+        ).all()
     now = utcnow()
     recent_correct: set[uuid.UUID] = set()
     latest_wrong: set[uuid.UUID] = set()
     seen_latest: set[uuid.UUID] = set()
-    for qv_id, correct, at in history.all():
+    for qv_id, correct, at in hist_rows:
         if correct and at > now - RECENT_CORRECT_EXCLUSION:
             recent_correct.add(qv_id)
         if qv_id not in seen_latest:
@@ -175,9 +214,25 @@ async def start(session: AsyncSession, principal: Principal, body: PracticeStart
         ],
         started_at=now,
     )
+    if _fs():
+        ps.answered_count, ps.correct_count, ps.ended_at, ps.updated_at = 0, 0, None, now
+        return await (await _repo(session)).create_session(principal.user_id, ps)
     session.add(ps)
     await session.flush()
     return ps
+
+
+async def _in_graded_tests(session: AsyncSession, pool: list[uuid.UUID]) -> set[uuid.UUID]:
+    """Question versions a published graded test (any kind but ``practice_set``) uses as a fixed
+    question. Practice reveals keys and explanations, so those stay out of practice sets while
+    the test is live (QA 2026-11: the Demo Aptitude Mock's questions were answerable from
+    practice). Questions a test only draws at random from a topic are not held back."""
+    if not pool:
+        return set()
+    from app.modules.assessments import public as assessments_public
+
+    qmap = {k: b.question.id for k, b in (await bank.load_bundles(session, pool)).items()}
+    return await assessments_public.fixed_versions_in_live_tests(session, pool, qmap)
 
 
 def _served_index(ps: PracticeSession, qv_id: uuid.UUID) -> int:
@@ -188,6 +243,8 @@ def _served_index(ps: PracticeSession, qv_id: uuid.UUID) -> int:
 
 
 async def _responses(session: AsyncSession, ps: PracticeSession) -> dict[uuid.UUID, PracticeResponse]:
+    if _fs():
+        return {r.question_version_id: r for r in await (await _repo(session)).responses(ps.user_id, ps.id)}
     rows = await session.execute(
         select(PracticeResponse).where(PracticeResponse.practice_session_id == ps.id)
     )
@@ -276,6 +333,8 @@ async def answer(
             errors=[{"field": "response", "code": "required", "message": "answer is empty"}],
         )
     correct = grading.is_correct(b.qtype, normalised, b.correct_option_ids, b.version.answer_key)
+    if _fs():
+        return await _fs_answer(session, principal, ps, b, body, served, normalised, correct, resp)
     prior = (
         await session.execute(
             select(func.count()).where(
@@ -351,6 +410,74 @@ async def answer(
     return _feedback(b, r, _next_unanswered(ps, answered))
 
 
+async def _fs_answer(
+    session: AsyncSession,
+    principal: Principal,
+    ps: PracticeSession,
+    b: bank.Bundle,
+    body: PracticeAnswer,
+    served: dict[str, Any],
+    normalised: Any,
+    correct: bool | None,
+    resp: dict[uuid.UUID, PracticeResponse],
+) -> dict[str, Any]:
+    """``answer`` on Firestore: response + counters in one transaction (``record_answer``)."""
+    now = utcnow()
+    served_at = datetime.fromisoformat(served["served_at"].replace("Z", "+00:00"))
+    r = PracticeResponse(
+        id=uuid7(),
+        practice_session_id=ps.id,
+        user_id=principal.user_id,
+        organization_id=ps.organization_id,
+        question_version_id=b.version.id,
+        topic_id=b.question.primary_topic_id,
+        response=normalised,
+        is_correct=correct,
+        attempt_no=1,  # prior answers + 1, counted by the repository
+        served_at=served_at,
+        time_spent_ms=body.time_spent_ms,
+        hint_used=bool(served.get("hint_used")),
+        solution_viewed=bool(served.get("solution_viewed")),
+        rating_before=None,
+        rating_after=None,
+        answered_at=max(now, served_at),
+    )
+    counts_correct = bool(correct) and not r.solution_viewed
+
+    def emit(tx: Any, row: PracticeResponse) -> None:
+        from app.core.firestore.core_store import emit_event_tx
+
+        emit_event_tx(
+            tx,
+            "practice.answered",
+            {
+                "practice_response_id": str(row.id),
+                "practice_session_id": str(ps.id),
+                "user_id": str(principal.user_id),
+                "question_version_id": str(b.version.id),
+                "topic_id": str(row.topic_id),
+                "is_correct": correct,
+                "attempt_no": row.attempt_no,
+                "difficulty": b.version.difficulty,
+                "solution_viewed": row.solution_viewed,
+                "server_time_on_question_ms": int((row.answered_at - served_at).total_seconds() * 1000),
+            },
+            aggregate_type="practice_session",
+            aggregate_id=ps.id,
+            organization_id=ps.organization_id,
+        )
+
+    stored, created, after = await (await _repo(session)).record_answer(
+        principal.user_id, r, counts_correct=counts_correct, on_created=emit
+    )
+    ps.answered_count, ps.correct_count = after.answered_count, after.correct_count
+    if not created:  # a concurrent duplicate answer won: same feedback (audit BE-15)
+        resp = await _responses(session, ps)
+        return _feedback(b, stored, _next_unanswered(ps, {str(k) for k in resp}))
+    answered = {str(k) for k in resp} | {str(b.version.id)}
+    return _feedback(b, stored, _next_unanswered(ps, answered))
+
+
 async def reveal(
     session: AsyncSession, principal: Principal, ps: PracticeSession, qv_id: uuid.UUID, kind: str
 ) -> dict[str, Any]:
@@ -358,6 +485,17 @@ async def reveal(
         raise ProblemError("invalid_state_transition", detail="This practice set is already finished.")
     await require_session_access(session, principal, ps)
     idx = _served_index(ps, qv_id)
+    if _fs():
+        fps = await (await _repo(session)).mark_served(
+            principal.user_id, ps.id, str(qv_id), "hint_used" if kind == "hint" else "solution_viewed"
+        )
+        ps.served = fps.served
+        if kind == "hint":
+            return {"kind": "hint", "available": False, "hint_html": None}
+        fb = (await bank.load_bundles(session, [qv_id])).get(qv_id)
+        if fb is None:
+            raise ProblemError("not_found")
+        return {"kind": "solution", "question_version_id": str(qv_id), **bank.key_payload(fb)}
     served = [dict(s) for s in ps.served]
     if kind == "hint":
         served[idx]["hint_used"] = True
@@ -374,7 +512,12 @@ async def reveal(
 
 
 async def complete(session: AsyncSession, principal: Principal, ps: PracticeSession) -> dict[str, Any]:
-    if ps.status == "active":
+    if _fs():
+        fps, changed = await (await _repo(session)).complete_session(principal.user_id, ps.id)
+        ps.status, ps.ended_at = fps.status, fps.ended_at
+        if changed:
+            await refresh_recommendations(session, principal)
+    elif ps.status == "active":
         ps.status = "completed"
         ps.ended_at = utcnow()
         await session.flush()
@@ -402,15 +545,20 @@ async def complete(session: AsyncSession, principal: Principal, ps: PracticeSess
 
 async def review_list(session: AsyncSession, principal: Principal, limit: int = 50) -> list[dict[str, Any]]:
     """PLC-24: questions whose latest practice answer was incorrect."""
-    rows = await session.execute(
-        select(PracticeResponse)
-        .where(PracticeResponse.user_id == principal.user_id)
-        .order_by(PracticeResponse.answered_at.desc())
-        .limit(2000)
-    )
+    if _fs():
+        latest: Any = (await (await _repo(session)).history(principal.user_id))[:2000]
+    else:
+        latest = (
+            await session.execute(
+                select(PracticeResponse)
+                .where(PracticeResponse.user_id == principal.user_id)
+                .order_by(PracticeResponse.answered_at.desc())
+                .limit(2000)
+            )
+        ).scalars()
     seen: set[uuid.UUID] = set()
     out: list[dict[str, Any]] = []
-    for r in rows.scalars():
+    for r in latest:
         if r.question_version_id in seen:
             continue
         seen.add(r.question_version_id)
@@ -452,18 +600,28 @@ def band(n: int, ewma: float) -> str:
 
 
 async def topic_stats(session: AsyncSession, user_id: uuid.UUID) -> dict[uuid.UUID, dict[str, Any]]:
-    rows = await session.execute(
-        select(PracticeResponse.topic_id, PracticeResponse.is_correct, PracticeResponse.answered_at)
-        .where(
-            PracticeResponse.user_id == user_id,
-            PracticeResponse.solution_viewed.is_(False),
-            PracticeResponse.is_correct.is_not(None),
-        )
-        .order_by(PracticeResponse.answered_at)
-    )
+    if _fs():
+        hist = await (await _repo(session)).history(user_id)
+        stat_rows: Any = [
+            (h.topic_id, h.is_correct, h.answered_at)
+            for h in sorted(hist, key=lambda h: h.answered_at)
+            if not h.solution_viewed and h.is_correct is not None
+        ]
+    else:
+        stat_rows = (
+            await session.execute(
+                select(PracticeResponse.topic_id, PracticeResponse.is_correct, PracticeResponse.answered_at)
+                .where(
+                    PracticeResponse.user_id == user_id,
+                    PracticeResponse.solution_viewed.is_(False),
+                    PracticeResponse.is_correct.is_not(None),
+                )
+                .order_by(PracticeResponse.answered_at)
+            )
+        ).all()
     seqs: dict[uuid.UUID, list[bool]] = defaultdict(list)
     last: dict[uuid.UUID, datetime] = {}
-    for topic_id, ok, at in rows.all():
+    for topic_id, ok, at in stat_rows:
         seqs[topic_id].append(bool(ok))
         last[topic_id] = at
     return {
@@ -488,9 +646,12 @@ async def analytics_mastery(session: AsyncSession, user_id: uuid.UUID) -> dict[u
     topic. Empty when analytics has not consumed the user's events yet (or is unavailable),
     in which case callers fall back to the interim practice EWMA."""
     try:
+        from app.core.db import savepoint
         from app.modules.analytics.mastery import get_topic_mastery
 
-        async with session.begin_nested():
+        # no savepoint on the Firebase stack's NO_POSTGRES session (begin_nested raised there and
+        # the analytics mastery was silently replaced by the interim EWMA)
+        async with savepoint(session):
             views = await get_topic_mastery(session, user_id)
     except Exception:  # pragma: no cover - analytics module/table missing
         return {}
@@ -501,11 +662,7 @@ async def mastery(session: AsyncSession, principal: Principal) -> dict[str, Any]
     stats = await topic_stats(session, principal.user_id)
     views = await analytics_mastery(session, principal.user_id)
     ids = set(stats) | set(views)
-    topics = (
-        {t.id: t for t in (await session.execute(select(Topic).where(Topic.id.in_(list(ids))))).scalars()}
-        if ids
-        else {}
-    )
+    topics = {t.id: t for t in await _topics(session, ids)} if ids else {}
     items = []
     for tid in sorted(ids, key=lambda k: topics[k].path if k in topics else ""):
         t = topics.get(tid)
@@ -548,6 +705,18 @@ async def mastery(session: AsyncSession, principal: Principal) -> dict[str, Any]
     }
 
 
+async def _topics(session: AsyncSession, ids: set[uuid.UUID]) -> list[Topic]:
+    if _fs():
+        return await (await _repo(session)).get_topics(ids)
+    return list((await session.execute(select(Topic).where(Topic.id.in_(list(ids))))).scalars())
+
+
+async def _all_topics(session: AsyncSession) -> list[Topic]:
+    if _fs():
+        return await (await _repo(session)).all_topics()
+    return list((await session.execute(select(Topic))).scalars())
+
+
 # --------------------------------------------------------------------------- recommendations v1
 
 
@@ -563,6 +732,8 @@ async def refresh_recommendations(session: AsyncSession, principal: Principal) -
     < 0.5 -> practise that topic. Needs ``analytics_personalisation`` consent (PO-04)."""
     uid = principal.user_id
     now = utcnow()
+    if _fs():
+        return await _fs_refresh_recommendations(session, principal, now)
     await session.execute(
         update(Recommendation)
         .where(
@@ -659,21 +830,119 @@ async def refresh_recommendations(session: AsyncSession, principal: Principal) -
     return n
 
 
+def _weak_topics(stats: dict[uuid.UUID, Any], views: dict[uuid.UUID, Any]) -> dict[uuid.UUID, Any]:
+    weak = {
+        t: s
+        for t, s in stats.items()
+        if t not in views and s["answered"] >= WEAK_MIN_ANSWERS and s["ewma"] < WEAK_THRESHOLD
+    }
+    for t, v in views.items():  # analytics mastery wins where it exists
+        if v.band == "weak" and v.attempts >= WEAK_MIN_ANSWERS:
+            s = stats.get(t) or {"answered": v.attempts, "correct": 0}
+            weak[t] = {**s, "answered": v.attempts, "ewma": v.mastery, "method": ANALYTICS_METHOD}
+    return weak
+
+
+def _rec_text(name: str, s: dict[str, Any]) -> tuple[str, dict[str, Any], int]:
+    pct = round(s["ewma"] * 100)
+    reason = (
+        f"Your recent accuracy in {name} is {pct}% over {s['answered']} answers "
+        f"(below {int(WEAK_THRESHOLD * 100)}%). A short practice set will help."
+    )
+    evidence = {
+        "answered": s["answered"],
+        "correct": s["correct"],
+        "weighted_accuracy": round(s["ewma"], 4),
+        "threshold": WEAK_THRESHOLD,
+        "method": s.get("method", MASTERY_METHOD),
+    }
+    return reason, evidence, max(1, min(100, 100 - pct))
+
+
+async def _fs_refresh_recommendations(session: AsyncSession, principal: Principal, now: datetime) -> int:
+    """``refresh_recommendations`` on Firestore: the same rule, rows written in transactions that
+    keep ``ux_rec_dedupe`` (``recommendations_active``)."""
+    uid = principal.user_id
+    r = await _repo(session)
+    recs = await r.recommendations(uid)
+    changed: dict[uuid.UUID, Recommendation] = {}
+    for rec in recs:
+        if rec.status == "active" and rec.expires_at <= now:
+            rec.status = "expired"
+            changed[rec.id] = rec
+    if not await personalisation_allowed(session, uid):
+        await r.save_recommendations(uid, list(changed.values()), new_ids=set())
+        return 0
+    weak = _weak_topics(await topic_stats(session, uid), await analytics_mastery(session, uid))
+    names = {t.id: t.name for t in await _topics(session, set(weak))} if weak else {}
+    active = {x.target_id: x for x in recs if x.rule_key == "weak_topic" and x.status == "active"}
+    recently_dismissed = {
+        x.target_id
+        for x in recs
+        if x.rule_key == "weak_topic" and x.status == "dismissed" and x.generated_at > now - REC_TTL
+    }
+    new: list[Recommendation] = []
+    n = 0
+    for tid, s in weak.items():
+        reason, evidence, priority = _rec_text(names.get(tid, "this topic"), s)
+        rec = active.get(tid)
+        if rec is not None:
+            rec.reason, rec.evidence, rec.priority = reason, evidence, priority
+            rec.expires_at = now + REC_TTL
+            changed[rec.id] = rec
+        elif tid not in recently_dismissed:
+            new.append(
+                Recommendation(
+                    id=uuid7(),
+                    user_id=uid,
+                    organization_id=None,
+                    rule_key="weak_topic",
+                    rule_version=1,
+                    reason=reason,
+                    evidence=evidence,
+                    target_type="topic",
+                    target_id=tid,
+                    priority=priority,
+                    status="active",
+                    generated_at=now,
+                    expires_at=now + REC_TTL,
+                )
+            )
+        n += 1
+    for tid, rec in active.items():
+        if tid not in weak:
+            rec.status = "completed"
+            changed[rec.id] = rec
+    await r.save_recommendations(uid, [*changed.values(), *new], new_ids={x.id for x in new})
+    return n
+
+
 async def list_recommendations(session: AsyncSession, principal: Principal) -> dict[str, Any]:
     allowed = await personalisation_allowed(session, principal.user_id)
     if not allowed:
         return {"items": [], "personalised": False, "note": "consent_required:analytics_personalisation"}
     now = utcnow()
-    rows = await session.execute(
-        select(Recommendation)
-        .where(
-            Recommendation.user_id == principal.user_id,
-            Recommendation.status == "active",
-            Recommendation.expires_at > now,
-        )
-        .order_by(Recommendation.priority.desc(), Recommendation.generated_at.desc())
-        .limit(5)
-    )
+    if _fs():
+        live = [
+            x
+            for x in await (await _repo(session)).recommendations(principal.user_id)
+            if x.status == "active" and x.expires_at > now
+        ]
+        live.sort(key=lambda x: (x.priority, x.generated_at), reverse=True)
+        rec_rows: Any = live[:5]
+    else:
+        rec_rows = (
+            await session.execute(
+                select(Recommendation)
+                .where(
+                    Recommendation.user_id == principal.user_id,
+                    Recommendation.status == "active",
+                    Recommendation.expires_at > now,
+                )
+                .order_by(Recommendation.priority.desc(), Recommendation.generated_at.desc())
+                .limit(5)
+            )
+        ).scalars()
     return {
         "personalised": True,
         "items": [
@@ -688,12 +957,21 @@ async def list_recommendations(session: AsyncSession, principal: Principal) -> d
                 "generated_at": _iso(r.generated_at),
                 "expires_at": _iso(r.expires_at),
             }
-            for r in rows.scalars()
+            for r in rec_rows
         ],
     }
 
 
 async def dismiss_recommendation(session: AsyncSession, principal: Principal, rec_id: uuid.UUID) -> None:
+    if _fs():
+        repo = await _repo(session)
+        fr = await repo.get_recommendation(principal.user_id, rec_id)
+        if fr is None:
+            raise ProblemError("not_found")
+        if fr.status == "active":
+            fr.status = "dismissed"
+            await repo.save_recommendations(principal.user_id, [fr], new_ids=set())
+        return
     r = await session.get(Recommendation, rec_id)
     if r is None or r.user_id != principal.user_id:
         raise ProblemError("not_found")
@@ -706,22 +984,32 @@ async def dismiss_recommendation(session: AsyncSession, principal: Principal, re
 
 
 async def my_company_path(session: AsyncSession, principal: Principal, slug: str) -> dict[str, Any]:
-    company = (await session.execute(select(Company).where(Company.slug == slug))).scalar_one_or_none()
-    if company is None or company.hub_status != "published":
-        raise ProblemError("not_found")
-    paths = list(
-        (
-            await session.execute(
-                select(CompanyPath)
-                .where(CompanyPath.company_id == company.id, CompanyPath.status == "published")
-                .order_by(CompanyPath.role_name, CompanyPath.version_no.desc())
-            )
-        ).scalars()
-    )
+    if _fs():
+        r = await _repo(session)
+        company = await r.company_by_slug(slug)
+        if company is None or company.hub_status != "published":
+            raise ProblemError("not_found")
+        paths = sorted(
+            (x for x in await r.paths() if x.company_id == company.id and x.status == "published"),
+            key=lambda x: (sort_key(x.role_name), -x.version_no),  # ORDER BY role_name, version_no DESC
+        )
+    else:
+        company = (await session.execute(select(Company).where(Company.slug == slug))).scalar_one_or_none()
+        if company is None or company.hub_status != "published":
+            raise ProblemError("not_found")
+        paths = list(
+            (
+                await session.execute(
+                    select(CompanyPath)
+                    .where(CompanyPath.company_id == company.id, CompanyPath.status == "published")
+                    .order_by(CompanyPath.role_name, CompanyPath.version_no.desc())
+                )
+            ).scalars()
+        )
     if not paths:
         raise ProblemError("not_found")
     stats = await topic_stats(session, principal.user_id)
-    all_topics = list((await session.execute(select(Topic))).scalars())
+    all_topics = await _all_topics(session)
     # Only paths the learner is entitled to are listed (audit BE-15 note: one unentitled path
     # must not 403 the whole page); with none entitled the first denial is raised as before.
     entitled: list[CompanyPath] = []
@@ -771,6 +1059,8 @@ async def practised_company_readiness(session: AsyncSession, user_id: uuid.UUID)
     """Readiness for every published company path the learner has practised (company-step
     practice sets). Used by the mentor console (MEN-004 / PLC-46) until the goals model
     (PLC-28..31, target companies) exists. Caller sets the DB context (RLS U on sessions)."""
+    if _fs():
+        return await _fs_practised_company_readiness(session, user_id)
     rows = (
         await session.execute(
             select(CompanyPath, Company)
@@ -797,3 +1087,28 @@ async def practised_company_readiness(session: AsyncSession, user_id: uuid.UUID)
         for p, c in rows
     ]
     return sorted(out, key=lambda r: (r["company_name"], r["role_name"]))
+
+
+async def _fs_practised_company_readiness(session: AsyncSession, user_id: uuid.UUID) -> list[dict[str, Any]]:
+    r = await _repo(session)
+    step_ids = {x.company_path_step_id for x in await r.sessions_of(user_id) if x.company_path_step_id}
+    path_ids = {st.company_path_id for sid in step_ids if (st := await r.get_step(sid)) is not None}
+    paths = [x for x in await r.paths() if x.id in path_ids and x.status == "published"]
+    if not paths:
+        return []
+    companies = {c.id: c for c in await r.companies()}
+    stats = await topic_stats(session, user_id)
+    all_topics = await _all_topics(session)
+    out = [
+        {
+            "company_id": str(c.id),
+            "company_slug": c.slug,
+            "company_name": c.name,
+            "company_path_id": str(p.id),
+            "role_name": p.role_name,
+            **path_readiness(p, stats, all_topics),
+        }
+        for p in paths
+        if (c := companies.get(p.company_id)) is not None
+    ]
+    return sorted(out, key=lambda x: (x["company_name"], x["role_name"]))

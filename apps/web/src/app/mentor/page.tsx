@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Sessions" };
 export default function Page() {
   return (
     <div>
-      <PageHeader title="Sessions" eyebrow="MEN-001" description="Upcoming sessions, feedback you owe and résumé reviews." />
+      <PageHeader title="Sessions" description="Upcoming sessions, feedback you owe and résumé reviews." />
       <MentorSessions />
     </div>
   );

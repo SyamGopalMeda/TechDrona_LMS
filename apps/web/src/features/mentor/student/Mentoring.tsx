@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
-import { Badge, Button, Card, Dialog, EmptyState, ErrorState, Select, StatTile, useToast } from "@/components/ui";
+import { Badge, Button, Card, Dialog, EmptyState, ErrorState, LinkButton, Select, StatGrid, StatTile, useToast } from "@/components/ui";
 import { useApi, seg } from "@/features/trainer/shared/use-api";
 import { LoadingBlock, formatDateTime, useFailToast } from "@/features/trainer/shared/ui";
 import { KIND_LABEL, LIVE_STATUSES, isCode, send } from "../lib/api";
@@ -14,13 +13,10 @@ import { BookingBadge, FeedbackView } from "../components/shared";
 function NoPackage() {
   return (
     <EmptyState
+      icon="chat"
       title="Mock interviews come with a placement package"
       description="Book 1:1 mock interviews and career sessions with a mentor once you have a premium placement package."
-      action={
-        <Link className="text-fg-link underline" href="/app/billing">
-          See plans
-        </Link>
-      }
+      action={<LinkButton href="/app/billing">See plans</LinkButton>}
     />
   );
 }
@@ -28,7 +24,7 @@ function NoPackage() {
 const freeChange = (b: Booking) => Date.parse(b.free_change_until) > Date.now();
 
 function SlotPicker({ slots, onPick, busyId, actionLabel }: { slots: Slot[]; onPick: (s: Slot) => void; busyId: string | null; actionLabel: string }) {
-  if (!slots.length) return <EmptyState title="No open slots right now" description="Mentors add new slots every week — check back soon." />;
+  if (!slots.length) return <EmptyState variant="inline" icon="calendar" title="No open slots right now" description="Mentors add new slots every week — check back soon." />;
   return (
     <ul className="divide-y divide-line">
       {slots.map((s) => (
@@ -54,8 +50,11 @@ function SlotPicker({ slots, onPick, busyId, actionLabel }: { slots: Slot[]; onP
 /** STU-013 mock interviews: book / reschedule / cancel; feedback history. */
 export function StudentMentoring() {
   const [kind, setKind] = useState<string>("");
-  const slots = useApi<SlotList>("mentoring/slots", { session_kind: kind || undefined, limit: 50 });
   const bookings = useApi<BookingList>("me/mentoring/bookings", { limit: 50 });
+  // Slots are package-only (403 entitlement_required otherwise). The bookings list carries the
+  // quota, so ask for slots only once we know the student has a package (no 403 on every visit).
+  const hasPackage = bookings.data ? bookings.data.quota?.has_package !== false : bookings.error ? true : null;
+  const slots = useApi<SlotList>(hasPackage ? "mentoring/slots" : null, { session_kind: kind || undefined, limit: 50 });
   const [busyId, setBusyId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<Booking | null>(null);
   const [moving, setMoving] = useState<Booking | null>(null);
@@ -114,19 +113,22 @@ export function StudentMentoring() {
     }
   }
 
-  const noPackage = isCode(slots.error, "entitlement_required");
+  const noPackage = hasPackage === false || isCode(slots.error, "entitlement_required");
   const quota = slots.data?.quota ?? bookings.data?.quota;
   const all = bookings.data?.data ?? [];
   const upcoming = all.filter((b) => LIVE_STATUSES.includes(b.status) && Date.parse(b.ends_at) > Date.now());
   const history = all.filter((b) => !upcoming.includes(b));
 
+  // No package and nothing booked before: one upsell instead of zero tiles and three empty cards.
+  if (noPackage && bookings.data && all.length === 0) return <NoPackage />;
+
   return (
     <div className="space-y-6">
       {quota ? (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <StatGrid columns={2}>
           <StatTile label="Mentor sessions left" value={quota.has_package ? quota.mentor_sessions_remaining : 0} />
           <StatTile label="Upcoming sessions" value={upcoming.length} />
-        </div>
+        </StatGrid>
       ) : null}
 
       <Card title="Your upcoming sessions">
@@ -161,7 +163,7 @@ export function StudentMentoring() {
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-fg-muted">No sessions booked.</p>
+          <p className="text-sm text-fg-muted">No sessions booked. Pick a time below.</p>
         )}
       </Card>
 
@@ -182,10 +184,10 @@ export function StudentMentoring() {
           <NoPackage />
         ) : slots.error ? (
           <ErrorState error={slots.error} onRetry={() => void slots.reload()} />
-        ) : slots.loading && !slots.data ? (
+        ) : !slots.data && (slots.loading || hasPackage === null) ? (
           <LoadingBlock />
         ) : quota && quota.mentor_sessions_remaining <= 0 ? (
-          <EmptyState title="You've used all your mentor sessions" description="Sessions you cancel at least 12 h ahead, or that a mentor misses, are credited back." />
+          <EmptyState variant="inline" icon="chat" title="You've used all your mentor sessions" description="Sessions you cancel at least 12 h ahead, or that a mentor misses, are credited back." />
         ) : (
           <SlotPicker slots={slots.data?.data ?? []} onPick={(s) => void book(s)} busyId={busyId} actionLabel="Book" />
         )}

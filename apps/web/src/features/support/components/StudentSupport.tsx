@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Button, Card, FormField, Input, PageHeader, Pagination, Select, Skeleton, ErrorState, Table, useToast, type Column } from "@/components/ui";
+import { Button, Card, Checkbox, FormField, Input, LinkButton, LoadingBlock, PageHeader, Pagination, Select, ErrorState, Table, useToast, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import { InlineProblem, KeyValueList, TextArea, linkButton, textLink } from "@/features/admin/components/console-ui";
+import { InlineProblem, KeyValueList, TextArea, textLink } from "@/features/admin/components/console-ui";
 import { formatDateTime, problemFieldErrors, useCursorList, useVersioned } from "@/features/admin/lib/console";
 import { CATEGORY_LABELS, SUPPORT_ATTACHMENT_MAX_BYTES, SUPPORT_ATTACHMENT_MAX_COUNT, SUPPORT_ATTACHMENT_TYPES, TICKET_CATEGORIES, UUID_RE, topicToCategory, type Ticket, type TicketCategory, type TicketMessage, type TicketThread } from "../lib/types";
 import { AttachmentList, MessageThread, TicketStatusBadge } from "./Thread";
@@ -37,13 +37,9 @@ export function MyTickets() {
       <PageHeader
         title="Support"
         description="Ask us for help with your account, payments, courses or tests."
-        actions={
-          <Link className={linkButton} href="/app/support/new">
-            New ticket
-          </Link>
-        }
+        actions={<LinkButton href="/app/support/new">New ticket</LinkButton>}
       />
-      <Table caption="My tickets" columns={cols} rows={list.rows} rowKey={(t) => t.ticket_id} loading={list.loading} error={list.error} onRetry={() => void list.reload()} empty={{ title: "No tickets yet", description: "When you contact support, your conversations appear here." }} footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />} />
+      <Table caption="My tickets" columns={cols} rows={list.rows} rowKey={(t) => t.ticket_id} loading={list.loading} error={list.error} onRetry={() => void list.reload()} empty={{ title: "No tickets yet", description: "When you contact support, your conversations appear here.", icon: "chat", action: <LinkButton href="/help" variant="secondary" size="sm">Browse help articles</LinkButton> }} footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />} />
     </div>
   );
 }
@@ -60,8 +56,20 @@ function detectContext(from: string | undefined): ClientContext {
   const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
   const browser = /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /Chrome\//.test(ua) ? "Chrome" : /Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : "Other";
   const os = /Windows/.test(ua) ? "Windows" : /Android/.test(ua) ? "Android" : /iPhone|iPad|iOS/.test(ua) ? "iOS" : /Mac OS X/.test(ua) ? "macOS" : /Linux/.test(ua) ? "Linux" : "Other";
-  const route = from && from.startsWith("/") ? from.slice(0, 200) : "/app/support/new";
+  const route = from && from.startsWith("/") ? from.slice(0, 200) : referrerPath() ?? "/app/support";
   return { route, browser, os };
+}
+
+/** Same-origin page the student came from (not the support pages themselves), for the ticket context. */
+function referrerPath(): string | null {
+  if (typeof document === "undefined" || !document.referrer) return null;
+  try {
+    const u = new URL(document.referrer);
+    if (u.origin !== window.location.origin || u.pathname.startsWith("/app/support")) return null;
+    return u.pathname.slice(0, 200);
+  } catch {
+    return null;
+  }
 }
 
 /** STU-025 new ticket (SUP-01). Browser, OS and the page you came from are attached and shown before sending. */
@@ -122,7 +130,11 @@ export function NewTicketForm({ from, topic, attemptId }: { from?: string; topic
 
   return (
     <div>
-      <PageHeader title="New support ticket" />
+      <PageHeader
+        breadcrumbs={[{ label: "Support", href: "/app/support" }, { label: "New ticket" }]}
+        title="New support ticket"
+        description="Tell us what went wrong. We reply here and by email."
+      />
       <Card className="max-w-2xl">
         <form
           className="space-y-4"
@@ -153,35 +165,45 @@ export function NewTicketForm({ from, topic, attemptId }: { from?: string; topic
           {relatedAttemptId ? <p className="text-sm text-fg-muted">This ticket will be linked to your test attempt so our team can review it.</p> : null}
           <FormField label="Attachments (optional)" error={errors.attachments} hint={`Up to ${SUPPORT_ATTACHMENT_MAX_COUNT} files, 10 MB each: PDF, PNG, JPEG, WebP or text.`}>
             {(f) => (
-              <input
-                {...f}
-                type="file"
-                multiple
-                accept={SUPPORT_ATTACHMENT_TYPES.join(",")}
-                className="block text-sm"
-                onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-              />
+              <div className="space-y-2">
+                <input
+                  {...f}
+                  type="file"
+                  multiple
+                  accept={SUPPORT_ATTACHMENT_TYPES.join(",")}
+                  className="block w-full cursor-pointer rounded-lg border border-dashed border-line-strong bg-surface-subtle p-3 text-sm text-fg-secondary file:mr-3 file:min-h-touch file:cursor-pointer file:rounded-md file:border file:border-solid file:border-brand/30 file:bg-surface file:px-4 file:font-display file:text-sm file:font-semibold file:text-brand hover:file:bg-brand-subtle focus-visible:shadow-focus focus-visible:outline-none"
+                  onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+                />
+                {files.length ? (
+                  <ul className="space-y-1 text-sm text-fg-secondary" aria-label="Files to attach">
+                    {files.map((file) => (
+                      <li key={`${file.name}-${file.size}`} className="break-all">
+                        {file.name}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
             )}
           </FormField>
           {ctx ? (
             <div className="rounded-lg border border-line bg-surface-sunken p-3 text-sm">
-              <label className="flex items-center gap-2 font-medium">
-                <input type="checkbox" checked={attachContext} onChange={(e) => setAttachContext(e.target.checked)} />
-                Attach technical details to help us
-              </label>
-              <p className="mt-1 text-fg-muted">
-                Browser: {ctx.browser} · System: {ctx.os} · Page: {ctx.route}
-              </p>
+              <Checkbox
+                label="Attach technical details to help us"
+                description={`Browser: ${ctx.browser} · System: ${ctx.os} · Page: ${ctx.route}`}
+                checked={attachContext}
+                onChange={(e) => setAttachContext(e.target.checked)}
+              />
             </div>
           ) : null}
           {rateLimited ? <p role="alert" className="text-sm font-medium text-danger-fg">You have opened many tickets today. Please reply on an existing ticket or try again tomorrow.</p> : <InlineProblem error={Object.keys(errors).length ? null : error} />}
-          <div className="flex gap-2">
-            <Button type="submit" loading={busy}>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
+            <LinkButton href="/app/support" variant="ghost">
+              Cancel
+            </LinkButton>
+            <Button type="submit" loading={busy} className="sm:ml-auto">
               Send
             </Button>
-            <Link className={linkButton} href="/app/support">
-              Cancel
-            </Link>
           </div>
         </form>
       </Card>
@@ -211,7 +233,7 @@ export function MyTicket({ ticketId }: { ticketId: string }) {
   const [comment, setComment] = useState("");
 
   if (t.error) return <ErrorState error={t.error} onRetry={() => void t.reload()} />;
-  if (!t.data) return <Skeleton className="h-60 w-full" />;
+  if (!t.data) return <LoadingBlock label="Loading your ticket" rows={3} size="card" />;
   const d = t.data;
   const done = d.status === "resolved" || d.status === "closed";
 
@@ -231,11 +253,15 @@ export function MyTicket({ ticketId }: { ticketId: string }) {
 
   return (
     <div>
-      <PageHeader title={d.subject} description={`${d.ticket_number} · ${CATEGORY_LABELS[d.category] ?? d.category}`} />
+      <PageHeader
+        breadcrumbs={[{ label: "Support", href: "/app/support" }, { label: d.ticket_number }]}
+        title={d.subject}
+        meta={<TicketStatusBadge status={d.status} />}
+        description={`${d.ticket_number} · ${CATEGORY_LABELS[d.category] ?? d.category}`}
+      />
       <Card className="mb-4">
         <KeyValueList
           items={[
-            { label: "Status", value: <TicketStatusBadge status={d.status} /> },
             { label: "Opened", value: formatDateTime(d.created_at) },
             { label: "We aim to reply by", value: d.first_responded_at ? "Replied" : formatDateTime(d.first_response_due_at) },
             ...(d.merged_into_id ? [{ label: "Continued in", value: <Link className={textLink} href={`/app/support/${d.merged_into_id}`}>another ticket</Link> }] : []),

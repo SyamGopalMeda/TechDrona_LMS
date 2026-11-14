@@ -39,6 +39,9 @@ describe("Admin batches (ADM-013)", () => {
     renderWithProviders(<BatchList />);
     expect(await screen.findByRole("link", { name: "Full-stack Jan 27" })).toHaveAttribute("href", "/admin/batches/b1");
     expect(screen.getByText("2026-27")).toBeInTheDocument();
+    // "Create batch" lives in the page header next to the h1 (Phase 2).
+    const header = screen.getByRole("heading", { level: 1, name: "Batches" }).closest("header")!;
+    expect(within(header).getByRole("button", { name: "Create batch" })).toBeInTheDocument();
     await userEvent.click(screen.getAllByRole("button", { name: "Create batch" })[0]!);
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "Create" }));
@@ -49,6 +52,21 @@ describe("Admin batches (ADM-013)", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Create" }));
     await waitFor(() => expect(api.calls.find((c) => c.method === "POST")?.body).toMatchObject({ name: "Data cohort", code: "DATA-27", academic_year: "2026-27" }));
     expect(api.calls.some((c) => c.url.includes("orgs/"))).toBe(false);
+    // Status left on Automatic: the api decides (planned for a future start), so none is sent.
+    expect(api.calls.find((c) => c.method === "POST")?.body).not.toHaveProperty("status");
+  });
+
+  it("sends an explicitly chosen status", async () => {
+    const api = mockApi({ "GET batches": { body: { data: [batch] } }, "POST batches": { status: 201, body: { ...batch, id: "b3" } } });
+    cleanups.push(api.restore);
+    renderWithProviders(<BatchList />);
+    await userEvent.click((await screen.findAllByRole("button", { name: "Create batch" }))[0]!);
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText(/^Name/), "Later cohort");
+    await userEvent.type(within(dialog).getByLabelText(/^Code/), "LATER-27");
+    await userEvent.selectOptions(within(dialog).getByLabelText(/^Status/), "planned");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(api.calls.find((c) => c.method === "POST")?.body).toMatchObject({ code: "LATER-27", status: "planned" }));
   });
 });
 
@@ -70,6 +88,11 @@ describe("Admin batch detail (ADM-014)", () => {
     renderWithProviders(<AdminBatchDetail batchId="b1" />);
     expect((await screen.findAllByRole("link", { name: "Asha Rao" }))[0]).toHaveAttribute("href", "/admin/users/u1");
     expect(await screen.findByText("Evaluator")).toBeInTheDocument();
+    // Phase 2: the batch name is the h1 with breadcrumbs back to the list; staff show a readable reference, not a UUID.
+    expect(await screen.findByRole("heading", { level: 1, name: "Full-stack Jan 27" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("link", { name: "Batches" })).toHaveAttribute("href", "/admin/batches");
+    expect(screen.getByRole("link", { name: "User #T1" })).toHaveAttribute("href", "/admin/users/t1");
+    expect(screen.queryByText("t1")).not.toBeInTheDocument();
     const grantCall = api.calls.find((c) => c.url.includes("rbac/grants"));
     expect(grantCall?.url).toContain("scope_type=batch");
     expect(grantCall?.url).toContain("scope_id=b1");

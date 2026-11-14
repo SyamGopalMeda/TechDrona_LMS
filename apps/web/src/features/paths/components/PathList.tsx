@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Badge, Button, Dialog, EmptyState, FormField, Input, Select, useToast } from "@/components/ui";
+import { Button, Dialog, EmptyState, FormField, Input, LinkButton, Select, StatusBadge, useToast } from "@/components/ui";
 import { AIErrorState, aiProblemCode, useEnabledApps } from "@/features/ai";
 import { isApiError } from "@/lib/api/errors";
 import { Boundary, TextArea, fieldErrorsOf, useFailToast } from "@/features/trainer/shared/ui";
@@ -12,6 +11,7 @@ import { pathsApi } from "../lib/api";
 import { formatHours } from "../lib/pace";
 import type { Level, PathSummary, PathsContext } from "../lib/types";
 import { usePathsBase } from "../lib/base";
+import { AiNotIntegratedNotice } from "@/features/studio/components/NotIntegrated";
 
 const LEVELS: { value: Level; label: string }[] = [
   { value: "beginner", label: "Beginner" },
@@ -96,7 +96,9 @@ function PathCard({ p }: { p: PathSummary }) {
     <article className="flex h-full flex-col rounded-xl border border-line bg-surface p-4 shadow-xs">
       <div className="flex items-start justify-between gap-2">
         <h2 className="font-display text-base font-semibold text-fg">{p.title}</h2>
-        <Badge tone={p.status === "published" ? "success" : "neutral"}>{p.status === "published" ? `Published v${p.version_no}` : p.status === "archived" ? "Archived" : "Draft"}</Badge>
+        <span className="shrink-0">
+          <StatusBadge status={p.status} label={p.status === "published" ? `Published v${p.version_no}` : undefined} />
+        </span>
       </div>
       {p.description_md ? <p className="mt-1 line-clamp-3 text-sm text-fg-muted">{p.description_md}</p> : null}
       <p className="mt-3 text-xs text-fg-secondary">
@@ -105,9 +107,9 @@ function PathCard({ p }: { p: PathSummary }) {
         {p.source === "ai" ? " · AI draft" : ""}
       </p>
       <div className="mt-auto pt-4">
-        <Link href={`${base}/${encodeURIComponent(p.id)}`} className="inline-flex h-8 items-center rounded-md border border-line-control px-3 text-sm font-medium hover:bg-surface-hover focus-visible:shadow-focus focus-visible:outline-none">
+        <LinkButton variant="secondary" size="sm" href={`${base}/${encodeURIComponent(p.id)}`}>
           Open<span className="sr-only"> {p.title}</span>
-        </Link>
+        </LinkButton>
       </div>
     </article>
   );
@@ -244,6 +246,7 @@ export function AIGenerateDialog({ open, onClose }: { open: boolean; onClose: ()
         </div>
       ) : (
         <div className="space-y-3">
+          <AiNotIntegratedNotice />
           {aiErr ? <AIErrorState code={aiErr.code} detail={aiErr.detail} onRetry={() => void submit()} /> : null}
             <FormField label="Topic / goal" required error={errs.topic}>{(p) => <Input {...p} value={topic} maxLength={200} placeholder="Core Python" onChange={(e) => setTopic(e.target.value)} />}</FormField>
           <fieldset>

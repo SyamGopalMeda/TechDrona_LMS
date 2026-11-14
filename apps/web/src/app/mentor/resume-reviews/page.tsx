@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Resume reviews" };
 export default function Page() {
   return (
     <div>
-      <PageHeader title="Résumé reviews" eyebrow="MEN-005" description="Comment on each section and send a summary back to the student." />
+      <PageHeader title="Résumé reviews" description="Comment on each section and send a summary back to the student." />
       <MentorResumeReviews />
     </div>
   );

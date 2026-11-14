@@ -42,10 +42,45 @@ export const EMBED_FRAME_ORIGINS = ["https://www.youtube-nocookie.com", "https:/
 
 export const DEV_OBJECT_STORE_ORIGIN = "http://localhost:9000";
 
+/**
+ * Google sign-in via Firebase Auth (docs/firebase/MIGRATION-PLAN.md §5.1), only on /login and
+ * /signup. The SDK is bundled; `apis.google.com` (gapi, injected by the SDK) is the CSP2
+ * fallback. The auth handler iframe/popup is served from the project's `authDomain`.
+ */
+export const FIREBASE_AUTH = {
+  script: ["https://apis.google.com"],
+  connect: ["https://identitytoolkit.googleapis.com", "https://securetoken.googleapis.com"],
+  frames: ["https://accounts.google.com"],
+} as const;
+
+/** Firebase Analytics / GA4 (§5.2). Loaded only after analytics consent; hosts listed site-wide. */
+export const GOOGLE_ANALYTICS = {
+  script: ["https://www.googletagmanager.com"],
+  connect: [
+    "https://*.google-analytics.com",
+    "https://*.analytics.google.com",
+    "https://www.googletagmanager.com",
+    "https://firebase.googleapis.com",
+    "https://firebaseinstallations.googleapis.com",
+  ],
+  img: ["https://*.google-analytics.com", "https://www.googletagmanager.com"],
+} as const;
+
 export interface CspOptions {
   dev: boolean;
   /** Origins that receive presigned uploads (scheme://host[:port], no path). */
   uploadOrigins?: string[];
+  /** Firebase `authDomain` (host) when this page offers Google sign-in; omitted elsewhere. */
+  firebaseAuthDomain?: string | null;
+  /** Allow the Google Analytics hosts (feature configured and not switched off). */
+  analytics?: boolean;
+  /**
+   * Allow same-origin frames (`frame-src 'self'`). Opt-in per page: only the admin College Data
+   * Portal page (/admin/college-data) frames the same-origin /college-portal/ app.
+   */
+  frameSelf?: boolean;
+  /** The company website origin: LMS course cards show its course posters (`img-src`). */
+  siteOrigin?: string | null;
 }
 
 /** Normalise to an origin; drop anything that is not an http(s) origin, and http:// in production. */
@@ -110,7 +145,12 @@ export function vdocipherUploadOriginsFromEnv(env: Env, dev: boolean): string[] 
 
 export function cspOptionsFromEnv(env: Env = process.env): CspOptions {
   const dev = env.NODE_ENV !== "production";
-  return { dev, uploadOrigins: [...new Set([...uploadOriginsFromEnv(env, dev), ...vdocipherUploadOriginsFromEnv(env, dev)])] };
+  const site = env.NEXT_PUBLIC_SITE_URL?.trim() || env.TD_WEBSITE_URL?.trim() || "";
+  return {
+    dev,
+    uploadOrigins: [...new Set([...uploadOriginsFromEnv(env, dev), ...vdocipherUploadOriginsFromEnv(env, dev)])],
+    siteOrigin: site ? toOrigin(site, dev) : null,
+  };
 }
 
 export function buildCsp(nonce: string, options: CspOptions | boolean): string {
@@ -118,16 +158,21 @@ export function buildCsp(nonce: string, options: CspOptions | boolean): string {
   const { dev } = opts;
   const uploads = (opts.uploadOrigins ?? []).map((o) => toOrigin(o, dev)).filter((o): o is string => o !== null);
   const uniq = (xs: string[]) => [...new Set(xs)];
+  const authOrigin = opts.firebaseAuthDomain && /^[a-z0-9.-]+$/i.test(opts.firebaseAuthDomain) ? toOrigin(`https://${opts.firebaseAuthDomain}`, dev) : null;
+  const fbAuth = authOrigin
+    ? { script: [...FIREBASE_AUTH.script], connect: [...FIREBASE_AUTH.connect], frames: [authOrigin, ...FIREBASE_AUTH.frames] }
+    : { script: [], connect: [], frames: [] };
+  const ga = opts.analytics ? { script: [...GOOGLE_ANALYTICS.script], connect: [...GOOGLE_ANALYTICS.connect], img: [...GOOGLE_ANALYTICS.img] } : { script: [], connect: [], img: [] };
 
   const directives: Record<string, string[]> = {
     "default-src": ["'self'"],
-    "script-src": uniq(["'self'", `'nonce-${nonce}'`, "'strict-dynamic'", RAZORPAY.script, VDOCIPHER.script, ...(dev ? ["'unsafe-eval'"] : [])]),
+    "script-src": uniq(["'self'", `'nonce-${nonce}'`, "'strict-dynamic'", RAZORPAY.script, VDOCIPHER.script, ...fbAuth.script, ...ga.script, ...(dev ? ["'unsafe-eval'"] : [])]),
     // Tailwind output is a static stylesheet; inline style attributes are used by React and Monaco.
     "style-src": ["'self'", "'unsafe-inline'"],
-    "img-src": uniq(["'self'", "data:", "blob:", ...RAZORPAY.img]),
+    "img-src": uniq(["'self'", "data:", "blob:", ...RAZORPAY.img, ...ga.img, ...(opts.siteOrigin ? [opts.siteOrigin] : [])]),
     "font-src": ["'self'", "data:"],
-    "connect-src": uniq(["'self'", ...RAZORPAY.connect, ...uploads, ...(dev ? ["ws:", "wss:"] : [])]),
-    "frame-src": uniq([...VDOCIPHER.frames, ...RAZORPAY.frames, ...EMBED_FRAME_ORIGINS]),
+    "connect-src": uniq(["'self'", ...RAZORPAY.connect, ...uploads, ...fbAuth.connect, ...ga.connect, ...(dev ? ["ws:", "wss:"] : [])]),
+    "frame-src": uniq([...(opts.frameSelf ? ["'self'"] : []), ...VDOCIPHER.frames, ...RAZORPAY.frames, ...EMBED_FRAME_ORIGINS, ...fbAuth.frames]),
     "media-src": ["'self'", "blob:"],
     // Monaco editor workers (same-origin /vendor files; blob: for its fallback worker bootstrap).
     "worker-src": ["'self'", "blob:"],

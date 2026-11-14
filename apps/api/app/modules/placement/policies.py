@@ -10,7 +10,6 @@ from __future__ import annotations
 import uuid
 
 from fastapi import Request
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import PLATFORM_SCOPE, ScopeRef, require_permission
@@ -35,11 +34,10 @@ async def has_permission(request: Request, principal: Principal, permission: str
 
 
 async def batch_org(session: AsyncSession, batch_id: uuid.UUID) -> uuid.UUID | None:
-    from app.modules.orgs.models import Batch
+    from app.modules.orgs import public as orgs_public
 
-    return (
-        await session.execute(select(Batch.organization_id).where(Batch.id == batch_id))
-    ).scalar_one_or_none()
+    b = await orgs_public.get_batch(session, batch_id)
+    return b.organization_id if b else None
 
 
 async def can_in_org(

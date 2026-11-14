@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Badge, Button, Card, Checkbox, ErrorState, FormField, Input, PageHeader, Select, useToast } from "@/components/ui";
+import { Badge, Button, Card, Checkbox, ErrorState, FormField, Input, LinkButton, PageHeader, Select, StatusBadge, useToast } from "@/components/ui";
 import { ApiError } from "@/lib/api/errors";
-import { LinkButton } from "@/features/catalog/components/LinkButton";
 import { LoadingBlock, TextArea, useFailToast } from "@/features/trainer/shared/ui";
 import { fmtMarks, itemTypeLabel, staffApi, stripHtml, truncate } from "./api";
 import { QuestionBankPicker } from "@/features/question-bank";
@@ -244,8 +243,21 @@ export function AssignmentEditor({ assignmentId, renderPicker }: { assignmentId:
     void load();
   }, [load]);
 
-  if (loadError) return <ErrorState error={loadError} onRetry={() => void load()} />;
-  if (!data) return <LoadingBlock rows={4} />;
+  const crumbs = [{ label: "Assignments", href: "/trainer/assignments" }];
+  if (loadError)
+    return (
+      <>
+        <PageHeader title="Edit assignment" breadcrumbs={[...crumbs, { label: "Edit assignment" }]} />
+        <ErrorState error={loadError} onRetry={() => void load()} />
+      </>
+    );
+  if (!data)
+    return (
+      <>
+        <PageHeader title="Edit assignment" breadcrumbs={[...crumbs, { label: "Edit assignment" }]} />
+        <LoadingBlock rows={4} />
+      </>
+    );
 
   const locked = data.locked;
   const total = Number(settings.total) || 0;
@@ -328,6 +340,8 @@ export function AssignmentEditor({ assignmentId, renderPicker }: { assignmentId:
     <div className="space-y-6">
       <PageHeader
         title={data.assignment.title}
+        breadcrumbs={[...crumbs, { label: data.assignment.title }]}
+        meta={<StatusBadge status={data.assignment.status ?? "draft"} />}
         description={locked ? "Read-only: learners have started" : dirty ? "Unsaved changes" : undefined}
         actions={
           <>

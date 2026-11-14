@@ -35,6 +35,7 @@ def test_tests_never_get_the_real_s3_store() -> None:
     storage.set_object_store(None)
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_media_provider_deletes_user_uploads_only(db, store) -> None:
     u = await make_user(db)
     other = await make_user(db)
@@ -57,6 +58,7 @@ async def test_media_provider_deletes_user_uploads_only(db, store) -> None:
     assert again["objects_deleted"] == 0
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_execute_erasure_runs_media_and_deletes_avatar_and_uploads(app, db, store) -> None:
     assert "media" in prv.REQUIRED_ERASURE_MODULES and "media" in prv.erasure_providers()
     u = await make_user(db)
@@ -74,12 +76,14 @@ async def test_execute_erasure_runs_media_and_deletes_avatar_and_uploads(app, db
     assert store.objects == {}
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_delete_prefix_refuses_open_prefixes(store) -> None:
     for bad in ("uploads/", "uploads", ""):
         with pytest.raises(ValueError):
             await storage.delete_prefix(BUCKET, bad)
 
 
+@pytest.mark.usefixtures("catalog_backend")
 async def test_s3_store_signs_delete_and_list_and_treats_404_as_deleted(monkeypatch) -> None:
     """The real adapter against a mock transport (no network): DELETE 404 is success, list
     follows continuation tokens, 5xx raises a 503 problem."""

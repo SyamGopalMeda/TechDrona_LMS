@@ -13,10 +13,9 @@ from decimal import Decimal
 from typing import Any
 
 import structlog
-from sqlalchemy import func, or_, select, text, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.audit import AuditActor, audit
 from app.core.errors import ProblemError
@@ -24,6 +23,7 @@ from app.core.ids import uuid7
 from app.core.outbox import emit_event
 from app.core.principal import Principal
 from app.core.time import ist_date, utcnow
+from app.modules.commerce import datastore as ds
 from app.modules.commerce import policy
 from app.modules.commerce.gateway import (
     FakePaymentProvider,
@@ -47,8 +47,9 @@ from app.modules.commerce.models import (
     Subscription,
 )
 from app.modules.commerce.pricing import Quote, as_system, split_inclusive
+from app.modules.entitlements import public as ent_pub
 from app.modules.entitlements import service as ent
-from app.modules.entitlements.models import Entitlement
+from app.modules.entitlements.public import Entitlement
 
 log = structlog.get_logger("commerce")
 
@@ -74,37 +75,20 @@ def _ts(epoch: int | None) -> datetime | None:
 async def buyer_checks(session: AsyncSession, principal: Principal, *, paid: bool) -> None:
     """Verified contact; minors need verified guardian consent (BR-ENT-21); adults need the
     ``security_monitoring`` consent for paid plans (PO-03)."""
-    from app.modules.identity.models import Consent, GuardianConsent, User
+    from app.modules.identity import public as identity
 
     async with as_system(session, "commerce.buyer_checks", principal):
-        user = (await session.execute(select(User).where(User.id == principal.user_id))).scalar_one_or_none()
+        user = await identity.get_user(session, principal.user_id)
         if user is None:
             raise ProblemError("not_found")
         if user.email_verified_at is None and user.phone_verified_at is None:
             raise ProblemError("contact_not_verified")
         if user.is_minor:
-            ok = (
-                await session.execute(
-                    select(func.count())
-                    .select_from(GuardianConsent)
-                    .where(
-                        GuardianConsent.child_user_id == user.id,
-                        GuardianConsent.status == "verified",
-                        GuardianConsent.revoked_at.is_(None),
-                    )
-                )
-            ).scalar_one()
+            ok = await identity.has_verified_guardian_consent(session, user.id)
             if not ok:
                 raise ProblemError("minor_consent_pending")
         elif paid:
-            last = (
-                await session.execute(
-                    select(Consent.action)
-                    .where(Consent.user_id == user.id, Consent.purpose == "security_monitoring")
-                    .order_by(Consent.created_at.desc())
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
+            last = await identity.latest_consent_action(session, user.id, "security_monitoring")
             if last != "granted":
                 # E2E-04: say exactly which consent paid plans need and how to grant it.
                 raise ProblemError(
@@ -129,8 +113,7 @@ async def buyer_checks(session: AsyncSession, principal: Principal, *, paid: boo
 
 
 async def next_order_number(session: AsyncSession, now: datetime) -> str:
-    n = (await session.execute(text("SELECT nextval('commerce_order_number_seq')"))).scalar_one()
-    return f"TD-O-{now.year}-{int(n):08d}"
+    return await ds.next_order_number(session, now)
 
 
 def order_json(o: Order, items: list[OrderItem] | None = None) -> dict[str, Any]:
@@ -213,8 +196,8 @@ async def create_order(
         place_of_supply=q.place_of_supply,
         expires_at=now + policy.ORDER_TTL,
     )
-    session.add(order)
-    await session.flush()
+    ds.add(session, order)
+    await ds.flush(session)
     item = OrderItem(
         id=uuid7(),
         order_id=order.id,
@@ -233,9 +216,10 @@ async def create_order(
         gst_rate=q.product.gst_rate,
         sac_code=q.product.sac_code,
     )
-    session.add(item)
+    ds.add(session, item)
     if q.coupon is not None and q.coupon.coupon is not None:
-        session.add(
+        ds.add(
+            session,
             CouponRedemption(
                 id=uuid7(),
                 coupon_id=q.coupon.coupon.id,
@@ -244,9 +228,9 @@ async def create_order(
                 discount_paise=q.discount_paise,
                 status="reserved",
                 reserved_until=order.expires_at,
-            )
+            ),
         )
-    await session.flush()
+    await ds.flush(session)
     await audit(
         session, principal, "order.created", "order", order.id, after={"total_paise": order.total_paise}
     )
@@ -257,8 +241,9 @@ async def create_order(
         async with as_system(session, "commerce.fulfil", principal):
             await fulfil_order(session, order.id, ent.Actor.user(principal), payment=None)
             entitlements = await order_entitlements(session, order.id)
-        await session.refresh(order)
+        await ds.refresh(session, order)
     else:
+        await ds.before_side_effect(session)
         try:
             gorder = await gw.create_order(
                 order.total_paise, order.order_number, {"order_number": order.order_number}
@@ -269,7 +254,7 @@ async def create_order(
             ) from e
         order.gateway_order_id = gorder.id
         order.status = "pending_payment"
-        await session.flush()
+        await ds.flush(session)
         checkout = checkout_payload(gw, order)
     return {**order_json(order), "checkout": checkout, "entitlements": entitlements}
 
@@ -319,7 +304,8 @@ async def find_resumable_order(
     now = utcnow()
     rows = (
         (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(Order)
                 .join(OrderItem, OrderItem.order_id == Order.id)
                 .where(
@@ -332,7 +318,7 @@ async def find_resumable_order(
                     OrderItem.price_id == price_id,
                 )
                 .order_by(Order.created_at.desc())
-                .with_for_update(of=Order)
+                .with_for_update(of=Order),
             )
         )
         .scalars()
@@ -340,10 +326,11 @@ async def find_resumable_order(
     )
     for o in rows:
         code = (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(Coupon.code)
                 .join(CouponRedemption, CouponRedemption.coupon_id == Coupon.id)
-                .where(CouponRedemption.order_id == o.id, CouponRedemption.status == "reserved")
+                .where(CouponRedemption.order_id == o.id, CouponRedemption.status == "reserved"),
             )
         ).scalar_one_or_none()
         if (code or "").lower() == (coupon_code or "").lower():
@@ -357,19 +344,33 @@ def policy_coupon_error(status: str) -> str:
     return COUPON_ERROR.get(status, "coupon_invalid")
 
 
-async def order_entitlements(session: AsyncSession, order_id: uuid.UUID) -> list[dict[str, Any]]:
-    rows = (
-        (
-            await session.execute(
-                select(Entitlement)
-                .join(OrderItem, OrderItem.id == Entitlement.order_item_id, isouter=True)
-                .join(CouponRedemption, CouponRedemption.id == Entitlement.coupon_redemption_id, isouter=True)
-                .where((OrderItem.order_id == order_id) | (CouponRedemption.order_id == order_id))
-            )
-        )
-        .scalars()
-        .all()
+async def _order_source_ids(
+    session: AsyncSession, order_id: uuid.UUID
+) -> tuple[list[uuid.UUID], list[uuid.UUID]]:
+    """(order item ids, coupon redemption ids) of an order: the commerce half of the former
+    Entitlement x OrderItem x CouponRedemption join (two steps so commerce can live in Firestore
+    while entitlements are in Postgres; same rows)."""
+    items = list(
+        (await ds.execute(session, select(OrderItem.id).where(OrderItem.order_id == order_id))).scalars()
     )
+    reds = list(
+        (
+            await ds.execute(
+                session, select(CouponRedemption.id).where(CouponRedemption.order_id == order_id)
+            )
+        ).scalars()
+    )
+    return items, reds
+
+
+async def order_entitlements(session: AsyncSession, order_id: uuid.UUID) -> list[dict[str, Any]]:
+    items, reds = await _order_source_ids(session, order_id)
+    if not items and not reds:
+        return []
+    rows = [
+        *(await ent_pub.for_order_items(session, items)).values(),
+        *(await ent_pub.for_coupon_redemptions(session, reds)).values(),
+    ]
     return [ent.entitlement_json(e) for e in rows]
 
 
@@ -378,38 +379,43 @@ async def fulfil_order(
 ) -> bool:
     """Idempotent: the first caller moves the order to ``paid`` and grants entitlements;
     later callers are no-ops (row lock + status guard + ``UNIQUE (order_item_id)``)."""
-    order = (await session.execute(select(Order).where(Order.id == order_id).with_for_update())).scalar_one()
+    order = (
+        await ds.execute(session, select(Order).where(Order.id == order_id).with_for_update())
+    ).scalar_one()
     if order.status not in PAYABLE_FROM:
         return False
     late = order.status in ("expired", "cancelled", "failed")
     now = utcnow()
     order.status = "paid"
     order.paid_at = now
-    await session.flush()
+    await ds.flush(session)
     redemption = (
-        await session.execute(
-            select(CouponRedemption).where(CouponRedemption.order_id == order.id).with_for_update()
+        await ds.execute(
+            session, select(CouponRedemption).where(CouponRedemption.order_id == order.id).with_for_update()
         )
     ).scalar_one_or_none()
     if redemption is not None and redemption.status != "consumed":
         redemption.status = "consumed"
         bumped = (
-            await session.execute(
+            await ds.execute(
+                session,
                 update(Coupon)
                 .where(
                     Coupon.id == redemption.coupon_id,
                     (Coupon.max_redemptions.is_(None)) | (Coupon.redeemed_count < Coupon.max_redemptions),
                 )
                 .values(redeemed_count=Coupon.redeemed_count + 1)
-                .returning(Coupon.id)
+                .returning(Coupon.id),
             )
         ).scalar_one_or_none()
         if bumped is None:  # money was taken: honour the order, flag the overrun
             await audit(session, actor.audit_actor(), "coupon.cap_overrun", "coupon", redemption.coupon_id)
-    items = (await session.execute(select(OrderItem).where(OrderItem.order_id == order.id))).scalars().all()
+    items = (
+        (await ds.execute(session, select(OrderItem).where(OrderItem.order_id == order.id))).scalars().all()
+    )
     for it in items:
-        product = (await session.execute(select(Product).where(Product.id == it.product_id))).scalar_one()
-        plan = (await session.execute(select(Plan).where(Plan.id == it.plan_id))).scalar_one()
+        product = (await ds.execute(session, select(Product).where(Product.id == it.product_id))).scalar_one()
+        plan = (await ds.execute(session, select(Plan).where(Plan.id == it.plan_id))).scalar_one()
         assert order.user_id is not None
         ends = now + timedelta(days=plan.access_duration_days) if plan.access_duration_days else None
         if order.total_paise == 0 and redemption is not None:
@@ -462,10 +468,11 @@ async def fulfil_order(
 
 
 async def release_coupon(session: AsyncSession, order_id: uuid.UUID) -> None:
-    await session.execute(
+    await ds.execute(
+        session,
         update(CouponRedemption)
         .where(CouponRedemption.order_id == order_id, CouponRedemption.status == "reserved")
-        .values(status="released")
+        .values(status="released"),
     )
 
 
@@ -476,7 +483,7 @@ async def cancel_order(session: AsyncSession, principal: Principal, order: Order
         )
     order.status = "cancelled"
     await release_coupon(session, order.id)
-    await session.flush()
+    await ds.flush(session)
     await audit(session, principal, "order.cancelled", "order", order.id)
     return order_json(order)
 
@@ -500,7 +507,8 @@ async def upsert_payment(
     if status not in PAY_RANK:
         status = "created"
     now = utcnow()
-    await session.execute(
+    await ds.execute(
+        session,
         pg_insert(Payment)
         .values(
             id=uuid7(),
@@ -527,13 +535,14 @@ async def upsert_payment(
             authorized_at=now if status in ("authorized", "captured") else None,
             captured_at=now if status == "captured" else None,
         )
-        .on_conflict_do_nothing()
+        .on_conflict_do_nothing(),
     )
     p = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(Payment)
             .where(Payment.gateway == gw_name, Payment.gateway_payment_id == gp.id)
-            .with_for_update()
+            .with_for_update(),
         )
     ).scalar_one()
     if PAY_RANK[status] > PAY_RANK.get(p.status, 0):
@@ -546,7 +555,7 @@ async def upsert_payment(
             p.error_code, p.error_description = gp.error_code, gp.error_description
     if order is not None and p.order_id is None:
         p.order_id = order.id
-    await session.flush()
+    await ds.flush(session)
     return p
 
 
@@ -556,11 +565,12 @@ async def apply_payment(
     """Apply a fetched payment to its order. Returns ``(order, payment, fulfilled_now)``."""
     if gp.subscription_id:
         sub = (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(Subscription).where(
                     Subscription.gateway == gw.name,
                     Subscription.gateway_subscription_id == gp.subscription_id,
-                )
+                ),
             )
         ).scalar_one_or_none()
         if sub is None:
@@ -570,10 +580,11 @@ async def apply_payment(
     if not gp.order_id:
         return None, None, False
     order = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(Order)
             .where(Order.gateway == gw.name, Order.gateway_order_id == gp.order_id)
-            .with_for_update()
+            .with_for_update(),
         )
     ).scalar_one_or_none()
     if order is None:
@@ -602,7 +613,7 @@ async def apply_payment(
             aggregate_type="order",
             aggregate_id=order.id,
         )
-    await session.flush()
+    await ds.flush(session)
     return order, pay, fulfilled
 
 
@@ -625,8 +636,9 @@ async def confirm_order(
         assert o is not None
         ents = await order_entitlements(session, o.id)
         invoice = (
-            await session.execute(
-                select(Invoice).where(Invoice.order_id == o.id, Invoice.invoice_type == "tax_invoice")
+            await ds.execute(
+                session,
+                select(Invoice).where(Invoice.order_id == o.id, Invoice.invoice_type == "tax_invoice"),
             )
         ).scalar_one_or_none()
     out = {**order_json(o), "entitlements": ents}
@@ -650,7 +662,8 @@ async def expire_orders(
     actor = ent.Actor.system("commerce.order_expiry")
     rows = (
         (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(Order)
                 .where(
                     Order.status.in_(("created", "pending_payment")),
@@ -658,7 +671,7 @@ async def expire_orders(
                     # legacy offline-PO orders (archived B2B invoices): expires_at was a due date
                     Order.gateway.is_distinct_from("offline_po"),
                 )
-                .with_for_update(skip_locked=True)
+                .with_for_update(skip_locked=True),
             )
         )
         .scalars()
@@ -680,7 +693,7 @@ async def expire_orders(
         o.status = "expired"
         await release_coupon(session, o.id)
         out["expired"] += 1
-    await session.flush()
+    await ds.flush(session)
     return out
 
 
@@ -695,17 +708,7 @@ def fiscal_year(d: date) -> str:
 async def allocate_number(session: AsyncSession, series: str, issue_date: date) -> str:
     """Gap-free per series and FY: the row lock is held until the transaction commits."""
     fy = fiscal_year(issue_date)
-    n = (
-        await session.execute(
-            text(
-                "INSERT INTO invoice_sequences (series, fiscal_year, next_value) VALUES (:s, :fy, 2) "
-                "ON CONFLICT (series, fiscal_year) "
-                "DO UPDATE SET next_value = invoice_sequences.next_value + 1 "
-                "RETURNING next_value - 1"
-            ),
-            {"s": series, "fy": fy},
-        )
-    ).scalar_one()
+    n = await ds.allocate_invoice_value(session, series, fy)
     return f"{series}/{fy[2:4]}{fy[5:7]}/{int(n):06d}"
 
 
@@ -713,11 +716,10 @@ async def _buyer_name(session: AsyncSession, order: Order) -> str:
     if order.billing_name:
         return order.billing_name
     if order.user_id:
-        from app.modules.identity.models import UserProfile
+        from app.modules.identity import public as identity
 
-        name = (
-            await session.execute(select(UserProfile.full_name).where(UserProfile.user_id == order.user_id))
-        ).scalar_one_or_none()
+        profile = await identity.get_profile(session, order.user_id)
+        name = profile.full_name if profile is not None else None
         if name:
             return str(name)
     return "Customer"
@@ -725,17 +727,20 @@ async def _buyer_name(session: AsyncSession, order: Order) -> str:
 
 async def issue_tax_invoice(session: AsyncSession, order: Order) -> Invoice:
     existing = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(Invoice).where(
                 Invoice.order_id == order.id,
                 Invoice.invoice_type == "tax_invoice",
                 Invoice.status == "issued",
-            )
+            ),
         )
     ).scalar_one_or_none()
     if existing is not None:
         return existing
-    items = (await session.execute(select(OrderItem).where(OrderItem.order_id == order.id))).scalars().all()
+    items = (
+        (await ds.execute(session, select(OrderItem).where(OrderItem.order_id == order.id))).scalars().all()
+    )
     today = ist_date(utcnow())
     s = policy.commerce_settings()
     inv = Invoice(
@@ -756,8 +761,8 @@ async def issue_tax_invoice(session: AsyncSession, order: Order) -> Invoice:
         igst_paise=sum(i.igst_paise for i in items),
         total_paise=sum(i.total_paise for i in items),
     )
-    session.add(inv)
-    await session.flush()
+    ds.add(session, inv)
+    await ds.flush(session)
     await emit_event(
         session,
         "invoice.issued",
@@ -772,15 +777,16 @@ async def issue_credit_note(
     session: AsyncSession, order: Order, amount_paise: int, *, refund: Refund | None = None
 ) -> Invoice:
     original = (
-        await session.execute(
-            select(Invoice).where(Invoice.order_id == order.id, Invoice.invoice_type == "tax_invoice")
+        await ds.execute(
+            session,
+            select(Invoice).where(Invoice.order_id == order.id, Invoice.invoice_type == "tax_invoice"),
         )
     ).scalar_one_or_none()
     if original is None:
         raise ProblemError("invalid_state_transition", current_state="no_invoice", allowed=[])
     if refund is not None:
         dup = (
-            await session.execute(select(Invoice).where(Invoice.refund_id == refund.id))
+            await ds.execute(session, select(Invoice).where(Invoice.refund_id == refund.id))
         ).scalar_one_or_none()
         if dup is not None:
             return dup
@@ -793,7 +799,9 @@ async def issue_credit_note(
         )
     else:
         items = (
-            (await session.execute(select(OrderItem).where(OrderItem.order_id == order.id))).scalars().all()
+            (await ds.execute(session, select(OrderItem).where(OrderItem.order_id == order.id)))
+            .scalars()
+            .all()
         )
         rate = Decimal(items[0].gst_rate) if items else policy.DEFAULT_GST_RATE
         line = split_inclusive(amount_paise, rate, intra_state=original.igst_paise == 0)
@@ -819,8 +827,8 @@ async def issue_credit_note(
         igst_paise=ig,
         total_paise=taxable + c + sg + ig,
     )
-    session.add(cn)
-    await session.flush()
+    ds.add(session, cn)
+    await ds.flush(session)
     return cn
 
 
@@ -898,12 +906,13 @@ async def create_subscription(
     if not gplan:
         raise ProblemError("service_unavailable", detail="This plan is not yet available for subscription.")
     existing = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(Subscription).where(
                 Subscription.user_id == principal.user_id,
                 Subscription.plan_id == plan.id,
                 Subscription.status.in_(("authenticated", "active", "pending", "halted")),
-            )
+            ),
         )
     ).scalar_one_or_none()
     if existing is not None:
@@ -913,6 +922,7 @@ async def create_subscription(
             ends_at=existing.current_period_end.isoformat() if existing.current_period_end else None,
         )
     total_count = 120 if plan.interval_unit == "month" else 10
+    await ds.before_side_effect(session)
     try:
         gs = await gw.create_subscription(str(gplan), total_count, {"user_ref": str(principal.user_id)})
     except GatewayUnavailable as e:
@@ -931,8 +941,8 @@ async def create_subscription(
         billing_state_code=billing_state_code,
         billing_gstin=billing_gstin,
     )
-    session.add(sub)
-    await session.flush()
+    ds.add(session, sub)
+    await ds.flush(session)
     await audit(
         session,
         principal,
@@ -963,12 +973,8 @@ async def apply_subscription_state(
         sub.status = gs.status
     if sub.status in ("cancelled",) and sub.cancelled_at is None:
         sub.cancelled_at = utcnow()
-    await session.flush()
-    e = (
-        await session.execute(
-            select(Entitlement).where(Entitlement.subscription_id == sub.id).with_for_update()
-        )
-    ).scalar_one_or_none()
+    await ds.flush(session)
+    e = await ent_pub.for_subscription(session, sub.id, for_update=True)
     if (
         renewed
         and sub.scheduled_price_id is not None
@@ -978,7 +984,7 @@ async def apply_subscription_state(
         and sub.scheduled_change_at <= sub.current_period_start + timedelta(minutes=5)
     ):
         await apply_scheduled_plan_change(session, sub, e, actor)
-    plan = (await session.execute(select(Plan).where(Plan.id == sub.plan_id))).scalar_one()
+    plan = (await ds.execute(session, select(Plan).where(Plan.id == sub.plan_id))).scalar_one()
     if sub.status == "active" and sub.current_period_end is not None:
         sub.grace_until = None
         if e is None:
@@ -1020,7 +1026,7 @@ async def apply_subscription_state(
             aggregate_type="subscription",
             aggregate_id=sub.id,
         )
-    await session.flush()
+    await ds.flush(session)
 
 
 async def record_subscription_charge(
@@ -1028,17 +1034,17 @@ async def record_subscription_charge(
 ) -> Payment:
     """Each captured mandate debit becomes a paid order + payment + tax invoice."""
     existing = (
-        await session.execute(
-            select(Payment).where(Payment.gateway == gw.name, Payment.gateway_payment_id == gp.id)
+        await ds.execute(
+            session, select(Payment).where(Payment.gateway == gw.name, Payment.gateway_payment_id == gp.id)
         )
     ).scalar_one_or_none()
     if existing is not None:
         return await upsert_payment(session, gw.name, gp, subscription=sub)
     if gp.status != "captured":
         return await upsert_payment(session, gw.name, gp, subscription=sub)
-    price = (await session.execute(select(Price).where(Price.id == sub.price_id))).scalar_one()
-    plan = (await session.execute(select(Plan).where(Plan.id == sub.plan_id))).scalar_one()
-    product = (await session.execute(select(Product).where(Product.id == plan.product_id))).scalar_one()
+    price = (await ds.execute(session, select(Price).where(Price.id == sub.price_id))).scalar_one()
+    plan = (await ds.execute(session, select(Plan).where(Plan.id == sub.plan_id))).scalar_one()
+    product = (await ds.execute(session, select(Product).where(Product.id == plan.product_id))).scalar_one()
     from app.modules.commerce.pricing import is_intra_state
 
     intra, pos = is_intra_state(sub.billing_state_code)
@@ -1064,9 +1070,10 @@ async def record_subscription_charge(
         expires_at=now,
         paid_at=now,
     )
-    session.add(order)
-    await session.flush()
-    session.add(
+    ds.add(session, order)
+    await ds.flush(session)
+    ds.add(
+        session,
         OrderItem(
             id=uuid7(),
             order_id=order.id,
@@ -1082,9 +1089,9 @@ async def record_subscription_charge(
             total_paise=gp.amount_paise,
             gst_rate=product.gst_rate,
             sac_code=product.sac_code,
-        )
+        ),
     )
-    await session.flush()
+    await ds.flush(session)
     pay = await upsert_payment(session, gw.name, gp, order=order, subscription=sub)
     # A prorated upgrade amount (COM-14) is billed as an add-on with this debit.
     sub.pending_addon_paise = 0
@@ -1113,6 +1120,7 @@ async def cancel_subscription(
     already paid for are unaffected (BR-ENT-07)."""
     if sub.status in TERMINAL_SUB:
         raise ProblemError("invalid_state_transition", current_state=sub.status, allowed=list(ACTIVE_SUB))
+    await ds.before_side_effect(session)
     try:
         gs = await gw.cancel_subscription(sub.gateway_subscription_id, at_cycle_end=not immediate)
     except GatewayUnavailable as e:
@@ -1122,7 +1130,7 @@ async def cancel_subscription(
     if immediate or gs.status == "cancelled":
         sub.status = "cancelled"
         sub.cancelled_at = utcnow()
-    await session.flush()
+    await ds.flush(session)
     await audit(
         session,
         actor_principal,
@@ -1193,11 +1201,12 @@ async def _cancel_confirmation(
 
 async def captured_payment(session: AsyncSession, order_id: uuid.UUID) -> Payment | None:
     return (
-        await session.execute(
+        await ds.execute(
+            session,
             select(Payment)
             .where(Payment.order_id == order_id, Payment.status.in_(("captured", "partially_refunded")))
             .order_by(Payment.created_at)
-            .limit(1)
+            .limit(1),
         )
     ).scalar_one_or_none()
 
@@ -1216,14 +1225,16 @@ async def refund_eligibility(
     days = (now - order.paid_at).total_seconds() / 86400
     if days > policy.REFUND_WINDOW_DAYS:
         reasons.append("window_passed")
-    items = (await session.execute(select(OrderItem).where(OrderItem.order_id == order.id))).scalars().all()
+    items = (
+        (await ds.execute(session, select(OrderItem).where(OrderItem.order_id == order.id))).scalars().all()
+    )
     pct = Decimal("0")
     cert = False
     deduction = 0
     assert order.user_id is not None or order.organization_id is not None
     uid = order.user_id
     for it in items:
-        product = (await session.execute(select(Product).where(Product.id == it.product_id))).scalar_one()
+        product = (await ds.execute(session, select(Product).where(Product.id == it.product_id))).scalar_one()
         if uid is not None:
             pct = max(pct, await usage.consumption_pct(session, uid, product.id))
             cert = cert or await usage.certificate_issued(session, uid, product.id)
@@ -1236,15 +1247,14 @@ async def refund_eligibility(
             from app.modules.commerce.models import ProductItem
 
             pi = (
-                await session.execute(
+                await ds.execute(
+                    session,
                     select(ProductItem).where(
                         ProductItem.product_id == product.id, ProductItem.feature_key == "mentor_sessions"
-                    )
+                    ),
                 )
             ).scalar_one_or_none()
-            e = (
-                await session.execute(select(Entitlement).where(Entitlement.order_item_id == it.id))
-            ).scalar_one_or_none()
+            e = (await ent_pub.for_order_items(session, [it.id])).get(it.id)
             if pi is not None and pi.quantity and e is not None and e.mentor_sessions_remaining is not None:
                 used = pi.quantity - e.mentor_sessions_remaining
                 deduction += max(used, 0) * int(pi.unit_price_paise or 0)
@@ -1254,17 +1264,19 @@ async def refund_eligibility(
         reasons.append("certificate_issued")
     if order.subscription_id is not None:
         first = (
-            await session.execute(
-                select(func.min(Order.created_at)).where(Order.subscription_id == order.subscription_id)
+            await ds.execute(
+                session,
+                select(func.min(Order.created_at)).where(Order.subscription_id == order.subscription_id),
             )
         ).scalar_one()
         if first is not None and order.created_at > first:
             reasons.append("subscription_renewal")
     already = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(func.coalesce(func.sum(Refund.amount_paise), 0)).where(
                 Refund.order_id == order.id, Refund.status.in_(("approved", "processing", "processed"))
-            )
+            ),
         )
     ).scalar_one()
     refundable = max(order.total_paise - int(already) - deduction, 0)
@@ -1297,10 +1309,11 @@ def refund_json(r: Refund) -> dict[str, Any]:
 async def committed_refunds(session: AsyncSession, order_id: uuid.UUID) -> int:
     return int(
         (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(func.coalesce(func.sum(Refund.amount_paise), 0)).where(
                     Refund.order_id == order_id, Refund.status.in_(COMMITTED_REFUND)
-                )
+                ),
             )
         ).scalar_one()
     )
@@ -1348,10 +1361,11 @@ async def create_refund_request(
     idempotency_key: str,
 ) -> tuple[Refund, dict[str, Any]]:
     open_ = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(func.count())
             .select_from(Refund)
-            .where(Refund.order_id == order.id, Refund.status.in_(OPEN_REFUND))
+            .where(Refund.order_id == order.id, Refund.status.in_(OPEN_REFUND)),
         )
     ).scalar_one()
     if open_:
@@ -1378,8 +1392,8 @@ async def create_refund_request(
         idempotency_key=idempotency_key,
         submit_attempts=0,
     )
-    session.add(r)
-    await session.flush()
+    ds.add(session, r)
+    await ds.flush(session)
     await audit(
         session,
         principal,
@@ -1398,23 +1412,16 @@ async def create_refund_request(
 async def _order_entitlements_for_update(
     session: AsyncSession, order: Order, order_item_ids: list[uuid.UUID] | None
 ) -> list[Entitlement]:
-    q = (
-        select(Entitlement)
-        .join(OrderItem, OrderItem.id == Entitlement.order_item_id, isouter=True)
-        .join(CouponRedemption, CouponRedemption.id == Entitlement.coupon_redemption_id, isouter=True)
-        .where((OrderItem.order_id == order.id) | (CouponRedemption.order_id == order.id))
-    )
+    items, reds = await _order_source_ids(session, order.id)
     if order_item_ids:
-        q = q.where(OrderItem.id.in_(order_item_ids))
-    ents = list((await session.execute(q.with_for_update(of=Entitlement))).scalars().all())
+        wanted = set(order_item_ids)
+        items, reds = [i for i in items if i in wanted], []
+    ents: list[Entitlement] = [
+        *(await ent_pub.for_order_items(session, items, for_update=True)).values(),
+        *(await ent_pub.for_coupon_redemptions(session, reds, for_update=True)).values(),
+    ]
     if order.subscription_id is not None and not order_item_ids:
-        sub_ent = (
-            await session.execute(
-                select(Entitlement)
-                .where(Entitlement.subscription_id == order.subscription_id)
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
+        sub_ent = await ent_pub.for_subscription(session, order.subscription_id, for_update=True)
         if sub_ent is not None:
             ents.append(sub_ent)
     return ents
@@ -1425,21 +1432,20 @@ async def _course_still_covered(
 ) -> bool:
     from app.modules.commerce.models import ProductItem
 
-    q = select(Entitlement).where(Entitlement.user_id == user_id, Entitlement.status.in_(("active", "grace")))
-    if excluded:
-        q = q.where(Entitlement.id.not_in(excluded))
-    for e in (await session.execute(q)).scalars().all():
+    live = await ent_pub.user_entitlements(session, user_id, statuses=("active", "grace"))
+    for e in (x for x in live if x.id not in excluded):
         if e.course_id == course_id or e.feature_key == "all_courses":
             return True
         if e.product_id is not None:
             hit = (
-                await session.execute(
+                await ds.execute(
+                    session,
                     select(func.count())
                     .select_from(ProductItem)
                     .where(
                         ProductItem.product_id == e.product_id,
                         (ProductItem.course_id == course_id) | (ProductItem.feature_key == "all_courses"),
-                    )
+                    ),
                 )
             ).scalar_one()
             if hit:
@@ -1456,7 +1462,8 @@ async def _revoke_certificates(
     still covers that course. Uses the learning module's ``revoke_certificate`` (audited,
     emits ``learning.certificate_revoked``)."""
     from app.modules.commerce.models import ProductItem
-    from app.modules.learning.models import Certificate
+    from app.modules.learning import public as learning
+    from app.modules.learning.public import Certificate
     from app.modules.learning.service import revoke_certificate
 
     uid = order.user_id
@@ -1468,22 +1475,15 @@ async def _revoke_certificates(
         if e.product_id is None:
             continue
         items = (
-            (await session.execute(select(ProductItem).where(ProductItem.product_id == e.product_id)))
+            (await ds.execute(session, select(ProductItem).where(ProductItem.product_id == e.product_id)))
             .scalars()
             .all()
         )
         course_ids = {i.course_id for i in items if i.course_id}
-        conds: list[ColumnElement[bool]] = []
-        if course_ids:
-            conds.append(Certificate.course_id.in_(course_ids))
-        if any(i.feature_key == "all_courses" for i in items):
-            conds.append(Certificate.issued_at >= e.starts_at)
-        if not conds:
-            continue
-        q = select(Certificate).where(
-            Certificate.user_id == uid, Certificate.revoked_at.is_(None), or_(*conds)
-        )
-        for c in (await session.execute(q.with_for_update())).scalars():
+        since = e.starts_at if any(i.feature_key == "all_courses" for i in items) else None
+        for c in await learning.certificates_for_refund(
+            session, uid, course_ids=course_ids, issued_since=since
+        ):
             certs[c.id] = c
     n = 0
     for c in certs.values():
@@ -1522,13 +1522,13 @@ async def execute_refund(
         raise ProblemError("invalid_state_transition", current_state=r.status, allowed=["requested"])
     actor = ent.Actor.user(approver)
     order = (
-        await session.execute(select(Order).where(Order.id == r.order_id).with_for_update())
+        await ds.execute(session, select(Order).where(Order.id == r.order_id).with_for_update())
     ).scalar_one()
     await check_refund_amount(session, order, r.amount_paise)
     order.refunded_paise = await committed_refunds(session, order.id) + r.amount_paise
     r.status = "approved"
     r.approved_by = approver.user_id if approver.user_id != r.requested_by else None
-    await session.flush()
+    await ds.flush(session)
     revoked: list[Entitlement] = []
     if order_item_ids or r.reason_code not in NON_REVOKING_REFUND_REASONS:
         for e in await _order_entitlements_for_update(session, order, order_item_ids):
@@ -1577,7 +1577,7 @@ async def submit_refund(session: AsyncSession, gw: PaymentGateway, r: Refund) ->
     adopted instead of re-created. Returns True when the provider has it (``processing``)."""
     if r.status != "approved" or r.gateway_refund_id is not None:
         return False
-    pay = (await session.execute(select(Payment).where(Payment.id == r.payment_id))).scalar_one()
+    pay = (await ds.execute(session, select(Payment).where(Payment.id == r.payment_id))).scalar_one()
     now = utcnow()
     try:
         gr: GwRefund | None = None
@@ -1587,12 +1587,13 @@ async def submit_refund(session: AsyncSession, gw: PaymentGateway, r: Refund) ->
                     gr = x
                     break
         if gr is None:
+            await ds.before_side_effect(session)
             gr = await gw.create_refund(pay.gateway_payment_id, r.amount_paise, {"refund_id": str(r.id)})
     except GatewayUnavailable as e:
         r.submit_attempts += 1
         r.next_submit_at = now + _submit_backoff(r.submit_attempts)
         r.last_error = f"provider_unavailable: {e}"[:500]
-        await session.flush()
+        await ds.flush(session)
         log.warning("refund_submit_deferred", refund_id=str(r.id), attempts=r.submit_attempts)
         if r.submit_attempts == policy.REFUND_SUBMIT_ALERT_AFTER:
             await emit_event(
@@ -1616,7 +1617,7 @@ async def submit_refund(session: AsyncSession, gw: PaymentGateway, r: Refund) ->
     r.status = "processing"
     r.next_submit_at = None
     r.last_error = None
-    await session.flush()
+    await ds.flush(session)
     if gr.status in ("processed", "failed"):  # adopted an already-settled provider refund
         await apply_refund_state(session, gr, ent.Actor.system("commerce.refund_submit"))
     return True
@@ -1630,7 +1631,8 @@ async def retry_refund_submissions(
     now = now or utcnow()
     rows = (
         (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(Refund)
                 .where(
                     Refund.status == "approved",
@@ -1639,7 +1641,7 @@ async def retry_refund_submissions(
                 )
                 .order_by(Refund.created_at)
                 .limit(limit)
-                .with_for_update(skip_locked=True)
+                .with_for_update(skip_locked=True),
             )
         )
         .scalars()
@@ -1659,7 +1661,7 @@ async def apply_refund_state(session: AsyncSession, gr: GwRefund, actor: ent.Act
     """Apply a fetched refund (``refund.processed`` before ``refund.created`` is fine).
     Terminal states (``processed``/``failed``/``rejected``) are never changed again."""
     r = (
-        await session.execute(select(Refund).where(Refund.gateway_refund_id == gr.id).with_for_update())
+        await ds.execute(session, select(Refund).where(Refund.gateway_refund_id == gr.id).with_for_update())
     ).scalar_one_or_none()
     if r is None and gr.notes.get("refund_id"):
         try:
@@ -1667,28 +1669,29 @@ async def apply_refund_state(session: AsyncSession, gr: GwRefund, actor: ent.Act
         except ValueError:
             return None
         r = (
-            await session.execute(select(Refund).where(Refund.id == rid).with_for_update())
+            await ds.execute(session, select(Refund).where(Refund.id == rid).with_for_update())
         ).scalar_one_or_none()
         if r is not None and r.gateway_refund_id is None:
             r.gateway_refund_id = gr.id
     if r is None or r.status in ("processed", "rejected", "failed", "requested"):
         return r
     order = (
-        await session.execute(select(Order).where(Order.id == r.order_id).with_for_update())
+        await ds.execute(session, select(Order).where(Order.id == r.order_id).with_for_update())
     ).scalar_one()
     if gr.status == "processed":
         r.status = "processed"
         r.processed_at = utcnow()
         refunded = (
-            await session.execute(
+            await ds.execute(
+                session,
                 select(func.coalesce(func.sum(Refund.amount_paise), 0)).where(
                     Refund.order_id == order.id, (Refund.status == "processed") | (Refund.id == r.id)
-                )
+                ),
             )
         ).scalar_one()
         full = int(refunded) >= order.total_paise
         order.status = "refunded" if full else "partially_refunded"
-        pay = (await session.execute(select(Payment).where(Payment.id == r.payment_id))).scalar_one()
+        pay = (await ds.execute(session, select(Payment).where(Payment.id == r.payment_id))).scalar_one()
         new_pay = "refunded" if full else "partially_refunded"
         if PAY_RANK[new_pay] > PAY_RANK.get(pay.status, 0):
             pay.status = new_pay
@@ -1701,7 +1704,7 @@ async def apply_refund_state(session: AsyncSession, gr: GwRefund, actor: ent.Act
         )
     elif gr.status == "failed":
         r.status = "failed"
-        await session.flush()
+        await ds.flush(session)
         order.refunded_paise = await committed_refunds(session, order.id)
         restored = 0
         for e in await ent.revoked_by_source(session, r.id):
@@ -1730,7 +1733,7 @@ async def apply_refund_state(session: AsyncSession, gr: GwRefund, actor: ent.Act
         )
     elif r.status == "approved":
         r.status = "processing"
-    await session.flush()
+    await ds.flush(session)
     return r
 
 
@@ -1743,40 +1746,28 @@ async def apply_dispute(
     """BR-ENT-11 for one-time purchases **and** subscription debits (COM-05): the
     subscription's entitlement is suspended / restored / revoked like an order's."""
     pay = (
-        await session.execute(
+        await ds.execute(
+            session,
             select(Payment).where(
                 Payment.gateway == gw.name, Payment.gateway_payment_id == payment_gateway_id
-            )
+            ),
         )
     ).scalar_one_or_none()
     if pay is None or (pay.order_id is None and pay.subscription_id is None):
         return
     ents: list[Entitlement] = []
     if pay.order_id is not None:
-        ents += list(
-            (
-                await session.execute(
-                    select(Entitlement)
-                    .join(OrderItem, OrderItem.id == Entitlement.order_item_id)
-                    .where(OrderItem.order_id == pay.order_id)
-                    .with_for_update(of=Entitlement)
-                )
-            )
-            .scalars()
-            .all()
-        )
+        items, _reds = await _order_source_ids(session, pay.order_id)
+        if items:
+            ents += list((await ent_pub.for_order_items(session, items, for_update=True)).values())
     sub_id = pay.subscription_id
     if sub_id is None and pay.order_id is not None:
         sub_id = (
-            await session.execute(select(Order.subscription_id).where(Order.id == pay.order_id))
+            await ds.execute(session, select(Order.subscription_id).where(Order.id == pay.order_id))
         ).scalar_one_or_none()
     if sub_id is not None:
-        sub_ent = (
-            await session.execute(
-                select(Entitlement).where(Entitlement.subscription_id == sub_id).with_for_update()
-            )
-        ).scalar_one_or_none()
-        if sub_ent is not None and sub_ent not in ents:
+        sub_ent = await ent_pub.for_subscription(session, sub_id, for_update=True)
+        if sub_ent is not None and all(x.id != sub_ent.id for x in ents):
             ents.append(sub_ent)
     if status in ("open", "under_review"):
         for e in ents:
@@ -1790,7 +1781,7 @@ async def apply_dispute(
             await ent.revoke(session, e, actor, reason_code="chargeback")
         if pay.order_id is not None:
             order = (
-                await session.execute(select(Order).where(Order.id == pay.order_id).with_for_update())
+                await ds.execute(session, select(Order).where(Order.id == pay.order_id).with_for_update())
             ).scalar_one()
             order.status = "refunded"
             order.refunded_paise = order.total_paise
@@ -1802,7 +1793,7 @@ async def apply_dispute(
                 aggregate_id=order.id,
             )
     await audit(session, actor.audit_actor(), "payment.dispute", "payment", pay.id, after={"status": status})
-    await session.flush()
+    await ds.flush(session)
 
 
 async def apply_scheduled_plan_change(
@@ -1814,8 +1805,8 @@ async def apply_scheduled_plan_change(
     old_price = sub.price_id
     sub.plan_id, sub.price_id = sub.scheduled_plan_id, sub.scheduled_price_id
     sub.scheduled_plan_id = sub.scheduled_price_id = sub.scheduled_change_at = None
-    await session.flush()
-    new_plan = (await session.execute(select(Plan).where(Plan.id == sub.plan_id))).scalar_one()
+    await ds.flush(session)
+    new_plan = (await ds.execute(session, select(Plan).where(Plan.id == sub.plan_id))).scalar_one()
     if e is not None:
         await ent.change_product(
             session, e, new_plan.product_id, actor, reason="subscription_downgrade", source_ref=sub.id

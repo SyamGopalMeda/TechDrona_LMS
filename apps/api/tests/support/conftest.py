@@ -35,3 +35,11 @@ def audited(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     monkeypatch.setattr(sr, "audit", spy)
     return calls
+
+
+# Store matrix (docs/firebase/p2.md): ``@pytest.mark.usefixtures("support_backend")`` runs a test
+# on Postgres and on the Firestore emulator (``TD_STORE_SUPPORT``).
+from tests.firestore.conftest import firestore_emulator  # noqa: E402, F401
+from tests.firestore.matrix import backend_fixture  # noqa: E402
+
+support_backend = backend_fixture("support")

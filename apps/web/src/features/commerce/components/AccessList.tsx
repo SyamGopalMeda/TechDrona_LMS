@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { Badge, Card, EmptyState, type BadgeTone } from "@/components/ui";
+import { StatusBadge, Card, EmptyState, buttonClasses } from "@/components/ui";
+import { LMS_COURSES_HREF } from "@/lib/site/website";
 import { formatDate, humanize } from "@/features/catalog/lib/format";
 import { ContentErrorState, LoadingBlock } from "@/features/learning/components/States";
 import { useResource } from "@/features/learning/lib/use-resource";
 import type { EntitlementDto, EntitlementsResponse } from "../lib/types";
 
-const TONE: Record<string, BadgeTone> = { active: "success", grace: "warning", expired: "neutral", suspended: "danger", revoked: "danger" };
 
 const SOURCE: Record<string, string> = {
   placement_package: "Placement package",
@@ -18,6 +18,18 @@ const SOURCE: Record<string, string> = {
   trial: "Trial",
   free_enrolment: "Free enrolment",
 };
+
+/** Known access keys the api may send as a title; anything else that looks like a key is humanised. */
+const KEY_TITLES: Record<string, string> = {
+  all_practice: "All practice questions",
+};
+
+/** A readable title: API titles pass through, raw keys ("all_practice") never reach students. */
+export function accessTitle(title: string | null | undefined, sourceType: string): string {
+  if (!title) return humanize(sourceType);
+  if (/^[a-z0-9]+(_[a-z0-9]+)+$/.test(title)) return KEY_TITLES[title] ?? humanize(title);
+  return title;
+}
 
 function Quotas({ quotas }: { quotas: EntitlementDto["quotas"] }) {
   const entries = Object.entries(quotas ?? {}).filter(([, v]) => typeof v === "number");
@@ -50,7 +62,7 @@ export function AccessList() {
         </p>
       ) : null}
       {rows.length === 0 ? (
-        <EmptyState title="Nothing here yet" description="Free courses and anything you buy or are granted appear here." action={<Link href="/pricing" className="font-medium text-fg-link">See plans</Link>} />
+        <EmptyState icon="lock" title="Nothing here yet" description="Free courses and anything you buy or are granted appear here." action={<Link href={LMS_COURSES_HREF} className={buttonClasses({ variant: "secondary", size: "sm" })}>Explore courses</Link>} />
       ) : (
         <ul className="grid gap-4 md:grid-cols-2" aria-label="Your access">
           {rows.map((e) => {
@@ -59,8 +71,8 @@ export function AccessList() {
             <li key={e.entitlement_id}>
               <Card>
                 <div className="flex items-start justify-between gap-2">
-                  <h2 className="font-display text-base font-semibold text-fg">{e.title ?? humanize(e.source_type)}</h2>
-                  <Badge tone={TONE[status] ?? "neutral"}>{status === "grace" ? "Payment due" : humanize(status)}</Badge>
+                  <h2 className="font-display text-base font-semibold text-fg">{accessTitle(e.title, e.source_type)}</h2>
+                  <StatusBadge status={status} label={status === "grace" ? "Payment due" : humanize(status)} />
                 </div>
                 <p className="mt-1 text-sm text-fg-secondary">
                   {SOURCE[e.source_type] ?? humanize(e.source_type)}
