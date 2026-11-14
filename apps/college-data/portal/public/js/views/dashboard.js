@@ -6,7 +6,7 @@
 import { h, fmt, daysUntil, debounce, today } from '../ui/h.js';
 import { barChart, lineChart, columnChart, paceMeter, funnel, progressRing, emptyChart } from '../ui/charts.js';
 import { getScope, scopeLabel, scopeRows, inScope, targetDistrictIds, targetGroups } from '../state.js';
-import { telLink, logCall, callStatusBadge, contactLabel } from './forms.js';
+import { telLink, logCall, callStatusBadge, contactLabel, CALL_STATUS } from './forms.js';
 import { downloadCsv, STATUS_META, statusMeta, historyMode } from '../ui/components.js';
 
 /** GET with the global district scope (`districts=`); falls back to a plain GET on older api.js builds. */
@@ -254,7 +254,7 @@ export const DIAG_INFO = {
   ambassador_gap: { title: 'Ambassadors missing', text: 'Some relevant branches have no active ambassador, so nobody is reaching those students.', cta: 'Show these colleges', filter: ['diagnosis', 'ambassador_gap'] },
   low_outreach: { title: 'Too little outreach', text: 'Fewer students have been reached than this point in the campaign needs.', cta: 'Show these colleges', filter: ['diagnosis', 'low_outreach'] },
   low_conversion: { title: 'Low conversion', text: 'Students are being reached, but too few of them are enrolling.', cta: 'Show these colleges', filter: ['diagnosis', 'low_conversion'] },
-  unrealistic_target: { title: 'Target looks too high', text: 'The target is more than half of the eligible students, so it is unlikely to be met.', cta: 'Review targets', href: '#/targets' },
+  unrealistic_target: { title: 'Target looks too high', text: 'The target is more than half of the likely prospects, so it is unlikely to be met.', cta: 'Review targets', href: '#/targets' },
   behind_pace: { title: 'Behind pace', text: 'Enrollments are behind the pace needed to reach the target by the deadline.', cta: 'Show these colleges', filter: ['diagnosis', 'behind_pace'] },
 };
 const DIAG_ORDER = ['ambassador_gap', 'low_outreach', 'low_conversion', 'unrealistic_target', 'behind_pace'];
@@ -416,7 +416,6 @@ export async function renderState(el, params, ctx) {
   const { data, errors } = await fetchAll({
     summary: getScoped(ctx, '/summary', { scope: 'state' }),
     road: getScoped(ctx, '/target-dashboard', { scope: 'state' }),
-    plan: getScoped(ctx, '/plan'),
     colleges: getScoped(ctx, '/colleges'),
     attention: getScoped(ctx, '/attention', { scope: 'state' }),
     followups: getScoped(ctx, '/followups', { status: 'open' }),
@@ -446,25 +445,31 @@ export async function renderState(el, params, ctx) {
     : data.people ? unassignedOf(itemsOf(data.people).filter((p) => collegeOk(p.college_id))).length : null;
 
   const shellMap = el.closest('[data-layout]')?.dataset.layout === 'explore' && typeof ctx.mountMap !== 'function';
+  // The district selector lives in the top bar on every page, so Home no longer repeats it (owner review 2026-11-14).
+  const homeSub = 'Paid enrollments against the target, and what needs doing next.';
   const head = typeof ctx.ui.pageHeader === 'function'
-    ? ctx.ui.pageHeader({ eyebrow: 'Outreach programme', title: 'Home', sub: scopePill(ctx) })
-    : h('header', { class: 'vd-pagehead' }, h('h1', null, 'Home'), scopePill(ctx));
+    ? ctx.ui.pageHeader({ title: 'Home', sub: homeSub })
+    : h('header', { class: 'vd-pagehead' }, h('h1', null, 'Home'), h('p', { class: 'vd-muted' }, homeSub));
 
   mount(el, 'v-dashboard',
     h('div', { class: ['vd-home', shellMap && 'is-narrow'] },
       head,
-      kpiStrip(ctx, S, data.road, data.plan, errors),
+      kpiStrip(ctx, S, data.road, errors),
       needsAttention(ctx, { S, colleges: collegesAll, unassignedTotal, perf: data.perf, errors, attention: data.attention }),
       shellMap ? null : mapPanel(ctx, collegesAll, data.meta),
       h('div', { class: 'vd-duo' },
         topCalls(ctx, data.queue, errors.queue),
         sectionEl(ctx, 'Next 14 days', upcoming(ctx, data.followups, data.exams, S, errors),
-          h('a', { href: '#/exams', class: 'vd-link' }, 'Exam calendar'), 'Follow-ups due and exam windows')),
+          h('a', { href: '#/exams', class: 'vd-link' }, 'Exam calendar'), 'Follow-ups due and exams coming up')),
       h('p', { class: 'vd-muted vd-small vd-home-foot' }, 'Charts, rankings, districts and courses are in ', h('a', { href: '#/analytics' }, 'Reports'), '.')));
 }
 
-/** Compact KPI strip: target, confirmed, remaining/exceeded, % achieved, pace + days left, team recruited vs needed. */
-function kpiStrip(ctx, S, T, plan, errors) {
+/**
+ * Compact KPI strip (owner review 2026-11-14): Target · Paid enrollments (with % of target) · Still needed · Needed each
+ * week. "Achieved %" is folded into the paid tile; the recruitment tiles (college leads / ambassadors needed by the
+ * research model) moved off Home — they stay in Reports › Recruitment structure and the Target planner.
+ */
+function kpiStrip(ctx, S, T, errors) {
   const prog = T && T.program ? T.program : null;
   const why = noTargetReason(T, S);
   const progNA = programmeNA(T);
@@ -480,51 +485,72 @@ function kpiStrip(ctx, S, T, plan, errors) {
   // F18: colour the pace tile from the server's pace status (too_early = grace period, never red)
   const paceSt = (T && (T.pace_status || (prog && prog.pace_status))) || S.pace_status || null;
   const behind = hasTarget && T && T.required_weekly != null && (T.current_weekly ?? 0) < T.required_weekly && paceSt !== 'too_early';
-  const tile = (label, value, sub, tone, href) => h(href ? 'a' : 'div', { class: ['vd-kt', tone && `is-${tone}`], href: href || null },
+  const tile = (label, value, sub, tone, href, tip) => h(href ? 'a' : 'div', { class: ['vd-kt', tone && `is-${tone}`], href: href || null, title: tip || null },
     h('span', { class: 'vd-kt-l' }, label), h('span', { class: 'vd-kt-v td-num' }, value), sub ? h('span', { class: 'vd-kt-s' }, sub) : null);
-  const tr = plan && plan.totals_research; const ta = plan && plan.totals_actual;
-  const leadsHave = ta ? ta.college_leads : S.college_leads; const ambHave = ta ? (ta.ambassadors ?? 0) + (ta.ambassador_leads ?? 0) : (S.ambassadors ?? 0) + (S.ambassador_leads ?? 0);
-  const need = (have, n) => (isNum(n) ? `${fmt.num(have ?? 0)} of ${fmt.num(n)}` : fmt.num(have ?? 0));
-  // D1 (v4.1): totals_actual counts every active person in scope; outside_plan = those at colleges not in the research plan
-  const outside = (k) => { const o = ta && ta.outside_plan; if (!o || typeof o !== 'object') return 0; return k === 'amb' ? (o.ambassadors ?? 0) + (o.ambassador_leads ?? 0) : (o[k] ?? 0); };
-  const recSub = (k, base) => (outside(k) > 0 ? `${base} · ${fmt.num(outside(k))} outside the plan` : base);
-  return h('section', { class: 'vd-kstrip', 'aria-label': 'Programme at a glance' },
-    why ? h('div', { class: 'vd-kt', title: why }, h('span', { class: 'vd-kt-l' }, 'Target'), h('span', { class: 'vd-kt-v vd-kt-v--text' }, 'No target'), h('span', { class: 'vd-kt-s' }, 'for this selection'))
-      : tile('Target', hasTarget ? fmt.num(target) : 'Not set', hasTarget ? (partialT && T.covers ? `covers ${fmt.num(T.covers.with_target)} of ${fmt.num(T.covers.total)} · not judged` : progNA ? `selected districts' targets` : prog ? (prog.is_default_selection ? 'target districts' : `${fmt.plural((prog.selected_districts || []).length || 0, 'district')} selected`) : (T && T.deadline ? `by ${fmt.date(T.deadline)}` : null)) : 'Set it in Targets', partialT ? 'warn' : null, hasTarget ? null : '#/targets'),
-    tile('Confirmed', fmt.num(confirmed ?? 0), 'paid enrollments'),
-    tile(exceeded ? 'Exceeded by' : 'Remaining', hasTarget && !partialT ? fmt.num(exceeded || remaining) : '—', hasTarget && !partialT ? (exceeded ? 'above target' : 'still needed') : null, exceeded ? 'good' : null),
-    tile('Achieved', hasTarget && !partialT ? pctText(pct) : '—', hasTarget && !partialT ? 'of target' : null),
-    tile('Needed per week', hasTarget && T ? (T.deadline_passed ? 'Passed' : rateText(T.required_weekly)) : '—',
-      T && hasTarget ? h('span', null, paceSt === 'too_early' ? 'too early to judge · ' : `now ${rateText(T.current_weekly)}/wk · `, daysLeftText(T.days_left, null)) : (errors.road ? 'Pace unavailable' : null),
-      behind ? 'bad' : paceSt === 'too_early' ? 'info' : hasTarget && T ? 'good' : null, '#/analytics'),
-    tile('College leads', need(leadsHave, tr && tr.college_leads), recSub('college_leads', tr ? 'recruited of needed' : 'recruited'), isNum(tr?.college_leads) && (leadsHave ?? 0) < tr.college_leads ? 'warn' : null, '#/people?seg=leads'),
-    tile('Ambassadors', need(ambHave, tr && tr.ambassadors), recSub('amb', tr ? 'recruited of needed' : 'incl. ambassador leads'), isNum(tr?.ambassadors) && ambHave < tr.ambassadors ? 'warn' : null, '#/people?seg=ambassadors'));
+  const deadline = (prog && prog.deadline) || (T && T.deadline) || S.deadline || null;
+  const judged = hasTarget && !partialT;
+  const targetSub = !hasTarget ? 'Set it in Targets'
+    : partialT && T.covers ? `only ${fmt.num(T.covers.with_target)} of ${fmt.num(T.covers.total)} places have a target`
+      : progNA ? 'sum of the selected districts’ targets'
+        : deadline ? `by ${fmt.date(deadline)}` : null;
+  // the pace tile: what is needed per week from today vs the pace of the last 14 days (server numbers only)
+  const paceSub = T && hasTarget
+    ? h('span', null, paceSt === 'too_early' ? 'too early to judge · ' : `current pace ${rateText(T.current_weekly)} a week · `, daysLeftText(T.days_left, null))
+    : (errors.road ? 'Pace unavailable' : null);
+  return h('section', { class: 'vd-kstrip vd-kstrip--4', 'aria-label': 'Progress to the target' },
+    why ? h('div', { class: 'vd-kt', title: why }, h('span', { class: 'vd-kt-l' }, 'Target'), h('span', { class: 'vd-kt-v vd-kt-v--text' }, 'No target'), h('span', { class: 'vd-kt-s' }, 'for these districts'))
+      : tile('Target', hasTarget ? fmt.num(target) : 'Not set', targetSub, partialT ? 'warn' : null, hasTarget ? null : '#/targets',
+        'Paid enrollments the programme aims for in the target districts'),
+    tile('Paid enrollments', fmt.num(confirmed ?? 0), judged ? `${pctText(pct)} of target` : 'confirmed and paid', null, null,
+      'Students who have paid. Leads, interested and applied students do not count until they pay.'),
+    tile(exceeded ? 'Above target by' : 'Still needed', judged ? fmt.num(exceeded || remaining) : '—', judged ? (exceeded ? 'more than the target' : 'to reach the target') : null, exceeded ? 'good' : null),
+    tile('Needed each week', hasTarget && T ? (T.deadline_passed ? 'Deadline passed' : rateText(T.required_weekly)) : '—', paceSub,
+      behind ? 'bad' : paceSt === 'too_early' ? 'info' : hasTarget && T ? 'good' : null, '#/analytics',
+      'Paid enrollments needed every week from today to reach the target by the deadline. Current pace = the last 14 days.'));
 }
 
-/** "Needs attention": four counts that each open a filtered list. */
+/** Plain-language definitions shown as tooltips wherever the team roles appear on Home. */
+export const ROLE_TIPS = {
+  college_lead: 'College lead: the student who runs Tech Drona outreach at one college. Ambassadors report to them.',
+  ambassador: 'Ambassador: a student who promotes Tech Drona in their own branch and brings in enrollments.',
+};
+
+/**
+ * "Needs attention" (owner review 2026-11-14): only counts someone can act on. "Overdue follow-ups" and "Colleges
+ * without a college lead" always show; "Ambassadors without a lead" and "Team members behind their target" only show
+ * when they are above 0 (they stay 0 until the team and person targets exist, so they were noise on day one).
+ */
 function needsAttention(ctx, { S, colleges, unassignedTotal, perf, errors, attention }) {
   const targetedOps = colleges.filter((c) => c.targeted && (c.op_status || 'pending') === 'operational');
   const noLead = targetedOps.filter((c) => !leadOf(c));
   const pRows = perfRows(perf);
   const behind = perf ? pRows.filter((r) => r.status === 'behind') : null;
-  const card = ({ n, title, text, href, tone, icon, na }) => h('a', { href, class: ['vd-need', `is-${n > 0 ? tone : 'ok'}`, na && 'is-na'] },
+  const withTarget = pRows.filter((r) => r.target > 0).length;
+  const card = ({ n, title, text, href, tone, icon, tip }) => h('a', { href, class: ['vd-need', `is-${n > 0 ? tone : 'ok'}`], title: tip || null },
     h('span', { class: 'vd-need-icon' }, ctx.ui.icon(n > 0 ? icon : 'check', { size: 20 })),
     h('span', { class: 'vd-need-body' },
       h('span', { class: 'vd-need-n td-num' }, n === null ? '—' : fmt.num(n)),
-      h('strong', null, title), h('span', { class: 'vd-muted vd-small' }, text)),
+      h('strong', null, title), text ? h('span', { class: 'vd-muted vd-small' }, text) : null),
     ctx.ui.icon('chevron', { size: 16, class: 'vd-need-go' }));
-  const others = (attention || []).filter((r) => r.type !== 'group');
+  const cards = [
+    card({ n: isNum(S.followups_overdue) ? S.followups_overdue : null, title: 'Overdue follow-ups', text: isNum(S.followups_open) ? `${fmt.num(S.followups_open)} open in total` : '', href: '#/followups?tab=overdue', tone: 'bad', icon: 'followup',
+      tip: 'Planned calls or visits whose due date has passed' }),
+    card({ n: noLead.length, title: 'Colleges without a college lead', text: `of ${fmt.plural(targetedOps.length, 'college')} we are targeting`, href: '#/colleges?team=no_lead&targeted=1', tone: 'bad', icon: 'lead',
+      tip: `${ROLE_TIPS.college_lead} Counts open colleges in the target districts only.` }),
+    unassignedTotal > 0 ? card({ n: unassignedTotal, title: 'Ambassadors without a lead', text: 'not linked to a college lead yet', href: '#/people?seg=unassigned', tone: 'warn', icon: 'ambassador',
+      tip: 'Active ambassadors who do not report to a college lead of their own college' }) : null,
+    behind && behind.length > 0 ? card({ n: behind.length, title: 'Team members behind their target', text: `of ${fmt.plural(withTarget, 'person', 'people')} with a target`, href: '#/targets?level=person&status=behind', tone: 'bad', icon: 'target',
+      tip: 'Their paid enrollments are below the pace needed to reach their own target' }) : null,
+  ].filter(Boolean);
+  const all = attention || [];
   return h('section', { class: 'vd-needs', 'aria-labelledby': 'vd-needs-t' },
     h('div', { class: 'vd-needs-head' }, h('h2', { id: 'vd-needs-t', class: 'vd-h2' }, 'Needs attention'),
-      h('span', { class: 'vd-muted vd-small' }, 'Each opens the matching list')),
-    h('div', { class: 'vd-needs-grid' },
-      card({ n: noLead.length, title: 'Targeted colleges with no lead', text: `of ${fmt.num(targetedOps.length)} targeted operational colleges`, href: '#/colleges?team=no_lead&targeted=1', tone: 'bad', icon: 'lead' }),
-      card({ n: unassignedTotal, title: 'Unassigned team members', text: unassignedTotal !== null ? 'active, without a valid lead to report to' : (errors.people ? 'Could not load the team' : ''), href: '#/people?seg=unassigned', tone: 'warn', icon: 'ambassador' }),
-      card({ n: behind ? behind.length : null, title: 'People behind target', text: behind ? `of ${fmt.plural(pRows.filter((r) => r.target > 0).length, 'person', 'people')} with a target` : 'Shown once performance tracking is live on the server', href: '#/targets?level=person&status=behind', tone: 'bad', icon: 'target', na: !behind }),
-      card({ n: isNum(S.followups_overdue) ? S.followups_overdue : null, title: 'Overdue follow-ups', text: isNum(S.followups_open) ? `${fmt.num(S.followups_open)} open in total` : '', href: '#/followups?tab=overdue', tone: 'bad', icon: 'followup' })),
-    others.length || (attention || []).length ? h('details', { class: 'vd-needs-more' },
-      h('summary', null, `All alerts (${fmt.num((attention || []).length)})`),
-      attentionList(ctx, attention, 8)) : (errors.attention ? errorNote(errors.attention, 'alerts') : null));
+      h('span', { class: 'vd-muted vd-small' }, 'Click a card to see the list')),
+    h('div', { class: ['vd-needs-grid', `vd-needs-grid--${cards.length}`] }, cards),
+    errors.people && unassignedTotal === null ? errorNote(errors.people, 'the team') : null,
+    all.length ? h('details', { class: 'vd-needs-more' },
+      h('summary', null, `Show every issue, college by college (${fmt.num(all.length)})`),
+      attentionList(ctx, attention, 8)) : (errors.attention ? errorNote(errors.attention, 'the issue list') : null));
 }
 
 /** Map as a secondary panel (Home on layouts without the shell's map): collapsed by default, remembered per browser. */
@@ -568,16 +594,19 @@ function mapPanel(ctx, rows, meta) {
   });
   label();
   if (open) setTimeout(build, 0);
+  // one count that matches the pins: colleges flagged "possibly closed" / "closed" are hidden on the map by default
+  const closedN = rows.filter((r) => r.op_status === 'possibly_closed' || r.op_status === 'closed').length;
+  const mapSub = `${fmt.plural(rows.length - closedN, 'college')} in the selected districts${closedN ? ` · ${fmt.num(closedN)} more may have shut down (hidden by default)` : ''}`;
   return h('section', { class: 'vd-mapsec td-card', 'aria-labelledby': 'vd-map-t' },
     h('div', { class: 'vd-mapsec-head' },
-      h('div', null, h('h2', { class: 'vd-h2', id: 'vd-map-t' }, 'Map'), h('span', { class: 'vd-muted vd-small' }, `${fmt.plural(rows.length, 'college')} in the selected districts`)),
+      h('div', null, h('h2', { class: 'vd-h2', id: 'vd-map-t' }, 'Map'), h('span', { class: 'vd-muted vd-small', title: 'A college is marked "may have shut down" when research found signs it stopped admitting students. Use the button on the map to show them.' }, mapSub)),
       btn),
     host);
 }
 
 /* Top colleges to call: the internal priority queue for the selected districts. */
 function topCalls(ctx, q, err) {
-  const head = h('div', { class: 'vdq-head' }, h('h2', { class: 'vd-h2' }, 'Top colleges to call'), h('a', { href: '#/calls', class: 'vd-link' }, 'Open calling'));
+  const head = h('div', { class: 'vdq-head' }, h('h2', { class: 'vd-h2' }, 'Colleges to call next'), h('a', { href: '#/calls', class: 'vd-link' }, 'Open the call list'));
   if (!q) return h('section', { class: 'vdc vd-lite td-card' }, head, errorNote(err, 'the calling queue'));
   const rows = (q.rows || []).slice(0, 5);
   const refresh = () => ctx.refresh?.();
@@ -587,7 +616,8 @@ function topCalls(ctx, q, err) {
     return h('li', { class: 'vdc-item' },
       h('div', { class: 'vdc-main' },
         h('a', { href: `#/college/${r.college_id}`, class: 'vdc-name' }, r.short_name || r.name),
-        h('span', { class: 'vd-muted vd-small' }, [r.city_name, r.district_name].filter(Boolean).join(', '), r.priority ? ` · priority ${r.priority.score}` : ''),
+        h('span', { class: 'vd-muted vd-small', title: r.priority ? 'Priority score out of 100: student numbers, a working phone number, the exam calendar, college tier and past responses' : null },
+          [r.city_name, r.district_name].filter(Boolean).join(', '), r.priority ? ` · priority ${r.priority.score}/100` : ''),
         h('span', { class: 'vdc-badges' }, callStatusBadge(ctx, r.call_status),
           h('span', { class: 'vd-small vd-muted' }, verified ? contactLabel(k) || 'Verified number' : k && k.phone ? 'Number not verified' : 'No number yet'),
           verified ? ctx.ui.provenance('verified') : null)),
@@ -596,8 +626,8 @@ function topCalls(ctx, q, err) {
         h('button', { type: 'button', class: 'td-btn td-btn--secondary td-btn--sm', onClick: () => logCall(ctx, { college_id: r.college_id, college_label: r.short_name || r.name, onSaved: refresh }) },
           ctx.ui.icon('phone', { size: 14 }), h('span', null, 'Log call'))));
   };
-  return h('section', { class: 'vdc vd-lite td-card', 'aria-label': 'Top colleges to call' }, head,
-    h('p', { class: 'vd-muted vd-small vdq-sub' }, `Highest priority first, of ${fmt.plural((q.rows || []).length, 'college')} in the queue. “Call” dials verified numbers only.`),
+  return h('section', { class: 'vdc vd-lite td-card', 'aria-label': 'Colleges to call next' }, head,
+    h('p', { class: 'vd-muted vd-small vdq-sub' }, `Highest priority first: ${fmt.num(rows.length)} of ${fmt.plural((q.rows || []).length, 'college')} on the call list. “Call” only dials checked numbers.`),
     rows.length ? h('ol', { class: 'vdc-list' }, rows.map(item)) : h('p', { class: 'vd-muted vd-small' }, 'No operational colleges in the selected districts.'));
 }
 
@@ -649,26 +679,26 @@ function upcoming(ctx, followups, exams, S, errors) {
 /* =====================================================================================
  * #/colleges — colleges list (also embedded by the district / city pages in geo.js)
  * ===================================================================================== */
-const CALL_STATUS_OPTS = [['not_called', 'Not called'], ['attempted_no_answer', 'Tried, no answer'], ['follow_up_due', 'Call-back due'], ['contacted', 'Contacted'],
-  ['interested', 'Interested'], ['participation_confirmed', 'Participation confirmed'], ['enrolled', 'Students enrolled']];
+// the colleges-list filter uses the same words as the call-status badges (forms.CALL_STATUS)
+const CALL_STATUS_OPTS = Object.entries(CALL_STATUS).map(([k, [label]]) => [k, label]);
 const CONTACT_OPTS = [['working', 'Has a working number'], ['untested', 'Has an untested number'], ['non_working', 'Has a non-working / invalid number'], ['none', 'No contact yet']];
 const TEAM_OPTS = [['no_lead', 'No college lead'], ['has_lead', 'Has a college lead'], ['no_ambassadors', 'No ambassadors'], ['has_team', 'Lead and ambassadors'], ['has_unassigned', 'Has unassigned people']];
 const OP_OPTS = [['operational', 'Operational'], ['all', 'Any status'], ['possibly_closed', 'Possibly closed'], ['closed', 'Closed'], ['pending', 'Status pending']];
 const VERIFIED_OPTS = [['verified', 'Verified'], ['partly', 'Partly verified'], ['unverified', 'Unverified']];
-const AMB_OPTS = [['gap', 'Some IT branch has no ambassador'], ['ok', 'Every IT branch covered']];
+const AMB_OPTS = [['gap', 'Some target branch has no ambassador'], ['ok', 'Every target branch covered']];
 const PROGRESS_OPTS = [['behind', 'Behind'], ['on_track', 'On track'], ['no_target', 'No target']];
 const EXAM_OPTS = [['in_exams', 'In exams now'], ['exams_soon', 'Exams within 14 days'], ['clear', 'Clear'], ['unknown', 'Dates unknown']];
 const FU_OPTS = [['overdue', 'Overdue follow-up'], ['open', 'Has open follow-ups'], ['none', 'No follow-ups']];
 const SORTS = [
-  ['priority', 'Priority (P-level, then name)'], ['name', 'Name'], ['sno', 'List number'], ['district', 'District'], ['lead', 'Lead missing first'],
+  ['priority', 'Priority (P1 first, then name)'], ['name', 'Name'], ['sno', 'List number'], ['district', 'District'], ['lead', 'Lead missing first'],
   ['ambassadors', 'Ambassadors'], ['unassigned', 'Unassigned ambassadors'], ['target', 'Target'], ['actual', 'Confirmed'], ['pct', 'Progress %'],
-  ['remaining', 'Remaining'], ['eligible', 'Eligible students'], ['next_followup', 'Next follow-up'],
+  ['remaining', 'Remaining'], ['eligible', 'Likely prospects (est.)'], ['next_followup', 'Next follow-up'],
 ];
 const PAGE_SIZE = 25;
 /** URL keys of the list state */
 const LIST_KEYS = ['q', 'team', 'p', 'op', 'verified', 'targeted', 'diagnosis', 'call_status', 'contact', 'amb', 'progress', 'exam', 'followup', 'sort', 'dir', 'page'];
 const LABELS = {
-  team: ['Team', TEAM_OPTS], p: ['P-level', [...P_LEVELS.map((x) => [x, x]), ['none', 'Not in research plan']]], op: ['Status', OP_OPTS], verified: ['Verification', VERIFIED_OPTS],
+  team: ['Team', TEAM_OPTS], p: ['Priority', [...P_LEVELS.map((x) => [x, x === 'Hold' ? 'On hold' : `Priority ${x}`]), ['none', 'Not in research plan']]], op: ['Status', OP_OPTS], verified: ['Verification', VERIFIED_OPTS],
   diagnosis: ['Main reason', DIAG_ORDER.map((k) => [k, DIAG_INFO[k].title])], call_status: ['Calling', CALL_STATUS_OPTS], contact: ['Contacts', CONTACT_OPTS],
   amb: ['Ambassadors', AMB_OPTS], progress: ['Progress', PROGRESS_OPTS], exam: ['Exams', EXAM_OPTS], followup: ['Follow-ups', FU_OPTS], targeted: ['Targeted', [['1', 'Targeted only']]],
 };
@@ -769,12 +799,12 @@ export function collegeList(ctx, { meta, params = {}, base = null, fixed = null,
       const p = pLevelOf(r, plan); const vs = verifiedStateOf(r);
       return h('div', { class: 'vd-cc-name' },
         h('a', { href: `#/college/${r.id}`, class: 'vd-cname' }, r.short_name || r.name),
-        h('span', { class: 'vd-muted vd-small vd-cplace' }, `#${r.sno ?? '—'}${placeOf(r) ? ' · ' + placeOf(r) : ''}`),
+        h('span', { class: 'vd-muted vd-small vd-cplace' }, placeOf(r) || ''),
         h('span', { class: 'vd-badges' },
-          p ? ctx.ui.badge(p, p === 'P1' ? 'brand' : p === 'Hold' ? 'neutral' : 'info') : null,
+          p ? ctx.ui.badge(p === 'Hold' ? 'On hold' : `Priority ${p}`, p === 'P1' ? 'brand' : p === 'Hold' ? 'neutral' : 'info') : null,
           r.op_status && r.op_status !== 'operational' ? ctx.ui.statusBadge('op_status', r.op_status) : null,
           r.targeted ? null : ctx.ui.badge('Not targeted', 'neutral'),
-          vs ? verifiedBadge(ctx, vs) : null,
+          null, // verification badge hidden in the default list (still a filter + CSV column)
           r.exam_state === 'in_exams' || r.exam_state === 'exams_soon' ? ctx.ui.statusBadge('exam_state', r.exam_state) : null));
     },
     lead: (r) => {
@@ -789,7 +819,7 @@ export function collegeList(ctx, { meta, params = {}, base = null, fixed = null,
         h('strong', { class: 'td-num' }, fmt.num(ambCount(r))),
         !caps.team && r.ambassador_leads ? h('span', { class: 'vd-muted vd-small' }, ` + ${fmt.num(r.ambassador_leads)} lead${r.ambassador_leads === 1 ? '' : 's'}`) : null,
         un > 0 ? h('span', { class: 'vd-cc-un' }, ctx.ui.badge(`${fmt.num(un)} unassigned`, 'warn')) : null,
-        r.branches_needing_ambassadors > 0 ? h('span', { class: 'vd-muted vd-small vd-block' }, `${fmt.plural(r.branches_needing_ambassadors, 'IT branch', 'IT branches')} uncovered`) : null);
+        r.branches_needing_ambassadors > 0 ? h('span', { class: 'vd-muted vd-small vd-block' }, `${fmt.plural(r.branches_needing_ambassadors, 'target branch', 'target branches')} without an ambassador`) : null);
     },
     pct: (r) => h('div', { class: 'vd-tp' }, progressNode(ctx, r), r.target > 0 || r.status ? statusNode(ctx, r) : null),
     next_followup: (r) => h('div', { class: 'vd-cc-call' }, r.call_status ? callStatusBadge(ctx, r.call_status) : null, h('span', { class: 'vd-small' }, nextFollowupNode(r))),
@@ -801,9 +831,9 @@ export function collegeList(ctx, { meta, params = {}, base = null, fixed = null,
   // card mode: the college name is the title, number · place the subtitle, status badges the meta row
   const cardBadges = (r) => {
     const p = pLevelOf(r, plan); const vs = verifiedStateOf(r);
-    const kids = [p ? ctx.ui.badge(p, p === 'P1' ? 'brand' : p === 'Hold' ? 'neutral' : 'info') : null,
+    const kids = [p ? ctx.ui.badge(p === 'Hold' ? 'On hold' : `Priority ${p}`, p === 'P1' ? 'brand' : p === 'Hold' ? 'neutral' : 'info') : null,
       r.op_status && r.op_status !== 'operational' ? ctx.ui.statusBadge('op_status', r.op_status) : null,
-      r.targeted ? null : ctx.ui.badge('Not targeted', 'neutral'), vs ? verifiedBadge(ctx, vs) : null,
+      r.targeted ? null : ctx.ui.badge('Not targeted', 'neutral'),
       r.exam_state === 'in_exams' || r.exam_state === 'exams_soon' ? ctx.ui.statusBadge('exam_state', r.exam_state) : null].filter(Boolean);
     return kids.length ? h('span', { class: 'vd-badges' }, kids) : null;
   };
@@ -853,7 +883,7 @@ export function collegeList(ctx, { meta, params = {}, base = null, fixed = null,
         page: v.page, pageSize: PAGE_SIZE, total, onPage, pageLabel: 'colleges',
         rowHref: (r) => `#/college/${r.id}`, caption: 'Colleges', mobile: 'cards', cardSort: false, // the filter bar has its own Sort
         cardTitle: (r) => h('a', { href: `#/college/${r.id}`, class: 'vd-cname' }, r.short_name || r.name),
-        cardSubtitle: (r) => `#${r.sno ?? '—'}${placeOf(r) ? ' · ' + placeOf(r) : ''}`,
+        cardSubtitle: (r) => placeOf(r) || null,
         cardMeta: cardBadges,
       }));
       pagerHost.replaceChildren();
@@ -897,7 +927,7 @@ export function collegeList(ctx, { meta, params = {}, base = null, fixed = null,
       search: { key: 'q', placeholder: 'Search name, short name, town…', value: v.q || '', debounce: 300 },
       filters: [
         { key: 'team', label: 'Team', options: TEAM_OPTS },
-        { key: 'p', label: 'P-level', options: LABELS.p[1] },
+        { key: 'p', label: 'Priority', options: LABELS.p[1] },
         { key: 'op', label: 'Status', allLabel: 'Status: operational', options: [['all', 'Any status'], ...OP_OPTS.filter(([k]) => k !== 'operational' && k !== 'all')] },
         caps.verified ? { key: 'verified', label: 'Verification', options: VERIFIED_OPTS } : null,
         { key: 'sort', label: 'Sort', allLabel: 'Sort: priority', options: SORTS.filter(([k]) => k !== 'priority') },
@@ -927,7 +957,7 @@ export function collegeList(ctx, { meta, params = {}, base = null, fixed = null,
     else put(filtersHost,
       h('div', { class: 'vd-filterbar-search' }, search),
       selectEl('team', 'Team', TEAM_OPTS),
-      selectEl('p', 'P-level', LABELS.p[1]),
+      selectEl('p', 'Priority', LABELS.p[1]),
       selectEl('op', 'Status', OP_OPTS.filter(([k]) => k !== 'all'), { any: 'Any status' }),
       caps.verified ? selectEl('verified', 'Verification', VERIFIED_OPTS) : null,
       selectEl('sort', 'Sort', SORTS, { any: null }));
@@ -1004,8 +1034,8 @@ export function collegeList(ctx, { meta, params = {}, base = null, fixed = null,
 
   const exportCsv = () => {
     const out = visible();
-    const head = ['S.No', 'College', 'Short name', 'District', 'City', 'P-level', 'Status', 'Targeted', 'Verification', 'College lead', 'Ambassador leads', 'Ambassadors',
-      'Unassigned ambassadors', 'IT branches without ambassador', 'Target', 'Confirmed', 'Remaining', 'Progress %', 'Status vs target', 'Eligible', 'Eligible basis',
+    const head = ['S.No', 'College', 'Short name', 'District', 'City', 'Priority', 'Status', 'Targeted', 'Verification', 'College lead', 'Ambassador leads', 'Ambassadors',
+      'Unassigned ambassadors', 'Target branches without ambassador', 'Target', 'Confirmed', 'Remaining', 'Progress %', 'Status vs target', 'Likely prospects (est.)', 'Likely prospects basis',
       'Exam state', 'Calling status', 'Open follow-ups', 'Next follow-up'];
     const val = (x) => (x === null || x === undefined ? '' : x);
     const lines = [head, ...out.map((r) => [r.sno, r.name, r.short_name, dName.get(r.district_id) || r.district_id, cName.get(r.city_id) || r.city_id, pLevelOf(r, plan) || '',
@@ -1102,14 +1132,14 @@ export async function renderAnalytics(el, params, ctx) {
     const collegeRows = level === 'college' ? [S] : scopeRows(itemsOf(data.collegeRows));
     const nothingYet = !(S.target > 0) && !(S.enrolled > 0) && !(S.reached > 0) && !(data.persons || []).length;
     const T = data.road;
-    const funnelSec = sectionEl(ctx, 'Eligible → reached → confirmed', funnel({
+    const funnelSec = sectionEl(ctx, 'Likely prospects → reached → paid', funnel({
       label: 'Conversion funnel', renderBasis: (b) => ctx.ui.provenance(b),
       steps: [
-        { label: 'Eligible students', value: S.eligible ? S.eligible.value : null, basis: S.eligible ? S.eligible.basis : 'pending', hint: 'Final-year students in relevant branches' },
+        { label: 'Likely prospects (est.)', value: S.eligible ? S.eligible.value : null, basis: S.eligible ? S.eligible.basis : 'pending', hint: 'Final-year students in relevant branches' },
         { label: 'Students reached', value: S.reached ?? null, basis: 'verified', hint: S.reached > 0 ? null : 'Log visits and sessions from a college page to count students reached' },
         { label: 'Confirmed', value: S.enrolled ?? null, basis: 'verified', hint: S.enrolled > 0 ? null : 'Record enrollments from a college page' },
       ],
-    }), null, 'How many eligible students the team has reached and enrolled');
+    }), null, 'How many likely prospects the team has reached and enrolled');
     const grid = nothingYet
       ? h('div', { class: 'va-grid' },
         sectionEl(ctx, 'Nothing to report yet', h('div', { class: 'va-start' },
@@ -1133,11 +1163,11 @@ export async function renderAnalytics(el, params, ctx) {
         h('h2', null, level === 'state' ? (getScope().all ? 'All districts' : scopeLabel({ max: 5 })) : (S.label || 'Selection')),
         h('div', { class: 'vd-kpis vd-kpis-tight' },
           kpi(ctx, { label: 'Target', value: S.target > 0 ? S.target : null, notSet: noTargetReason(T, S) ? 'No target for this selection' : 'Not set yet', icon: 'target', sub: S.target > 0 ? targetSourceText(S) : null, href: S.target > 0 ? undefined : '#/targets' }),
-          kpi(ctx, { label: 'Confirmed', value: S.enrolled, icon: 'check' }),
-          kpi(ctx, { label: S.target > 0 && S.enrolled > S.target ? 'Exceeded by' : 'Remaining', value: S.target > 0 ? (S.enrolled > S.target ? S.enrolled - S.target : S.remaining) : null, notSet: 'Needs a target', icon: 'clock' }),
-          kpi(ctx, { label: 'Achieved', value: S.target > 0 ? S.pct : null, notSet: 'Needs a target', format: pctText, tone: S.target > 0 ? (S.on_track === true ? 'good' : S.on_track === false ? 'warn' : undefined) : undefined, sub: S.target > 0 ? daysLeftText(T && T.days_left, S.deadline) : null }),
+          kpi(ctx, { label: 'Paid enrollments', value: S.enrolled, icon: 'check' }),
+          kpi(ctx, { label: S.target > 0 && S.enrolled > S.target ? 'Above target by' : 'Still needed', value: S.target > 0 ? (S.enrolled > S.target ? S.enrolled - S.target : S.remaining) : null, notSet: 'Needs a target', icon: 'clock' }),
+          kpi(ctx, { label: '% of target', value: S.target > 0 ? S.pct : null, notSet: 'Needs a target', format: pctText, tone: S.target > 0 ? (S.on_track === true ? 'good' : S.on_track === false ? 'warn' : undefined) : undefined, sub: S.target > 0 ? daysLeftText(T && T.days_left, S.deadline) : null }),
           kpi(ctx, { label: 'Students reached', value: S.reached, icon: 'people' }),
-          kpiB(ctx, 'Eligible students', S.eligible, { icon: 'people' })),
+          kpiB(ctx, 'Likely prospects (est.)', S.eligible, { icon: 'people' })),
         coverageNote(ctx, S, data.geo, collegeRows, data.perf, child),
         S.target > 0 ? h('div', { class: 'va-pace' },
           paceMeter({ done: S.enrolled ?? 0, target: S.target, expected: S.expected_now, label: `${S.label || 'Selection'} progress to target` }),
@@ -1204,15 +1234,15 @@ export function roadBlock(ctx, T) {
     h('div', { class: 'vdr-head' },
       h('div', null,
         h('h2', { id: 'vdr-title', class: 'vdr-title' }, hasTarget ? `Road to ${fmt.num(T.target)}` : 'Road to the target'),
-        h('p', { class: 'vdr-sub' }, 'Only confirmed enrollments count toward the target. Leads, interested, registered and applied students are shown separately.')),
+        h('p', { class: 'vdr-sub' }, 'Only paid (confirmed) enrollments count toward the target. Interested, registered and applied students are shown separately.')),
       h('a', { href: '#/calls', class: 'td-btn td-btn--secondary td-btn--sm' }, ctx.ui.icon('phone', { size: 16 }), h('span', null, 'Open calling'))),
     h('dl', { class: 'vdr-nums' },
       num('Target', hasTarget ? fmt.num(T.target) : 'Not set', hasTarget && T.deadline ? `deadline ${fmt.date(T.deadline)}` : null),
-      num('Confirmed', fmt.num(T.confirmed)),
-      num(exceeded ? 'Exceeded by' : 'Remaining', hasTarget ? fmt.num(exceeded || T.remaining) : '—'),
-      num('Achieved', hasTarget ? pctText(T.pct) : '—')),
+      num('Paid enrollments', fmt.num(T.confirmed)),
+      num(exceeded ? 'Above target by' : 'Still needed', hasTarget ? fmt.num(exceeded || T.remaining) : '—'),
+      num('% of target', hasTarget ? pctText(T.pct) : '—')),
     hasTarget ? h('div', { class: 'vdr-pace' },
-      h('div', { class: behind ? 'is-bad' : null }, h('span', null, 'Needed from today'), h('strong', null, T.deadline_passed ? 'Deadline passed' : `${rateText(T.required_weekly)} / week`),
+      h('div', { class: behind ? 'is-bad' : null }, h('span', null, 'Needed each week from today'), h('strong', null, T.deadline_passed ? 'Deadline passed' : `${rateText(T.required_weekly)} / week`),
         h('span', null, T.deadline_passed ? daysLeftText(T.days_left, T.deadline) : `${rateText(T.required_daily)} a day · ${daysLeftText(T.days_left, null)}`)),
       h('div', { class: behind ? 'is-bad' : T.current_weekly > 0 ? 'is-good' : null }, h('span', null, 'Current pace (last 14 days)'), h('strong', null, `${rateText(T.current_weekly)} / week`),
         h('span', null, `${fmt.plural(T.confirmed_last_14d, 'confirmed enrollment')} in 14 days`)),
@@ -1279,7 +1309,7 @@ function keyFacts(ctx, S) {
       fact(ctx, { label: 'Targeted colleges', value: S.targeted_colleges, sub: 'chosen for outreach', href: '#/colleges?targeted=1' }),
       fact(ctx, { label: 'Relevant branches', value: S.branches_relevant, sub: of(S.branches, 'branches') }),
       fact(ctx, { label: 'Relevant students', value: S.relevant_students?.value ?? null, basis: S.relevant_students?.basis, sub: 'IT, allied & circuit branches' }),
-      fact(ctx, { label: 'Eligible students', value: S.eligible?.value ?? null, basis: S.eligible?.basis, sub: 'final-year, likely to enrol' }),
+      fact(ctx, { label: 'Likely prospects (est.)', value: S.eligible?.value ?? null, basis: S.eligible?.basis, sub: 'final-year, likely to enrol' }),
     ]),
     group('Team', [
       fact(ctx, { label: 'Colleges with a lead', value: S.colleges_with_lead, sub: of(S.targeted_colleges, 'targeted'), href: '#/colleges?team=has_lead' }),

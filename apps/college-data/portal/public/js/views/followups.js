@@ -6,25 +6,29 @@ import { scopeRows, SCOPE_EVENT } from '../state.js';
 import { opsHeader, kpiRow, dataTable, statusChip, getQuery, setQuery, getScoped } from './calls.js';
 
 const DAY = 86400000;
+/** Follow-up reason (stored column `issue`; the keys never change, only the wording). [label, tone] */
 export const ISSUES = {
-  ambassador_gap: ['Ambassador gap', 'bad'],
-  low_outreach: ['Low outreach', 'warn'],
-  low_conversion: ['Low conversion', 'warn'],
+  ambassador_gap: ['No ambassador', 'bad'],
+  low_outreach: ['Few students reached', 'warn'],
+  low_conversion: ['Few enrolling', 'warn'],
   unrealistic_target: ['Target too high', 'info'],
-  exams: ['Exams', 'info'],
-  data: ['Data check', 'neutral'],
-  other: ['Other', 'neutral'],
+  exams: ['Exam timing', 'info'],
+  data: ['Fix data', 'neutral'],
+  other: ['General', 'neutral'],
 };
 const ISSUE_HELP = {
   ambassador_gap: 'A branch or college has no active ambassador.',
   low_outreach: 'Few students reached recently.',
   low_conversion: 'Students reached, but few enrolled.',
-  unrealistic_target: 'The target looks too high for the eligible students.',
+  unrealistic_target: 'The target looks too high for the number of students.',
   exams: 'Plan around end-semester exams.',
   data: 'Something in the records needs checking.',
-  other: '',
+  other: 'Anything else, e.g. a call-back.',
 };
-const SCOPE_LABEL = { college: 'College', branch: 'Branch', person: 'Person' };
+/** A call-back created by "Log call" (the server stores issue 'other' and the title "Call back …"): shown as its own reason. */
+const isCallBack = (r) => (r.issue || 'other') === 'other' && /^Call back /.test(String(r.title || ''));
+const reasonOf = (r) => (isCallBack(r) ? ['Call-back', 'info'] : ISSUES[r.issue || 'other'] || [r.issue, 'neutral']);
+const SCOPE_LABEL = { college: 'College', branch: 'Branch', person: 'Team member' };
 const TABS = [['overdue', 'Overdue'], ['today', 'Today'], ['fortnight', 'Next 14 days'], ['open', 'All open'], ['done', 'Done']];
 
 export function addDays(iso, n) {
@@ -52,7 +56,7 @@ export async function render(el, params = {}, ctx) {
   current = {
     el, ctx, seq: 0,
     tab: TABS.some(([k]) => k === q.tab) ? q.tab : null,
-    q: q.q || '', owner: q.owner || '', issue: ISSUES[q.issue] ? q.issue : '',
+    q: q.q || '', owner: q.owner || '', issue: ISSUES[q.issue] || q.issue === 'callback' ? q.issue : '',
     sort: q.sort || 'due_date', dir: q.dir === 'desc' ? 'desc' : 'asc',
     page: Math.max(1, Number(q.page) || 1), sel: new Set(),
   };
@@ -148,9 +152,10 @@ function ownerName(r) {
 function matches(r) {
   const c = r._scope.college;
   if (current.owner && (ownerName(r) || '__none') !== current.owner) return false;
-  if (current.issue && (r.issue || 'other') !== current.issue) return false;
+  // 'callback' is a view-only reason (call-backs are stored as 'other'); 'other' then means the remaining general items
+  if (current.issue === 'callback' ? !isCallBack(r) : current.issue && ((r.issue || 'other') !== current.issue || (current.issue === 'other' && isCallBack(r)))) return false;
   if (current.q) {
-    const hay = [r.title, r.notes, r._scope.label, c?.name, c?.short_name, ownerName(r), ISSUES[r.issue]?.[0]].filter(Boolean).join(' ').toLowerCase();
+    const hay = [r.title, r.notes, r._scope.label, c?.name, c?.short_name, ownerName(r), reasonOf(r)[0]].filter(Boolean).join(' ').toLowerCase();
     if (!current.q.toLowerCase().split(/\s+/).every((w) => hay.includes(w))) return false;
   }
   return true;
@@ -183,9 +188,9 @@ function buildFilters() {
   const ownerOpts = () => {
     const names = [...new Set(current.data.items.filter((r) => r.status !== 'done').map((r) => ownerName(r)).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     if (current.owner && current.owner !== '__none' && !names.includes(current.owner)) names.push(current.owner);
-    return [['__none', 'No owner assigned'], ...names.map((n) => [n, n])];
+    return [['__none', 'Not assigned'], ...names.map((n) => [n, n])];
   };
-  const issueOpts = Object.entries(ISSUES).map(([k, [l]]) => [k, l]);
+  const issueOpts = [['callback', 'Call-back'], ...Object.entries(ISSUES).map(([k, [l]]) => [k, l])];
   const onChange = (v) => {
     current.q = (v.q || '').trim(); current.owner = v.owner || ''; current.issue = v.issue || '';
     current.page = 1; current.sel.clear(); syncUrl(); drawBody();
@@ -194,8 +199,8 @@ function buildFilters() {
     const bar = ui.filterBar({
       search: { key: 'q', placeholder: 'Search title, college, person, notes', value: current.q },
       filters: [
-        { key: 'owner', label: 'Owner', type: 'select', options: ownerOpts().map(([value, label]) => ({ value, label })), allLabel: 'Everyone' },
-        { key: 'issue', label: 'Issue', type: 'select', options: issueOpts.map(([value, label]) => ({ value, label })), allLabel: 'All issues' },
+        { key: 'owner', label: 'Assigned to', type: 'select', options: ownerOpts().map(([value, label]) => ({ value, label })), allLabel: 'Anyone' },
+        { key: 'issue', label: 'Reason', type: 'select', options: issueOpts.map(([value, label]) => ({ value, label })), allLabel: 'All reasons' },
       ],
       values: { q: current.q, owner: current.owner, issue: current.issue },
       onChange,
@@ -205,8 +210,8 @@ function buildFilters() {
   }
   const search = h('input', { type: 'search', class: 'td-input', placeholder: 'Search title, college, person, notes', 'aria-label': 'Search follow-ups', value: current.q });
   const mk = (label, all, opts, val) => { const s = h('select', { class: 'td-input td-select', 'aria-label': label }, h('option', { value: '' }, all), opts.map(([v, l]) => h('option', { value: v }, l))); s.value = val; return s; };
-  const owner = mk('Owner', 'Everyone', ownerOpts(), current.owner);
-  const issue = mk('Issue', 'All issues', issueOpts, current.issue);
+  const owner = mk('Assigned to', 'Anyone', ownerOpts(), current.owner);
+  const issue = mk('Reason', 'All reasons', issueOpts, current.issue);
   const fire = () => onChange({ q: search.value, owner: owner.value, issue: issue.value });
   let t; search.addEventListener('input', () => { clearTimeout(t); t = setTimeout(fire, 250); });
   owner.addEventListener('change', fire); issue.addEventListener('change', fire);
@@ -275,7 +280,7 @@ const SORTERS = {
   due_date: (r) => (current.tab === 'done' ? String(r.done_at || '') : String(r.due_date || '9999')),
   title: (r) => String(r.title || '').toLowerCase(),
   about: (r) => String(r._scope.label || '').toLowerCase(),
-  issue: (r) => ISSUES[r.issue]?.[0] || 'Other',
+  issue: (r) => reasonOf(r)[0],
   owner: (r) => (ownerName(r) || '~').toLowerCase(),
   last_contact: (r) => String(r.last_contact || ''),
 };
@@ -294,7 +299,7 @@ function tableOpts(rows) {
   const { h, ui, fmt } = ctx;
   const done = current.tab === 'done';
   const filtered = current.q || current.owner || current.issue;
-  const msgs = filtered ? ['No follow-ups match these filters', 'Clear the search, owner or issue filter to see more.'] : {
+  const msgs = filtered ? ['No follow-ups match these filters', 'Clear the search, “Assigned to” or “Reason” filter to see more.'] : {
     overdue: ['Nothing overdue', 'Every open follow-up is on schedule.'],
     today: ['Nothing due today', 'Check “Next 14 days”, or add a new follow-up.'],
     fortnight: ['Nothing due in the next 14 days', 'Schedule check-ins for targeted colleges from the list below.'],
@@ -306,7 +311,7 @@ function tableOpts(rows) {
     columns: [
       { key: 'due_date', label: done ? 'Done on' : 'Due', priority: 1, minWidth: 130, render: dueCell },
       { key: 'title', label: 'What', primary: true, priority: 1, minWidth: 300, render: (r) => h('div', { class: 'fu-what' },
-        h('strong', null, r.title || ISSUES[r.issue]?.[0] || 'Follow-up'),
+        h('strong', null, r.title || reasonOf(r)[0] || 'Follow-up'),
         r.notes ? h('span', { class: 'fu-notes opk-muted', title: r.notes }, r.notes.length > 110 ? r.notes.slice(0, 110) + '…' : r.notes) : null,
         r.is_demo ? ui.badge('DEMO', 'bad') : null) },
       { key: 'about', label: 'About', priority: 2, minWidth: 200, render: (r) => h('div', { class: 'fu-about-cell' },
@@ -314,10 +319,11 @@ function tableOpts(rows) {
         h('span', { class: 'opk-muted vx-small' }, SCOPE_LABEL[r.scope_type] || r.scope_type,
           r.scope_type !== 'college' && r._scope.college ? ` · ${r._scope.college.short_name || r._scope.college.name}` : '',
           r.district_id && current.data.districtName.get(r.district_id) ? ` · ${current.data.districtName.get(r.district_id)}` : '')) },
-      { key: 'issue', label: 'Issue', priority: 3, minWidth: 130, render: (r) => { const [l, t] = ISSUES[r.issue] || [r.issue || 'Other', 'neutral']; return ui.badge(l, t); } },
-      { key: 'owner', label: 'Owner', priority: 2, minWidth: 140, render: (r) => ownerName(r) || h('em', { class: 'opk-muted' }, 'No owner') },
-      { key: 'last_contact', label: 'Last contact', priority: 3, minWidth: 140, hideOnPhone: true, render: (r) => (r.last_contact ? h('span', null, fmt.date(r.last_contact), h('small', { class: 'opk-muted' }, ` ${fmt.days(r.last_contact)}`)) : h('span', { class: 'opk-muted' }, 'Not recorded')) },
-    ],
+      { key: 'issue', label: 'Reason', priority: 3, minWidth: 130, render: (r) => { const [l, t] = reasonOf(r); return ui.badge(l, t); } },
+      { key: 'owner', label: 'Assigned to', priority: 2, minWidth: 140, render: (r) => ownerName(r) || h('em', { class: 'opk-muted' }, 'Not assigned') },
+      // on the Done tab this is the day it was marked done (same as "Done on"), so the column is left out there
+      done ? null : { key: 'last_contact', label: 'Last spoke to them', priority: 3, minWidth: 140, hideOnPhone: true, render: (r) => (r.last_contact ? h('span', null, fmt.date(r.last_contact), h('small', { class: 'opk-muted' }, ` ${fmt.days(r.last_contact)}`)) : h('span', { class: 'opk-muted' }, '—')) },
+    ].filter(Boolean),
     rows,
     rowKey: (r) => r.id,
     sort: { key: current.sort, dir: current.dir },
@@ -329,8 +335,8 @@ function tableOpts(rows) {
     rowActions: (r) => (r.status === 'done'
       ? [{ label: 'Reopen', icon: 'refresh', writeOnly: true, onClick: () => reopen(r) }, { label: 'Edit', icon: 'edit', writeOnly: true, onClick: () => openFollowupForm(ctx, { data: current.data, row: r, onSaved: load }) }]
       : [{ label: 'Done', icon: 'check', tone: 'primary', writeOnly: true, onClick: () => markDone(r) },
-        { label: 'Snooze', icon: 'clock', writeOnly: true, onClick: () => reschedule(r) }]),
-    // the whole row opens the edit form (title, due date, owner, notes, delete)
+        { label: 'Reschedule', icon: 'clock', writeOnly: true, onClick: () => reschedule(r) }]),
+    // the whole row opens the edit form (title, due date, assigned to, notes, delete)
     onRowClick: (r) => openFollowupForm(ctx, { data: current.data, row: r, onSaved: load }),
     empty: { title: msgs[0], text: msgs[1], icon: filtered ? 'filter' : current.tab === 'overdue' ? 'check' : 'followup', action: filtered ? { label: 'Clear filters', icon: 'close', tone: 'secondary', onClick: clearFilters } : undefined },
     mobile: 'cards',
@@ -372,7 +378,7 @@ function drawBulk() {
     h('strong', { class: 'fu-bulk-n' }, `${fmt.num(ids.length)} selected`),
     h('div', { class: 'fu-bulk-actions' },
       ui.button({ label: 'Mark done', icon: 'check', tone: 'primary', size: 'sm', onClick: () => bulkDone(ids) }),
-      ui.button({ label: 'Snooze…', icon: 'clock', size: 'sm', onClick: () => bulkSnooze(ids) }),
+      ui.button({ label: 'Reschedule…', icon: 'clock', size: 'sm', onClick: () => bulkSnooze(ids) }),
       ui.button({ label: 'Clear selection', tone: 'ghost', size: 'sm', onClick: () => { current.sel.clear(); drawTable(); drawBulk(); } })));
 }
 
@@ -390,7 +396,7 @@ async function runBulk(ids, body, verb) {
 async function bulkDone(ids) {
   const { ctx } = current;
   if (typeof ctx.ensureUser === 'function' && !ctx.api.user) { try { await ctx.ensureUser(); } catch { return; } }
-  const ok = await ctx.ui.confirm({ title: `Mark ${ids.length} follow-up${ids.length === 1 ? '' : 's'} done?`, text: 'Today is recorded as the last contact date. No next follow-ups are scheduled — use “Done” on a single item to schedule the next step.', confirmLabel: 'Mark done', tone: 'primary' });
+  const ok = await ctx.ui.confirm({ title: `Mark ${ids.length} follow-up${ids.length === 1 ? '' : 's'} done?`, text: 'Today is saved as the day you last spoke to them. No next follow-ups are scheduled; use “Done” on a single item to schedule the next step.', confirmLabel: 'Mark done', tone: 'primary' });
   if (!ok) return;
   await runBulk(ids, { status: 'done', last_contact: today() }, 'marked done');
 }
@@ -400,9 +406,9 @@ function bulkSnooze(ids) {
   const { h } = ctx;
   const date = h('input', { type: 'date', class: 'td-input', required: true, min: today(), value: addDays(today(), 7) });
   formModal(ctx, {
-    title: `Snooze ${ids.length} follow-up${ids.length === 1 ? '' : 's'}`,
+    title: `Reschedule ${ids.length} follow-up${ids.length === 1 ? '' : 's'}`,
     fields: [fieldEl(h, { label: 'New due date', input: date, name: 'due_date', required: true }), quickDates(h, date)],
-    saveLabel: 'Snooze',
+    saveLabel: 'Reschedule',
     onSave: async () => {
       if (!date.value) throw fieldError({ due_date: 'Pick a date.' });
       if (date.value < today()) throw fieldError({ due_date: 'Pick today or a later date.' });
@@ -533,8 +539,8 @@ async function markDone(r) {
     title: 'Mark follow-up done',
     intro: h('p', { class: 'fu-modal-ctx' }, h('strong', null, r.title || 'Follow-up'), ` — ${r._scope.label}`),
     fields: [
-      fieldEl(h, { label: 'Outcome', input: note, name: 'note', full: true, help: 'Added to the notes with today\'s date.' }),
-      h('label', { class: 'td-field td-field--full fu-checkrow' }, next, h('span', null, 'Schedule the next follow-up (same owner and issue)')),
+      fieldEl(h, { label: 'What happened?', input: note, name: 'note', full: true, help: 'Added to the notes with today\'s date.' }),
+      h('label', { class: 'td-field td-field--full fu-checkrow' }, next, h('span', null, 'Schedule the next follow-up (same person and reason)')),
       dateWrap, quick,
     ],
     saveLabel: 'Mark done',
@@ -576,18 +582,18 @@ function reschedule(r) {
   const date = h('input', { type: 'date', class: 'td-input', required: true, min: today(), value: r.due_date && daysUntil(r.due_date) >= 0 ? addDays(r.due_date, 1) : addDays(today(), 1) });
   const why = h('input', { type: 'text', class: 'td-input', placeholder: 'e.g. Principal on leave until Monday', maxlength: 300 });
   formModal(ctx, {
-    title: 'Snooze follow-up',
+    title: 'Reschedule follow-up',
     intro: h('p', { class: 'fu-modal-ctx' }, h('strong', null, r.title || 'Follow-up'), ` — ${r._scope.label}`, r.due_date ? ` · currently due ${fmt.date(r.due_date)}` : ''),
     fields: [fieldEl(h, { label: 'New due date', input: date, name: 'due_date', required: true }), quickDates(h, date),
-      fieldEl(h, { label: 'Reason', input: why, name: 'reason', full: true, help: 'Optional. Saved in the notes.' })],
-    saveLabel: 'Snooze',
+      fieldEl(h, { label: 'Why?', input: why, name: 'reason', full: true, help: 'Optional. Saved in the notes.' })],
+    saveLabel: 'Reschedule',
     onSave: async () => {
       if (!date.value) throw fieldError({ due_date: 'Pick a date.' });
       if (date.value < today()) throw fieldError({ due_date: 'Pick today or a later date.' });
       const body = { due_date: date.value };
-      if (why.value.trim()) body.notes = [r.notes, `[${today()}] Snoozed to ${date.value}: ${why.value.trim()}`].filter(Boolean).join('\n');
+      if (why.value.trim()) body.notes = [r.notes, `[${today()}] Moved to ${date.value}: ${why.value.trim()}`].filter(Boolean).join('\n');
       await api.patch(`/followups/${r.id}`, body);
-      ui.toast(`Snoozed to ${fmt.date(date.value)}`, 'good');
+      ui.toast(`Moved to ${fmt.date(date.value)}`, 'good');
       load();
     },
   });
@@ -655,7 +661,7 @@ export async function openFollowupForm(ctx, opts = {}) {
   college.addEventListener('change', () => { if (scopeType.value === 'branch') loadBranches(); });
 
   const issue = mkSel(Object.entries(ISSUES).map(([k, [l]]) => [k, l]), init.issue || 'other');
-  const issueWrap = fieldEl(h, { label: 'Issue', input: issue, name: 'issue', help: ISSUE_HELP[init.issue || 'other'] || ' ' });
+  const issueWrap = fieldEl(h, { label: 'Reason', input: issue, name: 'issue', help: ISSUE_HELP[init.issue || 'other'] || ' ' });
   issue.addEventListener('change', () => { const hp = issueWrap.querySelector('.td-field__help'); if (hp) hp.textContent = ISSUE_HELP[issue.value] || ' '; });
   const title = h('input', { type: 'text', class: 'td-input', value: init.title || '', placeholder: 'e.g. Call the principal about a seminar slot', maxlength: 300 });
   const listId = 'fu-owner-list-' + Math.random().toString(36).slice(2, 7);
@@ -675,7 +681,7 @@ export async function openFollowupForm(ctx, opts = {}) {
   const due = h('input', { type: 'date', class: 'td-input', value: init.due_date || '' });
   if (!row) due.min = today();
   const last = h('input', { type: 'date', class: 'td-input', max: today(), value: init.last_contact || '' });
-  const notes = h('textarea', { class: 'td-input', rows: 3, placeholder: 'Context the owner needs' }, init.notes || '');
+  const notes = h('textarea', { class: 'td-input', rows: 3, placeholder: 'Anything the person doing it needs to know' }, init.notes || '');
 
   const lockedLabel = opts.scopeLabel
     || (init.scope_type === 'college' ? (colleges.find((c) => String(c.id) === String(init.scope_id))?.short_name || colleges.find((c) => String(c.id) === String(init.scope_id))?.name)
@@ -711,8 +717,8 @@ export async function openFollowupForm(ctx, opts = {}) {
       issueWrap,
       fieldEl(h, { label: 'Due date', input: due, name: 'due_date', required: true }),
       quickDates(h, due),
-      fieldEl(h, { label: 'Owner', input: h('div', null, owner, ownerList), name: 'owner_name', help: 'Who will do it. Pick a team member or type any name.' }),
-      fieldEl(h, { label: 'Last contacted on', input: last, name: 'last_contact', help: 'When did we last speak to them?' }),
+      fieldEl(h, { label: 'Assigned to', input: h('div', null, owner, ownerList), name: 'owner_name', help: 'Who will do it. Pick a team member or type any name.' }),
+      fieldEl(h, { label: 'Last spoke to them on', input: last, name: 'last_contact', help: 'Optional.' }),
       fieldEl(h, { label: 'Notes', input: notes, name: 'notes', full: true }),
     ],
     extra,

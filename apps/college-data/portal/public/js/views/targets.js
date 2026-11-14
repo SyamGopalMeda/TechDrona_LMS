@@ -11,7 +11,7 @@ const CHILD = { state: 'districts', district: 'cities / towns', city: 'colleges'
 const LEVEL = { state: 'The programme (all target districts)', district: 'A district', city: 'A city / town', college: 'A college', branch: 'A branch' };
 const TYPE_LABEL = { state: 'Programme', district: 'District', city: 'City / town', college: 'College', branch: 'Branch', person: 'Person' };
 const METHOD = {
-  eligible: ['By eligible students', 'More where more final-year students in IT, IT-related and circuit branches can enrol. Recommended.'],
+  eligible: ['By likely prospects', 'More where more final-year students in target branches can enrol. Recommended.'],
   strength: ['By total strength', 'More where the total number of students is higher.'],
   equal: ['Equal split', 'Everyone gets the same number. Handy for ambassadors.'],
 };
@@ -24,7 +24,7 @@ export const STATUS = {
   open: ['Not met yet', 'warn', 'Pace is not available from this server version.'], // pre-v4 servers only
 };
 const STATUS_ORDER = [...PERF_STATUS_ORDER, 'open'];
-const SORTS = [['behind', 'Furthest behind'], ['pct_asc', '% achieved — low to high'], ['pct_desc', '% achieved — high to low'], ['actual', 'Most enrolled'], ['name', 'Name A–Z']];
+const SORTS = [['behind', 'Furthest behind'], ['pct_asc', '% of target, low to high'], ['pct_desc', '% of target, high to low'], ['actual', 'Most paid enrollments'], ['name', 'Name A–Z']];
 const PAGE = 25;
 const arr = (x) => (Array.isArray(x) ? x : (x && Array.isArray(x.rows) ? x.rows : (x && Array.isArray(x.items) ? x.items : [])));
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -96,7 +96,7 @@ export async function render(el, params = {}, ctx) {
   const { h, ui } = ctx;
   const head = ui.pageHeader({
     title: 'Targets & performance',
-    sub: tab === 'perf' ? 'Who is ahead and who is behind — targets against confirmed enrollments, by person, college or district.'
+    sub: tab === 'perf' ? 'Who is ahead and who is behind: targets against paid enrollments, by person, college or district.'
       : 'Set targets for places, split one number across its parts, and keep every level adding up.',
     actions: tab === 'places' ? [ui.button({ label: 'Split a target', icon: 'target', tone: 'primary', onClick: () => el.querySelector('#tg-wizard')?.scrollIntoView({ behavior: smooth(ctx), block: 'start' }) })] : [],
   });
@@ -131,7 +131,7 @@ async function renderPerf(host, params, ctx) {
   };
   me.today = today;
   me.nodes = { summary: h('div', { class: 'tgp-summary', 'aria-live': 'polite' }), bar: h('div', { class: 'tgp-filters' }), table: h('div', { class: 'tgp-tablehost' }) };
-  host.replaceChildren(me.nodes.summary, ui.section({ title: 'Targets vs confirmed enrollments', sub: h('span', { class: 'tgp-sub' }), body: [me.nodes.bar, me.nodes.table] }));
+  host.replaceChildren(me.nodes.summary, ui.section({ title: 'Targets vs paid enrollments', sub: h('span', { class: 'tgp-sub' }), body: [me.nodes.bar, me.nodes.table] }));
   me.subEl = host.querySelector('.tgp-sub');
   me.nodes.table.replaceChildren(ui.skeleton(6, { card: false }));
   // colleges for the college filter (scoped)
@@ -188,7 +188,7 @@ async function drawSummary() {
       h('div', { class: 'tgp-prog__head' }, h('span', { class: 'tgp-card__label' }, headLabel), statusChip(me.ctx, 'partial_target')),
       h('div', { class: 'tgp-prog__nums' },
         h('strong', { class: 'td-num tgp-prog__big' }, fmt.num(confirmed)),
-        h('span', { class: 'td-num' }, ` confirmed · target ${fmt.num(target)}`),
+        h('span', { class: 'td-num' }, ` paid · target ${fmt.num(target)}`),
         d.covers && isNum(d.covers.total) ? h('span', { class: 'td-num tgp-muted' }, ` · covers ${fmt.num(d.covers.with_target)} of ${fmt.num(d.covers.total)} · not judged`) : null),
       h('p', { class: 'tgp-muted tgp-small' }, STATUS.partial_target[2], ' No %, remaining or pace is shown until every part has a target.'))
     : h('div', { class: 'tgp-prog' },
@@ -197,28 +197,27 @@ async function drawSummary() {
         progNA ? null : wo(me.ctx, h('button', { type: 'button', class: 'tgp-link', onClick: () => openTargetDialog(me.ctx, { scope_type: 'state', scope_id: STATE_ID, label: 'the programme', period: 'programme', onSaved: () => { me.dash = null; drawSummary(); loadPerf(); } }) }, 'Change'))),
       h('div', { class: 'tgp-prog__nums' },
         h('strong', { class: 'td-num tgp-prog__big' }, fmt.num(confirmed)),
-        h('span', { class: 'td-num' }, ` of ${fmt.num(target)} confirmed · `, h('strong', null, pctText(pct))),
+        h('span', { class: 'td-num' }, ` of ${fmt.num(target)} paid · `, h('strong', null, pctText(pct))),
         h('span', { class: 'td-num tgp-muted' }, ` · ${fmt.num(remaining)} to go`)),
       perfBar(me.ctx, { actual: confirmed, target, label: progNA ? 'Selected districts' : 'Programme' }, { lg: true }),
       h('p', { class: 'tgp-muted tgp-small' }, d.days_left != null ? `${fmt.num(d.days_left)} days left including today (to ${fmt.date(p.deadline || d.deadline)})` : `Deadline ${fmt.date(p.deadline || d.deadline)}`,
         isNum(d.required_weekly) ? ` · ${d.required_weekly.toLocaleString('en-IN', { maximumFractionDigits: 1 })} confirmed / week needed` : '',
         '. Only confirmed (paid) enrollments dated today or earlier count.'));
   const c = (k) => (counts ? fmt.num(counts[k] || 0) : '…');
-  // D6: one card per status that occurs, so the cards always add up to the number of rows. Always-shown cards first;
-  // Partly targeted / Target is 0 / Not met yet (old servers) only appear when some row has them.
+  // D6: one card per status that occurs, so the cards always add up to the number of rows. Owner review 2026-11-14:
+  // statuses with 0 rows are no longer shown (six "0" cards on day one were noise); the Status filter still lists them all.
   const SUB = {
-    exceeded: 'above target', met: 'exactly on target', on_track: 'pace ≥ 80% of expected', behind: 'pace < 80% of expected',
-    too_early: 'under 7 days in — not judged', partial_target: 'only part of the group has a target', zero_target: 'target set to 0',
-    no_target: 'nothing to measure', open: 'below target (no pace on this server)',
+    exceeded: 'more than their target', met: 'exactly on target', on_track: 'keeping pace with the deadline', behind: 'slower than the pace needed',
+    too_early: 'target set under 7 days ago, not judged yet', partial_target: 'only part of the group has a target', zero_target: 'target set to 0',
+    no_target: 'no target set yet', open: 'below target (no pace on this server)',
   };
-  const ALWAYS = new Set(['exceeded', 'met', 'on_track', 'behind', 'too_early', 'no_target']);
-  const order = ['exceeded', 'met', 'on_track', 'behind', 'too_early', 'partial_target', 'zero_target', 'no_target', 'open'];
+  const order = ['behind', 'on_track', 'too_early', 'met', 'exceeded', 'partial_target', 'zero_target', 'no_target', 'open'];
   const extra = counts ? Object.keys(counts).filter((k) => !order.includes(k)) : [];
-  const shown = [...order, ...extra].filter((k) => ALWAYS.has(k) || (counts && counts[k]));
+  const shown = counts ? [...order, ...extra].filter((k) => counts[k]) : [];
   const toneOf = (k) => { const t = (STATUS[k] || [])[1]; return t === 'neutral' ? null : t; };
-  host.replaceChildren(prog,
-    h('div', { class: 'tgp-cards' },
-      shown.map((k) => card((STATUS[k] || [k.replace(/_/g, ' ')])[0], c(k), SUB[k] || '', toneOf(k), filterTo(k)))));
+  host.replaceChildren(...[prog,
+    shown.length ? h('div', { class: 'tgp-cards' },
+      shown.map((k) => card((STATUS[k] || [k.replace(/_/g, ' ')])[0], c(k), SUB[k] || '', toneOf(k), filterTo(k)))) : null].filter(Boolean));
 }
 
 /* ---------- data */
@@ -385,9 +384,9 @@ function drawTable() {
   if (partial.length && f.level !== 'person') notes.push(h('div', { class: 'tgp-note', role: 'note' }, ui.icon('info', { size: 16 }),
     h('span', null, `${fmt.num(partial.length)} ${f.level === 'district' ? 'district' : 'college'}${partial.length === 1 ? '' : 's'} ha${partial.length === 1 ? 's' : 've'} no own target, so the target is the sum of the ${f.level === 'district' ? 'towns' : 'branches'} that have one. Actual, % and remaining then count only those ${f.level === 'district' ? 'towns' : 'branches'}; the full confirmed count is shown underneath ("all").`)));
   if (f.level === 'person' && me.rows.some((r) => r.lead)) notes.push(h('p', { class: 'tgp-muted tgp-small' },
-    'Leads are judged three ways, never merged (F5): ', h('strong', null, 'Own'), ' = their own credited enrollments against their own target (this row\u2019s target, %, remaining and status). ',
-    h('strong', null, 'Team'), ' = everyone still active below them against the sum of the team\u2019s targets \u2014 judged only when every member has a target (otherwise \u201cPartly targeted\u201d). ',
-    h('strong', null, 'Total'), ' = own + team against own + team targets. Hover (on touch: press and hold) Team or Total for their %.'));
+    'For college leads and ambassador leads: ', h('strong', null, 'Own'), ' = enrollments credited to the lead personally (the row\u2019s target, % and status are for these). ',
+    h('strong', null, 'Team'), ' = the active ambassadors who report to them. ',
+    h('strong', null, 'Total'), ' = own + team. Hover over Team or Total (on touch: press and hold) to see their %.'));
   if (!me.rows.length) {
     me.nodes.table.replaceChildren(...notes, ui.emptyState({ icon: 'target', title: f.level === 'person' ? 'No people yet' : 'Nothing to show', text: f.level === 'person' ? 'Add College Leads and Ambassadors in Team; their targets and confirmed enrollments appear here.' : 'No places in this district selection.' }));
     return;
@@ -402,13 +401,13 @@ function drawTable() {
     caption: `Performance by ${f.level}, ${periodLabel(f.period, fmt)}`,
     columns: [
       { key: 'name', label: f.level === 'person' ? 'Name · role · college' : f.level === 'college' ? 'College · district' : 'District', primary: true, priority: 1, minWidth: 230, sortable: false, render: (r) => nameCell(r) },
-      { key: 'target', label: 'Min · Target · Max', phoneLabel: 'Target (min · max)', align: 'right', priority: 2, minWidth: 110, sortable: false, render: (r) => tgtCell(r) },
-      { key: 'actual', label: 'Actual', phoneLabel: f.level === 'person' ? 'Actual (own · team · total)' : 'Actual', align: 'right', priority: 1, minWidth: 120, sortable: false, render: (r) => actualCell(r) },
-      { key: 'remaining', label: 'Remaining', align: 'right', priority: 2, minWidth: 96, sortable: false, render: (r) => (r.remaining == null ? h('span', { class: 'tgp-muted' }, '—') : fmt.num(r.remaining)) },
-      { key: 'exceeded_by', label: 'Exceeded by', align: 'right', priority: 3, minWidth: 100, sortable: false, render: (r) => (r.exceeded_by == null ? h('span', { class: 'tgp-muted' }, '—') : r.exceeded_by > 0 ? h('strong', { class: 'tgp-good' }, `+${fmt.num(r.exceeded_by)}`) : '0') },
-      { key: 'pct', label: '%', align: 'right', priority: 2, minWidth: 80, sortable: false, render: (r) => pctCell(r) },
+      // Owner review 2026-11-14: "Exceeded by" is folded into "Still needed" (+N over) and the "Target vs actual" bar
+      // column is gone (the % column says the same). Min / max show under the target only when someone set them.
+      { key: 'target', label: 'Target', align: 'right', priority: 2, minWidth: 90, sortable: false, render: (r) => tgtCell(r) },
+      { key: 'actual', label: 'Paid enrollments', phoneLabel: f.level === 'person' ? 'Paid enrollments (own · team · total)' : 'Paid enrollments', align: 'right', priority: 1, minWidth: 120, sortable: false, render: (r) => actualCell(r) },
+      { key: 'remaining', label: 'Still needed', align: 'right', priority: 2, minWidth: 96, sortable: false, render: (r) => stillCell(r) },
+      { key: 'pct', label: '% of target', align: 'right', priority: 2, minWidth: 90, sortable: false, render: (r) => pctCell(r) },
       { key: 'status', label: 'Status', priority: 1, minWidth: 130, sortable: false, cardHidden: true, render: (r) => chipOf(r) },
-      { key: 'bar', label: 'Target vs actual', priority: 3, minWidth: 140, sortable: false, render: (r) => perfBar(me.ctx, r) },
     ],
     rows: pageRows, rowKey: (r) => `${r.level}:${r.id}`, cardSort: false, empty: emptyF,
     cardTitle: (r) => h('span', null, h('a', { href: hrefOf(r) }, r.name), tagsOf(r)),
@@ -448,6 +447,10 @@ function drawTable() {
   function nameCell(r) {
     const sub = subOf(r);
     return h('div', { class: 'tgp-namecell' }, h('a', { href: hrefOf(r) }, r.name), tagsOf(r), sub ? h('span', { class: 'tgp-subline' }, sub) : null, covOf(r));
+  }
+  function stillCell(r) {
+    if (r.exceeded_by != null && r.exceeded_by > 0) return h('strong', { class: 'tgp-good', title: 'Paid enrollments above the target' }, `+${fmt.num(r.exceeded_by)} over`);
+    return r.remaining == null ? h('span', { class: 'tgp-muted' }, '—') : fmt.num(r.remaining);
   }
   function tgtCell(r) {
     const rng = F.range(r.min, r.max);
@@ -753,7 +756,7 @@ function topSection() {
     body: h('div', { class: 'tg-top' },
       h('div', { class: 'tg-kpis' },
         kpi('Target', hasT ? fmt.num(s.target) : 'Not set', hasT ? null : 'Set it here or split one below'),
-        kpi('Confirmed', fmt.num(s.enrolled ?? 0), s.reached ? `${fmt.num(s.reached)} students reached (logged activities)` : 'students reached: no activity logged'),
+        kpi('Paid enrollments', fmt.num(s.enrolled ?? 0), s.reached ? `${fmt.num(s.reached)} students reached (logged activities)` : 'students reached: no activity logged'),
         kpi('Still needed', hasT ? fmt.num(s.remaining) : '—'),
         kpi('Deadline', s.deadline ? fmt.date(s.deadline) : 'Not set', s.deadline ? daysLeftText(pl.ctx, s.deadline) : 'set it in Settings')),
       hasT ? perfBar(pl.ctx, { actual: s.enrolled ?? 0, target: s.target }, { lg: true }) : null,
@@ -863,7 +866,7 @@ function drawTree() {
   walk('state', 1);
 
   const head = h('div', { class: 'tg-tr tg-tr--head', role: 'row' },
-    ['Place', 'Target', 'Confirmed', 'Progress', 'Deadline', ''].map((t) => h('span', { role: 'columnheader' }, t)));
+    ['Place', 'Target', 'Paid enrollments', 'Progress', 'Deadline', ''].map((t) => h('span', { role: 'columnheader' }, t)));
   const rows = out.map((n) => {
     if (n.msg) return h('div', { class: 'tg-tr tg-tr--msg', role: 'row', style: `--d:${n.depth}` }, h('span', { role: 'gridcell' }, n.msg));
     const r = n.r || {};
@@ -887,7 +890,7 @@ function drawTree() {
       h('span', { class: 'tg-c-target td-num', role: 'gridcell', 'data-label': 'Target' },
         hasT ? fmt.num(r.target) : h('span', { class: 'tgp-muted' }, '—'), src,
         bad ? h('span', { class: 'tg-flag', title: `Its parts add up to ${fmt.num(bad.children_target_sum)}` }, ui.icon('warn', { size: 14 })) : null),
-      h('span', { class: 'tg-c-enr td-num', role: 'gridcell', 'data-label': 'Confirmed' }, fmt.num(r.enrolled ?? 0)),
+      h('span', { class: 'tg-c-enr td-num', role: 'gridcell', 'data-label': 'Paid enrollments' }, fmt.num(r.enrolled ?? 0)),
       h('span', { class: 'tg-c-prog', role: 'gridcell' }, r.target > 0 ? h('span', { class: 'tg-bar', title: `${fmt.num(r.enrolled ?? 0)} of ${fmt.num(r.target)}` },
         h('span', { class: 'tg-track' }, h('i', { class: r.pct >= 0.6 ? 'is-good' : r.pct >= 0.3 ? 'is-warn' : 'is-bad', style: { width: Math.min(100, (r.pct || 0) * 100) + '%' } })),
         h('span', { class: 'td-num' }, pctText(pctP)))
@@ -1006,7 +1009,7 @@ function wizard() {
   return h('div', { class: 'tg-wizard' }, step1, w.preview ? previewStep() : null,
     h('details', { class: 'tg-explain' }, h('summary', null, 'How is the split worked out?'),
       h('ul', null,
-        h('li', null, '"By eligible students" uses final-year students in each place × the branch relevance factors from Settings. Places whose numbers are still pending get a smaller share, shown as "pending".'),
+        h('li', null, '"By likely prospects" uses final-year students in each place × the branch relevance factors from Settings. Places whose numbers are still pending get a smaller share, shown as "pending".'),
         h('li', null, 'Numbers are whole people. Remainders go to the places closest to the next whole number, so the parts always add up exactly to your total.'),
         h('li', null, 'You can change any number before saving; the sum is checked as you type.'),
         h('li', null, 'Every saved target is recorded in the audit log with your name.'))));

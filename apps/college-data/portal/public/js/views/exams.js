@@ -17,6 +17,13 @@ const STATE = {
   unknown: { label: 'Dates unknown', short: 'Unknown', tone: 'neutral', icon: 'warn', help: 'Neither semester has a confirmed date yet.' },
 };
 const STATUS_TONE = { 'In Progress': 'bad', Upcoming: 'warn', Completed: 'good', 'No Current Exams Found': 'neutral', Unverified: 'neutral' };
+/** Display words for the stored research values (the stored values themselves never change). */
+export const EXAM_STATUS_LABEL = { Upcoming: 'Upcoming', 'In Progress': 'In progress', Completed: 'Finished', 'No Current Exams Found': 'No exams announced', Unverified: 'Not confirmed' };
+const EVIDENCE_LABEL = {
+  'Officially confirmed': 'Official notice', 'Official university timetable (affiliation-based)': 'University timetable',
+  'Unverified (calendar-planned)': 'Academic calendar (planned)', Conflicting: 'Sources disagree', Unverified: 'Not confirmed',
+};
+export const evidenceLabel = (v) => EVIDENCE_LABEL[v] || v;
 const CONF_TONE = { High: 'good', Medium: 'info', Low: 'warn' };
 const VIEW_KEY = 'td.exams.view';
 
@@ -306,7 +313,7 @@ function gantt(rows) {
   svg.append(S('rect', { x: 0, y: HEAD, width: todayX, height: totalH - HEAD, class: 'g-past' }));
 
   const labels = h('div', { class: 'ex-gantt-labels', style: { width: LABEL_W + 'px' } },
-    h('div', { class: 'ex-gl-head', style: { height: HEAD + 'px' } }, h('span', null, 'College'), h('span', { class: 'ex-gl-lanes' }, 'lane')));
+    h('div', { class: 'ex-gl-head', style: { height: HEAD + 'px' } }, h('span', null, 'College'), h('span', { class: 'ex-gl-lanes' }, 'Year')));
   let y = HEAD;
   for (const [dk, list] of groups) {
     labels.append(h('div', { class: 'ex-gl-group', style: { height: GROUP + 'px' } }, cur.dName.get(dk) || dk || 'District not set', h('span', { class: 'adm-muted' }, ` · ${list.length}`)));
@@ -402,12 +409,12 @@ function list(rows) {
     const pending = isPending(r);
     return h('div', { class: 'ex-sem' },
       h('div', { class: 'ex-sem__top' },
-        ui.badge(pending ? 'Pending verification' : r.status || '—', pending ? 'neutral' : STATUS_TONE[r.status] || 'neutral'),
+        ui.badge(pending ? 'Dates not confirmed' : EXAM_STATUS_LABEL[r.status] || r.status || '—', pending ? 'neutral' : STATUS_TONE[r.status] || 'neutral'),
         tr !== 'confirmed' && !pending && (s || e || r.mid_window) ? h('span', { class: 'ex-flag' }, tr === 'conflict' ? 'sources conflict' : 'planned') : null),
       dates,
       h('span', { class: ['ex-sem__cd', `is-${cd.tone}`] }, cd.text),
       h('div', { class: 'ex-sem__src' },
-        r.confidence ? h('span', { class: ['ex-conf', `is-${CONF_TONE[r.confidence] || 'neutral'}`], title: `${r.evidence || 'No evidence recorded'} — ${r.confidence} confidence` }, `${r.confidence} confidence`) : null,
+        r.confidence ? h('span', { class: ['ex-conf', `is-${CONF_TONE[r.confidence] || 'neutral'}`], title: `${r.evidence ? evidenceLabel(r.evidence) : 'No evidence recorded'} — ${r.confidence} confidence` }, `${r.confidence} confidence`) : null,
         sourceLink(r.source_url),
         r.verified_on ? h('span', { class: 'adm-muted' }, `checked ${fmt.date(r.verified_on)}`) : null),
       edit);
@@ -457,9 +464,9 @@ function editExam(c, r) {
       h('label', { class: 'td-field__label', for: id }, label, opts.req ? h('span', { class: 'td-field__req', 'aria-hidden': 'true' }, ' *') : null),
       input, help ? h('div', { class: 'td-field__help' }, help) : null);
   };
-  const sel = (opts, v) => {
+  const sel = (opts, v, labels = {}) => {
     const all = v && !opts.includes(v) ? [v, ...opts] : opts;
-    const s = h('select', { class: 'td-input td-select' }, all.map((o) => h('option', { value: o }, o)));
+    const s = h('select', { class: 'td-input td-select' }, all.map((o) => h('option', { value: o }, labels[o] || o)));
     s.value = v || all[0];
     return s;
   };
@@ -496,13 +503,13 @@ function editExam(c, r) {
     return out;
   };
 
-  const status = sel(STATUSES, r._missing ? 'Unverified' : r.status);
+  const status = sel(STATUSES, r._missing ? 'Unverified' : r.status, EXAM_STATUS_LABEL);
   const examBody = h('input', { type: 'text', class: 'td-input', value: r.exam_body || '', placeholder: 'e.g. JNTUK, or the college (autonomous)' });
   const s = dateOrText(r.endsem_start), e = dateOrText(r.endsem_end);
   const mid = h('input', { type: 'text', class: 'td-input', value: r.mid_window || '', placeholder: 'e.g. Mid-II 2026-11-09 to 2026-11-14' });
   const lab = h('input', { type: 'text', class: 'td-input', value: r.lab_window || '', placeholder: 'e.g. Practicals 2026-11-23 to 2026-11-28' });
   const src = h('input', { type: 'url', class: 'td-input', value: r.source_url || '', placeholder: 'https://… (exam notice or timetable)' });
-  const evidence = sel(EVIDENCE, r.evidence || 'Unverified');
+  const evidence = sel(EVIDENCE, r.evidence || 'Unverified', EVIDENCE_LABEL);
   const conf = sel(CONFIDENCE, r.confidence || 'Low');
   const notice = dateOrText(r.notice_date);
   const verified = h('input', { type: 'date', class: 'td-input td-num', value: today() });
@@ -513,7 +520,7 @@ function editExam(c, r) {
   const checkSrc = () => {
     const v = src.value.trim();
     const need = ['In Progress', 'Upcoming'].includes(status.value) && !v;
-    srcErr.textContent = need ? 'Needed when the status is "In Progress" or "Upcoming" — paste the notice or timetable link so others can check it.'
+    srcErr.textContent = need ? 'Needed when the status is "In progress" or "Upcoming" — paste the notice or timetable link so others can check it.'
       : v && !/^https?:\/\/\S+$/i.test(v) ? 'Start the link with https:// (or leave it empty).' : '';
     src.setAttribute('aria-invalid', String(!!srcErr.textContent));
     return !srcErr.textContent;
@@ -526,15 +533,15 @@ function editExam(c, r) {
     h('p', { class: 'ex-form__who' }, h('strong', null, c.name), ` · semester ${r.semester} (${r.semester === '4-1' ? 'final year' : 'third year'})`), meta, err,
     h('fieldset', { class: 'ex-fs' }, h('legend', null, 'Exam dates'),
       h('div', { class: 'td-form__grid' },
-        field('Status', status), field('Exam body', examBody),
-        field('End-sem starts', s.node), field('End-sem ends', e.node), dateErr,
-        field('Mid exam window', h('div', null, mid, windowPreview(mid, true)), null, { full: true }),
-        field('Lab / practical window', h('div', null, lab, windowPreview(lab, false)), null, { full: true }))),
+        field('Status', status), field('Exams set by', examBody, 'The university, or the college itself if it is autonomous.'),
+        field('End-semester exams start', s.node), field('End-semester exams end', e.node), dateErr,
+        field('Mid exams', h('div', null, mid, windowPreview(mid, true)), null, { full: true }),
+        field('Labs / practicals', h('div', null, lab, windowPreview(lab, false)), null, { full: true }))),
     h('fieldset', { class: 'ex-fs' }, h('legend', null, 'Where did this come from?'),
       h('div', { class: 'td-form__grid' },
         field('Source link', h('div', null, src, srcErr), null, { full: true }),
-        field('Evidence', evidence), field('Confidence', conf),
-        field('Notice date', notice.node), field('Checked on', verified, 'Defaults to today — the day you looked at the source.'),
+        field('Kind of source', evidence), field('How sure are we?', conf),
+        field('Notice published on', notice.node), field('Last checked on', verified, 'Defaults to today — the day you looked at the source.'),
         field('Notes', notes, null, { full: true }))));
 
   const save = async () => {

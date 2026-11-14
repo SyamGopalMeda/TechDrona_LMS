@@ -15,13 +15,13 @@ import {
 const NAV = [
   { id: 'home', label: 'Home', short: 'Home', icon: 'home', href: '#/' },
   { id: 'colleges', label: 'Colleges', short: 'Colleges', icon: 'college', href: '#/colleges' },
-  { id: 'people', label: 'Team', short: 'Team', icon: 'people', href: '#/people' },
-  { id: 'targets', label: 'Targets & performance', short: 'Targets', icon: 'target', href: '#/targets' },
+  { id: 'people', label: 'Team', short: 'Team', icon: 'people', href: '#/people', tip: 'Team: college leads and ambassadors' },
+  { id: 'targets', label: 'Targets & performance', short: 'Targets', icon: 'target', href: '#/targets', tip: 'Targets & performance: paid enrollments against targets, by person, college or district' },
   { id: 'calls', label: 'Calls & follow-ups', short: 'Calls', icon: 'phone', href: '#/calls' },
-  { id: 'analytics', label: 'Reports', short: 'Reports', icon: 'analytics', href: '#/analytics' },
+  { id: 'analytics', label: 'Reports', short: 'Reports', icon: 'analytics', href: '#/analytics', tip: 'Reports: trend, pace, rankings and courses' },
   { id: 'exams', label: 'Exams', icon: 'exam', href: '#/exams', more: true },
   { id: 'notices', label: 'Official notices', icon: 'list', href: '#/notices', more: true },
-  { id: 'live', label: 'Official sources', icon: 'refresh', href: '#/live', more: true },
+  { id: 'live', label: 'Official sources', icon: 'refresh', href: '#/live', more: true, tip: 'Official sources: EAPCET / ECET / JNTUK lists checked automatically' },
   { id: 'data', label: 'Data quality', icon: 'data', href: '#/data', more: true },
   { id: 'audit', label: 'Audit log', icon: 'audit', href: '#/audit', more: true },
   { id: 'settings', label: 'Settings', icon: 'settings', href: '#/settings', more: true },
@@ -187,7 +187,9 @@ function buildShell() {
   $.themeBtn = ui.button({ icon: 'moon', tone: 'ghost', ariaLabel: 'Switch theme', onClick: toggleTheme });
   $.userBtn = h('button', { type: 'button', class: 'td-user', onClick: () => userMenu(), 'aria-label': 'Who is using this portal' });
   $.scope = buildScopeControl();
-  $.liveSlot = h('span', { class: 'td-liveslot' }); // official-source status chip (views/live.js), filled in boot()
+  // Owner review 2026-11-14: the "Checked 5 h ago" official-source chip was a background technical detail, so it is no longer
+  // shown in the top bar. The background refresh still runs (boot) and the status stays on More › Official sources.
+  $.liveSlot = h('span', { class: 'td-liveslot', hidden: true });
   const topbar = h('header', { class: 'td-topbar' },
     $.navToggle, brand, $.pageTitle, $.scope.root, $.search.root,
     h('div', { class: 'td-topbar__actions' }, $.liveSlot, $.searchBtn, $.themeBtn, $.userBtn));
@@ -195,7 +197,8 @@ function buildShell() {
   $.banners = h('div', { class: 'td-banners' });
 
   // left nav
-  const navLink = (n) => h('a', { href: n.href, class: 'td-nav__link', dataset: { nav: n.id }, title: n.label },
+  // title + aria-label: the collapsed (icon-only) sidebar still names every link (tooltip and screen readers)
+  const navLink = (n) => h('a', { href: n.href, class: 'td-nav__link', dataset: { nav: n.id }, title: n.tip || n.label, 'aria-label': n.label },
     ui.icon(n.icon, { size: 20 }), h('span', { class: 'td-nav__label' }, n.label));
   $.navLinks = NAV.map(navLink);
   $.collapseBtn = h('button', { type: 'button', class: 'td-nav__collapse', onClick: toggleCollapse, 'aria-label': 'Collapse navigation' },
@@ -224,7 +227,7 @@ function buildShell() {
   $.main = h('main', { class: 'td-main', id: 'td-main' }, $.stage);
 
   // bottom tab bar (phones): first TAB_COUNT primary items + More
-  $.tabLinks = PRIMARY.slice(0, TAB_COUNT).map((n) => h('a', { href: n.href, class: 'td-tabbar__item', dataset: { nav: n.id } },
+  $.tabLinks = PRIMARY.slice(0, TAB_COUNT).map((n) => h('a', { href: n.href, class: 'td-tabbar__item', dataset: { nav: n.id }, 'aria-label': n.label },
     ui.icon(n.icon, { size: 22 }), h('span', null, n.short || n.label)));
   $.moreBtn = h('button', { type: 'button', class: 'td-tabbar__item', onClick: openMoreSheet, dataset: { nav: 'more' }, 'aria-haspopup': 'dialog' }, ui.icon('more', { size: 22 }), h('span', null, 'More'));
   $.tabbar = h('nav', { class: 'td-tabbar', 'aria-label': 'Main' }, $.tabLinks, $.moreBtn);
@@ -953,7 +956,8 @@ function renderScopeControl() {
   const s = getScope();
   const label = scopeLabel({ max: 3 });
   const n = s.all ? null : s.ids.length;
-  const short = s.all ? 'All' : s.isDefault ? 'Target' : `${n} district${n === 1 ? '' : 's'}`;
+  // short label (tablet / phone top bar): a count, never the bare word "Target" (read as the enrollment target — owner review)
+  const short = s.all ? 'All districts' : `${n} district${n === 1 ? '' : 's'}`;
   $.scope.btn.classList.toggle('is-custom', !s.isDefault);
   $.scope.btn.replaceChildren(
     ui.icon('map', { size: 16, class: 'td-scope__icon' }),
@@ -963,7 +967,7 @@ function renderScopeControl() {
     ...(s.isDefault ? [] : [h('span', { class: 'td-scope__chip' }, s.all ? 'All' : 'Custom')]),
     ui.icon('chevron', { size: 14, class: 'td-scope__caret' }));
   $.scope.btn.setAttribute('aria-label', `Districts shown: ${label}${s.isDefault ? ' (default target districts)' : ''}. Change districts`);
-  $.scope.btn.title = `Showing: ${label}`;
+  $.scope.btn.title = `Districts shown on every page: ${label}${s.isDefault ? ' (the target districts)' : ''}. Click to change.`;
 }
 
 /** Picker body shared by the desktop popover and the phone bottom sheet. close() closes the container. */
@@ -1480,8 +1484,8 @@ async function boot() {
   loadMeta();
   loadProgram();
   loadColleges();
-  // live official-source data: one background refresh per visit (after sign-in) + the status chip in the top bar
-  import('./views/live.js').then((m) => { $.liveSlot.replaceChildren(m.liveChip()); m.startLive(api); }).catch((e) => console.warn('[shell] live status unavailable', e));
+  // live official-source data: one background refresh per visit (after sign-in); no status chip in the top bar
+  import('./views/live.js').then((m) => { m.startLive(api); }).catch((e) => console.warn('[shell] live status unavailable', e));
   route();
 }
 

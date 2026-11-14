@@ -42,7 +42,7 @@ export function opsHeader(ctx, { active, actions = [], counts = {} }) {
     { label: 'Follow-ups', href: '#/followups', active: active === 'followups', count: counts.followups },
   ];
   const sub = active === 'calls'
-    ? 'Call the colleges most likely to bring students first, log every call, and set the next call-back.'
+    ? 'Call the colleges most likely to bring students first, log every call, and set a call-back date.'
     : 'Call-backs and to-dos for colleges, branches and team members. Overdue items are highlighted.';
   // new shell: it draws the "Call queue | Follow-ups" section tabs itself (components.md) — only add the scope pill here
   const extended = typeof ui.linkTabs === 'function';
@@ -173,23 +173,24 @@ export async function overdueCount(ctx) {
 /* =====================================================================================================
    Call queue
    ===================================================================================================== */
+// [server filter key, chip label]. Keys are the API's (GET /api/calls/queue?filter=); only the wording is ours.
 const FILTERS = [
-  ['all', 'All'],
-  ['pending', 'To call / call-back'],
-  ['high', 'High potential'],
-  ['working', 'Working numbers'],
-  ['interested', 'Interested'],
-  ['confirmed', 'Confirmed'],
-  ['invalid', 'Bad numbers'],
+  ['all', 'All colleges'],
+  ['pending', 'To call'],
+  ['high', 'High priority'],
+  ['working', 'Has a working number'],
+  ['interested', 'Spoke to them'],
+  ['confirmed', 'College agreed'],
+  ['invalid', 'Has a bad number'],
 ];
 const EMPTY = {
   all: ['No colleges match', 'Clear the search, or widen the district scope at the top of the page.'],
-  working: ['No working numbers yet', 'A number becomes “working” after a logged call where someone answered. Start with “All” and log each call.'],
-  high: ['No high-priority colleges here', 'High priority needs many eligible students, a callable contact and an open outreach window. Add contacts to raise colleges up the queue.'],
+  working: ['No working numbers yet', 'A number becomes “working” after a logged call where someone answered. Start with “All colleges” and log each call.'],
+  high: ['No high-priority colleges here', 'High priority needs many eligible students, a number to call and no exams soon. Add contacts to move colleges up the list.'],
   pending: ['Nothing to call', 'Every college in view has been reached and has no call-back due.'],
-  invalid: ['No bad numbers', 'Numbers marked wrong, invalid, disconnected or unreachable appear here so someone can find a new one.'],
+  invalid: ['No bad numbers', 'Colleges with a wrong, out-of-service or unreachable number appear here so someone can find a new one.'],
   interested: ['No conversations yet', 'Colleges move here after a call where someone answered.'],
-  confirmed: ['No confirmed colleges yet', 'Tick “The college confirmed participation” when logging a call, or record confirmed enrollments.'],
+  confirmed: ['No college has agreed yet', 'Tick “The college agreed to take part” when logging a call, or record confirmed enrollments.'],
 };
 // column key -> server sort and its natural direction
 const SORTS = { priority: ['priority', 'desc'], next_action: ['next_action', 'asc'], last_call: ['last_call', 'desc'], name: ['name', 'asc'] };
@@ -257,9 +258,9 @@ function tableOpts(rows) {
         h('span', { class: 'opk-muted vx-small' }, [r.short_name && r.short_name !== r.name ? r.name : null, [r.city_name, r.district_name].filter(Boolean).join(', ')].filter(Boolean).join(' · ')),
         h('span', { class: 'vcq-badges' }, forms.callStatusBadge(ctx, r.call_status), r.op_status !== 'operational' ? ui.statusBadge('op_status', r.op_status) : null,
           r.exam_state === 'in_exams' || r.exam_state === 'exams_soon' ? ui.statusBadge('exam_state', r.exam_state) : null)) },
-      { key: 'contact', label: 'Best number', sortable: false, priority: 1, minWidth: 230, render: (r) => contactCell(r) },
+      { key: 'contact', label: 'Number to call', sortable: false, priority: 1, minWidth: 230, render: (r) => contactCell(r) },
       { key: 'last_call', label: 'Last call', priority: 2, minWidth: 160, render: (r) => (r.last_call ? outcomeText(r.last_call, r.calls_total) : h('span', { class: 'opk-muted' }, 'Not called yet')) },
-      { key: 'next_action', label: 'Next call', priority: 2, minWidth: 150, render: (r) => nextCell(r.next_action) },
+      { key: 'next_action', label: 'Call back on', priority: 2, minWidth: 150, render: (r) => nextCell(r.next_action) },
       { key: 'priority', label: 'Priority', priority: 3, minWidth: 150, render: (r) => whyPopover(r) },
     ],
     rows,
@@ -316,7 +317,7 @@ function drawTable() {
   if (cur.page > pages) cur.page = pages;
   const slice = rows.slice((cur.page - 1) * PAGE, cur.page * PAGE);
   dom.table.update({ ...tableOpts(slice), rows: slice, total: rows.length, page: cur.page, loading: false, error: null });
-  const sortLabel = { priority: 'highest priority first', next_action: 'by next call date', last_call: 'by last call', name: 'by name' }[cur.sort];
+  const sortLabel = { priority: 'highest priority first', next_action: 'by call-back date', last_call: 'by last call', name: 'by name' }[cur.sort];
   dom.note.textContent = rows.length ? `${ctx.fmt.plural(rows.length, 'college')} · ${sortLabel}${cur.q ? ` · matching “${cur.q}”` : ''}` : '';
 }
 
@@ -327,8 +328,8 @@ function drawKpis(td) {
   dom.kpis.replaceChildren(kpiRow(ctx, [
     { label: 'Calls today', value: fmt.num(c.today), sub: `${fmt.num(c.last_7d)} in the last 7 days`, icon: 'phone' },
     { label: 'Call-backs due', value: fmt.num(p.callbacks_due), sub: `${fmt.num(p.callbacks_scheduled)} scheduled later`, tone: p.callbacks_due ? 'warn' : undefined, icon: 'clock', href: '#/followups?tab=overdue' },
-    { label: 'Not called yet', value: fmt.num(p.never_called), sub: 'colleges', icon: 'college', onClick: () => setFilter('pending') },
-    { label: 'Working numbers', value: fmt.num(k.working), sub: `${fmt.num(k.untested)} untested · ${fmt.num((k.non_working || 0) + (k.invalid || 0))} bad`, icon: 'check', tone: k.working ? 'good' : undefined },
+    { label: 'Colleges not called yet', value: fmt.num(p.never_called), sub: 'operating colleges only', icon: 'college', onClick: () => setFilter('pending') },
+    { label: 'Working numbers', value: fmt.num(k.working), sub: `${fmt.num(k.untested)} not tried yet · ${fmt.num((k.non_working || 0) + (k.invalid || 0))} not working`, icon: 'check', tone: k.working ? 'good' : undefined },
   ]));
 }
 
@@ -380,5 +381,5 @@ function whyPopover(r) {
         h('span', { class: 'vcq-why-k' }, x.label),
         h('span', { class: 'vcq-why-pts td-num' }, `${x.points}/${x.max}`),
         h('span', { class: 'vcq-why-d' }, x.detail, x.estimated ? ' ' : null, x.estimated ? ui.provenance('estimated') : null, x.basis === 'pending' ? ' ' : null, x.basis === 'pending' ? ui.provenance('pending') : null)))),
-      h('p', { class: 'opk-muted vx-small' }, 'High is 60+, medium 40–59. Internal only: it orders this list.')));
+      h('p', { class: 'opk-muted vx-small' }, 'High is 60 or more, medium 40–59. It only decides the order of this list.')));
 }

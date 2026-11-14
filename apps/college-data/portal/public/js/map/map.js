@@ -538,13 +538,13 @@ export function createMap(el, handlers = {}) {
     closedBtn.parentElement.hidden = !relevant;
     if (!relevant) return;
     closedBtn.setAttribute('aria-pressed', String(showClosed));
-    closedBtn.title = showClosed ? 'Hide colleges marked possibly closed or closed'
-      : 'These colleges may have stopped running. Show them on the map';
-    const full = showClosed ? `Showing ${plural(n, 'possibly closed college')}` : `${num(n)} possibly closed hidden`;
+    closedBtn.title = showClosed ? 'Hide colleges that may have shut down (marked possibly closed or closed)'
+      : 'Research found signs these colleges stopped running. Show them on the map';
+    const full = showClosed ? `Showing ${plural(n, 'college')} that may have shut down` : `${num(n)} may have shut down (hidden)`;
     closedBtn.setAttribute('aria-label', `${full}. ${showClosed ? 'Hide them' : 'Show them'}`);
     closedBtn.innerHTML = (showClosed ? EYE : EYE_OFF) +
       `<span class="td-map-closed__long">${full}</span>` +
-      `<span class="td-map-closed__short" aria-hidden="true">${num(n)} closed</span>` +
+      `<span class="td-map-closed__short" aria-hidden="true">${num(n)} ${showClosed ? 'shown' : 'hidden'}</span>` +
       `<span class="td-map-closed__act">${showClosed ? 'Hide' : 'Show'}</span>`;
   }
 

@@ -5,6 +5,7 @@ import { today } from '../ui/h.js';
 import { csvRow } from '../ui/components.js';
 import { scopeRows, SCOPE_EVENT } from '../state.js';
 import { getQuery, setQuery, getScoped, dataTable, verifiedBadge, statusChip, contactActions, kpiRow, scopeLine } from './calls.js';
+import { CONTACT_ROLE_LABEL } from './forms.js';
 
 const arr = (x) => (Array.isArray(x) ? x : (x && Array.isArray(x.items) ? x.items : x && Array.isArray(x.rows) ? x.rows : []));
 /** Only http(s) links are ever rendered as <a href> (BE-12: a stored "javascript:" URL must never become a link). */
@@ -21,28 +22,36 @@ const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); 
 
 const FIELD_LABEL = {
   lat: 'Map location', lng: 'Map location', website: 'Website', phone: 'Phone', email: 'Email', naac: 'NAAC grade', nirf: 'NIRF rank',
-  address: 'Address', city_id: 'Town', intake_per_year: 'Branch intake', tier: 'Tier', ownership: 'Ownership', affiliation: 'Affiliation',
+  address: 'Address', city_id: 'Town', intake_per_year: 'Seats / year', tier: 'Tier', ownership: 'Ownership', affiliation: 'Affiliation',
   op_status: 'Operating status', branches: 'Branch list', exams: 'Exam dates', name: 'Name', district_id: 'District', short_name: 'Short name',
   full_name: 'Name', reports_to: 'Reports to', college_id: 'College', role: 'Role', status: 'Status', joined_on: 'Joined on', notes: 'Notes',
-  op_status_note: 'Status evidence', op_status_source: 'Status source', due_date: 'Due date', owner_name: 'Owner', owner_person_id: 'Owner (team member)',
+  op_status_note: 'Status evidence', op_status_source: 'Status source', due_date: 'Due date', owner_name: 'Assigned to', owner_person_id: 'Assigned to (team member)',
   scope_type: 'About (type)', scope_id: 'About', target: 'Target', target_min: 'Minimum', target_max: 'Maximum', period: 'Period', period_start: 'Period starts',
   stage: 'Stage', enrolled_on: 'Enrolled on', confirmed_on: 'Confirmed on', student_name: 'Student', student_contact: 'Student contact',
   basis: 'Verification', source_url: 'Source link', verified_fields: 'Verified fields', verified_by: 'Verified by', verified_on: 'Verified on',
-  title: 'Title', issue: 'Issue', last_contact: 'Last contact', done_at: 'Done on', program_target: 'Programme target', program_deadline: 'Programme deadline',
+  title: 'Title', issue: 'Reason', last_contact: 'Last spoke to them', done_at: 'Done on', program_target: 'Programme target', program_deadline: 'Programme deadline',
   program_start: 'Programme start', target_district_groups: 'Target districts', deadline: 'Deadline', course_id: 'Course', person_id: 'Person',
-  branch_id: 'Branch', price_inr: 'Price (₹)', active: 'Offered', outcome: 'Call outcome', called_at: 'Called at', caller: 'Caller', next_action_at: 'Next call',
+  branch_id: 'Branch', price_inr: 'Price (₹)', active: 'Offered', outcome: 'What happened', called_at: 'Called on', caller: 'Called by', next_action_at: 'Call back on',
   contact_id: 'Contact', semester: 'Semester', endsem_start: 'End-sem starts', endsem_end: 'End-sem ends', evidence: 'Evidence', confidence: 'Confidence',
   aliases: 'Other names', targeted: 'Targeted', designation: 'Designation', responsibility: 'Responsibility', relevance_factors: 'Branch relevance',
-  min_conversion: 'Minimum conversion', org_name: 'Organisation name', state_target_deadline: 'Default deadline',
+  min_conversion: 'Low-conversion alert', org_name: 'Organisation name', state_target_deadline: 'Fallback deadline',
+  // calling system and other fields that showed up as raw names in the audit log
+  followup_id: 'Call-back', confirms_participation: 'College agreed to take part', participation_confirmed_on: 'College agreed on',
+  participation_note: 'Agreement note', status_source: 'Number status set by', unreachable_after_attempts: 'Unanswered calls before "Not working"',
+  op_2025_26: 'Admitted students 2025-26', op_2026_27: 'Admitted students 2026-27', contact_source: 'Contact details source', is_demo: 'Demo record',
+  students_reached: 'Students reached', on_date: 'Date', type: 'Type', amount_inr: 'Amount paid (₹)', interested_on: 'Interested on',
+  registered_on: 'Registered on', applied_on: 'Applied on', dropped_on: 'Dropped on', research_id: 'Research reference', sno: 'Serial no.',
+  is_relevant: 'Target branch', category: 'Category', intake_basis: 'Seats basis', intake_source: 'Seats source', intake_year: 'Seats year',
+  strength_total: 'Total students', final_year: 'Final-year students', program_deadline: 'Programme deadline',
 };
 const label = (k) => FIELD_LABEL[k] || String(k).replace(/_/g, ' ').replace(/^\w/, (m) => m.toUpperCase());
 /** College fields the verification queue tracks (R13 field_status keys). */
 const VERIFY_FIELDS = ['name', 'district_id', 'city_id', 'phone', 'email', 'website', 'ownership', 'affiliation', 'op_status'];
 const CATEGORY = {
-  it_core: ['IT core', 'CSE, IT, AI/ML, Data Science and similar'],
-  it_allied: ['IT allied', 'CSE-adjacent branches (CS & Business Systems, IoT, Cyber Security…)'],
-  circuit: ['Circuit branches', 'ECE, EEE, EIE — strong overlap with software roles'],
-  core: ['Core engineering', 'Civil, Mechanical, Chemical…'],
+  it_core: ['Computer science', 'CSE, IT and similar'],
+  it_allied: ['CS-related (AI, data, IoT…)', 'AI/ML, Data Science, IoT, Cyber Security, CS & Business Systems…'],
+  circuit: ['Electronics / electrical', 'ECE, EEE, EIE — strong overlap with software roles'],
+  core: ['Other engineering', 'Civil, Mechanical, Chemical…'],
   other: ['Other', 'Anything else'],
 };
 const ENTITIES = [['college', 'Colleges'], ['branch', 'Branches'], ['person', 'People'], ['target', 'Targets'], ['enrollment', 'Enrollments'],
@@ -85,6 +94,10 @@ function field(h, lbl, input, help, opts = {}) {
     opts.err || null);
 }
 const errEl = (h) => h('div', { class: 'td-field__error', 'aria-live': 'polite' });
+/** Developer extras (raw JSON) only with ?dev=1 — the shell keeps that switch in sessionStorage 'td.dev' (app.js devMode). */
+const devMode = () => { try { return sessionStorage.getItem('td.dev') === '1' || /[?&]dev=1\b/.test(location.hash) || /[?&]dev=1\b/.test(location.search); } catch { return false; } };
+/** Inside the Tech Drona LMS the LMS signs people in: no portal name, passcode or sign-out (same test as app.js isSso). */
+const isSso = (ctx, session) => !!(ctx.session?.sso || session?.sso) || /^\/college-portal(\/|$)/.test(location.pathname);
 const writeOk = async (ctx) => { try { await ctx.ensureUser?.(); return true; } catch { return false; } };
 const canWrite = (ctx) => (typeof ctx.canWrite === 'boolean' ? ctx.canWrite : (typeof ctx.ui.canWrite === 'function' ? ctx.ui.canWrite() : true));
 
@@ -160,15 +173,15 @@ export async function renderData(el, params = {}, ctx) {
   const unver = colleges.filter((c) => c.data_status && c.data_status !== 'verified').length;
   const tabs = ui.tabs({
     tabs: [
-      { id: 'verify', label: 'Verification queue', count: me.v4 ? unver : undefined, render: panels.verify },
-      { id: 'gaps', label: 'Gaps & checks', count: (quality.missing || []).reduce((s, m) => s + (m.count ? 1 : 0), 0), render: panels.gaps },
-      { id: 'export', label: 'Export', render: panels.export },
+      { id: 'verify', label: 'To verify', count: me.v4 ? unver : undefined, render: panels.verify },
+      { id: 'gaps', label: 'Missing or doubtful', count: (quality.missing || []).reduce((s, m) => s + (m.count ? 1 : 0), 0), render: panels.gaps },
+      { id: 'export', label: 'Download', render: panels.export },
     ],
     active: me.tab,
     onChange: (id) => { me.tab = id; me.page = 1; sync(); },
   });
   el.replaceChildren(
-    pageHead(ctx, 'Data quality', 'Check what is verified, fill gaps, and download the data. Only real records are shown; nothing here is estimated unless marked.', null, { scope: true }),
+    pageHead(ctx, 'Data quality', 'Check college details and contact numbers against a source, fill in what is missing, and download the data.', null, { scope: true }),
     kpiRow(ctx, dataKpis(me)),
     tabs);
 }
@@ -182,11 +195,12 @@ function dataKpis(me) {
   const tot = (bc.verified || 0) + (bc.estimated || 0) + (bc.pending || 0);
   const k = [{ label: 'Colleges in view', value: fmt.num(n), sub: 'in the selected districts', icon: 'college' }];
   if (me.v4) {
-    k.push({ label: 'Fully verified', value: fmt.num(by.verified), sub: `${fmt.num(by.partly)} partly · ${fmt.num(by.unverified)} not yet`, tone: by.verified ? 'good' : undefined, icon: 'check' });
+    k.push({ label: 'Colleges fully verified', value: fmt.num(by.verified), sub: `${fmt.num(by.partly)} partly · ${fmt.num(by.unverified)} not yet`, tone: by.verified ? 'good' : undefined, icon: 'check' });
   }
-  k.push({ label: 'Verified numbers', value: tot ? fmt.pct((bc.verified || 0) / tot) : '—', sub: `${fmt.num(bc.verified || 0)} of ${fmt.num(tot)} branch figures`, icon: 'data' });
+  // "numbers" here are branch seat / student figures, not phone numbers
+  k.push({ label: 'Verified student figures', value: tot ? fmt.pct((bc.verified || 0) / tot) : '—', sub: `${fmt.num(bc.verified || 0)} of ${fmt.num(tot)} branch figures`, icon: 'data' });
   const op = (me.quality.missing || []).find((m) => m.field === 'op_status');
-  k.push({ label: 'Status to confirm', value: fmt.num(op?.count || 0), sub: 'possibly closed or pending', tone: op?.count ? 'warn' : 'good', icon: 'warn' });
+  k.push({ label: 'Still open? To confirm', value: fmt.num(op?.count || 0), sub: 'possibly closed or not known', tone: op?.count ? 'warn' : 'good', icon: 'warn' });
   return k;
 }
 
@@ -202,8 +216,8 @@ function verifyPanel(me, sync) {
   const draw = () => {
     put(host,
       h('div', { class: 'ad-verify__bar' },
-        seg([{ value: 'colleges', label: 'College details' }, { value: 'contacts', label: 'College contacts' }], me.kind, (v) => { me.kind = v; me.page = 1; sync(); draw(); }, 'What to verify'),
-        seg([{ value: 'pending', label: 'Needs checking' }, { value: 'verified', label: 'Verified' }], me.show, (v) => { me.show = v; me.page = 1; sync(); draw(); }, 'Which records')),
+        seg([{ value: 'colleges', label: 'College details' }, { value: 'contacts', label: 'Contact numbers' }], me.kind, (v) => { me.kind = v; me.page = 1; sync(); draw(); }, 'What to verify'),
+        seg([{ value: 'pending', label: 'Not verified yet' }, { value: 'verified', label: 'Verified' }], me.show, (v) => { me.show = v; me.page = 1; sync(); draw(); }, 'Which records')),
       h('p', { class: 'adm-muted ad-verify__help' }, me.kind === 'colleges'
         ? 'A college detail counts as verified only when someone checked it against a source (official website, AICTE/university listing, a call to the office). Typing a value without a source leaves it unverified.'
         : 'A contact is verified when its number or email was confirmed from an official page or by the college itself.'),
@@ -219,7 +233,7 @@ function collegeQueue(me, body, sync) {
   const { ctx } = me;
   const { h, ui, api, fmt } = ctx;
   if (!me.v4) {
-    put(body, ui.emptyState({ icon: 'warn', title: 'Field-level verification is not available on this server yet', text: 'The server needs the v4 update (verified fields per college). Contact verification below already works.' }));
+    put(body, ui.emptyState({ icon: 'warn', title: 'College details cannot be verified here yet', text: 'This server is out of date. Contact numbers can still be verified: choose “Contact numbers” above.' }));
     return;
   }
   const want = me.show === 'verified' ? (c) => c.data_status === 'verified' || c.data_status === 'partly' : (c) => c.data_status !== 'verified';
@@ -228,8 +242,8 @@ function collegeQueue(me, body, sync) {
   const columns = [
     { key: 'name', label: 'College', primary: true, sortable: false, priority: 1, minWidth: 220, render: (c) => h('div', { class: 'ad-vq-name' }, h('a', { href: `#/college/${c.id}` }, c.short_name || c.name),
       h('span', { class: 'adm-muted' }, [me.dName.get(c.district_id), c.targeted ? 'targeted' : null].filter(Boolean).join(' · '))) },
-    { key: 'data_status', label: 'Overall', sortable: false, priority: 1, minWidth: 140, render: (c) => statusChip(ctx, c.data_status === 'partly' ? 'unverified' : c.data_status, { label: { verified: 'Verified', partly: 'Partly verified', unverified: 'Not verified' }[c.data_status] }) },
-    { key: 'fields', label: 'Details', sortable: false, priority: 2, minWidth: 280, render: (c) => fieldChips(me, details.get(String(c.id))) },
+    { key: 'data_status', label: 'Status', sortable: false, priority: 1, minWidth: 140, render: (c) => statusChip(ctx, c.data_status === 'partly' ? 'unverified' : c.data_status, { label: { verified: 'Verified', partly: 'Partly verified', unverified: 'Not verified' }[c.data_status] }) },
+    { key: 'fields', label: 'Details checked', sortable: false, priority: 2, minWidth: 280, render: (c) => fieldChips(me, details.get(String(c.id))) },
     { key: 'last', label: 'Last verified', sortable: false, priority: 3, minWidth: 160, hideOnPhone: true, render: (c) => lastVerified(me, details.get(String(c.id))) },
   ];
   const tbl = dataTable(ctx, { columns, rows: [], loading: true, rowKey: (c) => c.id });
@@ -264,7 +278,7 @@ function fieldChips(me, d) {
   return h('div', { class: 'ad-vq-fields' }, VERIFY_FIELDS.filter((f) => f in fs || vf[f]).map((f) => {
     const st = fs[f] || (vf[f] ? 'verified' : 'unverified');
     return h('span', { class: ['ad-vq-f', `is-${st}`], title: st === 'verified' && vf[f] ? `Verified ${vf[f].verified_on || ''} by ${vf[f].verified_by || 'unknown'}${vf[f].source ? ' · ' + vf[f].source : ''}` : st === 'missing' ? 'No value recorded' : 'Has a value but no source yet' },
-      h('span', { class: 'ad-vq-f__k' }, label(f)), h('span', { class: 'ad-vq-f__v' }, st === 'verified' ? '✓' : st === 'missing' ? 'missing' : 'unverified'));
+      h('span', { class: 'ad-vq-f__k' }, label(f)), h('span', { class: 'ad-vq-f__v' }, st === 'verified' ? '✓' : st === 'missing' ? 'missing' : 'not verified'));
   }));
 }
 function parseVF(v) { if (!v) return {}; if (typeof v === 'object') return v; try { return JSON.parse(v) || {}; } catch { return {}; } }
@@ -336,13 +350,13 @@ function contactQueue(me, body, sync) {
   const { h, ui, api, fmt } = ctx;
   let list = [];
   const columns = [
-    { key: 'name', label: 'Contact', primary: true, sortable: false, priority: 1, minWidth: 200, render: (k) => h('div', { class: 'ad-vq-name' }, h('strong', null, k.name || 'Unnamed contact'), h('span', { class: 'adm-muted' }, String(k.role || '').replace(/_/g, ' '))) },
+    { key: 'name', label: 'Contact', primary: true, sortable: false, priority: 1, minWidth: 200, render: (k) => h('div', { class: 'ad-vq-name' }, h('strong', null, k.name || 'No name recorded'), h('span', { class: 'adm-muted' }, CONTACT_ROLE_LABEL[k.role] || String(k.role || '').replace(/_/g, ' '))) },
     { key: 'college', label: 'College', sortable: false, priority: 2, minWidth: 180, render: (k) => h('div', { class: 'ad-vq-name' }, h('a', { href: `#/college/${k.college_id}?tab=contacts` }, k.college_label || k.college_id), h('span', { class: 'adm-muted' }, me.dName.get(k.district_id) || '')) },
     { key: 'reach', label: 'Phone / email', sortable: false, priority: 1, minWidth: 200, render: (k) => contactActions(ctx, k.phone, k.email, { name: k.name }) },
-    { key: 'basis', label: 'Status', sortable: false, priority: 2, minWidth: 130, render: (k) => verifiedBadge(ctx, { state: k.basis === 'verified' ? 'verified' : 'unverified', source: k.source_url, date: k.verified_on, by: k.verified_by }) },
-    { key: 'src', label: me.show === 'verified' ? 'Verified by' : 'Source', sortable: false, priority: 3, minWidth: 180, hideOnPhone: true, render: (k) => h('div', { class: 'ad-vq-last' },
-      me.show === 'verified' ? h('span', null, k.verified_by ? `${k.verified_by}${k.verified_on ? ', ' + fmt.date(k.verified_on) : ''}` : 'Not recorded (before v4)') : null,
-      srcLink(h, k.source_url, null) || h('span', { class: 'adm-muted' }, 'no source')) },
+    { key: 'basis', label: 'Verified?', sortable: false, priority: 2, minWidth: 130, render: (k) => verifiedBadge(ctx, { state: k.basis === 'verified' ? 'verified' : 'unverified', source: k.source_url, date: k.verified_on, by: k.verified_by }) },
+    { key: 'src', label: me.show === 'verified' ? 'Verified by' : 'Found at', sortable: false, priority: 3, minWidth: 180, hideOnPhone: true, render: (k) => h('div', { class: 'ad-vq-last' },
+      me.show === 'verified' ? h('span', null, k.verified_by ? `${k.verified_by}${k.verified_on ? ', ' + fmt.date(k.verified_on) : ''}` : 'Not recorded') : null,
+      srcLink(h, k.source_url, null) || h('span', { class: 'adm-muted' }, 'no link')) },
   ];
   const tbl = dataTable(ctx, { columns, rows: [], loading: true, rowKey: (k) => k.id });
   put(body, tbl);
@@ -502,7 +516,7 @@ function exportPanel(me) {
   return h('div', { class: 'ad-tools' },
     h('div', { class: 'ad-tool' },
       h('h2', null, 'Spreadsheets (CSV)'),
-      h('p', { class: 'adm-muted' }, 'Open in Excel or Google Sheets. Numbers are exactly what the portal shows, with their basis (verified / estimated / pending). The colleges file covers the selected districts; the others cover everything.'),
+      h('p', { class: 'adm-muted' }, 'Open in Excel or Google Sheets. Numbers are exactly what the portal shows, with whether each is verified, estimated or not known yet. The colleges file covers the selected districts; the others cover everything.'),
       h('div', { class: 'ad-tool__btns' },
         exportBtn(`Colleges in view (${colleges.length})`, () => download(`techdrona-colleges-${today()}.csv`, collegesCsv(colleges, dName), 'text/csv;charset=utf-8'), 'primary'),
         EXPORTS.map(([res, lbl]) => exportBtn(lbl, async () => {
@@ -514,9 +528,7 @@ function exportPanel(me) {
       h('h2', null, 'Full backup (JSON)'),
       h('p', { class: 'adm-muted' }, 'Everything in one file: colleges, team, targets, enrollments, follow-ups, contacts, exams and the latest 1,000 audit entries. Keep it somewhere safe; it contains phone numbers.'),
       h('div', { class: 'ad-tool__btns' }, exportBtn('Download backup', backup))),
-    h('div', { class: 'ad-tool' },
-      h('h2', null, 'Research data'),
-      h('p', { class: 'adm-muted' }, 'College, branch and exam research is loaded on the server, not uploaded here. Ask an admin to re-import it. Your team, targets, enrollments, follow-ups and any edits made in the portal are kept.')),
+    // (the old "Research data" card only said "ask an admin to re-import on the server": no action here, so it is gone)
     h('div', { class: ['ad-tool', meta.demo && 'is-warn'] },
       h('h2', null, 'Demo data'),
       meta.demo
@@ -571,7 +583,7 @@ export async function renderAudit(el, params = {}, ctx) {
   const dateIn = (lbl, key) => h('label', { class: 'adm-inline' }, h('span', null, lbl),
     h('input', { type: 'date', class: 'td-input td-num', value: f[key], max: today(), onChange: (e) => { f[key] = e.target.value; reload(); } }));
   let t;
-  const idIn = h('label', { class: 'adm-inline' }, h('span', null, 'Record id'), h('input', { type: 'search', class: 'td-input', placeholder: 'e.g. c6 or 12', value: f.entity_id, 'aria-label': 'Record id',
+  const idIn = h('label', { class: 'adm-inline' }, h('span', null, 'One record'), h('input', { type: 'search', class: 'td-input', placeholder: 'e.g. c6 or 12', value: f.entity_id, 'aria-label': 'Record reference',
     onInput: (e) => { clearTimeout(t); t = setTimeout(() => { f.entity_id = e.target.value.trim(); reload(); }, 300); } }));
   const entLabel = Object.fromEntries(ENTITIES);
   const SINGULAR = { person: 'Person', followup: 'Follow-up', activity: 'Activity', branch: 'Branch' };
@@ -683,7 +695,8 @@ export async function renderAudit(el, params = {}, ctx) {
         ['Record', href ? h('a', { href }, recordName(r) || `#${r.entity_id}`) : (recordName(r) || `#${r.entity_id ?? ''}`)]]),
       h('div', { class: 'ad-diff__opts' },
         r.action === 'update' ? h('label', { class: 'adm-toggle' }, h('input', { type: 'checkbox', class: 'td-check', checked: true, onChange: (e) => { onlyChanged = e.target.checked; fill(); } }), h('span', null, `Only the ${ch.size} changed field${ch.size === 1 ? '' : 's'}`)) : null,
-        h('label', { class: 'adm-toggle' }, h('input', { type: 'checkbox', class: 'td-check', onChange: (e) => { raw = e.target.checked; fill(); } }), h('span', null, 'Show raw data'))),
+        // the raw JSON is for developers only (?dev=1, same switch as the style guide)
+        devMode() ? h('label', { class: 'adm-toggle' }, h('input', { type: 'checkbox', class: 'td-check', onChange: (e) => { raw = e.target.checked; fill(); } }), h('span', null, 'Show raw data')) : null),
       tbl);
     ui.drawer({ title: 'Change details', body });
   }
@@ -694,8 +707,9 @@ export async function renderAudit(el, params = {}, ctx) {
     everEmpty ? null : narrowWrap(h('div', { class: 'adm-toolbar ad-audit-filters' }, h('div', { class: 'adm-toolbar__filters' },
       sel('Record type', [['', 'All record types'], ...ENTITIES], 'entity'),
       sel('Action', [['', 'Any action'], ['create', 'Added'], ['update', 'Changed'], ['delete', 'Deleted']], 'action'),
-      sel('Person', [['', 'Anyone'], ...actors.map((x) => [x, x]), ...(f.actor && !actors.includes(f.actor) ? [[f.actor, f.actor]] : [])], 'actor'),
-      idIn, dateIn('From', 'from'), dateIn('To', 'to'), dateErr),
+      sel('Changed by', [['', 'Anyone'], ...actors.map((x) => [x, x]), ...(f.actor && !actors.includes(f.actor) ? [[f.actor, f.actor]] : [])], 'actor'),
+      // record ids (c6, 12) mean nothing to people: the box only shows when a link opened the log for one record
+      f.entity_id ? idIn : null, dateIn('From', 'from'), dateIn('To', 'to'), dateErr),
     activeFilters ? h('div', { class: 'adm-toolbar__end' }, ui.button({ label: 'Clear filters', icon: 'close', tone: 'ghost', size: 'sm', onClick: () => { for (const k of Object.keys(f)) f[k] = ''; page = 1; sync(); renderAudit(el, {}, ctx); } })) : null)),
     host);
   /** On phones the filters would fill the first screen; tuck them behind a disclosure. */
@@ -809,28 +823,29 @@ export async function renderSettings(el, params, ctx) {
   };
   drawCourses(meta.courses || []);
 
-  /* --- targets & alerts --- */
-  const org = h('input', { type: 'text', class: 'td-input', value: s.org_name || '', maxlength: 100 });
+  /* --- alerts & defaults --- (org_name is not shown: nothing in the portal displays it; the stored value is kept) */
   const dl = h('input', { type: 'date', class: 'td-input td-num', value: s.state_target_deadline || '' });
   const mc = h('input', { type: 'number', min: 0, max: 100, step: 0.5, inputmode: 'decimal', class: 'td-input td-num', value: s.min_conversion != null ? +(s.min_conversion * 100).toFixed(2) : '' });
+  const ua = h('input', { type: 'number', min: 0, max: 50, step: 1, inputmode: 'numeric', class: 'td-input td-num', value: s.unreachable_after_attempts ?? 6 });
   const genErr = h('div', { class: 'td-form__error', role: 'alert', hidden: true });
   const genBtn = ui.button({ label: 'Save', tone: 'primary', size: 'sm' });
   genBtn.addEventListener('click', () => busy(genBtn, async () => {
     genErr.hidden = true;
     const pct = Number(mc.value);
+    const tries = Number(ua.value);
     const fail = (m, inp) => { genErr.textContent = m; genErr.hidden = false; inp?.focus(); };
-    if (!org.value.trim()) return fail('Organisation name cannot be empty.', org);
-    if (!dl.value) return fail('Choose a default deadline.', dl);
-    if (mc.value === '' || Number.isNaN(pct) || pct < 0 || pct > 100) return fail('Minimum conversion must be between 0 and 100 %.', mc);
+    if (!dl.value) return fail('Choose a fallback deadline.', dl);
+    if (mc.value === '' || Number.isNaN(pct) || pct < 0 || pct > 100) return fail('The low-conversion alert must be between 0 and 100 %.', mc);
+    if (ua.value === '' || !Number.isInteger(tries) || tries < 0 || tries > 50) return fail('Unanswered calls: use a whole number from 0 to 50.', ua);
     if (!(await writeOkLocal())) return;
-    try { await api.patch('/settings', { org_name: org.value.trim(), state_target_deadline: dl.value, min_conversion: pct / 100 }); ui.toast('Settings saved', 'good'); }
+    try { await api.patch('/settings', { state_target_deadline: dl.value, min_conversion: pct / 100, unreachable_after_attempts: tries }); ui.toast('Settings saved', 'good'); }
     catch (e) { fail([e.message, ...Object.values(e.fields || {})].join(' — ')); }
   }));
   const general = h('div', { class: 'ad-stack' },
     h('div', { class: 'td-form__grid ad-grid3' },
-      field(h, 'Organisation name', org),
-      field(h, 'Default deadline for other targets', dl, `Used when a college or person target has no deadline of its own${s.state_target_deadline ? ` (now ${fmt.date(s.state_target_deadline)})` : ''}.`),
-      field(h, 'Minimum conversion (%)', mc, 'If fewer than this share of students reached go on to enrolll, the place is flagged "few reached students enrol". Default 5 %.')),
+      field(h, 'Fallback deadline', dl, `Used for a college or person target that has no deadline of its own${s.state_target_deadline ? ` (now ${fmt.date(s.state_target_deadline)})` : ''}.`),
+      field(h, 'Low-conversion alert (%)', mc, 'A place is flagged “few reached students enrol” when fewer than this share of the students reached go on to enrol. Default 5 %.'),
+      field(h, 'Unanswered calls before a number is "Not working"', ua, 'After this many calls in a row with no answer, busy, switched off or not reachable, the number is marked not working. 0 = never. Default 6.')),
     genErr, h('div', { class: 'ad-row' }, genBtn));
 
   /* --- relevance factors --- */
@@ -851,22 +866,24 @@ export async function renderSettings(el, params, ctx) {
     catch (e) { rfErr.textContent = e.message; rfErr.hidden = false; }
   }));
   const rfBody = h('div', { class: 'ad-stack' },
-    h('p', { class: 'adm-muted' }, 'For each type of branch: what share of final-year students could realistically buy a tech course? 1 = everyone, 0.5 = half, 0 = nobody. "Eligible students" = final-year students × this number. It drives the "By eligible students" split in Targets and the "target may be too high" warning.'),
+    h('p', { class: 'adm-muted' }, 'For each type of branch: what share of final-year students could realistically buy a tech course? 1 = everyone, 0.5 = half, 0 = nobody. "Eligible students" = final-year students × this number. It drives the "By eligible students" split in Targets, the call order in the call queue and the "target may be too high" warning.'),
     h('div', { class: 'ad-rf' }, Object.entries(CATEGORY).map(([k, [l, help]]) => {
       rfInputs[k] = h('input', { type: 'number', min: 0, max: 1, step: 0.05, inputmode: 'decimal', class: 'td-input td-num', value: rf[k] ?? '' });
       return field(h, l, rfInputs[k], help);
     })),
     rfErr, h('div', { class: 'ad-row' }, rfBtn));
 
-  const sections = [['programme', 'Programme'], ['you', 'You & access'], ['courses', 'Courses'], ['targets', 'Alerts'], ['relevance', 'Branch relevance'], ['look', 'Appearance']];
+  const sso = isSso(ctx, session);
+  const youLabel = sso ? 'Your account' : 'You & access';
+  const sections = [['programme', 'Programme'], ['you', youLabel], ['courses', 'Courses'], ['targets', 'Alerts'], ['relevance', 'Branch relevance'], ['look', 'Appearance']];
   put(el,
-    pageHead(ctx, 'Settings', 'The programme target, who you are, the courses you sell, and how alerts are worked out. Every change is recorded in the audit log.'),
+    pageHead(ctx, 'Settings', `The programme target, ${sso ? '' : 'who you are, '}the courses you sell, and how alerts are worked out. Every change is recorded in the audit log.`),
     h('nav', { class: 'ad-jump', 'aria-label': 'Settings sections' }, sections.map(([id, l]) =>
       h('a', { href: '#/settings', onClick: (e) => { e.preventDefault(); el.querySelector(`[data-sec="${id}"]`)?.scrollIntoView({ behavior: (typeof ctx.ui.prefersReducedMotion === 'function' ? ctx.ui.prefersReducedMotion() : matchMedia('(prefers-reduced-motion: reduce)').matches) ? 'auto' : 'smooth', block: 'start' }); } }, l)),
     h('a', { href: '#/data?tab=export' }, 'Export & backup'), h('a', { href: '#/audit?entity=setting' }, 'Settings history')),
-    !writable ? h('p', { class: 'ad-warnline' }, 'You are signed in read-only. Settings can be viewed but not changed.') : null,
+    !writable ? h('p', { class: 'ad-warnline' }, `You have view-only access. Settings can be viewed but not changed${sso ? '; ask an LMS super admin for edit access' : ''}.`) : null,
     secWrap('programme', ui.section({ title: 'Programme target', sub: 'The headline goal every page measures against.', body: programBody })),
-    secWrap('you', ui.section({ title: 'You & access', body: you })),
+    secWrap('you', ui.section({ title: youLabel, body: you })),
     secWrap('courses', ui.section({ title: 'Courses & prices', sub: 'What your team sells. Revenue = enrollments × price.', body: coursesHost })),
     secWrap('targets', ui.section({ title: 'Alerts & defaults', body: general })),
     secWrap('relevance', ui.section({ title: 'Branch relevance', body: rfBody })),
@@ -969,10 +986,18 @@ function programSection(ctx, program, rerender) {
     formErr, writable ? h('div', { class: 'ad-row' }, save) : null);
 }
 
-/** Name, sign-in / passcode status, sign out. */
+/** Name, sign-in / passcode status, sign out. Inside the LMS: only who is signed in (the LMS owns name, sign-in and sign-out). */
 function accessSection(ctx, meta, session) {
   const { h, ui, api, fmt } = ctx;
   const sess = ctx.session || session;
+  if (isSso(ctx, session)) {
+    const role = sess?.role || session?.role;
+    return h('div', { class: 'ad-you' }, h('div', { class: 'ad-you__col' }, h('div', { class: 'ad-access' }, ui.kv([
+      ['Signed in as', sess?.user || session?.user || api.user || '—'],
+      ['Access', role === 'viewer' ? 'View only' : 'Can edit'],
+      ['Sign-in', 'Through Tech Drona LMS. Your LMS name is recorded with every change.'],
+    ]))));
+  }
   const name = h('input', { type: 'text', class: 'td-input', value: api.user || sess?.user || '', placeholder: 'e.g. Ravi K.', autocomplete: 'name', maxlength: 100 });
   const nameErr = errEl(h);
   const authRequired = !!(session?.auth_required ?? sess?.required ?? meta.passcode_required);

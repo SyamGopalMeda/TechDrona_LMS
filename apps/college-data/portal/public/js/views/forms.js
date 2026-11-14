@@ -15,15 +15,12 @@ const STATUS_OPTS = [
 const BASIS_OPTS = [
   { value: 'verified', label: 'Verified (official source)' }, { value: 'estimated', label: 'Estimated' }, { value: 'pending', label: 'Pending / unknown' },
 ];
+// Same names as branch.js CATEGORY_LABEL (mirrored, not imported: branch.js imports this module, and this list is built at load time)
 const CATEGORY_OPTS = [
-  { value: 'it_core', label: 'IT core (CSE, IT, AI/ML, DS…)' }, { value: 'it_allied', label: 'IT allied (CSE-allied, CS&BS…)' },
-  { value: 'circuit', label: 'Circuit (ECE, EEE, EIE…)' }, { value: 'core', label: 'Core (Mech, Civil, Chem…)' }, { value: 'other', label: 'Other' },
+  { value: 'it_core', label: 'Computer science' }, { value: 'it_allied', label: 'CS-related (AI, data, IoT…)' },
+  { value: 'circuit', label: 'Electronics / electrical' }, { value: 'core', label: 'Other engineering' }, { value: 'other', label: 'Other' },
 ];
-const ISSUE_OPTS = [
-  { value: 'ambassador_gap', label: 'Ambassador gap' }, { value: 'low_outreach', label: 'Low outreach' },
-  { value: 'low_conversion', label: 'Low conversion' }, { value: 'unrealistic_target', label: 'Unrealistic target' },
-  { value: 'exams', label: 'Exams' }, { value: 'data', label: 'Data fix' }, { value: 'other', label: 'Other' },
-];
+// (follow-up reasons live in followups.js ISSUES: one list for every follow-up form)
 const ACT_OPTS = [
   { value: 'visit', label: 'Campus visit' }, { value: 'call', label: 'Call' }, { value: 'session', label: 'Session / workshop' },
   { value: 'whatsapp', label: 'WhatsApp' }, { value: 'followup', label: 'Follow-up' }, { value: 'other', label: 'Other' },
@@ -225,7 +222,7 @@ const personBranchIds = (p, branches) => {
   if (!ids.length && branches) for (const b of branches) if ((b.people || []).some((q) => Number(q.id) === Number(p.id))) ids.push(Number(b.id));
   return ids;
 };
-const branchOpts = (branches) => (branches || []).map((b) => ({ value: String(b.id), label: `${b.code ? b.code + ' — ' : ''}${b.name || ''}${b.is_relevant ? '' : ' (not IT-relevant)'}` }));
+const branchOpts = (branches) => (branches || []).map((b) => ({ value: String(b.id), label: `${b.code ? b.code + ' — ' : ''}${b.name || ''}${b.is_relevant ? '' : ' (not a target branch)'}` }));
 const personOpt = (p) => ({ value: String(p.id), label: `${p.full_name} (${ROLE_LABEL[p.role] || p.role}${p.status === 'inactive' ? ', inactive' : ''})`, role: p.role, branches: p._b || [] });
 
 const ALLOWED_BOSS = { ambassador: ['ambassador_lead', 'college_lead'], ambassador_lead: ['college_lead'], college_lead: [] };
@@ -1126,12 +1123,12 @@ function branchFields(b = {}) {
   return [
     { name: 'code', label: 'Branch code', type: 'text', value: b.code || '', required: true, help: 'e.g. CSE, CSM, ECE' },
     { name: 'name', label: 'Branch name', type: 'text', value: b.name || '', required: true },
-    { name: 'category', label: 'Category', type: 'select', required: true, placeholder: 'Choose a category…', options: CATEGORY_OPTS, value: b.category || 'other', help: 'Decides whether the branch counts as IT-relevant by default.' },
-    { name: 'is_relevant', label: 'Relevant for IT courses?', type: 'select', options: [{ value: '', label: 'Default for category' }, ...YN], value: b.is_relevant == null ? '' : String(b.is_relevant ? 1 : 0) },
-    { name: 'intake_per_year', label: 'Intake per year (seats)', type: 'number', value: b.intake_per_year ?? '' },
-    { name: 'intake_basis', label: 'Intake basis', type: 'select', options: BASIS_OPTS, value: b.intake_basis || (b.intake_per_year != null ? 'estimated' : 'pending') },
-    { name: 'intake_source', label: 'Intake source (URL or document)', type: 'text', value: b.intake_source || '' },
-    { name: 'intake_year', label: 'Intake year', type: 'text', value: b.intake_year || '', help: 'Academic year of the intake figure, e.g. 2023-24' },
+    { name: 'category', label: 'Category', type: 'select', required: true, placeholder: 'Choose a category…', options: CATEGORY_OPTS, value: b.category || 'other', help: 'Decides whether it is a target branch by default.' },
+    { name: 'is_relevant', label: 'Target branch?', type: 'select', options: [{ value: '', label: 'Default for category' }, ...YN], value: b.is_relevant == null ? '' : String(b.is_relevant ? 1 : 0) },
+    { name: 'intake_per_year', label: 'Seats / year', type: 'number', value: b.intake_per_year ?? '' },
+    { name: 'intake_basis', label: 'Seats basis', type: 'select', options: BASIS_OPTS, value: b.intake_basis || (b.intake_per_year != null ? 'estimated' : 'pending') },
+    { name: 'intake_source', label: 'Seats source (URL or document)', type: 'text', value: b.intake_source || '' },
+    { name: 'intake_year', label: 'Seats year', type: 'text', value: b.intake_year || '', help: 'Academic year of the seats figure, e.g. 2023-24' },
     { name: 'strength_total', label: 'Total strength, all years (if known)', type: 'number', value: b.strength_basis === 'verified' ? (b.strength_total ?? '') : '', help: 'Leave blank to estimate as intake × 4.' },
     { name: 'final_year', label: 'Students completing 4-1 (if known)', type: 'number', value: b.final_year_basis === 'verified' ? (b.final_year ?? '') : '', help: 'Leave blank to estimate from intake.' },
     { name: 'notes', label: 'Notes', type: 'textarea', value: b.notes || '' },
@@ -1192,26 +1189,30 @@ export async function addBranch(...args) {
 
 /* ------------------------------------------------------------------ calling system: contacts, calls, enrollment stages */
 
-export const CONTACT_ROLE_LABEL = { tpo: 'TPO / placement', principal: 'Principal', hod: 'HOD', office: 'Office', admissions: 'Admissions', dean: 'Dean', other: 'Other' };
+// Labels for the calling system. Keys are the stored values (never change them); only the wording shown to people changes.
+export const CONTACT_ROLE_LABEL = { tpo: 'Placement officer (TPO)', principal: 'Principal', hod: 'Head of department', office: 'College office', admissions: 'Admissions', dean: 'Dean', other: 'Other' };
+/** Number status: set by logged calls (or by hand). [label, tone] */
 export const CONTACT_STATUS = {
-  untested: ['Not called yet', 'neutral'], working: ['Working', 'good'], non_working: ['Not working', 'warn'], invalid: ['Invalid number', 'bad'],
+  untested: ['Not tried yet', 'neutral'], working: ['Working', 'good'], non_working: ['Not working', 'warn'], invalid: ['Wrong number', 'bad'],
 };
+/** Call outcomes. hint = what to pick it for (button tooltip). next = suggested call-back in days (null = none). */
 export const OUTCOMES = {
-  connected_interested: { label: 'Interested', group: 'connected', tone: 'good', next: 3 },
-  connected_callback: { label: 'Call back later', group: 'connected', tone: 'info', next: 1 },
-  connected_info_only: { label: 'Took information', group: 'connected', tone: 'info', next: 7 },
-  connected_not_interested: { label: 'Not interested', group: 'connected', tone: 'neutral', next: null },
-  no_answer: { label: 'No answer', group: 'unanswered', tone: 'warn', next: 1 },
-  busy: { label: 'Busy', group: 'unanswered', tone: 'warn', next: 1 },
-  switched_off: { label: 'Switched off', group: 'unanswered', tone: 'warn', next: 1 },
-  not_reachable: { label: 'Not reachable', group: 'unanswered', tone: 'warn', next: 1 },
-  wrong_number: { label: 'Wrong number', group: 'bad', tone: 'bad', next: null },
-  invalid_number: { label: 'Invalid number', group: 'bad', tone: 'bad', next: null },
-  disconnected: { label: 'Disconnected', group: 'bad', tone: 'bad', next: null },
+  connected_interested: { label: 'Interested', group: 'connected', tone: 'good', next: 3, hint: 'They want to go ahead or hear more' },
+  connected_callback: { label: 'Asked to call back', group: 'connected', tone: 'info', next: 1, hint: 'Busy now, or asked us to call another time' },
+  connected_info_only: { label: 'Took details only', group: 'connected', tone: 'info', next: 7, hint: 'Listened or asked for details, no decision' },
+  connected_not_interested: { label: 'Not interested', group: 'connected', tone: 'neutral', next: null, hint: 'Said no' },
+  no_answer: { label: 'No answer', group: 'unanswered', tone: 'warn', next: 1, hint: 'It rang, nobody picked up' },
+  busy: { label: 'Line busy', group: 'unanswered', tone: 'warn', next: 1, hint: 'Engaged tone, or the call was cut' },
+  switched_off: { label: 'Switched off', group: 'unanswered', tone: 'warn', next: 1, hint: 'Phone switched off' },
+  not_reachable: { label: 'Not reachable', group: 'unanswered', tone: 'warn', next: 1, hint: 'Out of coverage / network message' },
+  wrong_number: { label: 'Wrong person', group: 'bad', tone: 'bad', next: null, hint: 'Someone answered who is not with this college' },
+  invalid_number: { label: 'Number does not exist', group: 'bad', tone: 'bad', next: null, hint: '"This number does not exist" or too few digits' },
+  disconnected: { label: 'Number out of service', group: 'bad', tone: 'bad', next: null, hint: '"Temporarily out of service" / permanently disconnected' },
 };
+/** College calling status (derived by the server from calls, call-backs and enrollments). [label, tone] */
 export const CALL_STATUS = {
-  not_called: ['Not called', 'neutral'], attempted_no_answer: ['Tried, no answer', 'warn'], follow_up_due: ['Call-back due', 'info'],
-  contacted: ['Contacted', 'brand'], interested: ['Interested', 'good'], participation_confirmed: ['Participation confirmed', 'good'], enrolled: ['Students enrolled', 'good'],
+  not_called: ['Not called yet', 'neutral'], attempted_no_answer: ['No answer yet', 'warn'], follow_up_due: ['Call-back due', 'info'],
+  contacted: ['Spoke to them', 'brand'], interested: ['Interested', 'good'], participation_confirmed: ['College agreed', 'good'], enrolled: ['Students enrolled', 'good'],
 };
 export const STAGE_OPTS = [
   { value: 'lead', label: 'Lead (contact taken)' }, { value: 'interested', label: 'Interested' },
@@ -1236,10 +1237,10 @@ function contactFields(k = {}, branches = [], { edit } = {}) {
     { name: 'name', label: 'Name', type: 'text', value: k.name, placeholder: 'Optional, e.g. Dr. K. Rao' },
     { name: 'phone', label: 'Phone', type: 'tel', value: k.phone ? formatPhone(k.phone) : '', placeholder: '98765 43210 or 0863 2344700', help: 'Saved as +91 and a 10-digit number. The same number cannot be added twice for one college.' },
     { name: 'email', label: 'Email', type: 'email', value: k.email },
-    { name: 'basis', label: 'Where is the number from?', type: 'select', required: true, options: [{ value: 'verified', label: 'Verified — official site or confirmed by the college' }, { value: 'pending', label: 'Not verified yet (listing, aggregator, word of mouth)' }], value: k.basis || 'pending' },
-    { name: 'source_url', label: 'Source link', type: 'url', value: k.source_url, placeholder: 'https://…' },
-    branches.length ? { name: 'branch_id', label: 'Branch (for a HOD)', type: 'select', options: [NONE('— Whole college —'), ...branchOpts(branches)], value: k.branch_id ? String(k.branch_id) : '' } : null,
-    edit ? { name: 'status', label: 'Number status', type: 'select', required: true, options: Object.entries(CONTACT_STATUS).map(([value, [label]]) => ({ value, label })), value: k.status || 'untested', help: 'Normally set by logged calls. Change it only if you know better.' } : null,
+    { name: 'basis', label: 'Is it verified?', type: 'select', required: true, options: [{ value: 'verified', label: 'Verified — official site or confirmed by the college' }, { value: 'pending', label: 'Not verified yet (listing, aggregator, word of mouth)' }], value: k.basis || 'pending' },
+    { name: 'source_url', label: 'Where it was found (link)', type: 'url', value: k.source_url, placeholder: 'https://…', help: 'Optional. The page that lists this number or email.' },
+    branches.length ? { name: 'branch_id', label: 'Branch (for a head of department)', type: 'select', options: [NONE('— Whole college —'), ...branchOpts(branches)], value: k.branch_id ? String(k.branch_id) : '' } : null,
+    edit ? { name: 'status', label: 'Number status', type: 'select', required: true, options: Object.entries(CONTACT_STATUS).map(([value, [label]]) => ({ value, label })), value: k.status || 'untested', help: 'Set automatically from logged calls. Change it only if you know better; your choice then stays until you change it again.' } : null,
     { name: 'notes', label: 'Notes', type: 'textarea', value: k.notes },
   ].filter(Boolean);
 }
@@ -1274,7 +1275,7 @@ export async function editContact(...args) {
   let m = null;
   const del = ctx.ui.button({ label: 'Delete contact', tone: 'ghost', icon: 'trash', size: 'sm' });
   del.addEventListener('click', async () => {
-    if (!(await ctx.ui.confirm({ title: 'Delete this contact?', text: 'Only for a contact added by mistake. A contact with logged calls cannot be deleted — mark it invalid or not working instead.', confirmLabel: 'Delete' }))) return;
+    if (!(await ctx.ui.confirm({ title: 'Delete this contact?', text: 'Only for a contact added by mistake. A contact with logged calls cannot be deleted. Set its number status to “Wrong number” or “Not working” instead.', confirmLabel: 'Delete' }))) return;
     try { await ctx.api.del(`/contacts/${k.id}`); ctx.ui.toast('Contact deleted', 'good'); m?.close(); ctx.refresh?.(); } catch (e) { ctx.ui.toast(e.message, 'bad'); }
   });
   m = await openForm(ctx, {
@@ -1313,26 +1314,26 @@ export async function logCall(...args) {
   };
   const drawContacts = () => contactBox.replaceChildren(
     ...contacts.map((k) => contactBtn(k.id, contactLabel(k) || 'Contact', k.phone ? formatPhone(k.phone) : k.email || '', contactStatusBadge(ctx, k.status))),
-    contactBtn(null, contacts.length ? 'Another / unlisted number' : 'College number (not in contacts)', 'Logged for the college only'));
+    contactBtn(null, contacts.length ? 'A number not listed here' : 'College number (not in contacts)', 'Logged for the college only'));
   drawContacts();
 
   const groups = [['connected', 'Spoke to someone'], ['unanswered', 'Did not connect'], ['bad', 'Number problem']];
   const outBox = h('div', { class: 'vcl-outcomes', role: 'radiogroup', 'aria-label': 'What happened?', 'aria-required': 'true' });
   const confirmInput = h('input', { type: 'checkbox', onChange: (e) => { st.confirm = e.target.checked; } });
-  const confirmRow = h('label', { class: 'vcl-confirm' }, confirmInput, h('span', null, 'The college confirmed participation'));
+  const confirmRow = h('label', { class: 'vcl-confirm' }, confirmInput, h('span', null, 'The college agreed to take part (only after speaking to someone)'));
   const drawOutcomes = () => {
     outBox.replaceChildren(...groups.map(([g, title]) => h('fieldset', { class: 'vcl-group' }, h('legend', null, title),
       h('div', { class: 'vcl-grid' }, Object.entries(OUTCOMES).filter(([, o]) => o.group === g).map(([k, o]) =>
-        h('button', { type: 'button', role: 'radio', class: ['vcl-out', `vcl-out--${o.tone}`, st.outcome === k && 'is-on'], 'aria-checked': String(st.outcome === k), 'data-k': k, onClick: () => { pickOutcome(k); outBox.querySelector(`[data-k="${k}"]`)?.focus(); } }, o.label))))));
+        h('button', { type: 'button', role: 'radio', class: ['vcl-out', `vcl-out--${o.tone}`, st.outcome === k && 'is-on'], 'aria-checked': String(st.outcome === k), 'data-k': k, title: o.hint || null, onClick: () => { pickOutcome(k); outBox.querySelector(`[data-k="${k}"]`)?.focus(); } }, o.label))))));
     const connected = !!st.outcome && OUTCOMES[st.outcome].group === 'connected';
     confirmInput.disabled = !connected;
     if (!connected) { confirmInput.checked = false; st.confirm = false; }
     confirmRow.classList.toggle('is-disabled', !connected);
   };
 
-  const nextBox = h('div', { class: 'vcl-next', role: 'group', 'aria-label': 'Next call' });
-  const dateIn = h('input', { type: 'date', class: 'td-input td-num vcl-date', min: t0, 'aria-label': 'Pick a date for the next call', onChange: (e) => { st.next = e.target.value || null; st.nextTouched = true; drawNext(); } });
-  const quick = [['None', null], ['Today', 0], ['Tomorrow', 1], ['In 3 days', 3], ['Next week', 7]];
+  const nextBox = h('div', { class: 'vcl-next', role: 'group', 'aria-label': 'Call back on' });
+  const dateIn = h('input', { type: 'date', class: 'td-input td-num vcl-date', min: t0, 'aria-label': 'Pick a call-back date', onChange: (e) => { st.next = e.target.value || null; st.nextTouched = true; drawNext(); } });
+  const quick = [['No call-back', null], ['Today', 0], ['Tomorrow', 1], ['In 3 days', 3], ['Next week', 7]];
   const drawNext = () => {
     nextBox.replaceChildren(...quick.map(([l, n]) => {
       const v = n == null ? null : addDaysIso(t0, n);
@@ -1352,7 +1353,7 @@ export async function logCall(...args) {
   const body = h('div', { class: 'vcl' },
     h('section', null, h('h3', { class: 'vcl-h' }, 'Who did you call?'), contactBox),
     h('section', null, h('h3', { class: 'vcl-h' }, 'What happened?'), outBox),
-    h('section', null, h('h3', { class: 'vcl-h' }, 'Next call'), nextBox, h('p', { class: 'vx-muted vx-small vcl-help' }, 'A date adds a call-back to Follow-ups. Suggested from the outcome; change it if needed.')),
+    h('section', null, h('h3', { class: 'vcl-h' }, 'Call back on'), nextBox, h('p', { class: 'vx-muted vx-small vcl-help' }, 'A date adds a call-back to Follow-ups, assigned to you. It is suggested from what happened; change it if needed.')),
     h('section', null, h('h3', { class: 'vcl-h' }, 'Notes'), notes, confirmRow),
     err);
   ui.modal({
@@ -1365,7 +1366,7 @@ export async function logCall(...args) {
         try {
           const r = await ctx.api.post('/calls', payload);
           const k = r.contact;
-          ui.toast(`Call logged${k && k.status !== 'untested' ? ` · number ${CONTACT_STATUS[k.status][0].toLowerCase()}` : ''}${r.followup ? ` · call-back ${ctx.fmt.date(r.followup.due_date)}` : ''}`, 'good');
+          ui.toast(`Call logged${k && k.status !== 'untested' ? ` · number: ${(CONTACT_STATUS[k.status]?.[0] || k.status).toLowerCase()}` : ''}${r.followup ? ` · call-back ${ctx.fmt.date(r.followup.due_date)}` : ''}`, 'good');
           if (opts.onSaved) opts.onSaved(r); else ctx.refresh?.();
           return true;
         } catch (e) { err.textContent = e.message || 'Could not save the call'; err.hidden = false; return false; }

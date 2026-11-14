@@ -6,7 +6,9 @@ import * as forms from './forms.js';
 import {
   openBranch, openBranchId, closeBranch, sourceLink, getMeta, vb, vbo, txt, personBranchIds, branchLabel, contactLinks, progressCell, btn, callout, cardify,
   crumbs, followupList, activityList, enrollmentList, todayStr, ROLE_LABEL, CATEGORY_LABEL, ISSUE_LABEL, pctOf,
+  BRANCH_FIG, BRANCH_FIG_HELP, TARGET_BRANCH_HELP,
 } from './branch.js';
+import { EXAM_STATUS_LABEL, evidenceLabel } from './exams.js';
 import {
   getPerformance, perfRows, perfChip, remainingText, pctText, pctNumText, contactActions, planIndex, pLevelOf, verifiedBadge, itemsOf, unassignedOf, PERF_STATUS,
 } from './dashboard.js';
@@ -197,7 +199,7 @@ function outreachStatus(ctx, b) {
   const { ui, fmt } = ctx;
   const r = b.rollup || {};
   if (b._gap) return ui.badge('No ambassador', 'bad');
-  if (!b.is_relevant && !b._activeAmbs.length) return ui.badge('Not IT', 'neutral');
+  if (!b.is_relevant && !b._activeAmbs.length) return ui.badge('Not a target branch', 'neutral');
   if (r.target && r.on_track === false) return ui.statusBadge('diagnosis', r.diagnosis || 'behind_pace');
   if (r.target && r.on_track) return ui.statusBadge('on_track', true);
   if (r.reached) return ui.badge(`${fmt.num(r.reached)} reached`, 'info');
@@ -359,11 +361,10 @@ function header(ctx, c, r, s, district, city, research) {
   return h('header', { class: 'vc-head' },
     h('div', { class: 'vc-head-main' },
       h('div', { class: 'vc-kicker' },
-        c.sno ? h('span', { class: 'vx-muted', title: 'Serial number in the master list' }, `#${c.sno}`) : null,
-        p ? ui.badge(p, p === 'P1' ? 'brand' : p === 'Hold' ? 'neutral' : 'info') : null,
+        // master-list serial number and the overall verification state live under "College information" (not decision data)
+        p ? h('span', { title: 'Research priority: P1 = approach first, Hold = not now' }, ui.badge(p === 'Hold' ? 'Priority: on hold' : `Priority ${p}`, p === 'P1' ? 'brand' : p === 'Hold' ? 'neutral' : 'info')) : null,
         c.targeted ? ui.badge('Targeted', 'brand') : ui.badge('Not targeted', 'neutral'),
         ui.statusBadge('op_status', c.op_status || 'pending'),
-        c.data_status ? verifiedBadge(ctx, c.data_status === 'partly' ? 'partly' : c.data_status) : null,
         c.is_demo ? ui.badge('DEMO', 'bad') : null),
       h('h1', { class: 'vc-title' }, c.name || c.short_name || c.id),
       h('div', { class: 'vc-loc' }, ui.icon('map', { size: 14 }),
@@ -401,7 +402,7 @@ function overviewTab(ctx, d, s, ex, research) {
     K({ label: 'College lead', value: h('span', { class: 'vc-kpi-text', title: s.lead ? s.lead.full_name : null }, s.lead ? s.lead.full_name : 'None'), sub: s.lead ? ROLE_LABEL.college_lead : 'Appoint one', tone: s.lead ? 'good' : 'bad', icon: 'lead', onClick: () => switchTab('team') }),
     K({ label: 'Ambassadors', value: fmt.num(ambs.length), sub: [research && research.ambassadors_research != null ? `${fmt.num(research.ambassadors_research)} suggested` : null, s.unassigned.size ? `${fmt.num(s.unassigned.size)} unassigned` : null].filter(Boolean).join(' · ') || null, tone: s.unassigned.size ? 'warn' : undefined, icon: 'ambassador', onClick: () => switchTab('team') }),
     K({ label: 'Confirmed', value: r.target > 0 ? `${fmt.num(r.enrolled ?? 0)} / ${fmt.num(r.target)}` : fmt.num(r.enrolled ?? 0), sub: r.target > 0 ? `${pctText(r.pct)} · ${remainingText(r) || ''}` : 'No target yet', icon: 'target', onClick: () => switchTab('performance') }),
-    K({ label: 'IT branches covered', value: relevant.length ? `${fmt.num(relevant.length - gaps.length)} / ${fmt.num(relevant.length)}` : '—', sub: gaps.length ? `${fmt.plural(gaps.length, 'branch', 'branches')} without ambassador` : relevant.length ? 'all covered' : 'no IT branches recorded', tone: gaps.length ? 'warn' : undefined, icon: 'branch', onClick: () => switchTab('branches') }),
+    K({ label: 'Target branches with an ambassador', value: relevant.length ? `${fmt.num(relevant.length - gaps.length)} / ${fmt.num(relevant.length)}` : '—', sub: gaps.length ? `${fmt.plural(gaps.length, 'branch', 'branches')} without ambassador` : relevant.length ? 'all covered' : 'no target branches recorded', tone: gaps.length ? 'warn' : undefined, icon: 'branch', onClick: () => switchTab('branches') }),
     K({ label: 'Contacts', value: fmt.num(cc.total ?? (d.contacts || []).length), sub: cc.working ? `${fmt.num(cc.working)} working` : 'none confirmed working', icon: 'phone', onClick: () => switchTab('calls') }),
     K({ label: 'Exams', value: h('span', { class: 'vc-kpi-text' }, ui.statusBadge('exam_state', ex.state || 'unknown')), sub: ex.outreachFrom && ex.outreachFrom > todayStr() ? `outreach from ${fmt.date(ex.outreachFrom)}` : null, icon: 'exam', onClick: () => switchTab('exams') })));
   wrap.append(collegeLiveCard(ctx, c.id, c)); // live official-source data (views/live.js)
@@ -411,8 +412,8 @@ function overviewTab(ctx, d, s, ex, research) {
   const w = (n) => (ui.writeOnly ? ui.writeOnly(n) : n);
   if (!s.lead) steps.push(callout(ctx, 'bad', 'No college lead appointed', 'One student is accountable for the whole college; ambassadors report to them.', w(btn(ctx, 'Appoint college lead', () => addPerson(ctx, c, s, 'college_lead'), { small: true, tone: 'primary' }))));
   if (s.unassigned.size) steps.push(callout(ctx, 'warn', `${fmt.plural(s.unassigned.size, 'person', 'people')} without a valid lead`, 'They need a lead in this college to report to.', btn(ctx, 'Assign in Team', () => switchTab('team'), { small: true })));
-  if (gaps.length) steps.push(callout(ctx, 'warn', `${fmt.plural(gaps.length, 'IT branch has', 'IT branches have')} no ambassador`, gaps.map(branchLabel).join(', '), w(btn(ctx, 'Recruit', () => addPerson(ctx, c, s, 'ambassador', { branch_ids: [gaps[0].id] }), { small: true }))));
-  if (!(d.contacts || []).length) steps.push(callout(ctx, 'info', 'No contact numbers yet', c.phone ? `The listing has ${c.phone}. Add it so calls can be logged.` : 'Add the TPO, principal or office number.', w(btn(ctx, 'Add contact', () => forms.addContact(ctx, { college_id: c.id }), { small: true }))));
+  if (gaps.length) steps.push(callout(ctx, 'warn', `${fmt.plural(gaps.length, 'target branch has', 'target branches have')} no ambassador`, gaps.map(branchLabel).join(', '), w(btn(ctx, 'Recruit', () => addPerson(ctx, c, s, 'ambassador', { branch_ids: [gaps[0].id] }), { small: true }))));
+  if (!(d.contacts || []).length) steps.push(callout(ctx, 'info', 'No contact numbers yet', c.phone ? 'The college office number is under “College information”. Add it as a contact so calls can be logged.' : 'Add the TPO, principal or office number.', w(btn(ctx, 'Add contact', () => forms.addContact(ctx, { college_id: c.id }), { small: true }))));
   if (!(r.target > 0) && r.target !== 0) steps.push(callout(ctx, 'info', 'No college target', research && research.research_target ? `Research suggests ${fmt.num(research.research_target.min)}–${fmt.num(research.research_target.max)} (average ${fmt.num(research.research_target.avg)}).` : 'Set one to track pace.', w(btn(ctx, 'Set target', () => setCollegeTarget(ctx, c), { small: true }))));
   if (steps.length) wrap.append(ui.section({ title: 'Next steps', body: h('div', { class: 'vc-steps' }, steps) }));
 
@@ -440,31 +441,71 @@ function collegeInfo(ctx, c) {
   const contactNode = (k, v) => (!v ? null : k === 'phone' ? h('span', { class: 'vc-cphone' }, v, contactActions(ctx, String(v).split(/[\/,;]/)[0].trim(), null))
     : k === 'email' ? h('a', { href: `mailto:${v}` }, v) : /^https?:\/\//i.test(v) ? h('a', { href: v, target: '_blank', rel: 'noopener' }, v.replace(/^https?:\/\//, '').slice(0, 60)) : v);
   const unverifiedN = track ? VERIFY_FIELDS.filter(([f]) => c[f] && fieldVerification(c, f).state !== 'verified').length : 0;
-  const yn = (v) => (v === 'yes' ? ui.badge('Yes', 'good') : v === 'no' ? ui.badge('No', 'bad') : h('span', { class: 'vx-muted' }, 'unknown'));
+  const yn = (v) => (v === 'yes' ? ui.badge('Yes', 'good') : v === 'no' ? ui.badge('No', 'bad') : h('span', { class: 'vx-muted' }, 'not known'));
+  const titled = (text, full) => (full && full !== text ? h('span', { title: full }, text) : text);
+  const naac = naacGrade(c.naac);
+  const nirf = nirfText(c.nirf);
+  const dataState = c.data_status === 'partly_verified' ? 'partly' : c.data_status;
+  const aka = [c.short_name, ...(Array.isArray(c.aliases) ? c.aliases : [])].filter((x, i, a) => x && a.indexOf(x) === i && x !== c.name).join(', ');
+  // What the team needs to decide whom to contact: how to reach the college, where it is, what kind it is, whether it runs.
+  const main = [
+    vrow('phone', 'Office phone', contactNode('phone', c.phone)),
+    vrow('email', 'Office email', contactNode('email', c.email)),
+    vrow('website', 'Website', contactNode('website', c.website)),
+    ['Address', c.address || txt(ctx, null)],
+    vrow('ownership', 'Type of institution', ownershipText(c.ownership)),
+    ['NAAC grade', naac ? titled(naac, c.naac) : h('span', { class: 'vx-muted' }, 'Not found')],
+    ['NIRF ranking (2025)', nirf ? titled(nirf, c.nirf) : h('span', { class: 'vx-muted' }, 'Not found')],
+    vrow('op_status', 'Operating status', h('span', { class: 'vx-row' }, ui.statusBadge('op_status', c.op_status || 'pending'), c.op_status_source ? sourceLink(ctx, c.op_status_source, 'evidence') : null)),
+    c.total_intake ? ['Seats per year (all branches)', h('span', null, fmt.num(c.total_intake), c.total_intake_source ? h('span', { class: 'vx-small' }, ' · ', sourceLink(ctx, String(c.total_intake_source).split(/\s+/)[0], 'source')) : null)] : null,
+  ].filter(Boolean);
+  // Reference and research detail: kept, editable and verifiable, but folded away.
+  const more = [
+    vrow('name', 'Official name', c.name),
+    aka ? ['Also known as', aka] : null,
+    vrow('district_id', 'District', c.district_name || c.district_id),
+    vrow('city_id', 'City / town', c.city_name || c.city_id),
+    c.affiliation ? vrow('affiliation', 'Affiliated university', c.affiliation) : null,
+    autonomyText(c.autonomous) ? ['Autonomous?', autonomyText(c.autonomous)] : null,
+    c.tier ? ['Research tier', h('span', { title: 'Research grouping: Tier 1 = strongest colleges, Tier 3 = the rest. Used in the calling priority.' }, c.tier)] : null,
+    ['Admitting new students', h('span', { class: 'vx-row' }, h('span', null, '2025-26'), yn(c.op_2025_26), h('span', null, '2026-27'), yn(c.op_2026_27))],
+    c.op_status_note ? ['Why this status', h('span', { class: 'vx-small' }, c.op_status_note)] : null,
+    c.naac && c.naac !== naac ? ['NAAC (research detail)', h('span', { class: 'vx-small' }, c.naac)] : null,
+    c.nirf && c.nirf !== nirf ? ['NIRF (research detail)', h('span', { class: 'vx-small' }, c.nirf)] : null,
+    c.geo_precision ? ['Map pin', c.geo_precision === 'exact' ? 'Exact location' : c.geo_precision === 'pending' ? 'Not placed yet' : c.geo_precision === 'town' ? 'Approximate (town centre)' : 'Approximate (district centre)'] : null,
+    c.sno ? ['Master list no.', String(c.sno)] : null,
+    dataState ? ['Checked against sources', verifiedBadge(ctx, dataState)] : null,
+    c.notes ? ['Research notes', h('span', { class: 'vx-small' }, c.notes)] : null,
+    c.updated_at ? ['Last updated', `${fmt.date(c.updated_at)}${c.updated_by ? ' by ' + c.updated_by : ''}`] : null,
+  ].filter(Boolean);
   return h('div', null,
     track && unverifiedN ? h('div', { class: 'vc-vbar' }, h('span', null, `${fmt.plural(unverifiedN, 'value')} not verified yet.`),
       h('button', { type: 'button', class: 'vx-linkbtn td-linkbtn td-write-only', onClick: () => verifyFields(ctx, c, VERIFY_FIELDS.filter(([f]) => c[f] && fieldVerification(c, f).state !== 'verified').map(([f]) => f)) }, 'Verify them with one source')) : null,
-    ui.kv([
-      vrow('name', 'Official name', c.name),
-      ['Also known as', [c.short_name, ...(Array.isArray(c.aliases) ? c.aliases : [])].filter((x, i, a) => x && a.indexOf(x) === i && x !== c.name).join(', ') || '—'],
-      vrow('district_id', 'District', c.district_name || c.district_id),
-      vrow('city_id', 'City / town', c.city_name || c.city_id),
-      vrow('phone', 'Phone', contactNode('phone', c.phone)),
-      vrow('email', 'Email', contactNode('email', c.email)),
-      vrow('website', 'Website', contactNode('website', c.website)),
-      ['Address', c.address || txt(ctx, null)],
-      vrow('ownership', 'Ownership', c.ownership),
-      vrow('affiliation', 'Affiliation', c.affiliation),
-      ['Autonomy', autonomyText(c.autonomous) || txt(ctx, null)],
-      ['NAAC / NIRF / tier', [c.naac, c.nirf ? `NIRF ${c.nirf}` : null, c.tier].filter(Boolean).join(' · ') || txt(ctx, null)],
-      vrow('op_status', 'Operating status', h('span', { class: 'vx-row' }, ui.statusBadge('op_status', c.op_status || 'pending'), c.op_status_source ? sourceLink(ctx, c.op_status_source, 'evidence') : null)),
-      c.op_status_note ? ['Status evidence', h('span', { class: 'vx-small' }, c.op_status_note)] : null,
-      ['Admitted students', h('span', { class: 'vx-row' }, h('span', null, '2025-26'), yn(c.op_2025_26), h('span', null, '2026-27'), yn(c.op_2026_27))],
-      c.total_intake ? ['Total intake / year', h('span', null, fmt.num(c.total_intake), c.total_intake_source ? h('span', { class: 'vx-small' }, ' · ', sourceLink(ctx, c.total_intake_source)) : null)] : null,
-      c.geo_precision ? ['Map location', c.geo_precision === 'exact' ? 'Exact' : c.geo_precision === 'pending' ? 'Not located yet' : `Approximate (${c.geo_precision} level)`] : null,
-      c.updated_at ? ['Last updated', `${fmt.date(c.updated_at)}${c.updated_by ? ' by ' + c.updated_by : ''}`] : null,
-      c.notes ? ['Notes', c.notes] : null,
-    ].filter(Boolean)));
+    ui.kv(main),
+    h('details', { class: 'vc-more', style: { marginTop: 'var(--sp-3, 12px)' } }, h('summary', { style: { cursor: 'pointer', fontWeight: '600' } }, 'More details'), ui.kv(more)));
+}
+
+/* ------------------------------------------------------------------ plain wording for research values (display only) */
+const OWNERSHIP_TEXT = {
+  'pvt autonomous': 'Private college (autonomous)', 'pvt affiliated': 'Private college (affiliated)', 'private self-financing': 'Private college (self-financing)',
+  'state pvt univ': 'Private university', 'deemed (pvt)': 'Deemed university (private)',
+  'govt – state univ/constituent': 'Government (state university or its college)', 'govt – national': 'Government (national institute)',
+};
+export function ownershipText(v) { return v ? (OWNERSHIP_TEXT[String(v).trim().toLowerCase()] || String(v)) : v; }
+/** "A+; 3.49; 2nd cycle … (College site)" → "A+". Full research text stays available on hover / under More details. */
+export function naacGrade(v) {
+  const s = String(v || '').trim();
+  if (!s || s === '—') return null;
+  const g = s.split(';')[0].replace(/\s*\((aggregator|college site|official)\)\s*$/i, '').trim();
+  return g || null;
+}
+/** "Not in 2025 Engg top 300" → "Not ranked"; "Engg 201-300 (official)" → "Engineering 201-300". */
+export function nirfText(v) {
+  const s = String(v || '').trim();
+  if (!s || s === '—') return null;
+  if (/not inherited|\bparent\)/i.test(s)) return 'Not ranked (only the parent university is)';
+  if (/^not\b/i.test(s)) return 'Not ranked';
+  return s.replace(/\bEngg\b/g, 'Engineering').replace(/\bUniv\b/g, 'University').replace(/\s*\((official|aggregator)\)/gi, '').trim();
 }
 
 function researchBlock(ctx, p, s) {
@@ -475,10 +516,10 @@ function researchBlock(ctx, p, s) {
     title: 'Research plan', sub: 'From the research import. Estimates, not live data.',
     actions: h('a', { href: `#/plan?college=${encodeURIComponent(p.college_id)}`, class: 'vx-link vx-small' }, 'Open in planner'),
     body: ui.kv([
-      ['Priority', h('span', { class: 'vx-row' }, p.p_level ? ui.badge(p.p_level, p.p_level === 'P1' ? 'brand' : 'info') : '—', p.targeted ? ui.badge('Targeted (research)', 'brand') : ui.badge('Not targeted (research)', 'neutral'), p.hold_reason ? h('span', { class: 'vx-small vx-muted' }, p.hold_reason) : null)],
-      rt.avg != null ? ['Enrollment estimate', h('span', null, `${fmt.num(rt.min)}–${fmt.num(rt.max)} (average ${fmt.num(rt.avg)}) `, est)] : null,
+      ['Research priority', h('span', { class: 'vx-row' }, p.p_level ? ui.badge(p.p_level === 'Hold' ? 'On hold' : p.p_level, p.p_level === 'P1' ? 'brand' : 'info') : '—', p.targeted ? ui.badge('Recommended to target', 'brand') : ui.badge('Not recommended now', 'neutral'), p.hold_reason ? h('span', { class: 'vx-small vx-muted' }, p.hold_reason) : null)],
+      rt.avg != null ? ['Expected enrollments', h('span', null, `${fmt.num(rt.min)}–${fmt.num(rt.max)} (average ${fmt.num(rt.avg)}) `, est)] : null,
       p.ambassadors_research != null ? ['Ambassadors suggested', h('span', null, `${fmt.num(p.ambassadors_research)} `, est, h('span', { class: 'vx-muted vx-small' }, ` · ${fmt.num(s.people.filter((x) => isActive(x) && x.role !== 'college_lead').length)} recruited`))] : null,
-      p.college_leads_research != null ? ['College lead', p.college_leads_research === 0.5 ? 'Shared with another college (0.5)' : p.college_leads_research ? 'One for this college' : 'None planned'] : null,
+      p.college_leads_research != null ? ['College lead', p.college_leads_research === 0.5 ? 'One lead shared with a nearby college' : p.college_leads_research ? 'One for this college' : 'None planned'] : null,
     ].filter(Boolean)),
   });
 }
@@ -527,7 +568,7 @@ function teamBody(ctx, d, s, research, perfById) {
         : w(btn(ctx, 'Appoint college lead', () => addPerson(ctx, c, s, 'college_lead'), { small: true, tone: 'primary', icon: 'lead' })))));
 
   if (!active.length && !inactive.length) {
-    out.append(ui.emptyState({ title: 'No team yet', icon: 'people', text: 'Start with one college lead who is accountable for the whole college. Then add one student ambassador for each IT branch; they report to the lead.',
+    out.append(ui.emptyState({ title: 'No team yet', icon: 'people', text: 'Start with one college lead who is accountable for the whole college. Then add one student ambassador for each target branch (computer science, CS-related or electronics); they report to the lead.',
       action: w(btn(ctx, 'Appoint college lead', () => addPerson(ctx, c, s, 'college_lead'), { tone: 'primary', icon: 'lead' })) }));
   }
 
@@ -571,7 +612,7 @@ function teamBody(ctx, d, s, research, perfById) {
     const under = (pid) => AM.filter((a) => Number(a.reports_to) === Number(pid));
     const node = (p, kids) => h('li', { class: 'vc-node' }, card(p), kids && kids.length ? h('ul', { class: 'vc-tree-kids' }, kids) : null);
     const gapBranches = s.branches.filter((b) => b._gap);
-    const slots = gapBranches.map((b) => h('li', { class: 'vc-node' }, vacant(`${branchLabel(b)} — no ambassador`, `${b.name || 'IT branch'} counts toward the target`,
+    const slots = gapBranches.map((b) => h('li', { class: 'vc-node' }, vacant(`${branchLabel(b)} — no ambassador`, `${b.name || 'This branch'} counts toward the target`,
       btn(ctx, 'Recruit', () => addPerson(ctx, c, s, 'ambassador', { branch_ids: [b.id] }), { small: true }))));
     const top = lead
       ? node(lead, [...AL.filter((a) => Number(a.reports_to) === Number(lead.id)).map((a) => node(a, under(a.id).map((x) => node(x)))), ...under(lead.id).map((x) => node(x)), ...slots])
@@ -639,9 +680,9 @@ function callsTab(ctx, d) {
     forms.callStatusBadge(ctx, info.call_status || 'not_called'),
     h('span', { class: 'vx-muted vx-small' }, [
       fmt.plural(cc.total || 0, 'contact'), cc.working ? `${fmt.num(cc.working)} working` : null,
-      (cc.non_working || 0) + (cc.invalid || 0) ? `${fmt.num((cc.non_working || 0) + (cc.invalid || 0))} not working / invalid` : null,
+      (cc.non_working || 0) + (cc.invalid || 0) ? `${fmt.num((cc.non_working || 0) + (cc.invalid || 0))} not working or wrong number` : null,
       fmt.plural(info.calls_total || 0, 'call'),
-      c.participation_confirmed_on ? `participation confirmed ${fmt.date(c.participation_confirmed_on)}` : null,
+      c.participation_confirmed_on ? `college agreed ${fmt.date(c.participation_confirmed_on)}` : null,
     ].filter(Boolean).join(' · ')),
     h('span', { class: 'vx-grow' }),
     w(btn(ctx, 'Log call', () => forms.logCall(ctx, { college_id: c.id, contacts, college_label: label(c) }), { icon: 'phone', tone: 'primary', small: true })),
@@ -654,7 +695,7 @@ function callsTab(ctx, d) {
         ui.verifiedBadge ? ui.verifiedBadge({ state: k.basis === 'verified' ? 'verified' : 'unverified', source: k.source_url, date: k.verified_on, by: k.verified_by }) : ui.provenance(k.basis === 'verified' ? 'verified' : 'pending')),
       h('div', { class: 'vcc-num' }, k.phone ? h('span', { class: 'td-num' }, forms.formatPhone ? forms.formatPhone(k.phone) : k.phone) : null, k.email ? h('span', null, k.email) : null, contactActions(ctx, k.phone, k.email)),
       h('div', { class: 'vx-small vx-muted' }, [
-        k.last_call ? `Last call ${fmt.date(k.last_call.called_at)}: ${forms.OUTCOMES[k.last_call.outcome]?.label || k.last_call.outcome}` : 'Not called yet',
+        k.last_call ? `Last call ${fmt.date(k.last_call.called_at)}: ${forms.OUTCOMES[k.last_call.outcome]?.label || k.last_call.outcome}` : 'Not tried yet',
         k.unanswered_streak >= 2 && k.status !== 'working' ? `${k.unanswered_streak} unanswered in a row` : null,
         k.status_source === 'manual' ? 'status set by hand' : null, verifiedTxt(k),
       ].filter(Boolean).join(' · ')),
@@ -682,7 +723,7 @@ function callsTab(ctx, d) {
       return h('li', { class: 'vcc-item' },
         h('div', { class: 'vcc-main' },
           h('div', { class: 'vcc-title' }, ui.badge(o?.label || x.outcome, o?.tone || 'neutral'), h('span', null, x.contact_name || (x.contact_role ? forms.CONTACT_ROLE_LABEL[x.contact_role] : x.contact_id ? 'Contact' : 'College number')),
-            x.confirms_participation ? ui.badge('Confirmed participation', 'good') : null),
+            x.confirms_participation ? ui.badge('College agreed', 'good') : null),
           h('div', { class: 'vx-small vx-muted' }, [`${fmt.date(x.called_at)}${/T\d{2}:\d{2}/.test(x.called_at) ? ', ' + String(x.called_at).slice(11, 16) : ''}`, x.caller ? `by ${x.caller}` : null,
             x.followup_due ? `call-back ${fmt.date(x.followup_due)}${x.followup_status === 'done' ? ' (done)' : ''}` : null].filter(Boolean).join(' · ')),
           x.notes ? h('div', { class: 'vx-small' }, x.notes) : null));
@@ -747,7 +788,7 @@ function performanceTab(ctx, d, s, meta) {
       { key: 'r_pct', label: 'Progress', sortable: false, render: (b) => progressCell(ctx, b.rollup.target, b.rollup.enrolled) },
       { key: 'set', label: '', sortable: false, render: (b) => w(btn(ctx, 'Set target', () => (forms.targetDialog ? forms.targetDialog(ctx, { scope_type: 'branch', scope_id: String(b.id), label: `${label(c)} · ${b.code || b.name}` }) : forms.setTarget('branch', String(b.id), ctx, { label: `${label(c)} · ${b.code || b.name}` })), { small: true })) },
     ], rows, onRowClick: (b) => showBranch(ctx, b.id),
-  }))) : ui.emptyState({ title: 'No IT branches to track', icon: 'branch', text: 'Add this college’s branches to split targets and track branch-wise enrollment.' }) }));
+  }))) : ui.emptyState({ title: 'No target branches to track', icon: 'branch', text: 'Add this college’s branches to split targets and track branch-wise enrollment.' }) }));
   const byCourse = r.by_course || [];
   if (byCourse.length) {
     wrap.append(ui.section({ title: 'By course', body: cardify(h('div', { class: 'vx-tablewrap' }, ui.table({
@@ -839,7 +880,7 @@ function branchesTab(ctx, d, s) {
   const w = (n) => (ui.writeOnly ? ui.writeOnly(n) : n);
   const gapB = s.branches.filter((b) => b._gap);
   if (gapB.length) {
-    wrap.append(callout(ctx, 'bad', `${fmt.plural(gapB.length, 'IT branch has', 'IT branches have')} no ambassador`,
+    wrap.append(callout(ctx, 'bad', `${fmt.plural(gapB.length, 'target branch has', 'target branches have')} no ambassador`,
       h('div', null, 'Outreach in these branches has no owner. Tap one to recruit a student ambassador for it.',
         h('div', { class: 'vc-chips vc-gapchips' }, gapB.map((b) => h('button', { type: 'button', class: 'vc-chip is-gap td-write-only', title: `Recruit an ambassador for ${b.name || b.code}`,
           onClick: () => addPerson(ctx, c, s, 'ambassador', { branch_ids: [b.id] }) }, '+ ', branchLabel(b)))))));
@@ -851,14 +892,14 @@ function branchesTab(ctx, d, s) {
     onInput: (e) => { query = e.target.value.trim().toLowerCase(); draw(); } });
   const relToggle = h('input', { type: 'checkbox', id: 'vc-rel-only', class: 'td-check', checked: ui_state.relevantOnly ? true : null, onChange: (e) => { ui_state.relevantOnly = e.target.checked; saveUi(); draw(); } });
   const sortSel = h('select', { class: 'td-input td-select td-input--sm', 'aria-label': 'Sort branches', onChange: (e) => { ui_state.sort = e.target.value; saveUi(); draw(); } },
-    [['relevance', 'IT branches first'], ['gap', 'Needs ambassador first'], ['progress', 'Lowest progress first'], ['remaining', 'Most remaining'], ['eligible', 'Most eligible'], ['strength', 'Most students'], ['name', 'Branch code A–Z']]
+    [['relevance', 'Target branches first'], ['gap', 'Needs ambassador first'], ['progress', 'Lowest progress first'], ['remaining', 'Most remaining'], ['eligible', 'Most likely prospects'], ['strength', 'Most seats'], ['name', 'Branch code A–Z']]
       .map(([v, l]) => h('option', { value: v, selected: ui_state.sort === v ? true : null }, l)));
   const viewSel = typeof ui.segmented === 'function'
     ? ui.segmented({ options: [{ value: 'cards', label: 'Cards' }, { value: 'table', label: 'Table' }], value: ui_state.branchView, ariaLabel: 'Show branches as', onChange: (v) => { ui_state.branchView = v; saveUi(); draw(); } })
     : null;
   if (s.branches.length) {
     wrap.append(h('div', { class: 'vc-btools' }, search, sortSel,
-      h('label', { class: 'vx-check', for: 'vc-rel-only' }, relToggle, 'IT branches only'), viewSel, countEl, h('span', { class: 'vx-grow' }),
+      h('label', { class: 'vx-check', for: 'vc-rel-only', title: TARGET_BRANCH_HELP }, relToggle, 'Target branches only'), viewSel, countEl, h('span', { class: 'vx-grow' }),
       w(btn(ctx, 'Add branch', () => forms.addBranch(ctx, { college_id: c.id }), { icon: 'plus', small: true }))));
   }
   wrap.append(listEl);
@@ -868,7 +909,7 @@ function branchesTab(ctx, d, s) {
     if (query) rows = rows.filter((b) => `${b.code || ''} ${b.name || ''}`.toLowerCase().includes(query));
     const key = {
       name: (b) => String(b.code || b.name),
-      strength: (b) => -(b.strength_total ?? -1), eligible: (b) => -(b.eligible_estimate ?? -1),
+      strength: (b) => -(b.intake_per_year ?? -1), eligible: (b) => -(b.eligible_estimate ?? -1),
       remaining: (b) => -(b.rollup.remaining ?? -1), progress: (b) => (b.rollup.target ? (b.rollup.pct ?? 0) : 2),
       gap: (b) => (b._gap ? 0 : 1), relevance: (b) => (b.is_relevant ? 0 : 1) * 1e6 - (b.eligible_estimate ?? 0),
     }[ui_state.sort] || (() => 0);
@@ -885,8 +926,8 @@ function branchesTab(ctx, d, s) {
     countEl.textContent = rows.length === total ? fmt.plural(total, 'branch', 'branches') : `Showing ${fmt.num(rows.length)} of ${fmt.num(total)}`;
     if (!rows.length) {
       const reset = () => { query = ''; search.value = ''; ui_state.relevantOnly = false; relToggle.checked = false; saveUi(); draw(); };
-      listEl.replaceChildren(ui.emptyState({ title: query ? `No branch matches “${search.value.trim()}”` : 'No IT branches here', icon: 'search',
-        text: query ? 'Try the branch code (e.g. CSE) or part of its name.' : 'This college has branches, but none count toward the IT target.',
+      listEl.replaceChildren(ui.emptyState({ title: query ? `No branch matches “${search.value.trim()}”` : 'No target branches here', icon: 'search',
+        text: query ? 'Try the branch code (e.g. CSE) or part of its name.' : 'This college has branches, but none count toward the target.',
         action: btn(ctx, 'Show all branches', reset, { tone: 'primary' }) }));
       return;
     }
@@ -901,8 +942,8 @@ function ambNames(ctx, b) {
   if (!b._ambs.length) return h('span', { class: 'vx-muted' }, 'None');
   return h('span', null, b._ambs.map((p, i) => [i ? ', ' : '', h('a', { href: `#/person/${p.id}`, onClick: (e) => e.stopPropagation(), class: p.status === 'inactive' ? 'is-inactive' : null }, p.full_name)]));
 }
-function figc(ctx, lbl, node) {
-  return ctx.h('div', { class: 'vx-fig' }, ctx.h('div', { class: 'vx-fig-label' }, lbl), ctx.h('div', { class: 'vx-fig-value' }, node));
+function figc(ctx, lbl, node, help) {
+  return ctx.h('div', { class: 'vx-fig', title: help || null }, ctx.h('div', { class: 'vx-fig-label' }, lbl), ctx.h('div', { class: 'vx-fig-value' }, node));
 }
 function branchCard(ctx, s, b) {
   const { h, ui, fmt } = ctx;
@@ -913,12 +954,11 @@ function branchCard(ctx, s, b) {
     h('div', null, h('div', { class: 'vc-bcard-title' }, b.code ? h('span', { class: 'vx-code' }, b.code) : null, ' ', b.name || ''),
       h('div', { class: 'vx-row' }, ui.badge(CATEGORY_LABEL[b.category] || 'Other', b.is_relevant ? 'brand' : 'neutral'), outreachStatus(ctx, b))),
     ui.writeOnly ? ui.writeOnly(btn(ctx, '', () => forms.editBranch(ctx, b), { small: true, icon: 'edit', aria: `Edit ${b.code || 'branch'}`, title: 'Edit branch', class: 'vx-iconbtn' })) : null),
-  h('div', { class: 'vx-figs vx-figs-4' },
-    figc(ctx, 'Intake / yr', vb(ctx, b.intake_per_year, b.intake_basis)),
-    figc(ctx, 'Strength', vb(ctx, b.strength_total, b.strength_basis)),
-    figc(ctx, '4-1 cohort', vb(ctx, b.final_year, b.final_year_basis)),
-    figc(ctx, 'Eligible', vb(ctx, b.eligible_estimate, b.eligible_basis))),
-  b.intake_source || b.intake_year ? h('div', { class: 'vx-small vx-muted vc-bsrc' }, 'Intake source: ', b.intake_source ? sourceLink(ctx, b.intake_source) : 'not recorded', b.intake_year ? ` · ${b.intake_year}` : '') : null,
+  // students (4 yrs) = seats × 4 is left to the drawer; the seats source is shown there too
+  h('div', { class: 'vx-figs vx-figs-3' },
+    figc(ctx, BRANCH_FIG.intake, vb(ctx, b.intake_per_year, b.intake_basis), BRANCH_FIG_HELP.intake),
+    figc(ctx, BRANCH_FIG.final_year, vb(ctx, b.final_year, b.final_year_basis), BRANCH_FIG_HELP.final_year),
+    figc(ctx, BRANCH_FIG.eligible, vb(ctx, b.eligible_estimate, b.eligible_basis), BRANCH_FIG_HELP.eligible)),
   h('dl', { class: 'vc-bcard-dl' },
     h('dt', null, `Ambassadors (${b._activeAmbs.length})`), h('dd', null, ambNames(ctx, b)),
     h('dt', null, 'Next follow-up'), h('dd', null, b._nextFu ? `${fmt.date(b._nextFu.due_date)} — ${b._nextFu.title || ISSUE_LABEL[b._nextFu.issue] || ''}` : '—')),
@@ -928,11 +968,9 @@ function branchTable(ctx, d, s, rows) {
   const { h, ui, fmt } = ctx;
   return cardify(h('div', { class: 'vx-tablewrap' }, ui.table({
     columns: [
-      { key: 'code', label: 'Branch', sortable: true, render: (b) => h('span', null, h('strong', null, b.code || ''), ' ', h('span', { class: 'vx-small' }, b.name || ''), ' ', b.is_relevant ? ui.badge('IT', 'brand') : null) },
-      { key: 'intake_per_year', label: 'Intake', align: 'right', sortable: true, render: (b) => vb(ctx, b.intake_per_year, b.intake_basis) },
-      { key: 'strength_total', label: 'Strength', align: 'right', sortable: true, render: (b) => vb(ctx, b.strength_total, b.strength_basis) },
-      { key: 'eligible_estimate', label: 'Eligible', align: 'right', sortable: true, render: (b) => vb(ctx, b.eligible_estimate, b.eligible_basis) },
-      { key: 'source', label: 'Source', sortable: false, render: (b) => (b.intake_source ? sourceLink(ctx, b.intake_source) : h('span', { class: 'vx-muted' }, '—')) },
+      { key: 'code', label: 'Branch', sortable: true, render: (b) => h('span', null, h('strong', null, b.code || ''), ' ', h('span', { class: 'vx-small' }, b.name || ''), ' ', b.is_relevant ? h('span', { title: TARGET_BRANCH_HELP }, ui.badge('Target', 'brand')) : null) },
+      { key: 'intake_per_year', label: BRANCH_FIG.intake, align: 'right', sortable: true, render: (b) => vb(ctx, b.intake_per_year, b.intake_basis) },
+      { key: 'eligible_estimate', label: BRANCH_FIG.eligible, align: 'right', sortable: true, render: (b) => vb(ctx, b.eligible_estimate, b.eligible_basis) },
       { key: 'n_ambs', label: 'Ambassadors', render: (b) => h('span', null, h('strong', null, fmt.num(b._activeAmbs.length)), ' ', ambNames(ctx, b)) },
       { key: 'r_pct', label: 'Progress', sortable: false, render: (b) => progressCell(ctx, b.rollup.target, b.rollup.enrolled) },
       { key: 'status', label: 'Outreach', sortable: false, render: (b) => outreachStatus(ctx, b) },
@@ -951,16 +989,20 @@ function examsTab(ctx, d, ex) {
   wrap.append(ui.section({
     title: 'Exam windows', sub: 'Avoid outreach while students write 3-1 / 4-1 exams.', actions: h('a', { href: '#/exams', class: 'vx-link vx-small' }, 'All exams'),
     body: rows.length ? h('div', { class: 'vc-exam-grid' }, rows.map((x) => h('article', { class: 'vc-exam-card' },
-      h('h3', { class: 'vc-exam-title' }, `${x.semester} semester`, x.exam_body ? h('span', { class: 'vx-muted vx-small' }, ` · ${x.exam_body}`) : null),
-      h('div', { class: 'vx-row' }, ui.badge(x.status || 'Unknown', /no current|unverified/i.test(x.status || '') ? 'neutral' : 'info'),
-        x.evidence ? ui.badge(`Evidence: ${x.evidence}`, /unverified/i.test(x.evidence) ? 'warn' : 'good') : null,
-        x.confidence ? ui.badge(`Confidence: ${x.confidence}`, /high/i.test(x.confidence) ? 'good' : /low/i.test(x.confidence) ? 'warn' : 'neutral') : null),
+      h('h3', { class: 'vc-exam-title' }, `${x.semester === '4-1' ? 'Final year' : 'Third year'} (${x.semester})`, x.exam_body ? h('span', { class: 'vx-muted vx-small' }, ` · exams set by ${x.exam_body}`) : null),
+      h('div', { class: 'vx-row' }, ui.badge(EXAM_STATUS_LABEL[x.status] || x.status || 'Not known', /no current|unverified/i.test(x.status || '') ? 'neutral' : 'info'),
+        x.evidence ? h('span', { title: `${x.evidence}${x.confidence ? ` · ${x.confidence} confidence` : ''}` }, ui.badge(`${evidenceLabel(x.evidence)}${x.confidence ? ` · ${String(x.confidence).toLowerCase()} confidence` : ''}`, /unverified|conflict/i.test(x.evidence) ? 'warn' : 'good')) : null),
       ui.kv([
-        ['End-sem', x.endsem_start || x.endsem_end ? `${dt(x.endsem_start) || 'start not known'} → ${dt(x.endsem_end) || 'end not known'}` : txt(ctx, null)],
-        ['Mid exams', x.mid_window || '—'], ['Lab exams', x.lab_window || '—'],
-        ['Notice date', x.notice_date ? dt(x.notice_date) : '—'], ['Checked on', x.verified_on ? dt(x.verified_on) : '—'],
-        ['Source', x.source_url ? sourceLink(ctx, x.source_url) : txt(ctx, null)],
-      ]),
+        ['End-semester exams', x.endsem_start || x.endsem_end ? `${dt(x.endsem_start) || 'start not known'} → ${dt(x.endsem_end) || 'end not known'}` : txt(ctx, null)],
+        x.mid_window ? ['Mid exams', x.mid_window] : null, x.lab_window ? ['Labs / practicals', x.lab_window] : null,
+        x.notice_date ? ['Notice published', dt(x.notice_date)] : null,
+        ['Source', (() => {
+          if (!x.source_url) return txt(ctx, null);
+          const urls = String(x.source_url).split(/\s*[;,]\s+|\s+/).filter((u) => /^https?:\/\//i.test(u));
+          return urls.length ? h('span', { class: 'vx-row' }, urls.map((u) => sourceLink(ctx, u))) : String(x.source_url);
+        })()],
+        x.verified_on ? ['Last checked', dt(x.verified_on)] : null,
+      ].filter(Boolean)),
       x.notes ? h('p', { class: 'vx-small vx-muted' }, x.notes) : null)))
       : ui.emptyState({ title: 'No exam information yet', icon: 'exam', text: 'Exam dates for this college have not been researched. Add them on the Exams page once the college publishes a notice.', action: h('a', { href: '#/exams', class: 'td-btn td-btn--secondary td-btn--sm' }, 'Open Exams') }),
   }));
@@ -993,7 +1035,7 @@ function activityTab(ctx, d, s) {
 function parseJ(v) { if (v == null) return null; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch { return { value: v }; } }
 const SKIP = new Set(['updated_at', 'updated_by', 'created_at', 'created_by']);
 const ENTITY_LABEL = { college: 'College', branch: 'Branch', person: 'Person', target: 'Target', enrollment: 'Enrollment', activity: 'Activity', followup: 'Follow-up', exam: 'Exam', course: 'Course', setting: 'Setting', contact: 'Contact', call: 'Call', colleges: 'College', branches: 'Branch', people: 'Person', targets: 'Target', enrollments: 'Enrollment', activities: 'Activity', followups: 'Follow-up', exams: 'Exam', courses: 'Course', settings: 'Setting' };
-const FIELD_LABEL = { op_status: 'operating status', op_status_note: 'status evidence', op_2025_26: 'admitting 2025-26', op_2026_27: 'admitting 2026-27', intake_per_year: 'intake / year', strength_total: 'strength', final_year: 'completing 4-1', eligible_estimate: 'eligible', is_relevant: 'IT branch', reports_to: 'reports to', full_name: 'name', due_date: 'due date', scope_type: 'scope', scope_id: 'scope id', naac: 'NAAC', nirf: 'NIRF', verified_fields: 'verification', district_id: 'district', city_id: 'city' };
+const FIELD_LABEL = { op_status: 'operating status', op_status_note: 'why this status', op_status_source: 'status evidence link', op_2025_26: 'admitting 2025-26', op_2026_27: 'admitting 2026-27', intake_per_year: 'seats / year', intake_basis: 'seats basis', intake_source: 'seats source', intake_year: 'seats year', strength_total: 'students, all 4 years', strength_basis: 'students basis', final_year: 'final-year students', final_year_basis: 'final-year basis', eligible_estimate: 'likely prospects', eligible_basis: 'likely prospects basis', is_relevant: 'target branch', category: 'branch group', ownership: 'type of institution', affiliation: 'affiliated university', autonomous: 'autonomous', tier: 'research tier', phone: 'office phone', email: 'office email', sno: 'master list no.', geo_precision: 'map pin', total_intake: 'seats per year (all branches)', notes: 'notes', reports_to: 'reports to', full_name: 'name', due_date: 'due date', scope_type: 'scope', scope_id: 'scope id', naac: 'NAAC grade', nirf: 'NIRF ranking', verified_fields: 'verification', district_id: 'district', city_id: 'city' };
 function fieldLabel(k) { return FIELD_LABEL[k] || k.replace(/_basis$/, ' basis').replace(/_/g, ' '); }
 function short(v) { if (v === null || v === undefined || v === '') return '∅'; const s = typeof v === 'object' ? JSON.stringify(v) : String(v); return s.length > 80 ? s.slice(0, 77) + '…' : s; }
 

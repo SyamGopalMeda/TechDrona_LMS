@@ -104,7 +104,7 @@ export function collegeCallInfo(ctx, c) {
 // Internal calling priority (0-100). Only shown in the calling queue. Real fields only; see CONTRACT.md.
 const ELIGIBLE_CAP = 1000; // eligible students at which "potential" maxes out (~75th percentile of colleges with data)
 const EXAM_POINTS = { clear: 15, unknown: 8, exams_soon: 5, in_exams: 0 };
-const EXAM_TEXT = { clear: 'no exams in the next 14 days — outreach window open', unknown: 'exam dates unknown', exams_soon: 'exams start within 14 days', in_exams: 'students are writing exams now' };
+const EXAM_TEXT = { clear: 'no exams in the next 14 days, a good time to reach students', unknown: 'exam dates not known', exams_soon: 'exams start within 14 days', in_exams: 'students are writing exams now' };
 const TIER_POINTS = { 'tier 1': 10, 'tier 2': 7, 'tier 3': 4 };
 const NAAC_POINTS = { 'A++': 10, 'A+': 9, A: 8, 'B++': 6, 'B+': 5, B: 4, C: 2 };
 export function tierFor(score) { return score >= 60 ? 'high' : score >= 40 ? 'medium' : 'low'; }
@@ -115,33 +115,33 @@ export function priority(ctx, c, info) {
   const parts = [];
   // 1. potential: eligible final-year students (relevance-weighted), 0-40
   const ev = s.eligible?.value;
-  parts.push({ key: 'potential', label: 'Student potential', max: 40, points: ev == null ? 0 : Math.round(40 * Math.min(1, ev / ELIGIBLE_CAP)),
+  parts.push({ key: 'potential', label: 'Students', max: 40, points: ev == null ? 0 : Math.round(40 * Math.min(1, ev / ELIGIBLE_CAP)),
     basis: ev == null ? 'pending' : s.eligible.basis, estimated: s.eligible?.basis === 'estimated',
-    detail: ev == null ? 'eligible students not known yet (branch intake pending)' : `≈ ${ev.toLocaleString('en-IN')} eligible final-year students${s.eligible.basis === 'estimated' ? ' (estimated from intake)' : ''}` });
+    detail: ev == null ? 'number of students not known yet (branch seats missing)' : `≈ ${ev.toLocaleString('en-IN')} eligible final-year students (weighted by branch)${s.eligible.basis === 'estimated' ? ' (estimated from seats)' : ''}` });
   // 2. contact reliability, 0-20
   const k = callsCtx(ctx).contactsByCollege.get(c.id) || [];
   const has = (st, b) => k.some((x) => x.status === st && x.phone && (!b || x.basis === b));
-  let cp = 0; let cd = 'no callable contact on record';
-  if (has('working', 'verified')) { cp = 20; cd = 'a verified number answered'; } else if (has('working')) { cp = 15; cd = 'a number answered (source not verified)'; } else if (has('untested', 'verified')) { cp = 10; cd = 'verified number, not called yet'; } else if (has('untested')) { cp = 6; cd = 'number not called yet (source pending)'; } else if (k.length) cd = 'only non-working / invalid numbers';
-  parts.push({ key: 'contact', label: 'Contact reliability', max: 20, points: cp, detail: cd });
+  let cp = 0; let cd = 'no phone number on record';
+  if (has('working', 'verified')) { cp = 20; cd = 'a verified number has answered'; } else if (has('working')) { cp = 15; cd = 'a number has answered (not verified)'; } else if (has('untested', 'verified')) { cp = 10; cd = 'verified number, not tried yet'; } else if (has('untested')) { cp = 6; cd = 'number not tried yet (not verified)'; } else if (k.length) cd = 'only wrong or not-working numbers';
+  parts.push({ key: 'contact', label: 'Phone number', max: 20, points: cp, detail: cd });
   // 3. exam window, 0-15
   const ex = ctx.exam.get(c.id)?.exam_state || 'unknown';
-  parts.push({ key: 'exams', label: 'Outreach window', max: 15, points: EXAM_POINTS[ex] ?? 8, detail: EXAM_TEXT[ex] || ex });
+  parts.push({ key: 'exams', label: 'Exam timing', max: 15, points: EXAM_POINTS[ex] ?? 8, detail: EXAM_TEXT[ex] || ex });
   // 4. college standing (tier from the master list, NAAC grade text), 0-10
   const tp = TIER_POINTS[String(c.tier || '').trim().toLowerCase()] ?? null;
   const g = naacGrade(c.naac); const np = g ? NAAC_POINTS[g] : null;
   const qp = Math.max(tp ?? 0, np ?? 0);
-  parts.push({ key: 'standing', label: 'College standing', max: 10, points: qp, estimated: !!(c.naac && /aggregator|unverified|claimed|conflict/i.test(c.naac)),
-    detail: [c.tier ? `${c.tier}` : null, g ? `NAAC ${g}${/aggregator|unverified|claimed|conflict/i.test(c.naac) ? ' (from listings, unverified)' : ''}` : null].filter(Boolean).join(' · ') || 'tier / NAAC not recorded' });
+  parts.push({ key: 'standing', label: 'College rank (tier / NAAC)', max: 10, points: qp, estimated: !!(c.naac && /aggregator|unverified|claimed|conflict/i.test(c.naac)),
+    detail: [c.tier ? `${c.tier}` : null, g ? `NAAC ${g}${/aggregator|unverified|claimed|conflict/i.test(c.naac) ? ' (from listings, not verified)' : ''}` : null].filter(Boolean).join(' · ') || 'tier and NAAC grade not recorded' });
   // 5. engagement so far, 0-15
-  const ENG = { enrolled: [15, 'students already confirmed'], participation_confirmed: [15, 'college confirmed participation'], interested: [15, 'last conversation: interested'],
+  const ENG = { enrolled: [15, 'students already confirmed'], participation_confirmed: [15, 'the college agreed to take part'], interested: [15, 'last conversation: interested'],
     follow_up_due: [12, 'a call-back is due'], attempted_no_answer: [3, 'called, no answer yet'], not_called: [5, 'not called yet'] };
   let ep; let ed;
   if (info.call_status === 'contacted') {
     const o = info.last_connected_outcome;
     [ep, ed] = o === 'connected_callback' ? [10, 'asked us to call back'] : o === 'connected_info_only' ? [6, 'took information only'] : o === 'connected_not_interested' ? [0, 'said not interested'] : [6, 'spoken to'];
   } else [ep, ed] = ENG[info.call_status] || [0, ''];
-  parts.push({ key: 'engagement', label: 'Engagement so far', max: 15, points: ep, detail: ed });
+  parts.push({ key: 'engagement', label: 'Response so far', max: 15, points: ep, detail: ed });
   const score = parts.reduce((a, p) => a + p.points, 0);
   return { score, tier: tierFor(score), parts, has_estimates: parts.some((p) => p.estimated) };
 }

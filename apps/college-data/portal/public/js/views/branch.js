@@ -19,9 +19,26 @@ export const ROLE_LABEL = { college_lead: 'College lead', ambassador_lead: 'Amba
 export const ACT_LABEL = { visit: 'Visit', call: 'Call', session: 'Session', whatsapp: 'WhatsApp', followup: 'Follow-up', other: 'Other' };
 export const ISSUE_LABEL = {
   ambassador_gap: 'Ambassador gap', low_outreach: 'Low outreach', low_conversion: 'Low conversion',
-  unrealistic_target: 'Unrealistic target', exams: 'Exams', data: 'Data', other: 'Other',
+  unrealistic_target: 'Unrealistic target', exams: 'Exams', data: 'Data check', other: 'Other',
 };
-export const CATEGORY_LABEL = { it_core: 'IT core', it_allied: 'IT allied', circuit: 'Circuit', core: 'Core', other: 'Other' };
+/** Branch groups in plain words. it_core, it_allied and circuit branches count toward the target by default (is_relevant). */
+export const CATEGORY_LABEL = { it_core: 'Computer science', it_allied: 'CS-related (AI, data, IoT…)', circuit: 'Electronics / electrical', core: 'Other engineering', other: 'Other' };
+/** One name everywhere for is_relevant = 1. */
+export const TARGET_BRANCH = 'target branch';
+export const TARGET_BRANCH_HELP = 'Computer science, CS-related and electronics branches count toward the enrollment target.';
+/** Plain labels for the branch numbers (same words in cards, tables, the drawer and the change history). */
+export const BRANCH_FIG = {
+  intake: 'Seats / year',
+  strength: 'Students, all 4 years (est.)',
+  final_year: 'Final-year students',
+  eligible: 'Likely prospects (est.)',
+};
+export const BRANCH_FIG_HELP = {
+  intake: 'Seats the branch admits each year (mostly from the AP EAPCET 2026 counselling list).',
+  strength: 'Seats per year × 4. An estimate, not a head count.',
+  final_year: 'Students now in the final year (joined in 2023). Estimated from the seats unless verified.',
+  eligible: 'Final-year students × how relevant the branch is to our courses (computer branches count fully, electronics 60%, others 15%).',
+};
 
 /** Value with its basis pill. Unknown -> "—" + Pending pill. */
 export function vb(ctx, value, basis, fmtFn) {
@@ -79,7 +96,7 @@ export function contactLinks(ctx, o) {
 /** Small "target / done" progress with numbers. */
 export function progressCell(ctx, target, done) {
   const { ui, h, fmt } = ctx;
-  if (!target) return h('span', { class: 'vx-muted' }, done ? `${fmt.num(done)} enrolled · no target` : 'No target');
+  if (!target) return h('span', { class: 'vx-muted' }, done ? `${fmt.num(done)} confirmed · no target` : 'No target');
   return h('div', { class: 'vx-prog' }, ui.progress({ target, done: done || 0, size: 'sm' }),
     h('span', { class: 'vx-prog-num' }, `${fmt.num(done || 0)} / ${fmt.num(target)}`));
 }
@@ -204,17 +221,17 @@ export function todayStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Strength / 4-1 / eligible block for a branch row object. */
+/** Seats / students / final-years / prospects block for a branch row object (the drawer shows all four). */
 export function branchFigures(ctx, b) {
   const { h } = ctx;
   return h('div', { class: 'vx-figs vx-figs-4' },
-    fig(ctx, 'Intake / year', vb(ctx, b.intake_per_year, b.intake_basis)),
-    fig(ctx, 'Strength (4 yrs)', vb(ctx, b.strength_total, b.strength_basis)),
-    fig(ctx, 'Completing 4-1', vb(ctx, b.final_year, b.final_year_basis)),
-    fig(ctx, 'Eligible (est.)', vb(ctx, b.eligible_estimate, b.eligible_basis)));
+    fig(ctx, BRANCH_FIG.intake, vb(ctx, b.intake_per_year, b.intake_basis), BRANCH_FIG_HELP.intake),
+    fig(ctx, BRANCH_FIG.final_year, vb(ctx, b.final_year, b.final_year_basis), BRANCH_FIG_HELP.final_year),
+    fig(ctx, BRANCH_FIG.eligible, vb(ctx, b.eligible_estimate, b.eligible_basis), BRANCH_FIG_HELP.eligible),
+    fig(ctx, BRANCH_FIG.strength, vb(ctx, b.strength_total, b.strength_basis), BRANCH_FIG_HELP.strength));
 }
-function fig(ctx, label, node) {
-  return ctx.h('div', { class: 'vx-fig' }, ctx.h('div', { class: 'vx-fig-label' }, label), ctx.h('div', { class: 'vx-fig-value' }, node));
+export function fig(ctx, label, node, help) {
+  return ctx.h('div', { class: 'vx-fig', title: help || null }, ctx.h('div', { class: 'vx-fig-label' }, label), ctx.h('div', { class: 'vx-fig-value' }, node));
 }
 
 /* ------------------------------------------------------------------ branch drawer */
@@ -334,7 +351,7 @@ export async function renderBranchPage(el, params, ctx, inDrawer = false, opts =
       h('div', { class: 'vx-row' },
         b.code ? h('span', { class: 'vx-code' }, b.code) : null,
         ui.badge(CATEGORY_LABEL[b.category] || b.category || 'Uncategorised', b.is_relevant ? 'brand' : 'neutral'),
-        b.is_relevant ? ui.badge('Counts toward IT target', 'info') : ui.badge('Not an IT branch', 'neutral'),
+        h('span', { title: TARGET_BRANCH_HELP }, b.is_relevant ? ui.badge('Target branch', 'info') : ui.badge('Not a target branch', 'neutral')),
         gap ? ui.badge('No ambassador', 'bad') : null,
         r.target && r.on_track != null ? ui.statusBadge('on_track', r.on_track) : null,
         r.target && r.on_track === false && r.diagnosis ? ui.statusBadge('diagnosis', r.diagnosis) : null,
@@ -351,10 +368,10 @@ export async function renderBranchPage(el, params, ctx, inDrawer = false, opts =
   // students
   wrap.append(ui.section({
     title: 'Students',
-    sub: 'Each number shows whether it is verified, estimated or still pending.',
+    sub: 'Each number shows whether it is verified, estimated or still pending. Hover a number for how it is worked out.',
     body: h('div', { class: 'vb-students' }, branchFigures(ctx, b),
-      b.intake_source || b.intake_year ? h('p', { class: 'vx-small vx-muted vb-source' }, 'Intake source: ',
-        b.intake_source ? sourceLink(ctx, b.intake_source) : 'not recorded', b.intake_year ? ` · ${b.intake_year}` : '') : null),
+      b.intake_source || b.intake_year ? h('p', { class: 'vx-small vx-muted vb-source' }, 'Seats from: ',
+        b.intake_source ? sourceLink(ctx, b.intake_source) : 'source not recorded', b.intake_year && b.intake_year !== 'unspecified' ? ` (${b.intake_year})` : '') : null),
   }));
 
   // target
@@ -399,7 +416,7 @@ export async function renderBranchPage(el, params, ctx, inDrawer = false, opts =
         // navigating changes the page; the router closes this drawer for us
         onRowClick: (p) => ctx.navigate(`#/person/${p.id}`),
       }) : callout(ctx, b.is_relevant ? 'bad' : 'info', 'No ambassador for this branch',
-        b.is_relevant ? 'This branch counts toward the target. Recruit at least one student ambassador to start outreach.' : 'This branch is not an IT branch, so an ambassador is optional.',
+        b.is_relevant ? 'This branch counts toward the target. Recruit at least one student ambassador to start outreach.' : 'This branch does not count toward the target, so an ambassador is optional.',
         btn(ctx, 'Recruit ambassador', recruit, { tone: b.is_relevant ? 'primary' : null, small: true }))),
   }));
 

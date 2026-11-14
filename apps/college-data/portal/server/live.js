@@ -19,9 +19,9 @@ const CAP = 'https://api.cap.apcfss.in/oamreadapi/oam-public';
 
 export const SOURCES = {
   eapcet: { name: 'AP EAPCET counselling list', url: `${CAP}/eapcet-clg-home-page-details`, ttl_min: 360,
-    provides: 'Colleges in B.Tech counselling, branches, convener seats, seats left over, fees, college phone/email/website, affiliation' },
+    provides: 'Colleges in B.Tech counselling, branches, counselling (convener-quota) seats, seats still empty, fees, college office phone/email/website, affiliation' },
   ecet: { name: 'AP ECET counselling list', url: `${CAP}/ecet-clg-home-page-details`, ttl_min: 360,
-    provides: 'Colleges in lateral-entry (2nd-year) counselling, branches, seats, seats left over' },
+    provides: 'Colleges in lateral-entry (2nd-year) counselling, branches, seats, seats still empty' },
   jntuk_affiliated: { name: 'JNTUK affiliated colleges', url: 'https://www.jntuk.edu.in/examinations', ttl_min: 1440,
     provides: 'Colleges currently listed as JNTUK-affiliated (by district), college code (CC), courses offered' },
   jntuk_notifications: { name: 'JNTUK notifications', url: 'https://www.jntuk.edu.in/notifications', ttl_min: 30,
@@ -36,7 +36,7 @@ export const AUTOMATION = [
   { topic: 'College list & active status', status: 'automatic', source: 'AP EAPCET + ECET lists, JNTUK affiliated list, website check',
     how: 'Checked every 6–24 h and on site open', note: 'A college missing from every official list is flagged, never auto-closed — closure needs a person to confirm.' },
   { topic: 'Branches & seats (current year)', status: 'automatic', source: 'AP EAPCET / ECET counselling lists',
-    how: 'Every 6 h', note: 'Convener-quota seats and seats left over, not total sanctioned intake.' },
+    how: 'Every 6 h', note: 'Counselling (convener-quota) seats and seats still empty, not the total sanctioned intake.' },
   { topic: 'College phone, email, website, affiliation', status: 'automatic', source: 'AP EAPCET counselling list',
     how: 'Every 6 h; differences from our record are shown for one-click approval', note: 'These are principal/office lines, not TPO contacts.' },
   { topic: 'Exam schedules & results', status: 'partial', source: 'JNTUK notifications',

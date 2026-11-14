@@ -9,7 +9,7 @@ const SEGMENTS = [
   { value: 'all', label: 'All' },
   { value: 'leads', label: 'College leads' },
   { value: 'ambassadors', label: 'Ambassadors' },
-  { value: 'unassigned', label: 'Unassigned' },
+  { value: 'unassigned', label: 'Without a lead', title: 'Ambassadors who do not report to a college lead yet' },
 ];
 const SEG_PARAMS = {
   all: {},
@@ -53,7 +53,7 @@ function perfCell(ctx, p) {
   return h('div', { class: 'v-people__perf' },
     ui.progressBar(actual, ts.target, { min: ts.min, max: ts.max, size: 'sm', unit: 'enrolled', status: ts.status, pct: ts.pct }),
     h('div', { class: 'v-people__perfmeta' }, ui.statusChip(ts.status, { size: 'sm' }),
-      isLeadRole(p.role) && p.team_size ? h('span', { class: 'vx-small vx-muted' }, `Team ${fmt.num(p.actual_team ?? 0)} · combined ${fmt.num(p.actual_combined ?? actual)}`) : null));
+      isLeadRole(p.role) && p.team_size ? h('span', { class: 'vx-small vx-muted' }, `team ${fmt.num(p.actual_team ?? 0)} · total ${fmt.num(p.actual_combined ?? actual)}`) : null));
 }
 
 function nameCell(ctx, p) {
@@ -91,7 +91,7 @@ export async function renderList(el, params = {}, ctx) {
   const addBtn = ui.writeOnly(ui.button({ label: 'Add person', icon: 'plus', tone: 'primary', onClick: () => forms.personDialog(ctx, {}) }));
   const head = ui.pageHeader({
     title: 'Team', scope: true,
-    sub: 'College leads, ambassador leads and ambassadors — who belongs where, who manages whom, and how each is doing against target.',
+    sub: 'The student team: a college lead runs outreach at one college, and ambassadors (some of them ambassador leads) bring in enrollments. See who reports to whom and how each person is doing against their target.',
     actions: [addBtn],
   });
   const segWrap = h('div', { class: 'v-people__segs' });
@@ -125,8 +125,8 @@ export async function renderList(el, params = {}, ctx) {
       filters: [
         { key: 'role', label: 'Role', options: opts([['college_lead', 'College lead'], ['ambassador_lead', 'Ambassador lead'], ['ambassador', 'Ambassador']]) },
         { key: 'college', label: 'College', options: collegeOpts() },
-        { key: 'lead', label: 'Lead', options: leadOpts() },
-        { key: 'assignment', label: 'Assignment', options: opts([['assigned', 'Assigned'], ['unassigned', 'No lead'], ['invalid_link', 'Invalid lead link']]) },
+        { key: 'lead', label: 'Reports to', options: leadOpts() },
+        { key: 'assignment', label: 'Link to a lead', options: opts([['assigned', 'Has a lead'], ['unassigned', 'No lead'], ['invalid_link', 'Lead link broken']]) },
         { key: 'status', label: 'Status', options: opts([['active', 'Active'], ['onboarding', 'Onboarding'], ['inactive', 'Inactive']]) },
       ],
       onChange: (v, k) => {
@@ -166,9 +166,9 @@ export async function renderList(el, params = {}, ctx) {
       { key: 'name', label: 'Name', primary: true, priority: 1, minWidth: 200, render: (p) => nameCell(ctx, p) },
       { key: 'role', label: 'Role', priority: 3, minWidth: 130, cardHidden: true, render: (p) => roleChip(ctx, p) },
       { key: 'college', label: 'College', priority: 2, minWidth: 100, cardHidden: true, render: (p) => collegeLink(ctx, p) },
-      { key: 'assignment', label: 'Lead', priority: 2, minWidth: 140, render: (p) => assignmentCell(ctx, p) },
+      { key: 'assignment', label: 'Reports to', priority: 2, minWidth: 140, render: (p) => assignmentCell(ctx, p) },
       { key: 'contact', label: 'Contact', sortable: false, priority: 3, minWidth: 150, render: (p) => contactCell(ctx, p) },
-      { key: 'actual', label: 'Target vs actual (programme)', phoneLabel: 'Target vs actual', priority: 2, minWidth: 190, render: (p) => perfCell(ctx, p) },
+      { key: 'actual', label: 'Paid enrollments vs target', phoneLabel: 'Paid vs target', priority: 2, minWidth: 190, render: (p) => perfCell(ctx, p) },
       { key: 'status', label: 'Status', priority: 1, minWidth: 100, cardHidden: true, render: (p) => ui.statusChip(p.status || 'active', { size: 'sm' }) },
     ],
     cardTitle: (p) => h('a', { href: `#/person/${p.id}`, onClick: stop }, p.full_name || '(no name)'),

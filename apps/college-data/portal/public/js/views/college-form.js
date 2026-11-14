@@ -8,13 +8,13 @@ import { normAnyPhone } from './forms.js';
 
 const OP = [['operational', 'Operational'], ['possibly_closed', 'Possibly closed'], ['closed', 'Closed'], ['pending', 'Not checked yet']];
 const YNU = [['unknown', 'Unknown'], ['yes', 'Yes'], ['no', 'No']];
-const AUTONOMY = [['', 'Not known'], ['Yes', 'Autonomous'], ['No', 'Not autonomous'], ['Unclear', 'Unclear']];
-const TIERS = [['', 'Not known'], ['Tier 1', 'Tier 1'], ['Tier 2', 'Tier 2'], ['Tier 3', 'Tier 3']];
+const AUTONOMY = [['', 'Not known'], ['Yes', 'Autonomous (sets its own exams)'], ['No', 'Not autonomous'], ['Unclear', 'Unclear']];
+const TIERS = [['', 'Not known'], ['Tier 1', 'Tier 1 (strongest)'], ['Tier 2', 'Tier 2'], ['Tier 3', 'Tier 3']];
 const OWNERSHIP_HINTS = ['Pvt autonomous', 'Pvt affiliated', 'State pvt univ', 'Deemed (pvt)', 'Govt – State univ/constituent', 'Govt – National', 'Private self-financing'];
 /** Fields whose provenance is tracked (server field_status keys). */
 export const VERIFY_FIELDS = [
-  ['name', 'Official name'], ['district_id', 'District'], ['city_id', 'City / town'], ['phone', 'College phone'], ['email', 'College email'],
-  ['website', 'Website'], ['ownership', 'Ownership'], ['affiliation', 'Affiliation'], ['op_status', 'Operating status'],
+  ['name', 'Official name'], ['district_id', 'District'], ['city_id', 'City / town'], ['phone', 'Office phone'], ['email', 'Office email'],
+  ['website', 'Website'], ['ownership', 'Type of institution'], ['affiliation', 'Affiliated university'], ['op_status', 'Operating status'],
 ];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const str = (v) => { const s = v === undefined || v === null ? '' : String(v).trim(); return s || null; };
@@ -141,7 +141,7 @@ async function openCollegeDialog(ctx, id, preset = {}) {
       dupBox.className = ['vcf-dup', same.length ? 'is-bad' : 'is-warn'].join(' ');
       dupBox.replaceChildren(ui.icon('warn', { size: 16 }), h('div', null,
         h('strong', null, same.length ? 'A college with this name is already in the portal' : 'Similar colleges already in the portal'),
-        h('ul', null, show.map((r) => h('li', null, h('a', { href: `#/college/${r.id}`, target: '_blank', rel: 'noopener' }, r.name), ` · ${dName(r.district_id)} · #${r.sno}`))),
+        h('ul', null, show.map((r) => h('li', null, h('a', { href: `#/college/${r.id}`, target: '_blank', rel: 'noopener' }, r.name), ` · ${dName(r.district_id)}`))),
         h('span', { class: 'vx-muted vx-small' }, 'Open it instead of adding a duplicate. The server refuses the same name in the same district.')));
     } catch { /* duplicate check is advisory */ }
   };
@@ -163,7 +163,7 @@ async function openCollegeDialog(ctx, id, preset = {}) {
   const group = (title, sub, ...kids) => h('fieldset', { class: 'vcf-group' }, h('legend', null, title), sub ? h('p', { class: 'vx-muted vx-small' }, sub) : null, ...kids);
   const body = h('form', { class: 'td-form vcf', novalidate: true, onSubmit: (e) => { e.preventDefault(); } },
     h('datalist', { id: 'cf-ownership-list' }, OWNERSHIP_HINTS.map((o) => h('option', { value: o }))),
-    group('Identity', isNew ? 'Add a college that is missing from the master list. Check the duplicate warning before saving.' : (c.sno ? `S.No ${c.sno} (fixed) · id ${c.id}` : null),
+    group('Identity', isNew ? 'Add a college that is missing from the master list. Check the duplicate warning before saving.' : (c.sno ? `Master list no. ${c.sno} (fixed)` : null),
       grid(
         field('name', 'Official name', nameIn, { req: true, full: true }),
         h('div', { class: 'td-field td-field--full' }, dupBox),
@@ -173,27 +173,27 @@ async function openCollegeDialog(ctx, id, preset = {}) {
         field('city_id', 'City / town', citySel, { req: true }),
         cityNewWrap,
         field('address', 'Address', area(v0.address), { full: true }))),
-    group('Contact', 'The college office line, email and website as officially listed.',
+    group('Contact', 'The college office line, email and website as officially listed. Add TPO and staff numbers under “Contacts & calls”.',
       grid(
-        field('phone', 'College phone', text('phone', v0.phone, { inputmode: 'tel' }), { help: '10-digit numbers; several allowed, separated by / or ,' }),
-        field('email', 'College email', text('email', v0.email, { inputmode: 'email' })),
+        field('phone', 'Office phone', text('phone', v0.phone, { inputmode: 'tel' }), { help: '10-digit numbers; several allowed, separated by / or ,' }),
+        field('email', 'Office email', text('email', v0.email, { inputmode: 'email' })),
         field('website', 'Website', text('website', v0.website, { inputmode: 'url', placeholder: 'https://' }), { full: true }))),
     group('Institution', null,
       grid(
-        field('ownership', 'Ownership', ownership),
-        field('affiliation', 'Affiliation', text('affiliation', v0.affiliation), { help: 'University it is affiliated to, e.g. JNTUK.' }),
-        field('autonomous', 'Autonomy', select('autonomous', AUTONOMY, v0.autonomous || '')),
-        field('tier', 'Tier', select('tier', TIERS, v0.tier || '')),
-        field('naac', 'NAAC grade', text('naac', v0.naac)))),
+        field('ownership', 'Type of institution', ownership, { help: 'e.g. Pvt autonomous, Pvt affiliated, Govt – National.' }),
+        field('affiliation', 'Affiliated university', text('affiliation', v0.affiliation), { help: 'University it is affiliated to, e.g. JNTUK.' }),
+        field('autonomous', 'Autonomous?', select('autonomous', AUTONOMY, v0.autonomous || '')),
+        field('tier', 'Research tier', select('tier', TIERS, v0.tier || ''), { help: 'Used in the calling priority.' }),
+        field('naac', 'NAAC grade', text('naac', v0.naac), { help: 'The grade first, e.g. “A+”. Anything after a ; is kept as a note.' }))),
     group('Status', 'Changing the operating status needs evidence.',
       grid(
         field('op_status', 'Operating status', opSel),
-        h('div', { class: 'td-field td-field--check' }, h('div', { class: 'td-field__checkrow' }, targeted, h('label', { class: 'td-field__label', onClick: () => targeted.click() }, 'Targeted by Tech Drona'))),
-        field('op_2025_26', 'Admitted students 2025-26?', select('op_2025_26', YNU, v0.op_2025_26 || 'unknown')),
-        field('op_2026_27', 'Admitted students 2026-27?', select('op_2026_27', YNU, v0.op_2026_27 || 'unknown')),
-        field('op_status_note', 'Evidence for the status', area(v0.op_status_note), { full: true }),
-        field('op_status_source', 'Evidence link', text('op_status_source', v0.op_status_source, { placeholder: 'https://' }), { full: true }),
-        field('notes', 'Notes', area(v0.notes, 3), { full: true }))),
+        h('div', { class: 'td-field td-field--check' }, h('div', { class: 'td-field__checkrow' }, targeted, h('label', { class: 'td-field__label', onClick: () => targeted.click() }, 'Targeted by Tech Drona (in the outreach plan)'))),
+        field('op_2025_26', 'Admitting new students in 2025-26?', select('op_2025_26', YNU, v0.op_2025_26 || 'unknown')),
+        field('op_2026_27', 'Admitting new students in 2026-27?', select('op_2026_27', YNU, v0.op_2026_27 || 'unknown')),
+        field('op_status_note', 'Why this status', area(v0.op_status_note), { full: true }),
+        field('op_status_source', 'Link to the evidence', text('op_status_source', v0.op_status_source, { placeholder: 'https://' }), { full: true }),
+        field('notes', 'Notes', area(v0.notes, 3), { full: true, help: 'Shown as “Research notes” under More details on the college page.' }))),
     track ? group('Sources & verification', isNew
       ? 'Give a source for each value you can back up. Values saved with a source are marked Verified; the rest stay Unverified.'
       : 'Type a source to mark a value Verified (today, by you). Changing a value without a source marks it Unverified.',

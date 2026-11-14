@@ -265,9 +265,9 @@ function sourcesPage(ctx) {
       { key: 'last_status', label: 'Status', minWidth: 170, sortValue: (r) => ({ error: 0, never: 1, running: 2, ok: 3 }[r.last_status] ?? 4),
         render: (r) => h('div', { class: 'lv-statcell' }, sourcePill(r), r.last_status === 'error' && r.last_error ? h('div', { class: 'lv-small lv-err' }, String(r.last_error).slice(0, 200)) : null) },
       { key: 'last_attempt_at', label: 'Last checked', minWidth: 150, render: (r) => when(r.last_attempt_at) },
-      { key: 'last_success_at', label: 'Last successful', minWidth: 150, render: (r) => when(r.last_success_at) },
+      { key: 'last_success_at', label: 'Last good copy', minWidth: 150, render: (r) => when(r.last_success_at) },
       { key: 'provides', label: 'Provides', priority: 3, minWidth: 200, render: (r) => h('span', { class: 'lv-small' }, r.provides || '—') },
-      { key: 'item_count', label: 'Items', priority: 3, align: 'right', minWidth: 70, render: (r) => (r.item_count == null ? '—' : fmt.num(r.item_count)) },
+      { key: 'item_count', label: 'Records', priority: 3, align: 'right', minWidth: 70, render: (r) => (r.item_count == null ? '—' : fmt.num(r.item_count)) },
       { key: 'changed_at', label: 'Content last changed', priority: 3, minWidth: 150, render: (r) => (r.changed_at ? when(r.changed_at) : h('span', { class: 'lv-muted' }, '—')) },
     ],
     rows: sources,
@@ -285,9 +285,9 @@ function sourcesPage(ctx) {
       title: 'Coverage', sub: 'How many portal colleges could be linked to each official list.',
       body: ui.kpiRow([
         ui.kpi({ label: 'Colleges in the portal', value: cov.colleges ?? null, icon: 'college' }),
-        ui.kpi({ label: 'Linked to EAPCET 2026', value: cov.linked_eapcet ?? null, sub: of(), icon: 'link' }),
-        ui.kpi({ label: 'Linked to ECET 2026', value: cov.linked_ecet ?? null, sub: of(), icon: 'link' }),
-        ui.kpi({ label: 'Linked to JNTUK list', value: cov.linked_jntuk ?? null, sub: of(), icon: 'link' }),
+        ui.kpi({ label: 'In B.Tech counselling (EAPCET)', value: cov.linked_eapcet ?? null, sub: of(), icon: 'link' }),
+        ui.kpi({ label: 'In lateral-entry counselling (ECET)', value: cov.linked_ecet ?? null, sub: of(), icon: 'link' }),
+        ui.kpi({ label: 'In JNTUK affiliated list', value: cov.linked_jntuk ?? null, sub: of(), icon: 'link' }),
         ui.kpi({ label: 'Websites checked', value: cov.website_checked ?? null, sub: cov.website_ok != null ? `${fmt.num(cov.website_ok)} answered` : null, icon: 'external' }),
       ]),
     }));
@@ -482,8 +482,8 @@ export function examNoticesCard(ctx) {
    College page card: "Official live data"
    ========================================================================= */
 const PRESENCE = [
-  ['eapcet', 'EAPCET 2026'],
-  ['ecet', 'ECET 2026'],
+  ['eapcet', 'B.Tech counselling (EAPCET 2026)'],
+  ['ecet', 'Lateral-entry counselling (ECET 2026)'],
   ['jntuk_affiliated', 'JNTUK affiliated'],
   ['website', 'Website up'],
 ];
@@ -550,9 +550,9 @@ function presenceItem(key, label, d) {
 
 function linkBasis(link) {
   if (!link) return null;
-  if (link.basis === 'research_code') return ui.badge(`Matched by research code${link.code || link.cc ? ` (${link.code || link.cc})` : ''}`, 'good');
+  if (link.basis === 'research_code') return ui.badge(`Linked by college code${link.code || link.cc ? ` (${link.code || link.cc})` : ''}`, 'good');
   const sc = link.score != null && Number.isFinite(Number(link.score)) ? ` · ${Math.round(Number(link.score) * (Number(link.score) <= 1 ? 100 : 1))}% match` : '';
-  return ui.badge(`Matched by name — check${sc}`, 'warn');
+  return ui.badge(`Linked by name — please check${sc}`, 'warn');
 }
 
 function feedBlock(ctx, label, part, { branches = true } = {}) {
@@ -563,34 +563,34 @@ function feedBlock(ctx, label, part, { branches = true } = {}) {
   const kids = [head, sourceLine(part.source)];
   const web = rec.website ? extLink(/^https?:/i.test(rec.website) ? rec.website : `http://${rec.website}`, rec.website) : null;
   kids.push(ui.kv([
-    rec.code ? ['Counselling code', rec.code] : null,
+    rec.code ? ['Counselling college code', rec.code] : null,
     rec.cc ? ['JNTUK college code', rec.cc] : null,
-    rec.name ? ['Name in the source', rec.name] : null,
+    rec.name ? ['Name in this list', rec.name] : null,
     rec.place || rec.district ? ['Place', [rec.place, rec.district].filter(Boolean).join(', ')] : null,
     rec.affiliated_to ? ['Affiliated to', rec.affiliated_to] : null,
     rec.college_type || rec.aid_unaid || rec.co_educ ? ['Type', [rec.college_type, rec.aid_unaid, rec.co_educ, rec.minority].filter(Boolean).join(' · ')] : null,
     rec.year_of_estab ? ['Established', String(rec.year_of_estab)] : null,
-    rec.phone ? ['Phone', rec.phone] : null,
-    rec.ao_mobile ? ['Admission officer', rec.ao_mobile] : null,
-    rec.email ? ['Email', rec.email] : null,
+    rec.phone ? ['Office phone', rec.phone] : null,
+    rec.ao_mobile ? ['Admissions officer (mobile)', rec.ao_mobile] : null,
+    rec.email ? ['Office email', rec.email] : null,
     web ? ['Website', web] : null,
-    rec.entry_date ? ['Feed entry date', dateOnly(rec.entry_date)] : null,
+    // rec.entry_date (the feed's own bookkeeping date) is not shown: it says nothing about the college
     rec.courses ? ['Courses', Array.isArray(rec.courses) ? rec.courses.join(', ') : String(rec.courses)] : null,
   ].filter(Boolean)));
   const br = Array.isArray(rec.branches) ? rec.branches : [];
   if (branches && br.length) {
     const tt = rec.totals || {};
     kids.push(h('h4', { class: 'lv-h4' }, `Branches in ${label}`,
-      tt.seats != null ? h('span', { class: 'lv-muted lv-small' }, ` · ${fmt.num(tt.seats)} seats, ${fmt.num(tt.filled)} filled, ${fmt.num(tt.left_over)} left over`) : null));
+      tt.seats != null ? h('span', { class: 'lv-muted lv-small' }, ` · ${fmt.num(tt.seats)} seats, ${fmt.num(tt.filled)} filled, ${fmt.num(tt.left_over)} still empty`) : null));
     kids.push(ui.dataTable({
       caption: `${label} branches`, rowKey: (r) => r.code || r.name, dense: true,
       columns: [
         { key: 'name', label: 'Branch', primary: true, minWidth: 180, render: (r) => h('span', null, r.name || r.code || '—', r.code && r.name ? h('span', { class: 'lv-muted lv-small' }, ` (${r.code})`) : null) },
         { key: 'total_seats', label: 'Seats', align: 'right', minWidth: 70, render: (r) => fmt.num(r.total_seats) },
         { key: 'filled', label: 'Filled', align: 'right', minWidth: 70, render: (r) => fmt.num(r.filled) },
-        { key: 'left_over_seats', label: 'Left over', align: 'right', minWidth: 80, render: (r) => fmt.num(r.left_over_seats) },
+        { key: 'left_over_seats', label: 'Still empty', align: 'right', minWidth: 80, render: (r) => fmt.num(r.left_over_seats) },
         { key: 'fee', label: 'Fee / year', align: 'right', minWidth: 90, render: (r) => (r.fee == null || r.fee === '' ? '—' : (Number.isFinite(Number(r.fee)) ? fmt.inr(Number(r.fee)) : String(r.fee))) },
-        { key: 'course_type', label: 'Course', priority: 3, minWidth: 90, render: (r) => r.course_type || '—' },
+        { key: 'course_type', label: 'Programme', priority: 3, minWidth: 90, render: (r) => r.course_type || '—' },
       ],
       rows: br,
     }));
@@ -607,8 +607,8 @@ function diffList(ctx, d, collegeId) {
     h('ul', { class: 'lv-difflist' }, diffs.map((x) => h('li', { class: 'lv-diff' },
       h('div', { class: 'lv-diff__label' }, x.label || x.field),
       h('div', { class: 'lv-diff__vals' },
-        h('div', null, h('span', { class: 'lv-diff__k' }, 'Ours (research): '), h('span', { class: 'lv-diff__ours' }, x.ours == null || x.ours === '' ? '—' : String(x.ours))),
-        h('div', null, h('span', { class: 'lv-diff__k' }, 'Official (live): '), h('strong', null, x.live == null || x.live === '' ? '—' : String(x.live)))),
+        h('div', null, h('span', { class: 'lv-diff__k' }, 'Our record: '), h('span', { class: 'lv-diff__ours' }, x.ours == null || x.ours === '' ? '—' : String(x.ours))),
+        h('div', null, h('span', { class: 'lv-diff__k' }, 'Official list: '), h('strong', null, x.live == null || x.live === '' ? '—' : String(x.live)))),
       h('div', { class: 'lv-small lv-muted' }, `${x.source_name || x.source_id || 'source'} · checked `, when(x.checked_at)),
       x.note ? h('div', { class: 'lv-diff__note' }, ui.icon('info', { size: 14 }), h('span', null, String(x.note), x.note_checked_at ? h('span', { class: 'lv-muted' }, ' (checked ', when(x.note_checked_at), ')') : null)) : null,
       canEdit && x.field && x.live != null && x.live !== '' ? ui.writeOnly(ui.button({
@@ -634,10 +634,10 @@ function collegeLiveBody(ctx, d, collegeId, college) {
   out.push(h('ul', { class: 'lv-presence', 'aria-label': 'Presence in official sources' }, PRESENCE.map(([k, l]) => presenceItem(k, l, d))));
   const diffs = diffList(ctx, d, collegeId);
   if (diffs) out.push(diffs);
-  out.push(feedBlock(ctx, 'AP EAPCET 2026 counselling', d.eapcet));
-  const ecet = feedBlock(ctx, 'AP ECET 2026 counselling', d.ecet);
+  out.push(feedBlock(ctx, 'B.Tech counselling list (AP EAPCET 2026)', d.eapcet));
+  const ecet = feedBlock(ctx, 'Lateral-entry counselling list (AP ECET 2026)', d.ecet);
   const jntuk = feedBlock(ctx, 'JNTUK affiliation list', d.jntuk, { branches: false });
-  out.push(h('details', { class: 'lv-more-details' }, h('summary', null, 'ECET and JNTUK details'), ecet, jntuk));
+  out.push(h('details', { class: 'lv-more-details' }, h('summary', null, 'Lateral-entry (ECET) and JNTUK details'), ecet, jntuk));
   const ann = Array.isArray(d.announcements) ? d.announcements : [];
   if (ann.length) {
     out.push(h('div', { class: 'lv-feed' }, h('h3', { class: 'lv-h3' }, 'Official notices mentioning this college'),

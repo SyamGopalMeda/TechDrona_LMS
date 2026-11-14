@@ -767,3 +767,18 @@
   :is(.v-colleges, .v-geo) .vd-more-filters > summary, :is(.v-dashboard, .v-geo) .vd-scope-change { min-height: 44px; }
 }
 @media (pointer: coarse) { :is(.v-dashboard, .v-geo, .v-analytics) .vd-scope-change { display: inline-flex; align-items: center; min-height: 44px; } }
+
+/* Home clean-up (owner review 2026-11-14): 4 KPI tiles (2 x 2, then one row) and 2-4 "Needs attention" cards. */
+@container vdhome (min-width: 560px) {
+  .v-dashboard .vd-kstrip--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@container vdhome (min-width: 1040px) {
+  .v-dashboard .vd-kstrip--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@container vdhome (min-width: 1000px) {
+  .v-dashboard .vd-needs-grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .v-dashboard .vd-needs-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@container vdhome (min-width: 340px) and (max-width: 999.98px) {
+  .v-dashboard .vd-needs-grid--3 > .vd-need:last-child { grid-column: 1 / -1; }
+}

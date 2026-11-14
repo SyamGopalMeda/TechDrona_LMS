@@ -173,7 +173,7 @@ function drawAll(me) {
   const d = me.data;
   el.replaceChildren(
     ui.pageHeader({
-      eyebrow: `Scope: ${me.scope.label}`,
+
       title: 'Target planner',
       sub: 'What-if model: how many colleges, College Leads and ambassadors it takes to reach the goal, recomputed as you change the assumptions. It never sets anyone’s target — real targets are set on Performance.',
     }),
@@ -230,7 +230,7 @@ function strip(me) {
     ...SC.map((s) => tile(`Planned ${SC_LABEL[s].toLowerCase()}`, fmt.num(T[s]),
       h('span', null, h('strong', null, fmt.pct(T.pctOfTarget[s])), ' of goal · ', T.gap[s] >= 0 ? `${fmt.num(T.gap[s])} above` : `${fmt.num(-T.gap[s])} short`),
       pctTone(T.pctOfTarget[s]))),
-    tile('Confirmed so far', fmt.num(P.confirmed), `${pctText(P.pct == null ? null : P.pct * 100)} of goal · ${fmt.num(P.remaining)} to go`, P.confirmed ? 'good' : null),
+    tile('Paid so far', fmt.num(P.confirmed), `${pctText(P.pct == null ? null : P.pct * 100)} of goal · ${fmt.num(P.remaining)} to go`, P.confirmed ? 'good' : null),
     tile('Days left', P.days_left === null ? '—' : fmt.num(P.days_left), P.required_weekly !== null ? `incl. today · ${n1(P.required_weekly)} confirmed / week needed` : 'deadline passed'),
   ];
 }
@@ -407,23 +407,23 @@ function districtSection(me) {
   const tbl = h('div', { class: 'vp-scroll', tabindex: '0', role: 'region', 'aria-label': 'District breakdown table' },
     h('table', { class: 'vp-table' },
       h('thead', null, h('tr', null,
-        ...[mode === 'groups' ? 'Target group' : 'District', 'Active colleges', 'Targeted', 'IT students (selected years)', 'Min', 'Avg', 'Max', `Share of ${fmt.num(target)} (min / avg / max)`, 'College Leads', 'Amb. leads', 'Ambassadors', 'Standby', mode === 'groups' ? 'District Leads' : null, 'Recruited', 'Confirmed']
-          .filter((x) => x !== null).map((x, i) => h('th', { scope: 'col', class: i ? 'td-al-right' : null }, x)))),
+        // Owner review 2026-11-14: 15 columns → 11. "Share of goal" repeated the chart above; ambassador leads, standby
+        // and district leads are model internals (still in "What it takes" and the assumptions panel).
+        ...[[mode === 'groups' ? 'Target group' : 'District'], ['Open colleges', 'Colleges that are still running'], ['Targeted', 'Colleges chosen for outreach'],
+          ['IT students', 'IT-branch students in the year groups ticked in Assumptions'], ['Planned paid (min)', 'Minimum scenario: the planning number'], ['Planned paid (avg)'], ['Planned paid (max)'],
+          ['College leads needed', 'A college shared by two leads counts 0.5'], ['Ambassadors needed'], ['Ambassadors recruited', 'Ambassadors already added in Team'], ['Paid so far']]
+          .map(([x, tip], i) => h('th', { scope: 'col', class: i ? 'td-al-right' : null, title: tip || null }, x)))),
       h('tbody', null, ...rows.map((g) => h('tr', null,
         h('th', { scope: 'row' }, h('span', { class: 'vp-strong' }, label(g)), h('small', { class: 'vp-sub' }, sub(g))),
         ...[g.colleges, g.targeted, g.pool, g.min, g.avg, g.max].map((v) => h('td', { class: 'td-al-right td-num' }, fmt.num(v))),
-        h('td', { class: 'td-al-right td-num' }, SC.map((s) => fmt.pct(g.shareOfTarget[s])).join(' / ')),
         h('td', { class: 'td-al-right td-num' }, n1(g.college_leads)),
-        ...[g.ambassador_leads, g.ambassadors, g.standby].map((v) => h('td', { class: 'td-al-right td-num' }, fmt.num(v))),
-        mode === 'groups' ? h('td', { class: 'td-al-right td-num' }, fmt.num(g.district_leads)) : null,
+        h('td', { class: 'td-al-right td-num' }, fmt.num(g.ambassadors)),
         h('td', { class: 'td-al-right td-num' }, fmt.num(g.recruited)),
         h('td', { class: 'td-al-right td-num' }, fmt.num(g.confirmed))))),
       h('tfoot', null, h('tr', null, h('th', { scope: 'row' }, 'Selection'),
         ...[plan.totals.colleges, plan.totals.targeted, plan.totals.pool, plan.totals.min, plan.totals.avg, plan.totals.max].map((v) => h('td', { class: 'td-al-right td-num' }, fmt.num(v))),
-        h('td', { class: 'td-al-right td-num' }, SC.map((s) => fmt.pct(plan.totals.pctOfTarget[s])).join(' / ')),
         h('td', { class: 'td-al-right td-num' }, n1(plan.totals.college_leads)),
-        ...[plan.totals.ambassador_leads, plan.totals.ambassadors, plan.totals.standby].map((v) => h('td', { class: 'td-al-right td-num' }, fmt.num(v))),
-        mode === 'groups' ? h('td', { class: 'td-al-right td-num' }, fmt.num(plan.totals.district_leads)) : null,
+        h('td', { class: 'td-al-right td-num' }, fmt.num(plan.totals.ambassadors)),
         h('td', { class: 'td-al-right td-num' }, fmt.num(plan.totals.recruited)),
         h('td', { class: 'td-al-right td-num' }, fmt.num(plan.totals.confirmed))))));
   return ui.section({
@@ -435,23 +435,19 @@ function districtSection(me) {
 }
 
 /* ------------------------------------------------------------------ e. colleges */
+// Owner review 2026-11-14: 17 columns → 11. 3rd / 2nd-year counts, the avg / max scenarios, the research "400 here?"
+// rating and the coded "Lead offer" moved into the expanded row ("Plan for this college" / "Research facts").
 const COLS = [
-  { key: 'rank', label: '#', num: true },
-  { key: 'p', label: 'Priority' },
+  { key: 'rank', label: '#', num: true, tip: 'Rank by research priority' },
+  { key: 'p', label: 'Priority', tip: 'P1 = call first, then P2, P3; Hold = not targeted for now' },
   { key: 'name', label: 'College' },
-  { key: 'it_branch_count', label: 'IT branches', num: true },
-  { key: 'it_fy', label: 'IT final yr', num: true },
-  { key: 'it_3rd', label: '3rd yr', num: true },
-  { key: 'it_2nd', label: '2nd yr', num: true },
-  { key: 'reachable', label: 'Reachable', num: true, tip: 'IT students in the selected year groups × contact factor' },
-  { key: 'min', label: 'Min', num: true },
-  { key: 'avg', label: 'Avg', num: true },
-  { key: 'max', label: 'Max', num: true },
+  { key: 'it_branch_count', label: 'IT branches', num: true, tip: 'Research count: computer branches only' },
+  { key: 'it_fy', label: 'Final-year IT students', num: true },
+  { key: 'reachable', label: 'Reachable students', num: true, tip: 'IT students in the selected year groups × contact factor' },
+  { key: 'min', label: 'Planned paid', num: true, tip: 'Minimum scenario (the planning number). Expand the row for average and maximum.' },
   { key: 'amb', label: 'Ambassadors (have / need)', num: true },
-  { key: 'lead', label: 'College Lead' },
-  { key: 'confirmed', label: 'Confirmed', num: true },
-  { key: 'rag', label: '400 here?' },
-  { key: 'offer', label: 'Lead offer' },
+  { key: 'lead', label: 'College lead' },
+  { key: 'confirmed', label: 'Paid so far', num: true },
   { key: 'act', label: 'Actions', nosort: true },
 ];
 const P_ORDER = { P1: 1, P2: 2, P3: 3, Hold: 4 };
@@ -593,7 +589,6 @@ function collegeRow(me, r, open) {
     },
   }, ui.icon('chevron', { size: 16 }));
   const pTone = { P1: 'brand', P2: 'info', P3: 'neutral', Hold: 'warn' }[c.p_level] || 'neutral';
-  const ragB = RAG[r.rag] || ['—', 'neutral'];
   const leadTxt = !r.targeted ? '—' : r.college_leads === 1 ? (r.ambassador_leads ? `Own + ${r.ambassador_leads} amb. leads` : 'Own') : 'Shared (½)';
   const actualLead = (c.actual?.college_leads || 0) > 0;
   const tel = c.contact?.verified ? telOf(c.contact.phone) : null;
@@ -610,15 +605,11 @@ function collegeRow(me, r, open) {
         c.verify_flag ? h('span', { class: 'vp-flag', title: c.verify_flag }, ' · ', ui.icon('warn', { size: 12 }), ' check') : null)),
     tdn(c.it_branch_count ?? '—'),
     h('td', { class: 'td-al-right' }, numB(ctx, c.it_fy, { strong: true })),
-    h('td', { class: ['td-al-right', !me.A.years.third && 'vp-off'] }, numB(ctx, c.it_3rd)),
-    h('td', { class: ['td-al-right', !me.A.years.second && 'vp-off'] }, numB(ctx, c.it_2nd)),
     tdn(r.reachable === null ? '—' : fmt.num(r.reachable)),
-    tdn(fmt.num(r.min), 'vp-strong'), tdn(fmt.num(r.avg)), tdn(fmt.num(r.max)),
+    tdn(fmt.num(r.min), 'vp-strong'),
     h('td', { class: 'td-al-right' }, amb),
     h('td', null, h('span', { class: 'vp-lead' }, leadTxt, actualLead ? ui.badge('appointed', 'good') : (r.targeted ? h('small', { class: 'vp-sub' }, 'not appointed') : null))),
     tdn(fmt.num(r.confirmed)),
-    h('td', null, r.college.status_final === 'active' ? h('span', { class: ['td-badge', `td-badge--${ragB[1]}`, 'td-badge--dot'], title: rgTip(r.rag) }, ragB[0]) : '—'),
-    h('td', null, offerCode(c.lead_offer) ? h('span', { class: 'vp-offer', title: c.lead_offer }, `(${offerCode(c.lead_offer)})`) : '—'),
     h('td', { class: 'vp-c-act' }, h('span', { class: 'vp-actions' }, call,
       h('a', { class: 'td-btn td-btn--ghost td-btn--sm td-btn--icon', href: `#/college/${encodeURIComponent(r.id)}`, 'aria-label': `Open ${c.name}`, title: 'Open college page' }, ui.icon('arrow', { size: 16 })))));
   // column class + label on every cell: the phone layout (views-plan.css, ≤599px) turns each row into a labelled card
@@ -636,7 +627,7 @@ function detailRow(me, r) {
   const branches = it.length
     ? h('div', { class: 'vp-xscroll' }, h('table', { class: 'vp-mini vp-mini--branches' },
       h('caption', null, `IT branches (${it.length})`, hidden ? h('small', { class: 'vp-sub' }, ` · ${hidden} non-IT branches hidden`) : null),
-      h('thead', null, h('tr', null, h('th', { scope: 'col' }, 'Branch'), h('th', { scope: 'col', class: 'td-al-right', title: 'Intake of the 2023-24 entry batch = this year’s final years' }, 'Final yr (2023-24)'), h('th', { scope: 'col', class: 'td-al-right' }, 'Latest intake'), h('th', { scope: 'col' }, 'Source'))),
+      h('thead', null, h('tr', null, h('th', { scope: 'col' }, 'Branch'), h('th', { scope: 'col', class: 'td-al-right', title: 'Seats / year of the 2023-24 entry batch = this year’s final-year students' }, 'Final-year students'), h('th', { scope: 'col', class: 'td-al-right' }, 'Seats / year (latest)'), h('th', { scope: 'col' }, 'Source'))),
       h('tbody', null, ...it.map((b) => h('tr', null,
         h('th', { scope: 'row' }, b.name),
         h('td', { class: 'td-al-right' }, numB(ctx, { value: b.intake_2023_24, basis: b.basis })),
@@ -648,8 +639,8 @@ function detailRow(me, r) {
     ['IT students (final · 3rd · 2nd yr)', h('span', null, numB(ctx, c.it_fy), ' · ', numB(ctx, c.it_3rd), ' · ', numB(ctx, c.it_2nd))],
     ['Reachable', r.reachable === null ? '—' : fmt.num(r.reachable)],
     ['Planned paid (min · avg · max)', `${fmt.num(r.min)} · ${fmt.num(r.avg)} · ${fmt.num(r.max)}`],
-    ['Confirmed so far', fmt.num(r.confirmed)],
-    ['400 here?', r.college.status_final === 'active' ? `${(RAG[r.rag] || ['—'])[0]} — ${rgTip(r.rag)}` : '—'],
+    ['Paid so far', fmt.num(r.confirmed)],
+    ['Research rating (can this college alone reach the goal?)', r.college.status_final === 'active' ? `${(RAG[r.rag] || ['—'])[0]} — ${rgTip(r.rag)}` : '—'],
   ]);
   const facts = ui.kv([
     ['IT final-year pool', h('span', null, numB(ctx, c.it_fy), ' ', srcLink(ctx, c.it_fy?.source))],
@@ -658,7 +649,7 @@ function detailRow(me, r) {
     ['Type · contact factor', `${c.type ? c.type.toUpperCase() : '—'} · × ${c.access_x ?? '—'}`],
     ['Research target (min/avg/max)', c.research_target ? `${fmt.num(c.research_target.min)} / ${fmt.num(c.research_target.avg)} / ${fmt.num(c.research_target.max)}` : '—'],
     ['MoU pipeline from Jan 2027', c.mou ? `${fmt.num(c.mou.min)} / ${fmt.num(c.mou.avg)} / ${fmt.num(c.mou.max)} seats` : '—'],
-    ['4-1 exams end', c.exam_4_1_end ? fmt.date(c.exam_4_1_end) : (c.exam_4_1_note || '—')],
+    ['Final-year exams end', c.exam_4_1_end ? fmt.date(c.exam_4_1_end) : (c.exam_4_1_note || '—')],
     ['Placement', c.placement_tier || '—'],
     ['Lead offer', c.lead_offer || '—'],
     c.hold_reason ? ['Why on hold', c.hold_reason] : null,

@@ -57,10 +57,10 @@ function summaryKpis(ctx, S, base) {
     kpi(ctx, { label: 'Targeted colleges', value: S.targeted_colleges, sub: isNum(S.operational_colleges) ? `${fmt.num(S.operational_colleges)} operational` : null, icon: 'college', href: `${base}?targeted=1` }),
     kpi(ctx, { label: 'Colleges with a lead', value: S.colleges_with_lead, sub: isNum(S.targeted_colleges) ? `of ${fmt.num(S.targeted_colleges)} targeted` : null, icon: 'lead', href: `${base}?team=no_lead&targeted=1` }),
     kpi(ctx, { label: 'Ambassadors', value: S.ambassadors, sub: isNum(S.ambassador_leads) ? fmt.plural(S.ambassador_leads, 'ambassador lead') : null, icon: 'ambassador' }),
-    kpi(ctx, { label: 'IT branches uncovered', value: S.branches_needing_ambassadors, tone: S.branches_needing_ambassadors > 0 ? 'warn' : undefined, icon: 'warn', href: `${base}?amb=gap` }),
-    kpiB(ctx, 'Eligible students', S.eligible, { icon: 'people' }),
+    kpi(ctx, { label: 'Target branches without ambassador', value: S.branches_needing_ambassadors, tone: S.branches_needing_ambassadors > 0 ? 'warn' : undefined, icon: 'warn', href: `${base}?amb=gap` }),
+    kpiB(ctx, 'Likely prospects (est.)', S.eligible, { icon: 'people' }),
     kpi(ctx, { label: 'Follow-ups open', value: S.followups_open, sub: S.followups_overdue > 0 ? `${fmt.num(S.followups_overdue)} overdue` : null, tone: S.followups_overdue > 0 ? 'bad' : undefined, icon: 'followup', href: `${base}?followup=open` }),
-    kpi(ctx, { label: 'In exams / soon', value: isNum(ex.in_exams) || isNum(ex.exams_soon) ? (ex.in_exams || 0) + (ex.exams_soon || 0) : null, sub: isNum(ex.unknown) ? `${fmt.num(ex.unknown)} with unknown dates` : null, icon: 'exam', href: `${base}?exam=in_exams` })));
+    kpi(ctx, { label: 'Exams now or in 14 days', value:isNum(ex.in_exams) || isNum(ex.exams_soon) ? (ex.in_exams || 0) + (ex.exams_soon || 0) : null, sub: isNum(ex.unknown) ? `${fmt.num(ex.unknown)} with unknown dates` : null, icon: 'exam', href: `${base}?exam=in_exams` })));
 }
 
 function districtPicker(ctx, meta, current) {
