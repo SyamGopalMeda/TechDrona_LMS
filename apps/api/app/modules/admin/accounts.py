@@ -735,18 +735,13 @@ async def set_user_password(
         u = await _user(session, user_id)
         if u.status in ("deactivated", "deleted"):
             raise ProblemError("invalid_state_transition", current_state=u.status, allowed=["active"])
-        # Security audit 2026-11-12: one Admin (or a stolen Admin session) must not be able to take
-        # over another Admin by setting their password. Admins change their own password; a locked-out
-        # Admin is recovered through the dual-control MFA reset.
+        # Owner decision 2026-11-14: any Admin may set another Admin's password (was refused after the
+        # 2026-11-12 security audit). Safeguards kept: reason + audit (flagged target_is_admin), every
+        # session of the target ends at once, optional forced change at next sign-in; never one's own.
         from app.modules.rbac.catalogue import ADMIN_ROLE
         from app.modules.rbac.service import active_grants
 
-        if any(g.role == ADMIN_ROLE for g in await active_grants(session, u.id)):
-            raise ProblemError(
-                "permission_denied",
-                detail="Another Admin's password can't be set here. "
-                "They change it in their own security settings.",
-            )
+        target_is_admin = any(g.role == ADMIN_ROLE for g in await active_grants(session, u.id))
         probs = password_problems(body.password, context=((u.email or "").split("@")[0],))
         if probs:
             raise _field_problem("password", probs[0], "Choose a longer or less common password")
@@ -760,7 +755,11 @@ async def set_user_password(
             u.id,
             subject_user_id=u.id,
             reason=body.reason,
-            after={"sessions_revoked": n, "must_change_password": body.must_change_password},
+            after={
+                "sessions_revoked": n,
+                "must_change_password": body.must_change_password,
+                "target_is_admin": target_is_admin,
+            },
         )
         return IdemResult(
             body={

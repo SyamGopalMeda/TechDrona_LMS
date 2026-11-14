@@ -243,14 +243,14 @@ async def test_admin_sets_a_new_password_for_a_user(client, db) -> None:
         f"/admin/users/{sa.id}/password", {"password": new_pw, "reason": "Own reset"}, headers=idem()
     )
     assert me.status_code == 403 and me.json()["code"] == "sod_violation"
-    # never another Admin's password (audit 2026-11-12: no admin-to-admin takeover)
+    # another Admin's password: allowed since the owner decision of 2026-11-14 (audited, sessions end)
     other_admin = await staff(db, "super_admin")
     oa = await bsa.post(
         f"/admin/users/{other_admin.id}/password",
-        {"password": new_pw, "reason": "Takeover try"},
+        {"password": new_pw, "reason": "Admin locked out"},
         headers=idem(),
     )
-    assert oa.status_code == 403 and oa.json()["code"] == "permission_denied"
+    assert oa.status_code == 200 and oa.json()["password_set"] is True
     r = await bsa.post(
         f"/admin/users/{student.id}/password",
         {"password": new_pw, "reason": "Locked out, no email"},

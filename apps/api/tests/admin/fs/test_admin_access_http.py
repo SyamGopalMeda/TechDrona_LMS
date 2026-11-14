@@ -299,6 +299,29 @@ async def test_set_password_flags_and_retention(admin_http: Any) -> None:
     assert r.status_code == 200, r.text
 
 
+async def test_admin_can_set_another_admins_password(admin_http: Any) -> None:
+    """Owner decision 2026-11-14: any Admin may set another Admin's password (audited; never their own)."""
+    http = admin_http  # noqa: F811
+    other = await fs_user("other-admin@x.in", roles=("super_admin",))
+    me, _ = await admin(http, "boss4@x.in")
+    r = await http.post(
+        f"/admin/users/{other.id}/password",
+        {"password": "Another-long-passphrase-8", "reason": "admin locked out"},
+        headers=_idem(),
+    )
+    assert r.status_code == 200 and r.json()["password_set"] is True, r.text
+    cred = await ipub.get_credential(S, other.id)
+    from app.modules.identity.service import check_password
+
+    assert cred is not None and await check_password(cred, "Another-long-passphrase-8")
+    own = await http.post(
+        f"/admin/users/{me.id}/password",
+        {"password": "Another-long-passphrase-9", "reason": "Resetting my own password"},
+        headers=_idem(),
+    )
+    assert own.status_code == 403 and own.json()["code"] == "sod_violation"
+
+
 async def test_public_active_policy_setting(admin_http: Any) -> None:
     """``admin.public.active_policy_setting(s)``: the store-neutral read security uses."""
     from app.modules.admin import public as admin_public
