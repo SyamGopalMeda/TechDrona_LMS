@@ -1,0 +1,40 @@
+/* GENERATED from apps/college-data/portal/public/css/base.css by docs/colleges-react/scope-css.mjs: every selector is scoped under .tdp
+   (the portal root), html/:root/body map to .tdp itself, [data-theme] becomes [data-tdp-theme]. Edit the port, not the source. */
+.tdp *,.tdp *::before,.tdp *::after{box-sizing: border-box;}
+.tdp{-webkit-text-size-adjust: 100%; text-size-adjust: 100%; height: 100%;}
+.tdp{margin: 0; min-height: 100%; font-family: var(--td-font); font-size: var(--td-text-md); line-height: 1.5; color: var(--td-text); background: var(--td-bg); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;}
+.tdp h1,.tdp h2,.tdp h3,.tdp h4,.tdp h5{font-family: var(--td-font-display); color: var(--td-text); margin: 0; line-height: 1.25; letter-spacing: -.015em; font-weight: 700;}
+.tdp h1{font-size: var(--td-text-2xl);}
+.tdp h2{font-size: var(--td-text-xl);}
+.tdp h3{font-size: var(--td-text-lg);}
+.tdp h4{font-size: var(--td-text-md);}
+.tdp p{margin: 0 0 var(--sp-3);}
+.tdp a{color: var(--td-link); text-decoration: none;}
+.tdp a:hover{text-decoration: underline; text-underline-offset: 2px;}
+.tdp img,.tdp svg{display: block; max-width: 100%;}
+.tdp button,.tdp input,.tdp select,.tdp textarea{font: inherit; color: inherit;}
+.tdp button{cursor: pointer;}
+.tdp table{border-collapse: collapse;}
+.tdp hr{border: 0; border-top: 1px solid var(--td-border); margin: var(--sp-5) 0;}
+.tdp code,.tdp kbd{font-family: var(--td-font-mono); font-size: .875em;}
+.tdp kbd{display: inline-block; min-width: 1.6em; padding: 0 .4em; border-radius: 6px; text-align: center; border: 1px solid var(--td-border-strong); border-bottom-width: 2px; background: var(--td-surface-2); color: var(--td-muted); font-size: var(--td-text-xs); line-height: 1.5;}
+.tdp ::selection{background: var(--td-brand-soft-2); color: var(--td-text);}
+.tdp :focus{outline: none;}
+.tdp :focus-visible{outline: 2px solid var(--td-focus); outline-offset: 2px;}
+.tdp a,.tdp button,.tdp [role="button"],.tdp [role="tab"],.tdp [role="menuitem"],.tdp summary,.tdp label,.tdp .td-card,.tdp select,.tdp input{-webkit-tap-highlight-color: transparent;}
+.tdp p,.tdp dd,.tdp .td-measure,.tdp .td-field__help,.tdp .td-help{max-width: var(--td-measure);}
+.tdp .td-measure--none{max-width: none;}
+.tdp [hidden]{display: none !important;}
+.tdp .td-logo-navy{display: var(--td-logo-navy, block);}
+.tdp .td-logo-white{display: var(--td-logo-white, none);}
+.tdp .td-logo{display: inline-flex; flex: none;}
+.tdp .td-logo img{width: 100%; height: 100%; object-fit: contain;}
+.tdp .td-num,.tdp .td-tabular{font-variant-numeric: tabular-nums;}
+.tdp .td-muted{color: var(--td-muted);}
+.tdp .td-sr-only{position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;}
+.tdp .td-skip{position: fixed; left: var(--sp-3); top: -60px; z-index: 999; padding: var(--sp-2) var(--sp-4); background: var(--td-brand-solid); color: var(--td-on-brand); border-radius: var(--td-radius-sm); transition: top var(--td-dur-2) var(--td-ease);}
+.tdp .td-skip:focus{top: var(--sp-3); color: var(--td-on-brand); outline: 2px solid var(--td-focus); outline-offset: 2px;}
+.tdp *{scrollbar-width: thin; scrollbar-color: var(--td-border-strong) transparent;}
+@media (prefers-reduced-motion: reduce){.tdp *,.tdp *::before,.tdp *::after{animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important;}
+}
+.tdp h1[tabindex="-1"]:focus,.tdp h1[tabindex="-1"]:focus-visible,.tdp .td-view:focus-visible{outline: none; box-shadow: none;}

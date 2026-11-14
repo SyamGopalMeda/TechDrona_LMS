@@ -1,0 +1,565 @@
+/* GENERATED from apps/college-data/portal/public/css/views-dashboard.css by docs/colleges-react/scope-css.mjs: every selector is scoped under .tdp
+   (the portal root), html/:root/body map to .tdp itself, [data-theme] becomes [data-tdp-theme]. Edit the port, not the source. */
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges){display: flex; flex-direction: column; gap: var(--sp-5); color: var(--td-text); font-family: var(--td-font); min-width: 0;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) > *{min-width: 0;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .td-section + .td-section,.tdp .v-analytics .va-grid > .td-section{margin-top: 0;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) h1{font-family: var(--td-font-display); font-size: clamp(1.4rem, 2.6vw, 2rem); line-height: 1.15; margin: 0; letter-spacing: -0.01em;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-h2{font-size: var(--td-text-xs); text-transform: uppercase; letter-spacing: 0.07em; color: var(--td-muted); margin: 0; font-weight: 700;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-h3{display: flex; align-items: center; gap: var(--sp-2); font-size: var(--td-text-md); margin: 0 0 var(--sp-2);}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-h3 .td-icon{color: var(--td-muted); display: inline-flex;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-muted{color: var(--td-muted);}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-small{font-size: var(--td-text-sm);}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-pad{padding: var(--sp-3); margin: 0;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-eyebrow{margin: 0 0 var(--sp-1); font-size: var(--td-text-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--td-link, var(--td-brand)); font-weight: 700;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-eyebrow a{color: inherit;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-link{color: var(--td-link, var(--td-brand)); font-weight: 600; text-decoration: none; font-size: var(--td-text-sm); display: inline-flex; align-items: center; min-height: 32px;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-link:hover{text-decoration: underline;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-linkbtn{background: none; border: 0; padding: 0; font: inherit; color: var(--td-link, var(--td-brand)); font-weight: 600; cursor: pointer; text-decoration: underline;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-count{margin-left: auto; min-width: 24px; padding: 0 var(--sp-2); border-radius: var(--td-radius-pill, 999px); text-align: center; background: var(--td-surface-2); color: var(--td-text-2, var(--td-text)); font-size: var(--td-text-xs); font-weight: 700; line-height: 22px; font-variant-numeric: tabular-nums;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-sr,.tdp .tdc-sr{position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-skel{display: flex; flex-direction: column; gap: var(--sp-4);}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-btn{display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2); min-height: 40px; padding: 0 var(--sp-4); border-radius: var(--td-radius-sm, var(--td-radius)); background: var(--td-brand-solid, var(--td-brand)); color: var(--td-on-brand, var(--td-surface)); border: 1px solid transparent; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; white-space: nowrap;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-btn:hover{background: var(--td-brand-hover, var(--td-brand-2));}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-btn-ghost{background: var(--td-surface); color: var(--td-text); border-color: var(--td-border);}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-btn-ghost:hover{background: var(--td-surface-2);}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) :is(.vd-btn, .vd-chip, .vd-seg-btn, .vd-linkbtn, a, select, input, summary, button):focus-visible{outline: 2px solid var(--td-link, var(--td-brand)); outline-offset: 2px;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-search{flex: 1 1 260px; min-width: 0; min-height: 40px; padding: 0 var(--sp-3); border: 1px solid var(--td-border-strong, var(--td-border)); border-radius: var(--td-radius-sm, var(--td-radius)); background: var(--td-surface); color: var(--td-text); font: inherit;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-toolbar{display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: center;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-toggle{display: inline-flex; align-items: center; gap: var(--sp-2); min-height: 40px; cursor: pointer; font-size: var(--td-text-sm);}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-toggle input{width: 18px; height: 18px; accent-color: var(--td-brand-solid, var(--td-brand));}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-filters,.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-scopebar{display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-field{display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--td-text-xs); font-weight: 600; color: var(--td-muted); min-width: 150px;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-field select:not(.td-select){min-height: 40px; padding: 0 var(--sp-2); border: 1px solid var(--td-border-strong, var(--td-border)); border-radius: var(--td-radius-sm, var(--td-radius)); background: var(--td-surface); color: var(--td-text); font: inherit; font-size: var(--td-text-sm); font-weight: 400;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-chips{display: flex; flex-wrap: wrap; gap: var(--sp-2);}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-chips:empty{display: none;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-chip{min-height: 32px; padding: 0 var(--sp-3); border-radius: 999px; border: 1px solid var(--td-border); background: var(--td-surface-2); color: var(--td-text); font: inherit; font-size: var(--td-text-sm); cursor: pointer;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-chip-clear{background: transparent; color: var(--td-link, var(--td-brand)); border-color: transparent; font-weight: 600;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-pagehead{display: flex; flex-wrap: wrap; gap: var(--sp-3); justify-content: space-between; align-items: flex-end;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-pagehead h1 + span{display: block; margin-top: var(--sp-1);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-filters-inner{display: contents;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-field .td-select{min-height: 40px; font-size: var(--td-text-sm); font-weight: 400; color: var(--td-text);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-sortdir,.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-filters-open{min-height: 40px;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-badges{display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-top: var(--sp-1);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-stud{display: flex; flex-direction: column; gap: 2px; min-width: 110px;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-table-host .td-badge{white-space: normal; text-align: left; height: auto; min-height: 22px; line-height: 1.3; padding-top: 2px; padding-bottom: 2px;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-opts > summary{display: none;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-opts > summary::-webkit-details-marker{display: none;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-table-host .vd-leads{min-width: 130px;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-stud-row{display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-stud-row > .vd-small{min-width: 56px;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-tp{display: flex; flex-direction: column; gap: var(--sp-1); min-width: 120px;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-pager{display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-3) 0 0;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-loading{display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-6) var(--sp-4); color: var(--td-muted);}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-spinner{width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--td-border); border-top-color: var(--td-link, var(--td-brand)); animation: vd-spin 0.8s linear infinite;}
+@keyframes vd-spin{to { transform: rotate(360deg); }}
+@media (prefers-reduced-motion: reduce){.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-spinner{animation: none;}
+}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-error{padding: var(--sp-3) var(--sp-4); border-radius: var(--td-radius); border: 1px solid var(--td-bad); background: var(--td-bad-soft, var(--td-surface)); color: var(--td-text);}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-warnline{display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); margin: 0; font-size: var(--td-text-sm); color: var(--td-text);}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-warnline .td-icon,.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-warnline svg{color: var(--td-warn);}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-warnline a{color: var(--td-link, var(--td-brand)); font-weight: 600;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-more{margin-top: var(--sp-2);}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-expandable{display: flex; flex-direction: column; align-items: flex-start;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-expandable > ul{align-self: stretch;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-hero{display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-5); border-radius: var(--td-radius-lg, var(--td-radius)); box-shadow: var(--td-shadow); background: linear-gradient(160deg, var(--td-brand-soft, var(--td-surface-2)) 0%, var(--td-surface) 55%); border: 1px solid var(--td-border);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-hero-top{display: flex; gap: var(--sp-4); align-items: flex-start; justify-content: space-between;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-hero-text{display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-hero-sub{margin: var(--sp-1) 0 0; color: var(--td-text-2, var(--td-muted)); font-size: var(--td-text-md);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-hero .tdc-ring{width: 104px; flex: 0 0 auto;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-hero-nums{display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: var(--sp-3); margin: 0;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-num{display: flex; flex-direction: column; min-width: 0;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-num dt{font-size: var(--td-text-xs); font-weight: 600; color: var(--td-muted); text-transform: uppercase; letter-spacing: 0.04em;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-num dd{margin: 2px 0 0; font-family: var(--td-font-display); font-size: var(--td-text-2xl); font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-num.is-unset dd{font-size: var(--td-text-lg); font-weight: 600; color: var(--td-muted); padding-top: 6px;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-num small{color: var(--td-muted); font-size: var(--td-text-xs);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-hero-meta{display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); align-items: center;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-deadline{display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--td-text-sm); color: var(--td-text-2, var(--td-muted));}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-deadline .td-icon{display: inline-flex; color: var(--td-muted);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-hero-cta{display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-4); border-radius: var(--td-radius); background: var(--td-surface); border: 1px solid var(--td-border);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-hero-cta p{margin: 0; flex: 1 1 240px; font-size: var(--td-text-sm); color: var(--td-text-2, var(--td-text));}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-diag{display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--sp-2) var(--sp-3); align-items: start; padding: var(--sp-3) var(--sp-4); border-radius: var(--td-radius); background: var(--td-warn-soft, var(--td-surface-2)); border: 1px solid var(--td-border);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-diag-icon{color: var(--td-warn); display: inline-flex; padding-top: 1px;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-diag > :last-child:not(.vd-diag-body){grid-column: 2; justify-self: start;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-diag-body strong{font-size: var(--td-text-sm);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-diag-body p{margin: 2px 0 0; font-size: var(--td-text-sm); color: var(--td-text-2, var(--td-text));}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-onboard{display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-5); border-radius: var(--td-radius-lg, var(--td-radius)); border: 1px solid var(--td-border); background: var(--td-surface); box-shadow: var(--td-shadow-sm, none);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-onboard-head{display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-3);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-onboard h2{margin: 0; font-family: var(--td-font-display); font-size: var(--td-text-lg);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-onboard-head p{margin: var(--sp-1) 0 0; font-size: var(--td-text-sm);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-onboard-count{flex: 0 0 auto; font-size: var(--td-text-sm); font-weight: 700; color: var(--td-text-2, var(--td-text)); white-space: nowrap;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-onboard-meter{height: 6px; border-radius: 999px; background: var(--td-surface-3, var(--td-surface-2)); overflow: hidden;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-onboard-meter span{display: block; height: 100%; border-radius: 999px; background: var(--td-good);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-steps{list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-step{display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: var(--sp-3); align-items: center; padding: var(--sp-3) 0; border-top: 1px solid var(--td-border);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-step:first-child{border-top: 0;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-step strong{font-size: var(--td-text-md);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-step p{margin: 2px 0 0; font-size: var(--td-text-sm);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-step-num{width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: var(--td-text-sm); background: var(--td-surface-2); color: var(--td-text-2, var(--td-text)); border: 1px solid var(--td-border-strong, var(--td-border));}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-step.is-next .vd-step-num{background: var(--td-brand-solid, var(--td-brand)); color: var(--td-on-brand, var(--td-surface)); border-color: transparent;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-step.is-done .vd-step-num{background: var(--td-good-soft, var(--td-surface-2)); color: var(--td-good); border-color: transparent;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-step-num .td-icon{display: inline-flex;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-step.is-done strong{color: var(--td-muted); font-weight: 600;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-step-done{font-size: var(--td-text-xs); font-weight: 700; color: var(--td-good);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-step-cta{white-space: nowrap; text-decoration: none;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-factgrid{display: grid; gap: var(--sp-4); grid-template-columns: 1fr;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-factgroup{display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-facts{list-style: none; margin: 0; padding: 0; display: grid; gap: 0; grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr)); background: var(--td-surface); border: 1px solid var(--td-border); border-radius: var(--td-radius); overflow: hidden;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-facts > li{display: flex; min-width: 0; background: var(--td-surface); box-shadow: 1px 0 0 var(--td-border), 0 1px 0 var(--td-border);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-fact{flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; min-height: 76px; padding: var(--sp-3); background: var(--td-surface); color: var(--td-text); text-decoration: none; text-align: left; font: inherit; border: 0; border-left: 3px solid transparent;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-fact.is-link{cursor: pointer;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-fact.is-link:hover{background: var(--td-surface-2);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-fact.is-warn{border-left-color: var(--td-warn);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-fact.is-bad{border-left-color: var(--td-bad);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-fact-label{font-size: var(--td-text-xs); font-weight: 600; color: var(--td-muted); line-height: 1.3;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-fact-value{display: flex; align-items: center; justify-content: space-between; gap: var(--sp-1); font-family: var(--td-font-display); font-size: var(--td-text-xl); font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-fact-go{display: inline-flex; color: var(--td-muted);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-fact-sub{display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); font-size: var(--td-text-xs); color: var(--td-muted); line-height: 1.3;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-kpis-wrap{display: flex; flex-direction: column; gap: var(--sp-3);}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-kpis{display: grid; gap: var(--sp-3); grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-kpis-tight{grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-kpis > *{min-width: 0;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-cols{display: grid; gap: var(--sp-5); grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); align-items: start;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-cols > *{min-width: 0;}
+.tdp :is(.v-dashboard, .v-geo) .vd-dlist-wrap{display: flex; flex-direction: column; gap: var(--sp-3);}
+.tdp :is(.v-dashboard, .v-geo) .vd-dlist-wrap > .vd-search{flex: 0 0 auto;}
+.tdp :is(.v-dashboard, .v-geo) .vd-dlist{list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--td-border); border-radius: var(--td-radius); overflow: hidden;}
+.tdp :is(.v-dashboard, .v-geo) .vd-dlist > li + li{border-top: 1px solid var(--td-border);}
+.tdp :is(.v-dashboard, .v-geo) .vd-drow{display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) auto; gap: var(--sp-3); align-items: center; padding: var(--sp-3); min-height: 48px; color: var(--td-text); text-decoration: none; background: var(--td-surface);}
+.tdp :is(.v-dashboard, .v-geo) .vd-drow:hover{background: var(--td-surface-2);}
+.tdp :is(.v-dashboard, .v-geo) .vd-drow.is-dim .vd-drow-name strong{color: var(--td-muted); font-weight: 500;}
+.tdp :is(.v-dashboard, .v-geo) .vd-drow-name{display: flex; flex-direction: column; min-width: 0;}
+.tdp :is(.v-dashboard, .v-geo) .vd-drow-status{justify-self: end;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-drest{margin-top: var(--sp-3);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-drest > summary{cursor: pointer; min-height: 40px; display: flex; align-items: center; gap: var(--sp-2); font-size: var(--td-text-sm); font-weight: 600; color: var(--td-link, var(--td-brand)); border-radius: var(--td-radius-sm, var(--td-radius));}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-drest[open] > summary{margin-bottom: var(--sp-2);}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-prog{display: flex; flex-direction: column; gap: 2px; min-width: 120px;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-prog-nums{display: flex; justify-content: space-between; gap: var(--sp-2); font-size: var(--td-text-sm); font-variant-numeric: tabular-nums;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-noprog{font-size: var(--td-text-sm);}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-status,.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-stack{display: inline-flex; flex-wrap: wrap; gap: var(--sp-1); align-items: flex-start;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-stack{flex-direction: column;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-stack-row{flex-direction: row;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-leads{display: flex; flex-direction: column; gap: 2px; font-size: var(--td-text-sm); align-items: flex-start;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-lead-name{font-weight: 600;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-cname{display: flex; flex-direction: column; min-width: 0;}
+.tdp :is(.v-dashboard, .v-geo) .vd-table-host .vd-cname{min-width: 150px;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-fu.is-overdue{color: var(--td-bad); font-weight: 600;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-exam{display: flex; flex-direction: column; gap: 2px; align-items: flex-start;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-table-host{min-width: 0; overflow-x: auto;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-total{margin: var(--sp-3) 0 0;}
+.tdp :is(.v-dashboard, .v-geo) .vd-attn{list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2);}
+.tdp :is(.v-dashboard, .v-geo) .vd-attn-item{border-left: 3px solid var(--td-warn); border-radius: var(--td-radius-sm, var(--td-radius)); background: var(--td-surface); box-shadow: 0 0 0 1px var(--td-border) inset; overflow: hidden;}
+.tdp :is(.v-dashboard, .v-geo) .vd-attn-item:is([data-sev="high"], [data-sev="3"], [data-sev="critical"]){border-left-color: var(--td-bad);}
+.tdp :is(.v-dashboard, .v-geo) .vd-attn-item:is([data-sev="low"], [data-sev="1"]){border-left-color: var(--td-info);}
+.tdp :is(.v-dashboard, .v-geo) .vd-attn-item.is-group{background: var(--td-surface-2);}
+.tdp :is(.v-dashboard, .v-geo) .vd-attn-item .vd-count{margin-left: 0;}
+.tdp :is(.v-dashboard, .v-geo) .vd-attn-link{display: block; padding: var(--sp-3); color: var(--td-text); text-decoration: none; min-height: 44px;}
+.tdp :is(.v-dashboard, .v-geo) .vd-attn-link:hover{background: var(--td-surface-2);}
+.tdp :is(.v-dashboard, .v-geo) .vd-attn-head{display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; justify-content: space-between;}
+.tdp :is(.v-dashboard, .v-geo) .vd-attn-reasons{margin: var(--sp-1) 0 0; padding-left: var(--sp-4); color: var(--td-text-2, var(--td-muted)); font-size: var(--td-text-sm);}
+.tdp :is(.v-dashboard, .v-geo) .vd-attn-reasons li + li{margin-top: 2px;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-up-grid{display: grid; gap: var(--sp-5); grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-up-block{display: flex; flex-direction: column; min-width: 0;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-up-sum{margin: 0 0 var(--sp-2);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-up-empty{margin: 0; padding: var(--sp-3); border-radius: var(--td-radius-sm, var(--td-radius)); background: var(--td-surface-2);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-uplist{list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--td-border); border-radius: var(--td-radius-sm, var(--td-radius)); overflow: hidden;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-uplist > li + li{border-top: 1px solid var(--td-border);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-up{display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: var(--sp-1) var(--sp-3); align-items: start; padding: var(--sp-3); color: var(--td-text); text-decoration: none; background: var(--td-surface); min-height: 44px;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-up:hover{background: var(--td-surface-2);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-up > .td-badge{grid-column: 2; justify-self: start;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-up-date{display: flex; flex-direction: column; font-size: var(--td-text-sm); line-height: 1.25;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-up-date small{color: var(--td-muted); font-size: var(--td-text-xs);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-up-main{display: flex; flex-direction: column; gap: 2px; min-width: 0;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-up-main strong{font-size: var(--td-text-sm); line-height: 1.3;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-up:hover .vd-up-main strong{text-decoration: underline;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-up-overdue{display: inline-flex; align-items: center; gap: var(--sp-1); margin-top: var(--sp-2); min-height: 32px; color: var(--td-bad); font-weight: 600; font-size: var(--td-text-sm); text-decoration: none;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-up-overdue .td-icon{display: inline-flex;}
+.tdp .v-geo .vg-head{display: flex; flex-wrap: wrap; gap: var(--sp-3); justify-content: space-between; align-items: flex-end;}
+.tdp .v-geo .vg-head p{margin: var(--sp-1) 0 0;}
+.tdp .v-geo .vg-picker{min-width: 200px;}
+.tdp .v-geo .vg-target{display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-4); border-radius: var(--td-radius); border: 1px solid var(--td-border); background: var(--td-surface); box-shadow: var(--td-shadow);}
+.tdp .v-geo .vg-target-empty{flex-direction: row; flex-wrap: wrap; justify-content: space-between; align-items: center;}
+.tdp .v-geo .vg-target-empty p{margin: var(--sp-1) 0 0;}
+.tdp .v-geo .vg-target-row{display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: var(--sp-2);}
+.tdp .v-geo .vg-big{font-size: 1.8rem; font-weight: 700;}
+.tdp .v-geo .vg-target-meta{display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); font-size: var(--td-text-sm);}
+.tdp .v-geo .vg-cards{list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));}
+.tdp .v-geo .vg-card{display: flex; flex-direction: column; gap: var(--sp-2); height: 100%; padding: var(--sp-4); border-radius: var(--td-radius); border: 1px solid var(--td-border); background: var(--td-surface); color: var(--td-text); text-decoration: none; box-sizing: border-box;}
+.tdp .v-geo .vg-card:hover{border-color: var(--td-link, var(--td-brand)); box-shadow: var(--td-shadow);}
+.tdp .v-geo .vg-card.is-dim{background: var(--td-surface-2);}
+.tdp .v-geo .vg-card-head{display: flex; justify-content: space-between; gap: var(--sp-2); align-items: flex-start;}
+.tdp .v-geo .vg-card-name{font-size: 1rem;}
+.tdp .v-geo .vg-card-facts{display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2); margin: 0;}
+.tdp .v-geo .vg-card-facts dt{font-size: 0.72rem; color: var(--td-muted);}
+.tdp .v-geo .vg-card-facts dd{margin: 0; font-size: 0.88rem; font-weight: 600;}
+.tdp .v-geo .vg-card-foot{display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--sp-2); margin-top: auto;}
+.tdp .v-analytics .va-body{display: flex; flex-direction: column; gap: var(--sp-5);}
+.tdp .v-analytics .va-headline{display: flex; flex-direction: column; gap: var(--sp-3);}
+.tdp .v-analytics .va-headline h2{margin: 0; font-family: var(--td-font-display); font-size: var(--td-text-xl);}
+.tdp .v-analytics .va-pace{display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-4); border-radius: var(--td-radius); background: var(--td-surface); border: 1px solid var(--td-border);}
+.tdp .v-analytics .va-pace-meta{display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center;}
+.tdp .v-analytics .va-grid{display: grid; gap: var(--sp-5); grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); align-items: start;}
+.tdp .v-analytics .va-grid > *{min-width: 0;}
+.tdp .v-analytics .va-pair{display: grid; gap: var(--sp-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));}
+.tdp .v-analytics .va-toggles{display: flex; flex-wrap: wrap; gap: var(--sp-3); margin-bottom: var(--sp-3);}
+.tdp .v-analytics .vd-seg{display: inline-flex; border: 1px solid var(--td-border-strong, var(--td-border)); border-radius: var(--td-radius-sm, var(--td-radius)); overflow: hidden;}
+.tdp .v-analytics .vd-seg-btn{min-height: 36px; padding: 0 var(--sp-3); border: 0; background: var(--td-surface); color: var(--td-text); font: inherit; font-size: var(--td-text-sm); cursor: pointer;}
+.tdp .v-analytics .vd-seg-btn + .vd-seg-btn{border-left: 1px solid var(--td-border-strong, var(--td-border));}
+.tdp .v-analytics .vd-seg-btn:hover{background: var(--td-surface-2);}
+.tdp .v-analytics .vd-seg-btn.is-on{background: var(--td-brand-solid, var(--td-brand)); color: var(--td-on-brand, var(--td-surface)); font-weight: 600;}
+.tdp .v-analytics .vd-allgood{display: flex; flex-direction: column; gap: var(--sp-2); align-items: flex-start;}
+.tdp .v-analytics .va-rank{list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--td-border); border-radius: var(--td-radius-sm, var(--td-radius)); overflow: hidden;}
+.tdp .v-analytics .va-rank > li + li{border-top: 1px solid var(--td-border);}
+.tdp .v-analytics .va-rank-row{display: grid; grid-template-columns: 28px minmax(0, 1fr) minmax(120px, 42%); gap: var(--sp-1) var(--sp-3); align-items: center; padding: var(--sp-3); min-height: 48px; color: var(--td-text); text-decoration: none; background: var(--td-surface);}
+.tdp .v-analytics a.va-rank-row:hover{background: var(--td-surface-2);}
+.tdp .v-analytics .va-rank-n{width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--td-surface-2); font-size: var(--td-text-xs); font-weight: 700; color: var(--td-text-2, var(--td-text)); font-variant-numeric: tabular-nums;}
+.tdp .v-analytics .va-rank-name{display: flex; flex-direction: column; min-width: 0;}
+.tdp .v-analytics .va-rank-name strong{overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.tdp .v-analytics .va-rank-flag{margin-top: 2px;}
+.tdp .v-analytics .va-start{display: flex; flex-direction: column; gap: var(--sp-3); align-items: flex-start;}
+.tdp .v-analytics .va-start p{margin: 0; color: var(--td-text-2, var(--td-text));}
+.tdp .v-analytics .va-start-steps{margin: 0; padding-left: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-2); color: var(--td-text-2, var(--td-text));}
+.tdp .v-analytics .va-start-steps a{color: var(--td-link, var(--td-brand)); font-weight: 600;}
+.tdp .tdc{position: relative; margin: 0; min-width: 0; font-size: var(--td-text-sm);}
+.tdp .tdc-empty{display: flex; align-items: center; justify-content: center; gap: var(--sp-3); min-height: 112px; padding: var(--sp-4) var(--sp-5); border-radius: var(--td-radius); color: var(--td-text-2, var(--td-muted)); background: var(--td-surface-2);}
+.tdp .tdc-empty-mark{flex: 0 0 auto; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--td-surface); color: var(--td-muted); border: 1px solid var(--td-border);}
+.tdp .tdc-empty-body{display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1); max-width: 46ch;}
+.tdp .tdc-empty-title{color: var(--td-text);}
+.tdp .tdc-empty-act{margin-top: var(--sp-1); text-decoration: none;}
+.tdp .tdc-tip{position: absolute; z-index: 5; pointer-events: none; min-width: 120px; max-width: 260px; padding: var(--sp-2) var(--sp-3); background: var(--td-surface); color: var(--td-text); border: 1px solid var(--td-border); border-radius: var(--td-radius-sm, var(--td-radius)); box-shadow: var(--td-shadow-lg, var(--td-shadow)); font-size: var(--td-text-sm);}
+.tdp .tdc-tip[hidden]{display: none;}
+.tdp .tdc-tip-title{font-weight: 700; margin-bottom: 2px;}
+.tdp .tdc-tip-sub{margin-top: var(--sp-1); color: var(--td-muted); font-size: var(--td-text-xs); white-space: normal;}
+.tdp .tdc-tip-row{display: flex; align-items: center; gap: var(--sp-2); justify-content: space-between; font-variant-numeric: tabular-nums;}
+.tdp .tdc-tip-label{flex: 1; color: var(--td-muted);}
+.tdp .tdc-key{display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto;}
+.tdp .tdc-key-hollow{background: var(--td-surface-2); border: 1.5px solid; box-sizing: border-box;}
+.tdp .tdc-legend{display: flex; flex-wrap: wrap; gap: var(--sp-3); list-style: none; margin: 0 0 var(--sp-2); padding: 0; color: var(--td-text-2, var(--td-muted)); font-size: var(--td-text-xs);}
+.tdp .tdc-legend li{display: inline-flex; align-items: center; gap: var(--sp-1);}
+.tdp .tdc-svg{display: block; width: 100%; height: auto; overflow: visible;}
+.tdp .tdc-pill{display: inline-block; padding: 0 6px; border-radius: 999px; background: var(--td-surface-2); color: var(--td-muted); font-size: 0.72rem;}
+.tdp .tdc-bars{list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px;}
+.tdp .tdc-bar-row{display: grid; grid-template-columns: minmax(90px, 34%) minmax(0, 1fr) auto; gap: var(--sp-3); align-items: center; min-height: 40px; padding: var(--sp-1) var(--sp-2); border-radius: var(--td-radius-sm, var(--td-radius));}
+.tdp .tdc-bar-row:hover{background: var(--td-surface-2);}
+.tdp .tdc-bar-row.is-click{cursor: pointer;}
+.tdp .tdc-bar-row:focus-visible{outline: 2px solid var(--td-link, var(--td-brand)); outline-offset: 1px;}
+.tdp .tdc-bar-label{display: flex; flex-direction: column; min-width: 0;}
+.tdp .tdc-bar-name{overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.tdp .tdc-bar-label small{color: var(--td-muted); font-size: var(--td-text-xs); line-height: 1.3; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;}
+.tdp .tdc-bar-track{position: relative; height: 16px;}
+.tdp .tdc-bar-sec{position: absolute; left: 0; top: 0; bottom: 0; border-radius: 0 4px 4px 0; background: transparent; box-shadow: inset 0 0 0 1.5px var(--td-border-strong, var(--td-border));}
+.tdp .tdc-bar-fill{position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 0 4px 4px 0;}
+.tdp .tdc-bar-value{display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--td-text); font-weight: 600;}
+.tdp .tdc-bar-value small{color: var(--td-muted); font-weight: 400; font-size: var(--td-text-xs);}
+.tdp .tdc-plot{position: relative;}
+.tdp .tdc-grid{stroke: var(--td-border); stroke-width: 1;}
+.tdp .tdc-base{stroke: var(--td-border-strong, var(--td-border)); stroke-width: 1;}
+.tdp .tdc-axis{fill: var(--td-muted); font-size: 11px; font-variant-numeric: tabular-nums;}
+.tdp .tdc-line{fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round;}
+.tdp .tdc-area{fill-opacity: 0.12; stroke: none;}
+.tdp .tdc-dot{stroke: var(--td-surface); stroke-width: 2;}
+.tdp .tdc-cross{stroke: var(--td-muted); stroke-width: 1; stroke-dasharray: 3 3;}
+.tdp .tdc-col{transition: opacity var(--td-dur-1, 120ms);}
+.tdp .tdc-col.is-dim{opacity: 0.35;}
+.tdp .tdc-overlay{fill: transparent; cursor: crosshair; outline: none;}
+.tdp .tdc-overlay:focus-visible{stroke: var(--td-link, var(--td-brand)); stroke-width: 1.5;}
+.tdp .tdc-pace{display: flex; flex-direction: column; gap: 6px;}
+.tdp .tdc-pace-track{position: relative; height: 12px; border-radius: 999px; background: var(--td-surface-3, var(--td-surface-2)); box-shadow: inset 0 0 0 1px var(--td-border);}
+.tdp .tdc-pace-fill{position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--td-brand-solid, var(--td-brand));}
+.tdp .tdc-pace-mark{position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 2px; background: var(--td-text); box-shadow: 0 0 0 2px var(--td-surface);}
+.tdp .tdc-pace-scale{display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--sp-1) var(--sp-3); font-size: var(--td-text-xs); color: var(--td-muted); font-variant-numeric: tabular-nums;}
+.tdp .tdc-pace-exp{display: inline-flex; align-items: center; gap: 6px; color: var(--td-text-2, var(--td-text)); font-weight: 600;}
+.tdp .tdc-pace-exp::before{content: ''; width: 2px; height: 12px; border-radius: 2px; background: var(--td-text);}
+.tdp .tdc-donut-wrap{display: flex; flex-wrap: wrap; gap: var(--sp-4); align-items: center;}
+.tdp .tdc-donut-svg{width: 168px; flex: 0 0 auto;}
+.tdp .tdc-ring-bg{fill: none; stroke: var(--td-surface-3, var(--td-surface-2)); stroke-width: 14;}
+.tdp .tdc-seg{fill: none; stroke-width: 14; cursor: pointer; outline: none;}
+.tdp .tdc-seg:hover,.tdp .tdc-seg:focus-visible{stroke-width: 18;}
+.tdp .tdc-center-val{fill: var(--td-text); font-size: 20px; font-weight: 700;}
+.tdp .tdc-center-lbl{fill: var(--td-muted); font-size: 9px;}
+.tdp .tdc-donut-legend{list-style: none; margin: 0; padding: 0; flex: 1 1 180px; display: flex; flex-direction: column; gap: var(--sp-2);}
+.tdp .tdc-donut-legend li{display: flex; align-items: center; gap: var(--sp-2);}
+.tdp .tdc-dl-label{flex: 1; min-width: 0;}
+.tdp .tdc-dl-val{font-variant-numeric: tabular-nums; font-weight: 600;}
+.tdp .tdc-dl-val small{margin-left: var(--sp-2); color: var(--td-muted); font-weight: 400;}
+.tdp .tdc-funnel-list{list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-4);}
+.tdp .tdc-funnel-step{display: flex; flex-direction: column; gap: 6px; border-radius: var(--td-radius-sm, var(--td-radius)); outline: none;}
+.tdp .tdc-funnel-step:focus-visible{box-shadow: 0 0 0 2px var(--td-link, var(--td-brand));}
+.tdp .tdc-funnel-head{display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); align-items: center; justify-content: space-between;}
+.tdp .tdc-funnel-label{color: var(--td-text-2, var(--td-muted)); font-weight: 600;}
+.tdp .tdc-funnel-val{font-weight: 800; font-size: var(--td-text-lg); font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: var(--sp-2);}
+.tdp .tdc-funnel-conv{font-size: var(--td-text-xs); color: var(--td-muted);}
+.tdp .tdc-funnel-track{height: 14px; background: var(--td-surface-3, var(--td-surface-2)); border-radius: 4px; overflow: hidden;}
+.tdp .tdc-funnel-fill{display: block; height: 100%; border-radius: 0 4px 4px 0; background: var(--td-brand-solid, var(--td-brand));}
+.tdp .tdc-spark{width: 100px; height: 28px; display: inline-block; vertical-align: middle;}
+.tdp .tdc-spark-line{fill: none; stroke-width: 2; stroke-linejoin: round;}
+.tdp .tdc-spark-empty{color: var(--td-muted);}
+.tdp .tdc-ring{width: 140px;}
+.tdp .tdc-ring .tdc-ring-bg{stroke-width: 10;}
+.tdp .tdc-ring-fg{fill: none; stroke-width: 10; stroke-linecap: round;}
+.tdp .tdc-ring-val{fill: var(--td-text); font-size: 26px; font-weight: 800;}
+.tdp .tdc-ring-lbl{fill: var(--td-muted); font-size: 11px;}
+@media (max-width: 720px){.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges){gap: var(--sp-4);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-hero{padding: var(--sp-4);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-hero .tdc-ring{width: 84px;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-hero-nums{grid-template-columns: repeat(2, minmax(0, 1fr));}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-num dd{font-size: var(--td-text-xl);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-onboard{padding: var(--sp-4);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-step{grid-template-columns: 28px minmax(0, 1fr);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-step-cta,.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-step-done{grid-column: 2; justify-self: start;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-facts{grid-template-columns: repeat(2, minmax(0, 1fr));}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-kpis,.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-kpis-tight{grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2);}
+.tdp :is(.v-dashboard, .v-geo) .vd-drow{grid-template-columns: minmax(0, 1fr) auto;}
+.tdp :is(.v-dashboard, .v-geo) .vd-drow-prog{grid-column: 1 / -1; grid-row: 2;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-field{flex: 1 1 140px; min-width: 0;}
+.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-btn,.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-field select,.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-search,.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-field .td-select,.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-sortdir,.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-filters-open,.tdp .v-analytics .vd-seg-btn{min-height: 44px;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-toolbar .vd-search{flex-basis: 100%;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-opts > summary{display: flex; align-items: center; gap: var(--sp-2); min-height: 44px; cursor: pointer; font-weight: 600; font-size: var(--td-text-sm); color: var(--td-link, var(--td-brand));}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-opts > summary::after{content: "▾";}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-opts[open] > summary::after{content: "▴";}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-opts[open] > summary{margin-bottom: var(--sp-2);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-toolbar .vd-filters-open{flex: 1 1 auto;}
+.tdp .v-analytics .vd-seg{flex: 1 1 auto;}
+.tdp .v-analytics .vd-seg-btn{flex: 1 1 0;}
+.tdp .tdc-bar-row{grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--sp-1);}
+.tdp .tdc-bar-track{grid-column: 1 / -1; grid-row: 2;}
+.tdp .v-analytics .va-rank-row{grid-template-columns: 28px minmax(0, 1fr);}
+.tdp .v-analytics .va-rank-prog{grid-column: 2;}
+.tdp .tdc-empty{flex-direction: column; text-align: center;}
+.tdp .tdc-empty-body{align-items: center;}
+}
+@media (max-width: 360px){.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-kpis,.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-kpis-tight{grid-template-columns: 1fr;}
+}
+@media (forced-colors: active){.tdp :is(.tdc-bar-fill, .tdc-funnel-fill, .tdc-pace-fill){background: CanvasText !important; forced-color-adjust: none;}
+.tdp .tdc-pace-mark{background: Highlight !important;}
+.tdp .tdc-col{fill: CanvasText !important;}
+.tdp :is(.tdc-line, .tdc-seg, .tdc-ring-fg){stroke: CanvasText !important;}
+}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-hero-note{color: var(--td-muted); font-size: var(--td-text-sm);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-hero-scope{margin: 2px 0 0; font-size: var(--td-text-sm);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-hero-warn{display: flex; gap: 6px; align-items: flex-start; margin: var(--sp-2) 0 0; padding: 8px 10px; border-radius: var(--td-radius-sm); background: var(--td-info-soft); color: var(--td-text); font-size: var(--td-text-sm);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-hero-warn svg{flex: none; margin-top: 3px; color: var(--td-info);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-hero h1{overflow-wrap: anywhere;}
+.tdp :is(.v-dashboard, .v-geo) .vd-scope-change{font-size: var(--td-text-sm); min-height: 32px;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-duo{display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: var(--sp-4);}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-lite{display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; padding: var(--sp-4); border: 1px solid var(--td-border); border-radius: var(--td-radius-lg, var(--td-radius)); background: var(--td-surface); box-shadow: var(--td-shadow-sm);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdq-head{display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdq-head .vd-h2{margin: 0;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdq-sub{margin: 0;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdq-row{display: flex; flex-direction: column; gap: 4px; padding: var(--sp-2) 0; border-top: 1px solid var(--td-border);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdq-row-head{display: flex; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; font-size: var(--td-text-sm);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdq-nums{color: var(--td-text-2);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdq-nums b{color: var(--td-text); font-size: var(--td-text-md);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdq-hint{display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdq-est{margin: 0; padding-top: var(--sp-2); border-top: 1px solid var(--td-border); font-size: var(--td-text-sm); color: var(--td-text-2);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc-list{list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc-item{display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); padding: var(--sp-2) 0; border-top: 1px solid var(--td-border);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc-main{display: flex; flex-direction: column; gap: 2px; min-width: 0;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc-name{font-weight: 700; color: var(--td-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc-name:hover{color: var(--td-link);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc-badges{display: flex; flex-wrap: wrap; align-items: center; gap: 6px;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc-act{display: flex; gap: 6px; flex: none;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc-act .td-btn{min-height: 40px;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc-call{text-decoration: none !important;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc{container: vdc / inline-size;}
+@container vdc (max-width: 459px){.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc .vdc-item{flex-direction: column; align-items: stretch;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc .vdc-act{justify-content: flex-start;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc .vdc-act .td-btn{flex: 1; justify-content: center;}
+}
+.tdp .v-geo .vg-scope-note{display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); align-items: flex-start; padding: var(--sp-3) var(--sp-4); border: 1px solid var(--td-border); border-left: 4px solid var(--td-accent); border-radius: var(--td-radius); background: var(--td-accent-soft); color: var(--td-text);}
+.tdp .v-geo .vg-scope-note > svg{flex: none; margin-top: 2px; color: var(--td-accent-ink);}
+.tdp .v-geo .vg-scope-note > div:first-of-type{flex: 1 1 220px; min-width: 0;}
+.tdp .v-geo .vg-scope-note p{margin: 2px 0 0;}
+.tdp .v-geo .vg-scope-act{display: flex; gap: var(--sp-2); flex-wrap: wrap;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc-call,.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc-call:hover,.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc-call:visited{color: var(--td-on-brand);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc-call svg{color: currentColor;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdq-bar{display: block; height: 6px; border-radius: 6px; background: var(--td-surface-3); overflow: hidden;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdq-bar > span{display: block; height: 100%; min-width: 2px; border-radius: inherit; background: var(--td-brand-2);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-scopepill{display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--td-text-sm); color: var(--td-text-2);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-scopepill > span{font-weight: 600; color: var(--td-text);}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-grow{flex: 1;}
+.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vd-block{display: block;}
+.tdp .v-dashboard .vd-home{display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0;}
+.tdp .v-dashboard .vd-home-foot{margin: 0;}
+.tdp .v-dashboard .vd-kstrip{display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--td-border); border: 1px solid var(--td-border); border-radius: var(--td-radius-lg); overflow: hidden; box-shadow: var(--td-shadow-sm);}
+.tdp .v-dashboard .vd-kt{display: flex; flex-direction: column; gap: 2px; padding: var(--sp-3) var(--sp-4); background: var(--td-surface); color: var(--td-text); text-decoration: none; min-width: 0;}
+.tdp .v-dashboard a.vd-kt:hover{background: var(--td-surface-2);}
+.tdp .v-dashboard .vd-kt-l{font-size: var(--td-text-xs); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; color: var(--td-muted);}
+.tdp .v-dashboard .vd-kt-v{font-family: var(--td-font-display); font-size: var(--td-text-xl); font-weight: 700; line-height: 1.15; overflow-wrap: anywhere;}
+.tdp .v-dashboard .vd-kt-s{font-size: var(--td-text-xs); color: var(--td-text-2);}
+.tdp .v-dashboard .vd-kt.is-good .vd-kt-v{color: var(--td-good);}
+.tdp .v-dashboard .vd-kt.is-warn .vd-kt-v{color: var(--td-warn);}
+.tdp .v-dashboard .vd-kt.is-bad .vd-kt-v{color: var(--td-bad);}
+.tdp .v-dashboard .vd-needs{display: flex; flex-direction: column; gap: var(--sp-3);}
+.tdp .v-dashboard .vd-needs-head{display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--sp-2);}
+.tdp .v-dashboard .vd-needs-grid{display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3);}
+.tdp .v-dashboard .vd-need{display: flex; align-items: flex-start; gap: var(--sp-3); padding: var(--sp-4); border: 1px solid var(--td-border); border-radius: var(--td-radius-lg); background: var(--td-surface); color: var(--td-text); text-decoration: none; box-shadow: var(--td-shadow-sm); min-height: 44px; transition: border-color var(--td-dur-1) var(--td-ease);}
+.tdp .v-dashboard .vd-need:hover{border-color: var(--td-brand-2);}
+.tdp .v-dashboard .vd-need-icon{flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; background: var(--td-surface-2); color: var(--td-muted);}
+.tdp .v-dashboard .vd-need.is-bad .vd-need-icon{background: var(--td-bad-soft); color: var(--td-bad);}
+.tdp .v-dashboard .vd-need.is-warn .vd-need-icon{background: var(--td-warn-soft); color: var(--td-warn);}
+.tdp .v-dashboard .vd-need.is-ok .vd-need-icon{background: var(--td-good-soft); color: var(--td-good);}
+.tdp .v-dashboard .vd-need.is-bad{border-left: 4px solid var(--td-bad);}
+.tdp .v-dashboard .vd-need.is-warn{border-left: 4px solid var(--td-warn);}
+.tdp .v-dashboard .vd-need.is-na{border-left-color: var(--td-border);}
+.tdp .v-dashboard .vd-need.is-na .vd-need-icon{background: var(--td-surface-2); color: var(--td-muted);}
+.tdp .v-dashboard .vd-need-body{display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1;}
+.tdp .v-dashboard .vd-need-n{font-family: var(--td-font-display); font-size: var(--td-text-2xl); font-weight: 700; line-height: 1;}
+.tdp .v-dashboard .vd-need-go{color: var(--td-muted); flex: none; align-self: center;}
+.tdp .v-dashboard .vd-needs-more > summary{cursor: pointer; font-weight: 600; color: var(--td-link); min-height: 40px; display: flex; align-items: center;}
+.tdp .v-dashboard .vd-mapsec{padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-3);}
+.tdp .v-dashboard .vd-mapsec-head{display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2);}
+.tdp .v-dashboard .vd-mapsec-head > div{display: flex; flex-direction: column; gap: 2px;}
+.tdp .v-dashboard .vd-mapbox[hidden]{display: none;}
+.tdp :is(.v-colleges, .v-geo) .vd-clist{display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0;}
+.tdp :is(.v-colleges, .v-geo) .vd-filterbar{display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-2) var(--sp-3);}
+.tdp :is(.v-colleges, .v-geo) .vd-filterbar .vd-field{min-width: 140px; flex: 1 1 140px; max-width: 220px;}
+.tdp :is(.v-colleges, .v-geo) .vd-filterbar-search{flex: 2 1 260px; min-width: 0;}
+.tdp :is(.v-colleges, .v-geo) .vd-filterbar-search .vd-search{width: 100%;}
+.tdp :is(.v-colleges, .v-geo) .vd-field .td-select{font-weight: 400; color: var(--td-text);}
+.tdp :is(.v-colleges, .v-geo) .vd-more-filters > summary{cursor: pointer; font-weight: 600; font-size: var(--td-text-sm); color: var(--td-link); min-height: 36px; display: inline-flex; align-items: center;}
+.tdp :is(.v-colleges, .v-geo) .vd-more-filters[open] > summary{margin-bottom: var(--sp-2);}
+.tdp :is(.v-colleges, .v-geo) .vd-clist-bar{display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3);}
+.tdp :is(.v-colleges, .v-geo) .vd-cc-name{display: flex; flex-direction: column; gap: 2px; min-width: 180px;}
+.tdp :is(.v-colleges, .v-geo) .vd-cname{font-weight: 700; color: var(--td-text); text-decoration: none;}
+.tdp :is(.v-colleges, .v-geo) .vd-cname:hover{color: var(--td-link); text-decoration: underline;}
+.tdp :is(.v-colleges, .v-geo) .vd-cc-lead{display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px;}
+.tdp :is(.v-colleges, .v-geo) .vd-cc-lead a{font-weight: 600;}
+.tdp :is(.v-colleges, .v-geo) .vd-cc-amb{display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px;}
+.tdp :is(.v-colleges, .v-geo) .vd-cc-call{display: flex; flex-direction: column; align-items: flex-start; gap: 4px;}
+.tdp :is(.v-colleges, .v-geo) .vd-fu.is-overdue{color: var(--td-bad); font-weight: 600;}
+.tdp :is(.v-colleges, .v-geo) .vd-tp{min-width: 150px;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo, .v-analytics) .vd-cacts{display: inline-flex; gap: 2px;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo, .v-analytics) .vd-wa{font-size: 10px; font-weight: 800; letter-spacing: .02em;}
+.tdp :is(.v-colleges, .v-geo) .vd-ctable-wrap{overflow-x: auto; border: 1px solid var(--td-border); border-radius: var(--td-radius); background: var(--td-surface);}
+.tdp :is(.v-colleges, .v-geo) .vd-ctable{width: 100%; border-collapse: collapse; font-size: var(--td-text-sm);}
+.tdp :is(.v-colleges, .v-geo) .vd-ctable th{text-align: left; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--td-border); background: var(--td-surface-2);}
+.tdp :is(.v-colleges, .v-geo) .vd-ctable td{padding: var(--sp-3); border-bottom: 1px solid var(--td-border); vertical-align: top;}
+.tdp :is(.v-colleges, .v-geo) .vd-crow{cursor: pointer;}
+.tdp :is(.v-colleges, .v-geo) .vd-crow:hover{background: var(--td-surface-2);}
+.tdp :is(.v-colleges, .v-geo) .vd-th{background: none; border: 0; font: inherit; font-weight: 700; color: var(--td-text-2); cursor: pointer; display: inline-flex; gap: 4px; min-height: 32px; align-items: center;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo, .v-analytics) .vd-pager-btns{display: inline-flex; align-items: center; gap: var(--sp-2);}
+@media (max-width: 699px){.tdp :is(.v-colleges, .v-geo) .vd-filterbar .vd-field{max-width: none; flex-basis: calc(50% - var(--sp-2)); min-width: 0;}
+.tdp :is(.v-colleges, .v-geo) .vd-filterbar-search{flex-basis: 100%;}
+.tdp :is(.v-colleges, .v-geo) .vd-ctable thead{display: none;}
+.tdp :is(.v-colleges, .v-geo) .vd-ctable,.tdp :is(.v-colleges, .v-geo) .vd-ctable tbody,.tdp :is(.v-colleges, .v-geo) .vd-ctable tr,.tdp :is(.v-colleges, .v-geo) .vd-ctable td{display: block; width: 100%;}
+.tdp :is(.v-colleges, .v-geo) .vd-ctable td{border: 0; padding: 4px var(--sp-3);}
+.tdp :is(.v-colleges, .v-geo) .vd-ctable tr{border-bottom: 1px solid var(--td-border); padding: var(--sp-2) 0;}
+.tdp :is(.v-colleges, .v-geo) .vd-cc-name{min-width: 0;}
+.tdp .v-dashboard .vd-kt{padding: var(--sp-3);}
+.tdp .v-dashboard .vd-kt-v{font-size: var(--td-text-lg);}
+}
+.tdp .v-geo .vg-target{display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-4);}
+.tdp .v-geo .vg-target.is-empty{flex-direction: row; flex-wrap: wrap; justify-content: space-between; align-items: center;}
+.tdp .v-geo .vg-target.is-empty p{margin: 2px 0 0;}
+.tdp .v-geo .vg-target-row{display: flex; justify-content: space-between; align-items: center; gap: var(--sp-2); flex-wrap: wrap;}
+.tdp .v-geo .vg-target-meta{display: flex; flex-direction: column; gap: 2px;}
+.tdp .v-geo .vg-extras{display: flex; flex-direction: column; gap: var(--sp-2);}
+.tdp .v-geo .vg-extras:empty{display: none;}
+.tdp .v-geo .vg-cities > summary,.tdp .v-geo .vg-attn > summary{cursor: pointer; font-weight: 600; color: var(--td-link); min-height: 40px; display: flex; align-items: center;}
+.tdp .v-geo .vg-citylist{list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: var(--sp-2);}
+.tdp .v-geo .vg-city{display: flex; flex-direction: column; gap: 4px; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--td-border); border-radius: var(--td-radius); background: var(--td-surface); color: var(--td-text); text-decoration: none; min-height: 44px;}
+.tdp .v-geo .vg-city:hover{border-color: var(--td-brand-2);}
+.tdp .v-geo .vg-picker select{min-width: 180px;}
+.tdp .v-analytics .va-headline{padding: var(--sp-4) var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-3);}
+.tdp .v-analytics .va-headline h2{margin: 0; font-size: var(--td-text-lg);}
+.tdp :is(.v-analytics, .v-dashboard) .va-cover{display: flex; align-items: flex-start; gap: var(--sp-2); margin: 0; font-size: var(--td-text-sm); color: var(--td-text-2); padding: var(--sp-2) var(--sp-3); background: var(--td-info-soft); border-radius: var(--td-radius-sm);}
+.tdp .v-analytics .vdr{padding: var(--sp-4) var(--sp-5);}
+.tdp .v-analytics .vd-scopebar .vd-scopepill{align-self: center;}
+.tdp .v-dashboard .vd-home{container: vdhome / inline-size;}
+.tdp .v-dashboard .vd-kt:last-child:nth-child(odd){grid-column: 1 / -1;}
+@container vdhome (min-width: 560px){.tdp .v-dashboard .vd-kstrip{grid-template-columns: repeat(4, minmax(0, 1fr));}
+.tdp .v-dashboard .vd-kt:nth-child(5){grid-column: span 2;}
+.tdp .v-dashboard .vd-kt:last-child:nth-child(odd){grid-column: auto;}
+}
+@container vdhome (min-width: 1040px){.tdp .v-dashboard .vd-kstrip{grid-template-columns: repeat(7, minmax(0, 1fr));}
+.tdp .v-dashboard .vd-kt:nth-child(5){grid-column: auto;}
+}
+@container vdhome (min-width: 340px){.tdp .v-dashboard .vd-needs-grid{grid-template-columns: repeat(2, minmax(0, 1fr));}
+}
+@container vdhome (min-width: 1000px){.tdp .v-dashboard .vd-needs-grid{grid-template-columns: repeat(4, minmax(0, 1fr));}
+}
+.tdp .v-dashboard .vd-home > .vd-duo{grid-template-columns: minmax(0, 1fr);}
+@container vdhome (min-width: 920px){.tdp .v-dashboard .vd-home > .vd-duo{grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start;}
+}
+.tdp .v-dashboard .vd-mapsec-head .td-btn{flex: none;}
+.tdp[data-form="phone"] .v-dashboard .vd-home > .vd-mapsec{order: 8;}
+.tdp[data-form="phone"] .v-dashboard .vd-home > .vd-home-foot{order: 9;}
+.tdp[data-form="phone"] .v-dashboard .vd-home{gap: var(--sp-4);}
+.tdp[data-form="phone"] .v-dashboard .vd-kt{padding: var(--sp-2) var(--sp-3);}
+.tdp[data-form="phone"] .v-dashboard .vd-kt-v{font-size: var(--td-text-lg);}
+.tdp[data-form="phone"] .v-dashboard .vd-need{padding: var(--sp-3); gap: var(--sp-2);}
+.tdp[data-form="phone"] .v-dashboard .vd-need-icon{width: 30px; height: 30px;}
+.tdp[data-form="phone"] .v-dashboard .vd-need-n{font-size: var(--td-text-xl);}
+.tdp[data-form="phone"] .v-dashboard .vd-needs-head > .vd-muted{display: none;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo, .v-analytics) .vd-factgroup{container: vdfacts / inline-size;}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo, .v-analytics) .vd-facts{grid-template-columns: repeat(2, minmax(0, 1fr));}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo, .v-analytics) .vd-facts > li:last-child:nth-child(odd){grid-column: 1 / -1;}
+@container vdfacts (min-width: 720px){.tdp :is(.v-dashboard, .v-colleges, .v-geo, .v-analytics) .vd-facts{grid-template-columns: repeat(5, minmax(0, 1fr));}
+.tdp :is(.v-dashboard, .v-colleges, .v-geo, .v-analytics) .vd-facts > li:last-child:nth-child(odd){grid-column: auto;}
+}
+.tdp .v-analytics .va-headline{container: vahead / inline-size;}
+.tdp .v-analytics .va-headline .vd-kpis-tight{grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2);}
+@container vahead (min-width: 540px){.tdp .v-analytics .va-headline .vd-kpis-tight{grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3);}
+}
+@container vahead (min-width: 1040px){.tdp .v-analytics .va-headline .vd-kpis-tight{grid-template-columns: repeat(6, minmax(0, 1fr));}
+}
+.tdp[data-form="phone"] .v-analytics .va-headline{padding: var(--sp-3);}
+.tdp[data-form="phone"] .v-analytics .va-headline .td-stat{padding: var(--sp-3); gap: 2px;}
+.tdp[data-form="phone"] .v-analytics .va-headline .td-stat__value{font-size: var(--td-text-xl);}
+.tdp[data-form="phone"] .v-analytics .va-headline .td-stat__icon{display: none;}
+.tdp .v-analytics .vdr{container: vdr / inline-size;}
+@container vdr (max-width: 599px){.tdp .v-analytics .vdr .vdr-nums{grid-template-columns: repeat(2, minmax(0, 1fr));}
+.tdp .v-analytics .vdr .vdr-num dd{font-size: var(--td-text-xl);}
+.tdp .v-analytics .vdr .vdr-pace{grid-template-columns: minmax(0, 1fr);}
+.tdp .v-analytics .vdr .vdr-grid{grid-template-columns: minmax(0, 1fr);}
+.tdp .v-analytics .vdr .vdr-people li{flex-direction: column; gap: 2px;}
+}
+@container vdr (min-width: 600px) and (max-width: 899px){.tdp .v-analytics .vdr .vdr-grid{grid-template-columns: minmax(0, 1fr);}
+}
+@container vdr (min-width: 900px){.tdp .v-analytics .vdr .vdr-facts{grid-template-columns: repeat(4, minmax(0, 1fr));}
+}
+.tdp[data-form="phone"] .v-analytics .vdr{padding: var(--sp-3);}
+.tdp[data-form="phone"] .v-analytics .vd-scopebar .vd-field{flex: 1 1 100%;}
+.tdp[data-form="phone"] .v-analytics .va-grid{gap: var(--sp-4);}
+.tdp .v-analytics .va-grid > .td-section{container: vasec / inline-size;}
+@container vasec (max-width: 519px){.tdp .v-analytics .va-grid .va-rank-row{grid-template-columns: 28px minmax(0, 1fr);}
+.tdp .v-analytics .va-grid .va-rank-prog{grid-column: 2;}
+.tdp .v-analytics .va-grid .tdc-bar-row{grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--sp-1);}
+.tdp .v-analytics .va-grid .tdc-bar-track{grid-column: 1 / -1; grid-row: 2;}
+}
+.tdp .v-analytics .va-toggles .td-seg{flex: 0 1 auto;}
+.tdp[data-form="phone"] .v-analytics .va-toggles .td-seg{flex: 1 1 100%;}
+.tdp[data-form="phone"] .v-analytics .va-toggles .td-seg__btn{flex: 1 1 0;}
+.tdp .v-geo .vg-summary{display: grid; gap: var(--sp-4); container: vgcol / inline-size; grid-template-columns: minmax(0, 1fr); align-items: start;}
+.tdp .v-geo .vg-summary > *{min-width: 0;}
+@container vgcol (min-width: 1100px){.tdp .v-geo .vg-summary > .vg-sumgrid{display: grid; grid-template-columns: minmax(260px, 1fr) minmax(0, 2.6fr); gap: var(--sp-4); align-items: start;}
+}
+.tdp .v-geo .vg-sumgrid{display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4);}
+.tdp .v-geo .vg-kpiwrap{container: vgkpi / inline-size; min-width: 0;}
+.tdp .v-geo .vg-kpis{grid-template-columns: repeat(2, minmax(0, 1fr));}
+.tdp .v-geo .vg-kpis > :last-child:nth-child(odd){grid-column: 1 / -1;}
+@container vgkpi (min-width: 680px){.tdp .v-geo .vg-kpis{grid-template-columns: repeat(4, minmax(0, 1fr));}
+.tdp .v-geo .vg-kpis > :last-child:nth-child(odd){grid-column: span 2;}
+}
+.tdp[data-form="phone"] :is(.v-colleges, .v-geo) .vd-filters-more{display: none;}
+.tdp :is(.v-colleges, .v-geo) .vd-cc-sub{display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center;}
+.tdp :is(.v-colleges, .v-geo) .vd-badges{display: inline-flex; flex-wrap: wrap; gap: 4px;}
+.tdp[data-form="phone"] .vd-scopepill{display: none;}
+.tdp[data-form="phone"] .v-dashboard .vd-need{flex-direction: column; align-items: flex-start; gap: 6px;}
+.tdp[data-form="phone"] .v-dashboard .vd-need-go{display: none;}
+.tdp[data-form="phone"] .v-dashboard .vd-need-body > .vd-muted{display: none;}
+.tdp[data-form="phone"] .v-dashboard .vd-need-body > strong{font-size: var(--td-text-sm); line-height: 1.3;}
+.tdp[data-form="phone"] .v-dashboard .vd-need.is-bad,.tdp[data-form="phone"] .v-dashboard .vd-need.is-warn{border-left-width: 3px;}
+@media (pointer: coarse){.tdp :is(.v-dashboard, .v-analytics, .v-colleges, .v-geo) .vdc-act .td-btn,.tdp :is(.v-dashboard, .v-colleges, .v-geo) .vd-field .td-select,.tdp .v-geo .vg-picker select,.tdp .v-dashboard .vd-needs-more > summary,.tdp .v-geo .vg-cities > summary,.tdp .v-geo .vg-attn > summary,.tdp :is(.v-dashboard, .v-geo, .v-analytics, .v-colleges) .vd-link,.tdp :is(.v-colleges, .v-geo) .vd-more-filters > summary,.tdp :is(.v-dashboard, .v-geo) .vd-scope-change{min-height: 44px;}
+}
+@media (pointer: coarse){.tdp :is(.v-dashboard, .v-geo, .v-analytics) .vd-scope-change{display: inline-flex; align-items: center; min-height: 44px;}
+}
+@container vdhome (min-width: 560px){.tdp .v-dashboard .vd-kstrip--4{grid-template-columns: repeat(4, minmax(0, 1fr));}
+}
+@container vdhome (min-width: 1040px){.tdp .v-dashboard .vd-kstrip--4{grid-template-columns: repeat(4, minmax(0, 1fr));}
+}
+@container vdhome (min-width: 1000px){.tdp .v-dashboard .vd-needs-grid--2{grid-template-columns: repeat(2, minmax(0, 1fr));}
+.tdp .v-dashboard .vd-needs-grid--3{grid-template-columns: repeat(3, minmax(0, 1fr));}
+}
+@container vdhome (min-width: 340px) and (max-width: 999.98px){.tdp .v-dashboard .vd-needs-grid--3 > .vd-need:last-child{grid-column: 1 / -1;}
+}

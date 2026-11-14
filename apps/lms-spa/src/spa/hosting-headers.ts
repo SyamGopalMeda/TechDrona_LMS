@@ -73,6 +73,14 @@ const COLLEGE_PORTAL_HEADERS = [
   { key: "Cache-Control", value: "private, no-store" },
 ];
 
+/** The LMS policy with the portal map's tile hosts added to img-src (src/features/colleges/map). */
+export function collegesCsp(opts: HostingCspInput): string {
+  return staticCsp(opts)
+    .split("; ")
+    .map((d) => (d.startsWith("img-src ") ? `${d} ${PORTAL_TILES}` : d))
+    .join("; ");
+}
+
 /** public/ folders and root files served as-is (not content-hashed). docs/firebase/cdn-caching.md */
 export const STATIC_DIRS = ["brand", "fonts", "vendor"];
 export const STATIC_ROOT_FILES = ["favicon.ico", "favicon-32.png", "apple-touch-icon.png", "icon-512.png", "manifest.webmanifest", "robots.txt"];
@@ -119,5 +127,8 @@ export function hostingHeaders(opts: HostingCspInput): HostingHeaderRule[] {
     // repeated here; static assets revalidate (the portal answers 304).
     ...["/college-portal", "/college-portal/**"].map((source) => ({ source, headers: COLLEGE_PORTAL_HEADERS })),
     { source: "/college-portal/{css,js,vendor,assets}/**", headers: [{ key: "Cache-Control", value: "private, no-cache" }] },
+    // The React Outreach Portal (src/app/colleges): the LMS policy plus the map tile hosts in img-src. Opened
+    // with a full page load (nav-store isCollegesPath) so this policy applies; its data API is /college-portal/api.
+    ...["/colleges", "/colleges/**"].map((source) => ({ source, headers: [{ key: "Content-Security-Policy", value: collegesCsp(general) }] })),
   ];
 }

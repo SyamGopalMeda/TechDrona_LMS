@@ -251,9 +251,35 @@ export interface paths {
         };
         /** List Plans */
         get: operations["list_plans_api_v1_admin_admissions_plans_get"];
-        /** Save Plan */
+        /**
+         * Save Plan
+         * @description Create / update a plan. The response adds ``course_status`` (the registration switch) and
+         *     ``effective_status`` (what students see: ``closed`` while an ``open`` course's plan is off).
+         */
         put: operations["save_plan_api_v1_admin_admissions_plans_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/admissions/plans/{slug}/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Plan Active
+         * @description Switch a plan on / off only (no full PUT, no lost update). Activating checks the fee and the
+         *     pay-to details (422 ``invalid_plan`` / ``pay_to_missing``); 404 for an unknown slug. Same
+         *     response as PUT (plan + ``course_status`` + ``effective_status``).
+         */
+        post: operations["set_plan_active_api_v1_admin_admissions_plans__slug__active_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -863,7 +889,8 @@ export interface paths {
         };
         /**
          * List Course Status
-         * @description Every website course known from status rows, fee plans and ``web-*`` batches.
+         * @description Every website course known from status rows, fee plans and ``web-*`` batches. Read with
+         *     ``payment.read`` like the plans list (no personal data); changing it needs ``price.manage``.
          */
         get: operations["list_course_status_api_v1_admin_courses_status_get"];
         put?: never;
@@ -9389,6 +9416,11 @@ export interface components {
             /** Upi Id */
             upi_id?: string | null;
         };
+        /** AdmissionPlanActiveIn */
+        AdmissionPlanActiveIn: {
+            /** Active */
+            active: boolean;
+        };
         /** AdmissionPlanIn */
         AdmissionPlanIn: {
             /** Access Min Paise */
@@ -9411,6 +9443,8 @@ export interface components {
             course_id?: string | null;
             /** Fee Paise */
             fee_paise: number;
+            /** Fee Plan Id */
+            fee_plan_id?: string | null;
             /** Instructions */
             instructions?: string | null;
             /** Min First Paise */
@@ -14232,6 +14266,43 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["AdmissionPlanIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_plan_active_api_v1_admin_admissions_plans__slug__active_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdmissionPlanActiveIn"];
             };
         };
         responses: {

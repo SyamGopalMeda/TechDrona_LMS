@@ -69,7 +69,15 @@ export function needsDocumentLoad(href: string): boolean {
   const target = pathOf(toAppPath(href));
   const here = window.location.pathname;
   if (target === here || !target.startsWith("/")) return false;
-  return DOCUMENT_ROUTES.has(target) || DOCUMENT_ROUTES.has(here);
+  if (DOCUMENT_ROUTES.has(target) || DOCUMENT_ROUTES.has(here)) return true;
+  // The Outreach Portal (/colleges) has its own CSP (map tiles in img-src): crossing into or out of it is a
+  // full page load; moving inside it stays client-side.
+  return isCollegesPath(target) !== isCollegesPath(here);
+}
+
+/** /colleges and everything under it (the React Outreach Portal; hosting-headers.ts collegesCsp). */
+export function isCollegesPath(pathname: string): boolean {
+  return pathname === "/colleges" || pathname.startsWith("/colleges/");
 }
 
 /** Navigate from anywhere (client-side when possible). */

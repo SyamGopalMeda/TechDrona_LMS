@@ -1,0 +1,323 @@
+/* GENERATED from apps/college-data/portal/public/css/views-college.css by docs/colleges-react/scope-css.mjs: every selector is scoped under .tdp
+   (the portal root), html/:root/body map to .tdp itself, [data-theme] becomes [data-tdp-theme]. Edit the port, not the source. */
+.tdp :is(.v-college, .v-branch, .v-people){display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; color: var(--td-text);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-loading{padding: var(--sp-6); color: var(--td-muted);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-muted{color: var(--td-muted);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-small{font-size: var(--td-text-sm);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-warn-text{color: var(--td-warn); font-weight: 500;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-dash{color: var(--td-muted); margin-right: var(--sp-1);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-vb{display: inline-flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-row{display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-grow{flex: 1;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-code{display: inline-block; font-family: var(--td-font-mono); font-size: var(--td-text-xs); font-weight: 600; padding: 1px 6px; border-radius: var(--td-radius-sm); background: var(--td-brand-soft); color: var(--td-brand-2); margin-left: var(--sp-1);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-link{color: var(--td-link); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; word-break: break-word;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-link:hover{text-decoration: underline;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-linkbtn{background: none; border: 0; padding: 0; color: var(--td-link); font: inherit; font-weight: 600; cursor: pointer; text-align: left;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-contacts{display: inline-flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-actions{display: flex; flex-wrap: wrap; gap: var(--sp-2);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-rowactions{display: inline-flex; gap: var(--sp-1); flex-wrap: wrap; justify-content: flex-end;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-toolbar{display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-toolbar .td-select{width: auto; min-width: 180px;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-check{display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--td-text-sm); cursor: pointer; min-height: 32px;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-tablewrap{min-width: 0;}
+.tdp :is(.v-college, .v-branch, .v-people) a.is-inactive{color: var(--td-muted); text-decoration: line-through;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-kpis{display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--sp-3);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-kpis-4{grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-figs{display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--sp-2);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-figs-3{grid-template-columns: repeat(3, minmax(0, 1fr));}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-fig{background: var(--td-surface-2); border-radius: var(--td-radius-sm); padding: var(--sp-2) var(--sp-3); min-width: 0;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-fig-label{font-size: var(--td-text-xs); color: var(--td-muted); margin-bottom: 2px;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-fig-value{font-weight: 600; font-variant-numeric: tabular-nums;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-fig-value .td-prov{font-weight: 500;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-prog{min-width: 110px;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-prog-num{display: none;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-callout{display: flex; align-items: flex-start; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-radius: var(--td-radius); border: 1px solid var(--td-border); background: var(--td-surface-2);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-callout > .td-btn{margin-left: auto; flex: none; align-self: center;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-callout-ic{flex: none; line-height: 0; margin-top: 2px;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-callout-body{min-width: 0; flex: 1;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-callout-text{color: var(--td-text-2); font-size: var(--td-text-sm); margin-top: 2px;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-callout-bad{background: var(--td-bad-soft); border-color: transparent;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-callout-bad .vx-callout-ic{color: var(--td-bad);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-callout-warn{background: var(--td-warn-soft); border-color: transparent;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-callout-warn .vx-callout-ic{color: var(--td-warn);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-callout-info{background: var(--td-info-soft); border-color: transparent;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-callout-info .vx-callout-ic{color: var(--td-info);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-callout-good{background: var(--td-good-soft); border-color: transparent;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-callout-good .vx-callout-ic{color: var(--td-good);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-list{list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-li{display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) 0; border-bottom: 1px solid var(--td-border);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-li:last-child{border-bottom: 0;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-li-main{flex: 1; min-width: 0;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-li-title{font-weight: 600;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-li-sub{font-size: var(--td-text-sm); color: var(--td-text-2); margin-top: 2px;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-li.is-done .vx-li-title{color: var(--td-muted); text-decoration: line-through;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-li.is-overdue{box-shadow: inset 3px 0 0 var(--td-bad); padding-left: var(--sp-3);}
+.tdp :is(.v-college, .v-branch, .v-people) .vc-seg{display: inline-flex; border: 1px solid var(--td-border); border-radius: var(--td-radius-pill); padding: 2px; background: var(--td-surface); flex-wrap: wrap;}
+.tdp :is(.v-college, .v-branch, .v-people) .vc-seg-btn{border: 0; background: transparent; color: var(--td-muted); font: inherit; font-size: var(--td-text-sm); font-weight: 500; padding: 4px var(--sp-3); border-radius: var(--td-radius-pill); cursor: pointer; min-height: 30px;}
+.tdp :is(.v-college, .v-branch, .v-people) .vc-seg-btn.is-on{background: var(--td-brand-soft); color: var(--td-brand-2); font-weight: 600;}
+.tdp :is(.v-college, .v-branch, .v-people) .vc-seg-btn:focus-visible{outline: none; box-shadow: var(--td-ring);}
+.tdp :is(.v-college, .v-branch, .v-people) .vc-chips{display: inline-flex; flex-wrap: wrap; gap: 4px;}
+.tdp :is(.v-college, .v-branch, .v-people) .vc-chip{display: inline-flex; align-items: center; border: 1px solid var(--td-border); background: var(--td-surface-2); color: var(--td-text-2); border-radius: var(--td-radius-pill); padding: 1px var(--sp-2); font: inherit; font-size: var(--td-text-xs); font-weight: 600; cursor: pointer; text-decoration: none;}
+.tdp :is(.v-college, .v-branch, .v-people) .vc-chip:hover{border-color: var(--td-brand-2); color: var(--td-brand-2);}
+.tdp :is(.v-college, .v-branch, .v-people) .vc-chip.is-gap{background: var(--td-bad-soft); border-color: transparent; color: var(--td-bad);}
+.tdp :is(.v-college, .v-people) .vc-head{display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); gap: var(--sp-3) var(--sp-5); align-items: start; background: var(--td-surface); border: 1px solid var(--td-border); border-radius: var(--td-radius-lg); padding: var(--sp-4) var(--sp-5); box-shadow: var(--td-shadow-sm);}
+.tdp :is(.v-college, .v-people) .vc-head-main{min-width: 0; display: flex; flex-direction: column; gap: var(--sp-2);}
+.tdp :is(.v-college, .v-people) .vc-kicker{display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--sp-2); font-size: var(--td-text-xs); color: var(--td-muted); font-weight: 600;}
+.tdp :is(.v-college, .v-people) .vc-title{font-family: var(--td-font-display); font-size: var(--td-text-xl); line-height: 1.25; margin: 0; letter-spacing: -.01em; overflow-wrap: anywhere;}
+.tdp :is(.v-college, .v-people) .vc-loc{display: flex; align-items: center; flex-wrap: wrap; gap: 4px; color: var(--td-text-2); font-size: var(--td-text-sm);}
+.tdp .v-college .vc-loc a{color: inherit;}
+.tdp .v-college .vc-short{font-weight: 600; color: var(--td-text); margin-right: var(--sp-2);}
+.tdp .v-college .vc-leadline{display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--sp-2); font-size: var(--td-text-sm);}
+.tdp .v-college .vc-leadline .vc-leadname{font-weight: 700; color: var(--td-text);}
+.tdp .v-college .vc-leadline.is-missing{color: var(--td-warn); font-weight: 600;}
+.tdp .v-college .vc-head-side{display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0;}
+.tdp .v-college .vc-tgt{display: flex; flex-direction: column; gap: 6px; text-align: left; width: 100%; font: inherit; color: inherit; cursor: pointer; background: var(--td-surface-2); border: 1px solid transparent; border-radius: var(--td-radius); padding: var(--sp-3);}
+.tdp .v-college button.vc-tgt:hover{border-color: var(--td-border-strong);}
+.tdp .v-college button.vc-tgt:focus-visible{outline: none; box-shadow: var(--td-ring);}
+.tdp .v-college .vc-tgt .td-progress__meta{display: none;}
+.tdp .v-college .vc-tgt-top{display: flex; align-items: baseline; gap: var(--sp-2);}
+.tdp .v-college .vc-tgt-top strong{font-size: var(--td-text-lg);}
+.tdp .v-college .vc-tgt-pct{margin-left: auto; font-weight: 700; color: var(--td-brand);}
+.tdp .v-college .vc-tgt-sub{display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); color: var(--td-text-2);}
+.tdp .v-college .vc-tgt.is-empty{cursor: default; flex-direction: row; flex-wrap: wrap; align-items: center; border: 1px dashed var(--td-border-strong); background: var(--td-surface);}
+.tdp .v-college .vc-tgt.is-empty .td-btn{margin-left: auto;}
+.tdp .v-college .vc-head-acts{display: flex; flex-wrap: wrap; gap: var(--sp-2);}
+.tdp .v-college .vc-head-acts > .td-btn:first-child{flex: 1 1 auto;}
+.tdp .v-college .vc-head--skel{min-height: 150px; grid-template-columns: 1fr;}
+.tdp .v-college .vc-head--skel .vc-head-main{gap: var(--sp-3);}
+.tdp .v-college .vc-tabs .td-tabs__list{overflow-x: auto; flex-wrap: nowrap;}
+.tdp .v-college .vc-tabs .td-tab{white-space: nowrap; flex: none;}
+.tdp .v-college .vc-tab{display: flex; flex-direction: column; gap: var(--sp-4); padding-top: var(--sp-4); min-width: 0;}
+.tdp .v-college .vc-kpis{display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2);}
+.tdp .v-college .vc-kpis > *{min-width: 0;}
+.tdp .v-college .vc-kpis .td-kpi__value{overflow-wrap: anywhere;}
+.tdp .v-college .vc-steps{display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: var(--sp-2);}
+.tdp .v-college .vc-vval{display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--sp-2); min-width: 0;}
+.tdp .v-college .vc-vval-v{overflow-wrap: anywhere;}
+.tdp .v-college .vc-vbar{display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); align-items: center; padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3); border-radius: var(--td-radius-sm); background: var(--td-warn-soft); font-size: var(--td-text-sm);}
+.tdp .v-college .vc-cphone{display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1);}
+.tdp .v-college .vc-team-bar{display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--sp-3);}
+.tdp .v-college .vc-team-sum{display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-4); font-size: var(--td-text-sm); color: var(--td-text-2);}
+.tdp .v-college .vc-team-sum strong{color: var(--td-text); font-variant-numeric: tabular-nums;}
+.tdp .v-college .vc-team-sum .is-warn,.tdp .v-college .vc-team-sum .is-warn strong{color: var(--td-warn);}
+.tdp .v-college .vc-teambody{display: flex; flex-direction: column; gap: var(--sp-4);}
+.tdp .v-college .vc-tree,.tdp .v-college .vc-tree-kids{list-style: none; margin: 0; padding: 0;}
+.tdp .v-college .vc-tree{display: flex; flex-direction: column; gap: var(--sp-3);}
+.tdp .v-college .vc-tree-kids{display: flex; flex-direction: column; gap: var(--sp-2); margin: var(--sp-2) 0 0 var(--sp-5); padding-left: var(--sp-4); border-left: 2px solid var(--td-border);}
+.tdp .v-college .vc-tree-kids > .vc-node{position: relative;}
+.tdp .v-college .vc-tree-kids > .vc-node::before{content: ""; position: absolute; left: calc(-1 * var(--sp-4) - 2px); top: 22px; width: var(--sp-4); border-top: 2px solid var(--td-border);}
+.tdp .v-college .vc-pcard{display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; max-width: 820px; background: var(--td-surface); border: 1px solid var(--td-border); border-left: 4px solid var(--td-border-strong); border-radius: var(--td-radius); padding: var(--sp-2) var(--sp-3);}
+.tdp .v-college .vc-pcard.is-college_lead{border-left-color: var(--td-brand);}
+.tdp .v-college .vc-pcard.is-ambassador_lead{border-left-color: var(--td-brand-2);}
+.tdp .v-college .vc-pcard.is-ambassador{border-left-color: var(--td-accent);}
+.tdp .v-college .vc-pcard.is-unassigned{border-left-color: var(--td-warn); background: color-mix(in srgb, var(--td-warn-soft) 45%, var(--td-surface));}
+.tdp .v-college .vc-pcard.is-inactive{opacity: .75;}
+.tdp .v-college .vc-pcard.is-vacant{border-style: dashed; border-left-width: 2px; background: var(--td-surface-2);}
+.tdp .v-college .vc-pcard-top{display: flex; align-items: center; gap: var(--sp-2); min-width: 0;}
+.tdp .v-college .vc-pcard-ic{flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--td-surface-2); color: var(--td-brand-2);}
+.tdp .v-college .vc-pcard-id{display: flex; flex-direction: column; min-width: 0; flex: 1;}
+.tdp .v-college .vc-pcard-name{font-weight: 700; color: var(--td-text); overflow-wrap: anywhere;}
+.tdp .v-college .vc-pcard-issue{display: flex; align-items: center; gap: 6px; color: var(--td-warn); font-weight: 600;}
+.tdp .v-college .vc-pcard-bottom{display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2) var(--sp-3);}
+.tdp .v-college .vc-pcard-perf{display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); flex: 1 1 260px; justify-content: flex-end; min-width: 0;}
+.tdp .v-college .vc-pcard-perf .td-pbar{flex: 1 1 180px; max-width: 280px;}
+.tdp .v-college .vc-pcard.is-compact .vc-pcard-perf{flex-basis: 200px;}
+.tdp .v-college .vc-unlist{list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2);}
+.tdp .v-college .vc-unlist > li{display: flex; align-items: flex-start; gap: var(--sp-2);}
+.tdp .v-college .vc-unlist > li > .td-check{margin-top: 14px; flex: none;}
+.tdp .v-college .vc-unlist > li > .vc-pcard{flex: 1;}
+.tdp .v-college .vc-inactive > summary,.tdp .v-college .vc-done > summary{cursor: pointer; font-weight: 600; color: var(--td-text-2); padding: var(--sp-2) 0; min-height: 40px;}
+.tdp .v-college .vc-inactive-list{display: flex; flex-direction: column; gap: var(--sp-2);}
+.tdp .v-college .vcc-num{display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--sp-3); font-size: var(--td-text-sm);}
+.tdp .v-college .vc-perf-bar{display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3);}
+.tdp .v-college .vc-perf-host{display: flex; flex-direction: column; gap: var(--sp-4);}
+.tdp .v-college .vc-pcol{display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4);}
+.tdp .v-college .vc-pcol-head{display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-3);}
+.tdp .v-college .vc-pcol-head h3{margin: 0; font-size: var(--td-text-md);}
+.tdp .v-college .vc-pstats{display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: var(--sp-2) var(--sp-4);}
+.tdp .v-college .vc-pstat{display: flex; flex-direction: column; gap: 2px; min-width: 0;}
+.tdp .v-college .vc-pstat strong{font-size: var(--td-text-lg); font-variant-numeric: tabular-nums;}
+.tdp .v-college .vc-note{display: flex; align-items: center; gap: var(--sp-2); margin: 0;}
+.tdp .v-college .vc-act-bar{justify-content: flex-start;}
+.tdp .v-college .vc-exam-now{display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--sp-3); padding: var(--sp-4);}
+.tdp .v-college .vc-countdown{display: flex; flex-direction: column; gap: 2px; font-size: var(--td-text-sm);}
+.tdp .v-college .vc-cd-main{font-weight: 600;}
+.tdp .v-college .vc-cd-sub{color: var(--td-muted);}
+.tdp .v-college .vc-bsrc{overflow-wrap: anywhere;}
+.tdp .v-college .vx-figs-4{grid-template-columns: repeat(4, minmax(0, 1fr));}
+.tdp .v-college .vx-figs-4 .vx-fig{padding: var(--sp-2);}
+.tdp .v-college .vx-figs-4 .td-prov{font-size: 10px;}
+.tdp .vcf{display: flex; flex-direction: column; gap: var(--sp-4);}
+.tdp .vcf .vcf-group{border: 0; margin: 0; padding: 0; min-width: 0;}
+.tdp .vcf .vcf-group > legend{font-weight: 700; font-size: var(--td-text-md); padding: 0; margin-bottom: var(--sp-1);}
+.tdp .vcf .vcf-group > p{margin: 0 0 var(--sp-3);}
+.tdp .vcf .vx-muted{color: var(--td-muted);}
+.tdp .vcf .vx-small{font-size: var(--td-text-sm);}
+.tdp .vcf .vcf-dup{display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-2) var(--sp-3); border-radius: var(--td-radius-sm); font-size: var(--td-text-sm);}
+.tdp .vcf .vcf-dup.is-warn{background: var(--td-warn-soft); color: var(--td-text);}
+.tdp .vcf .vcf-dup.is-bad{background: var(--td-bad-soft); color: var(--td-text);}
+.tdp .vcf .vcf-dup ul{margin: var(--sp-1) 0; padding-left: var(--sp-4);}
+.tdp .vcf .vcf-vlist{display: flex; flex-direction: column; gap: var(--sp-2);}
+.tdp .vcf .vcf-vrow{display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: var(--sp-2) var(--sp-3); align-items: start; padding: var(--sp-2) 0; border-top: 1px solid var(--td-border);}
+.tdp .vcf .vcf-vlabel{display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--sp-2); min-width: 0;}
+.tdp .vcf .vcf-vsrc{flex-basis: 100%; overflow-wrap: anywhere;}
+.tdp .vcf .vcf-vin{min-width: 0;}
+.tdp .vcf .vcf-note{margin: 0;}
+@media (max-width: 699px){.tdp .vcf .vcf-vrow{grid-template-columns: 1fr;}
+}
+.tdp .v-college .vc-exams{display: flex; flex-direction: column; gap: var(--sp-3);}
+.tdp .v-college .vc-exam-state{display: flex; gap: var(--sp-3); align-items: flex-start; flex-wrap: wrap;}
+.tdp .v-college .vc-exam-grid{display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--sp-3);}
+.tdp .v-college .vc-exam-card{border: 1px solid var(--td-border); border-radius: var(--td-radius); padding: var(--sp-3) var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0;}
+.tdp .v-college .vc-exam-card h4{margin: 0; font-size: var(--td-text-md);}
+.tdp .v-college .vc-exam-card p{margin: 0;}
+.tdp .v-college .vc-needlist{list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2);}
+.tdp .v-college .vc-needlist li{display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);}
+.tdp .v-college .vc-needlist li .td-btn{margin-left: auto;}
+.tdp .v-college .vc-bcards{display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); gap: var(--sp-3);}
+.tdp .v-college .vc-bcard{display: flex; flex-direction: column; gap: var(--sp-3); background: var(--td-surface); border: 1px solid var(--td-border); border-radius: var(--td-radius); padding: var(--sp-4); cursor: pointer; box-shadow: var(--td-shadow-sm); min-width: 0; transition: border-color var(--td-dur-1) var(--td-ease), box-shadow var(--td-dur-1) var(--td-ease);}
+.tdp .v-college .vc-bcard:hover{border-color: var(--td-brand-2); box-shadow: var(--td-shadow);}
+.tdp .v-college .vc-bcard:focus-visible{outline: none; box-shadow: var(--td-ring);}
+.tdp .v-college .vc-bcard.is-gap{border-color: var(--td-bad); box-shadow: inset 4px 0 0 var(--td-bad);}
+.tdp .v-college .vc-bcard.is-irrelevant{background: var(--td-surface-2);}
+.tdp .v-college .vc-bcard-head{display: flex; justify-content: space-between; gap: var(--sp-2); align-items: flex-start;}
+.tdp .v-college .vc-bcard-head > div{min-width: 0; display: flex; flex-direction: column; gap: var(--sp-2);}
+.tdp .v-college .vc-bcard-title{font-weight: 700; line-height: 1.3;}
+.tdp .v-college .vc-bcard-title .vx-code{margin-left: 0;}
+.tdp .v-college .vc-bcard-dl{display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px var(--sp-3); margin: 0; font-size: var(--td-text-sm);}
+.tdp .v-college .vc-bcard-dl dt{color: var(--td-muted);}
+.tdp .v-college .vc-bcard-dl dd{margin: 0; min-width: 0; overflow-wrap: anywhere;}
+.tdp .v-college .vc-bcard-target{border-top: 1px solid var(--td-border); padding-top: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2);}
+.tdp .v-college .vc-bcard-tnums{display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); font-size: var(--td-text-sm); color: var(--td-muted);}
+.tdp .v-college .vc-bcard-tnums strong{color: var(--td-text); font-variant-numeric: tabular-nums;}
+.tdp .v-college .vc-bcard-target .td-progress__meta{display: none;}
+.tdp .v-college .vc-bcard-cta{align-self: flex-start;}
+.tdp .v-college .vx-figs-3 .vx-fig{padding: var(--sp-2);}
+.tdp .v-college .vx-figs-3 .td-prov{font-size: 10px;}
+.tdp .v-college .td-table tr:has(.vx-rowflag){background: var(--td-bad-soft);}
+.tdp .v-college .td-table tr:has(.vx-rowflag) td:first-child{box-shadow: inset 3px 0 0 var(--td-bad);}
+.tdp .v-college .vx-rowflag{display: none;}
+.tdp .v-college .vc-audit{list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;}
+.tdp .v-college .vc-audit-item{padding: var(--sp-3) 0; border-bottom: 1px solid var(--td-border);}
+.tdp .v-college .vc-audit-item:last-child{border-bottom: 0;}
+.tdp .v-college .vc-audit-head{display: flex; flex-wrap: wrap; align-items: center; gap: 4px;}
+.tdp .v-college .vc-diff{list-style: none; margin: var(--sp-2) 0 0; padding: 0 0 0 var(--sp-3); border-left: 2px solid var(--td-border); font-size: var(--td-text-sm); display: flex; flex-direction: column; gap: 2px;}
+.tdp .v-college .vc-diff code{font-family: var(--td-font-mono); font-size: var(--td-text-xs); color: var(--td-text-2);}
+.tdp .v-college .vc-diff-old{color: var(--td-bad); text-decoration: line-through; overflow-wrap: anywhere;}
+.tdp .v-college .vc-diff-new{color: var(--td-good); font-weight: 600; overflow-wrap: anywhere;}
+.tdp .v-college .vc-btools{display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3);}
+.tdp .v-college .vc-btools > input.td-input{flex: 2 1 220px; min-width: 0; width: auto;}
+.tdp .v-college .vc-btools > .td-select{flex: 0 1 200px; width: auto;}
+.tdp .v-college .vc-count{white-space: nowrap;}
+.tdp .v-college .vc-gapchips{margin-top: var(--sp-2);}
+.tdp .v-college .vc-gapchips .vc-chip{min-height: 32px; padding: 2px var(--sp-3); font-size: var(--td-text-sm);}
+.tdp .v-college .vc-seg-btn{display: inline-flex; align-items: center; gap: 6px;}
+.tdp .v-college .vc-role-empty{display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2) var(--sp-3);}
+.tdp .v-college .vc-audit-head{gap: var(--sp-1) var(--sp-2);}
+.tdp .v-college .vc-audit-what{flex: 1 1 200px; min-width: 0;}
+.tdp .v-college .vc-audit-when{margin-left: auto; white-space: nowrap;}
+.tdp .v-college .vc-diff-key{color: var(--td-text-2); font-weight: 600;}
+.tdp .v-college .vc-diff-key::after{content: ":";}
+.tdp .v-branch.is-drawer{gap: var(--sp-4);}
+.tdp .v-branch .vb-head h2{margin: 0; font-family: var(--td-font-display); font-size: var(--td-text-xl); line-height: 1.25; letter-spacing: -.01em;}
+.tdp .v-branch .vb-head .vx-code{margin-left: 0;}
+.tdp .v-branch .vb-title{display: flex; flex-direction: column; gap: var(--sp-2);}
+.tdp .v-branch .vb-title > .vx-link{align-self: flex-start;}
+.tdp .v-branch .vb-titlerow{display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3);}
+.tdp .v-branch .vb-titlerow .td-btn{flex: none;}
+.tdp .v-branch .td-section{margin: 0;}
+.tdp .v-branch .vx-figs-4{grid-template-columns: repeat(4, minmax(0, 1fr));}
+.tdp .v-branch .vb-target,.tdp .v-branch .vb-students,.tdp .v-branch .vb-people{display: flex; flex-direction: column; gap: var(--sp-3);}
+.tdp .v-branch .vb-target p,.tdp .v-branch .vb-people p,.tdp .v-branch .vb-source{margin: 0;}
+.tdp .v-branch .vb-notes{margin: 0; color: var(--td-text-2); white-space: pre-line;}
+.tdp .v-branch .vb-skel{display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2) 0;}
+.tdp :is(.v-college, .v-branch) .vx-fig-value :is(.td-vb, .vx-vb){display: flex; flex-direction: column; align-items: flex-start; gap: 4px;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-demo{margin-left: var(--sp-2); font-size: var(--td-text-xs);}
+.tdp .v-people .vp-head{display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: var(--sp-3);}
+.tdp .v-people .vp-head p{margin: var(--sp-1) 0 0;}
+.tdp .v-people .vx-filters{display: grid; grid-template-columns: minmax(200px, 2fr) repeat(auto-fill, minmax(150px, 1fr)); gap: var(--sp-2) var(--sp-3); align-items: end;}
+.tdp .v-people .vx-field{display: flex; flex-direction: column; gap: 4px; min-width: 0;}
+.tdp .v-people .vx-field-label{font-size: var(--td-text-xs); color: var(--td-muted); font-weight: 600;}
+.tdp .v-people .vp-team-totals{display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-5); font-size: var(--td-text-sm); color: var(--td-muted); margin-bottom: var(--sp-3);}
+.tdp .v-people .vp-team-totals strong{color: var(--td-text); font-variant-numeric: tabular-nums;}
+.tdp .v-people .vp-two{display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: var(--sp-4);}
+.tdp .v-people .vp-two > .td-section{margin: 0;}
+.tdp .v-people .vc-kicker .td-badge{font-size: var(--td-text-xs);}
+.tdp .vx-form{display: flex; flex-direction: column; gap: var(--sp-3);}
+.tdp .vx-form .vx-privacy,.tdp .vx-form .vx-form-intro p{margin: 0; display: flex; gap: var(--sp-2); align-items: flex-start; font-size: var(--td-text-sm); padding: var(--sp-2) var(--sp-3); border-radius: var(--td-radius-sm); background: var(--td-info-soft); color: var(--td-text-2);}
+.tdp .vx-form .vx-privacy{background: var(--td-warn-soft);}
+.tdp .vx-form .vx-muted{color: var(--td-muted);}
+.tdp .vx-form .vx-form-danger{border-top: 1px solid var(--td-border); padding-top: var(--sp-3); display: flex; justify-content: flex-start;}
+@media (max-width: 899px){.tdp :is(.v-college, .v-people) .vc-head{grid-template-columns: 1fr; padding: var(--sp-4);}
+}
+@media (max-width: 699px){.tdp :is(.v-college, .v-branch, .v-people){gap: var(--sp-3);}
+.tdp :is(.v-college, .v-people) .vc-title{font-size: var(--td-text-lg);}
+.tdp .v-college .vc-head{gap: var(--sp-3); padding: var(--sp-3) var(--sp-4);}
+.tdp .v-college .vc-head-acts > .td-btn:first-child{flex: 1 1 0;}
+.tdp .v-college .vc-head-acts .vc-act-enrol{flex: 1 1 0;}
+.tdp .v-college .vc-pcard-perf{justify-content: flex-start;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-kpis{grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2);}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-toolbar .td-select{min-width: 0; flex: 1;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-callout{flex-wrap: wrap;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-callout > .td-btn{margin-left: 0; width: 100%;}
+.tdp :is(.v-college, .v-branch, .v-people) .vx-li{flex-wrap: wrap;}
+.tdp .v-college .vc-tree-kids{margin-left: var(--sp-2); padding-left: var(--sp-3);}
+.tdp .v-college .vc-tree-kids > .vc-node::before{display: none;}
+.tdp .v-college .vc-needlist li .td-btn{margin-left: 0;}
+.tdp .v-people .vx-filters{grid-template-columns: repeat(2, minmax(0, 1fr));}
+.tdp .v-people .vx-filters .vx-field-grow{grid-column: 1 / -1;}
+.tdp .td-overlay--drawer:has(.v-branch){align-items: stretch;}
+.tdp .td-drawer:has(.v-branch){width: 100%; height: 100dvh; max-height: 100dvh; border-radius: 0;}
+.tdp .td-drawer:has(.v-branch) .td-drawer__body{padding: var(--sp-4);}
+.tdp .v-branch .vb-actions{flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 calc(-1 * var(--sp-4)); padding: 0 var(--sp-4) var(--sp-1);}
+.tdp .v-branch .vb-actions .td-btn{flex: none;}
+.tdp .v-branch .vx-figs-4{grid-template-columns: repeat(2, minmax(0, 1fr));}
+.tdp .v-college .vc-btools > input.td-input{flex: 1 1 100%;}
+}
+@media (pointer: coarse){.tdp :is(.v-college, .v-branch, .v-people) .vc-chip,.tdp :is(.v-college, .v-branch, .v-people) .vc-seg-btn,.tdp :is(.v-college, .v-branch, .v-people) .vx-check{min-height: 40px;}
+.tdp .v-college .vc-bcard{min-height: 44px;}
+}
+.tdp .v-college,.tdp .v-people{container-type: inline-size;}
+@container (max-width: 640px){.tdp .vc-head{grid-template-columns: 1fr !important;}
+}
+.tdp .vc-planlink{text-decoration: none !important;}
+.tdp .v-college .vc-overview{container: vcov / inline-size;}
+@container vcov (min-width: 600px){.tdp .v-college .vc-overview .vc-kpis{grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3);}
+}
+@container vcov (min-width: 1180px){.tdp .v-college .vc-overview .vc-kpis{grid-template-columns: repeat(6, minmax(0, 1fr));}
+}
+.tdp .v-college .vc-kpis .vc-kpi-text{display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-family: var(--td-font); font-size: var(--td-text-md); font-weight: 700; line-height: 1.3; letter-spacing: normal;}
+.tdp .v-college .vc-kpis .vc-kpi-text .td-badge{font-size: var(--td-text-xs);}
+.tdp[data-form="phone"] .v-college .vc-head{padding: var(--sp-3); gap: var(--sp-2);}
+.tdp[data-form="phone"] .v-college .vc-head-main{gap: 6px;}
+.tdp[data-form="phone"] .v-college .vc-kicker .td-badge{font-size: var(--td-text-xs);}
+.tdp[data-form="phone"] .v-college .vc-tgt{padding: var(--sp-2) var(--sp-3); gap: 4px;}
+.tdp[data-form="phone"] .v-college .vc-head-side{gap: var(--sp-2);}
+.tdp .v-college .vc-head-acts{display: grid; grid-template-columns: minmax(0, 1fr) auto auto;}
+.tdp[data-form="phone"] .v-college .vc-head-acts{grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;}
+.tdp .v-college .vc-head-acts > .td-btn{min-width: 0; justify-content: center;}
+.tdp .v-college .vc-head-acts > .td-btn > span:not(.td-icon){overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.tdp .v-college .vc-head-acts > [aria-haspopup="menu"] > span:not(.td-icon){position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;}
+.tdp .v-college .vc-head-acts > [aria-haspopup="menu"]{min-width: 44px; padding-inline: var(--sp-2);}
+.tdp[data-form="phone"] .v-college .vc-tab{padding-top: var(--sp-3); gap: var(--sp-3);}
+.tdp .v-college .vc-card-title{margin: 0; font-size: var(--td-text-md); font-weight: 700;}
+.tdp .v-college .vc-exam-card .vc-exam-title{margin: 0; font-size: var(--td-text-md);}
+.tdp .v-college .vc-bcard{container: vcbc / inline-size;}
+.tdp .v-college .vc-bcard .vx-figs-4{grid-template-columns: repeat(2, minmax(0, 1fr));}
+@container vcbc (min-width: 420px){.tdp .v-college .vc-bcard .vx-figs-4{grid-template-columns: repeat(4, minmax(0, 1fr));}
+}
+.tdp .v-college .vc-bcard .td-prov{max-width: 100%; white-space: normal;}
+.tdp .v-college .vc-unlist > li{display: flex; align-items: flex-start; gap: var(--sp-2);}
+.tdp .v-college .vc-unpick{display: inline-flex; align-items: center; justify-content: center; min-width: 32px; min-height: 32px; flex: none; cursor: pointer;}
+@media (pointer: coarse){.tdp .v-college .vc-unpick{min-width: 44px; min-height: 44px;}
+}
+.tdp[data-form="phone"] .v-college .vc-team-bar > .vx-actions{width: 100%;}
+.tdp[data-form="phone"] .v-college .vc-team-bar > .vx-actions > .td-btn{flex: 1 1 auto;}
+.tdp[data-form="phone"] .v-college .vc-teambody .td-section__actions .vx-actions{width: 100%;}
+.tdp[data-form="phone"] .v-college .vc-teambody .td-section__actions .td-select{flex: 1 1 100%;}
+.tdp :is(.v-college, .v-branch) .vx-linkbtn{min-height: 32px; display: inline-flex; align-items: center;}
+@media (pointer: coarse){.tdp :is(.v-college, .v-branch) .vx-linkbtn{min-height: 44px;}
+}
+.tdp[data-form="phone"] .v-college .vc-btools > .td-select{flex: 1 1 0;}
+@media (pointer: coarse){.tdp .v-college .vc-gapchips .vc-chip,.tdp :is(.v-college, .v-branch) .vc-chip,.tdp :is(.v-college, .v-branch) .vx-check{min-height: 44px;}
+}
