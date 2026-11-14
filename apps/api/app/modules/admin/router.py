@@ -741,3 +741,8 @@ router.include_router(accounts.r)
 from app.modules.admin import courses_overview as _courses_overview  # noqa: E402
 
 router.include_router(_courses_overview.r)
+
+# Student management: Excel / CSV import, bulk enrolment, login details (admin/students.py).
+from app.modules.admin import students as _students  # noqa: E402
+
+router.include_router(_students.r)

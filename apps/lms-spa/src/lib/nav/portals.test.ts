@@ -99,7 +99,8 @@ describe("visibleNav (live audit nav cleanup)", () => {
 
   it("admin: about two dozen items, no gateway, duplicates or engineering tools", () => {
     const shown = visibleNav(PORTALS.admin.nav, { connected: { payments: false } });
-    expect(shown.length).toBeLessThanOrEqual(25);
+    // 25 after the live audit + People › Import students (student management, 2026-11-14).
+    expect(shown.length).toBeLessThanOrEqual(26);
     const h = hrefs(shown);
     for (const gone of [...GATEWAY, "/security/unblock-requests", "/security/rules", "/security/reports", "/admin/feature-flags", "/admin/break-glass"]) {
       expect(h, gone).not.toContain(gone);

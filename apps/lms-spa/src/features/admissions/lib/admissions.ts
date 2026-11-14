@@ -3,6 +3,8 @@
  * Backend: apps/api/app/modules/admissions (admin.py + service.py `*_out`). Money is paise.
  */
 
+import type { LetterSummary } from "./letters";
+
 export const REG_STATUSES = [
   "registered",
   "pending_verification",
@@ -76,6 +78,8 @@ export interface Registration {
   account_username?: string | null;
   /** When the login email (username + temporary password) last went out; null = never. */
   login_email_sent_at?: string | null;
+  /** List and page: the admission / offer letter in force (null = none issued yet). */
+  letter?: LetterSummary | null;
 }
 
 /** service.claim_out */
@@ -139,6 +143,8 @@ export interface RegistrationDetail extends Registration {
   eligible: boolean;
   claims?: Claim[];
   events?: AdmissionEvent[];
+  /** Admissions setting: open the letter step after enrolling (default on). */
+  letter_step_auto?: boolean;
 }
 
 /** Result of every money/enrolment action (service.finish_enrolment & co). */
@@ -152,6 +158,8 @@ export interface ActionResult {
   /** Approve pressed again for an already approved payment: nothing changed. */
   already_verified?: boolean;
   warning?: string | null;
+  /** "Enrol now": open the letter step next (admissions setting). */
+  letter_step_auto?: boolean;
 }
 
 export interface CourseFigures {
@@ -252,6 +260,13 @@ export const regHref = (id: string) => `/finance/admissions/registrations/${id}`
 /* ------------------------------------------------------------------ course registration status */
 
 /** Whether a course takes registrations (website + LMS read it within a minute). */
+/** Payments > Admissions > Courses (the per-course registration switch). */
+export const COURSE_STATUS_HREF = "/finance/admissions#course-status";
+/** That course's fee plan (opens the plan form; a new plan when the course has none). */
+export const planEditHref = (slug: string) => `/finance/admissions/plans?edit=${encodeURIComponent(slug)}`;
+/** Registrations for one course (`?course=<slug>` filters the list). */
+export const courseRegistrationsHref = (slug: string) => `/finance/admissions/registrations?course=${encodeURIComponent(slug)}`;
+
 export const COURSE_STATUSES = ["open", "coming_soon", "closed"] as const;
 export type CourseStatus = (typeof COURSE_STATUSES)[number];
 export const COURSE_STATUS_LABEL: Record<CourseStatus, string> = {
@@ -298,6 +313,8 @@ export interface VerifyEnrolResult {
   account: AccountOut;
   email: EmailOutcome;
   login_url: string;
+  /** Open the admission-letter step next (admissions setting, default on). */
+  letter_step_auto?: boolean;
 }
 
 /** POST /admin/admissions/registrations/{id}/login-email */
@@ -317,6 +334,8 @@ export interface LoginDetails {
   account: AccountOut;
   email: EmailOutcome;
   login_url: string;
+  /** Just enrolled and the letter step should open after these details are closed. */
+  letter_step_auto?: boolean;
 }
 
 /** One line on what happened to the login email. */

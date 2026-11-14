@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Card, Icon, ViewAllLink } from "@/components/ui";
 import { stripCourses } from "../lib/catalog";
 import { loadSiteCatalog } from "../lib/server";
-import type { SiteAudience, SiteCatalog } from "../lib/types";
+import type { SiteCatalog, SiteLearnerAudience } from "../lib/types";
 import { RevealGroup } from "./RevealGroup";
 import { NotOpenLabel, notOpenLabel, OPENS_WEBSITE, SiteCourseStatus, STRETCHED_LINK, siteCourseActions, siteCourseDateNote, siteCourseLink, siteIcon } from "./SiteCourseCard";
 import s from "./site-catalog.module.css";
@@ -16,7 +16,7 @@ export interface SiteCourseStripProps {
   allHref?: string;
   title?: string;
   /** Signed-in students register in the app (default); visitors on /register/<slug>. */
-  audience?: SiteAudience;
+  audience?: SiteLearnerAudience;
 }
 
 /**

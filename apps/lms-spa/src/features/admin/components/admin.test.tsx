@@ -398,10 +398,13 @@ describe("Admin users (ADM-004)", () => {
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByRole("option", { name: "Admin" })).toBeInTheDocument();
     const must = within(dialog).getByLabelText(/Must change password on first login/);
-    expect(must).not.toBeChecked();
+    // empty password = a generated temporary one, which must always be changed
+    expect(must).toBeChecked();
+    expect(must).toBeDisabled();
     await userEvent.type(within(dialog).getByLabelText(/Full name/), "Meena Iyer");
     await userEvent.type(within(dialog).getByLabelText(/^Email/), "meena@example.com");
     await userEvent.type(within(dialog).getByLabelText(/Starting password/), "start-123");
+    expect(must).not.toBeChecked();
     await userEvent.click(must);
     await userEvent.type(within(dialog).getByLabelText(/Reason/), "New student");
     await userEvent.click(within(dialog).getByLabelText(/18 or older/));

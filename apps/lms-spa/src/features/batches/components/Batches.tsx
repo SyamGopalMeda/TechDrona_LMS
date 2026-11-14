@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { AnnounceButton } from "./AnnounceButton";
 import { useMemo, useState } from "react";
-import { Button, Card, Dialog, FilterBar, FormField, Input, PageHeader, SectionHeader, Select, StatGrid, StatTile, Table, Tabs, useToast, type Crumb, type TabItem } from "@/components/ui";
+import { Button, Card, Dialog, FilterBar, FormField, Input, LinkButton, PageHeader, SectionHeader, Select, StatGrid, StatTile, Table, Tabs, useToast, type Crumb, type TabItem } from "@/components/ui";
+import { EnrolDialog } from "@/features/admin/components/StudentImport";
 import { api } from "@/lib/api/client";
 import { useApi, seg, type ApiState } from "@/features/trainer/shared/use-api";
 import { Boundary, StatusBadge, fieldErrorsOf, useFailToast } from "@/features/trainer/shared/ui";
@@ -232,6 +233,9 @@ export function BatchDetail({
   const [adding, setAdding] = useState(false);
   const [memberAction, setMemberAction] = useState<{ member: BatchMember; kind: "remove" | "move" } | null>(null);
   const manage = manageable && !!batch.data && batch.data.status !== "archived";
+  // Admin: pick students, then "Enrol in course" (admin/students/import with user_ids).
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [enrolOpen, setEnrolOpen] = useState(false);
   const refresh = () => {
     void members.reload();
     void report.reload();
@@ -239,6 +243,17 @@ export function BatchDetail({
 
   const b0 = batch.data;
   const memberNames = Object.fromEntries((members.data?.data ?? []).map((m) => [m.user_id, m.full_name]));
+  const students = (members.data?.data ?? []).filter((m) => m.member_role === "student");
+  const allPicked = students.length > 0 && students.every((m) => picked.has(m.user_id));
+  const pick = (ids: string[], on: boolean) =>
+    setPicked((s) => {
+      const next = new Set(s);
+      for (const id of ids) {
+        if (on) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
 
   const overview = (
     <div className="space-y-6">
@@ -247,18 +262,48 @@ export function BatchDetail({
       </Card>
       <SectionHeader
         title="Members"
-        description={manage ? "Students in this batch. Move or remove one from its row." : undefined}
+        description={manage ? "Students in this batch. Move or remove one from its row, or select students to enrol them in a course." : undefined}
         actions={
           manage ? (
-            <Button variant="secondary" onClick={() => setAdding(true)}>
-              Add student
-            </Button>
+            <span className="flex flex-wrap gap-2">
+              <LinkButton variant="secondary" href={`/admin/users/import?batch=${encodeURIComponent(batchId)}`}>
+                Import students
+              </LinkButton>
+              <Button variant="secondary" onClick={() => setAdding(true)}>
+                Add student
+              </Button>
+            </span>
           ) : undefined
         }
       />
       <Table
         caption="Batch members"
+        toolbar={
+          manage && picked.size ? (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="font-medium">{picked.size} selected</span>
+              <Button size="sm" onClick={() => setEnrolOpen(true)}>
+                Enrol in course/batch
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>
+                Clear selection
+              </Button>
+            </div>
+          ) : undefined
+        }
         columns={[
+          ...(manage
+            ? [
+                {
+                  key: "pick",
+                  header: <input type="checkbox" className="h-4 w-4 cursor-pointer" aria-label="Select every student" checked={allPicked} onChange={(e) => pick(students.map((m) => m.user_id), e.target.checked)} />,
+                  cell: (m: BatchMember) =>
+                    m.member_role === "student" ? (
+                      <input type="checkbox" className="h-4 w-4 cursor-pointer" aria-label={`Select ${m.full_name ?? "student"}`} checked={picked.has(m.user_id)} onChange={(e) => pick([m.user_id], e.target.checked)} />
+                    ) : null,
+                },
+              ]
+            : []),
           {
             key: "name",
             header: "Name",
@@ -316,6 +361,16 @@ export function BatchDetail({
             kind={memberAction?.kind ?? null}
             onClose={() => setMemberAction(null)}
             onDone={refresh}
+          />
+          <EnrolDialog
+            open={enrolOpen}
+            onClose={() => setEnrolOpen(false)}
+            userIds={[...picked]}
+            defaultBatchId={batchId}
+            onDone={() => {
+              setPicked(new Set());
+              refresh();
+            }}
           />
         </>
       ) : null}

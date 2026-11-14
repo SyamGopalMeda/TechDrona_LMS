@@ -66,7 +66,8 @@ describe("pickContinueTarget", () => {
   it("resumes the remembered page", () => {
     expect(pick("/admin/users?status=active")).toBe("/admin/users?status=active");
     expect(pick("/finance/orders", { area: "lms" })).toBe("/finance/orders");
-    expect(pick("/admin/college-data", { area: "colleges" })).toBe("/admin/college-data");
+    // Colleges always resumes full screen (owner 2026-11-14), never the embedded Admin page.
+    expect(pick("/admin/college-data", { area: "colleges" })).toBe("/college-portal/index.html");
   });
 
   it("filters by area", () => {

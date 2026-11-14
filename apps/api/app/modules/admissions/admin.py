@@ -31,6 +31,7 @@ from app.core.routing import authenticated_router
 from app.modules.admissions import courses
 from app.modules.admissions import datastore as ads
 from app.modules.admissions import files as fs
+from app.modules.admissions import letters as lt
 from app.modules.admissions import onboarding as ob
 from app.modules.admissions import rules as R
 from app.modules.admissions import service as sv
@@ -300,8 +301,9 @@ async def verify_and_enrol(
     principal: Principal = VERIFY,
 ) -> dict[str, Any]:
     """Verify the payment, find / create the LMS account, add to the batch, enrol, email the login
-    details. ``account.temporary_password`` is returned once (only when the account was created now)."""
-    return await ob.verify_and_enrol(
+    details. ``account.temporary_password`` is returned once (only when the account was created now).
+    ``letter_step_auto``: open the admission-letter step next (admissions setting, default on)."""
+    out = await ob.verify_and_enrol(
         session,
         await sv.staff_actor(session, principal),
         claim_id,
@@ -311,6 +313,7 @@ async def verify_and_enrol(
         send_email=body.send_email,
         note=body.note,
     )
+    return {**out, "letter_step_auto": await lt.step_auto(session)}
 
 
 # --------------------------------------------------------------------------- registrations
@@ -383,6 +386,7 @@ async def list_registrations(
     rows = rows[:limit]
     last_pay = await _last_payments(session, [r.id for r in rows])
     accounts = await _accounts(session, rows)
+    letters = await lt.letter_info(session, rows)
     return {
         "data": [
             {
@@ -390,6 +394,7 @@ async def list_registrations(
                 **last_pay.get(r.id, _NO_PAYMENT),
                 "has_account": accounts.get(r.id, (False, None))[0],
                 "account_username": accounts.get(r.id, (False, None))[1],
+                "letter": letters.get(r.id),
             }
             for r in rows
         ],
@@ -468,7 +473,59 @@ async def get_registration(
         "batch": batch,
         "claims": [sv.claim_out(c) for c in claims],
         "events": [sv.event_out(e) for e in events],
+        "letter": (await lt.letter_info(session, [r])).get(r.id),
+        "letter_step_auto": await lt.step_auto(session),
     }
+
+
+# --------------------------------------------------------------------------- admission / offer letter
+
+
+@staff.get("/admin/admissions/registrations/{registration_id}/letter", openapi_extra=NEUTRAL)
+async def registration_letter(
+    registration_id: uuid.UUID, session: PrincipalDbSession, principal: Principal = READ
+) -> dict[str, Any]:
+    """The admission-letter step: the prefilled draft (for ``/admin/documents/preview`` and
+    ``POST /admin/documents``), the letter in force and earlier ones, email state."""
+    return (await lt.letter_steps(session, [await _reg(session, registration_id)]))[0]
+
+
+class AdmissionLetterDraftsIn(Strict):
+    registration_ids: list[uuid.UUID] = Field(min_length=1, max_length=50)
+
+
+@staff.post("/admin/admissions/letters/drafts")
+async def letter_drafts(
+    body: AdmissionLetterDraftsIn, session: PrincipalDbSession, principal: Principal = READ
+) -> dict[str, Any]:
+    """The letter step of several registrations at once (bulk "Preview & issue letters"); read
+    only. Unknown ids are left out."""
+    ids = list(dict.fromkeys(body.registration_ids))
+    rows = list(
+        (
+            await ads.execute(session, select(AdmissionRegistration).where(AdmissionRegistration.id.in_(ids)))
+        ).scalars()
+    )
+    order = {rid: i for i, rid in enumerate(ids)}
+    rows.sort(key=lambda r: order[r.id])
+    return {"data": await lt.letter_steps(session, rows)}
+
+
+class AdmissionLetterSettingsIn(Strict):
+    auto_open: bool
+
+
+@staff.get("/admin/admissions/letter-settings", openapi_extra=NEUTRAL)
+async def get_letter_settings(session: PrincipalDbSession, principal: Principal = READ) -> dict[str, Any]:
+    return {"auto_open": await lt.step_auto(session)}
+
+
+@staff.put("/admin/admissions/letter-settings")
+async def put_letter_settings(
+    body: AdmissionLetterSettingsIn, session: PrincipalDbSession, principal: Principal = VERIFY
+) -> dict[str, Any]:
+    """Setting: after enrolling, open the admission-letter step automatically (default on)."""
+    return await lt.set_step_auto(session, await sv.staff_actor(session, principal), body.auto_open)
 
 
 @staff.get("/admin/admissions/registrations/{registration_id}/resume", openapi_extra=NEUTRAL)
@@ -588,7 +645,8 @@ async def set_fee(
 async def enrol(
     registration_id: uuid.UUID, session: PrincipalDbSession, principal: Principal = VERIFY
 ) -> dict[str, Any]:
-    return await sv.manual_enrol(session, await sv.staff_actor(session, principal), registration_id)
+    out = await sv.manual_enrol(session, await sv.staff_actor(session, principal), registration_id)
+    return {**out, "letter_step_auto": await lt.step_auto(session)}
 
 
 # --------------------------------------------------------------------------- fee plans / pay-to

@@ -536,6 +536,7 @@ EMAIL_KEYS: tuple[str, ...] = tuple(EMAIL_TEMPLATES)
 SETTINGS_TEXT_LIMITS: dict[str, int] = {
     "company": 120,
     "legal_name": 160,
+    "tagline": 120,
     "address": 300,
     "phone": 40,
     "email": 160,
@@ -548,7 +549,12 @@ SETTINGS_TEXT_LIMITS: dict[str, int] = {
     "designation2": 80,
     "portal_url": 200,
 }
-IMAGE_SLOTS: tuple[str, ...] = ("signature", "seal", "signature2")
+# signature: the Authorised Signatory's (the only signature printed); seal: company stamp beside it
+# on letters; logo_left / logo_right: optional top-row logos of the certificate template and the
+# letterhead (empty by default; only logos the company may use, e.g. its own accreditations);
+# signature2: kept for compatibility, not printed (one signatory).
+IMAGE_SLOTS: tuple[str, ...] = ("signature", "seal", "signature2", "logo_left", "logo_right")
+DEFAULT_TAGLINE = "Debug your career. Deploy your dreams."
 
 
 def clean_settings(x: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -561,6 +567,7 @@ def clean_settings(x: dict[str, Any] | None = None) -> dict[str, Any]:
             " ".join(str(x.get(k) or "").split())[:n] if k != "address" else str(x.get(k) or "").strip()[:n]
         )
     out["company"] = out["company"] or "Tech Drona"
+    out["tagline"] = out["tagline"] or DEFAULT_TAGLINE
     lines = x.get("reg_lines") or []
     if isinstance(lines, str):
         lines = lines.split("\n")
@@ -1015,6 +1022,12 @@ def render_extras(doc_type: str, fields: dict[str, Any], recipient: dict[str, An
             "skills": line_items(f.get("cert_skills"), 6),
             "merit": merit.capitalize() if merit.lower() in ("distinction", "merit") else "",
             "citation": re.sub(r"\s*\n\s*", " ", _t(f.get("citation"))),
+            # the certificate's details sentence ("from ... to ..., comprising ..., with grade ...")
+            "start": long_date(f.get("start_date")) if _t(f.get("start_date")) else "",
+            "end": long_date(f.get("end_date")) if _t(f.get("end_date")) else "",
+            "hours": _t(f.get("hours")),
+            "grade": _t(f.get("grade")),
+            "held_on": _t(f.get("event_date")),
         }
     return {}
 

@@ -383,7 +383,15 @@ async def user_detail(
         },
         "pending_approvals": [apr.approval_out(a) for a in pending],
         "break_glass_active": bg is not None,
+        # Student type / college / internship dates (Add user, Import students); None: not recorded
+        "student": await _student_record(u.id),
     }
+
+
+async def _student_record(user_id: uuid.UUID) -> dict[str, Any] | None:
+    from app.modules.admin.students import student_record
+
+    return await student_record(user_id)
 
 
 # --------------------------------------------------------------------------- ADM-04 deactivate
@@ -402,7 +410,9 @@ class CreateUserIn(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
     email: str = Field(min_length=3, max_length=254)
     mobile: str | None = Field(default=None, max_length=20)
-    password: str = Field(min_length=1, max_length=128)  # policy: password_problems below
+    # Empty / omitted: a ``td######`` username and a temporary password are generated and returned
+    # once (``temporary_password``); the person must change it on first login.
+    password: str | None = Field(default=None, max_length=128)  # policy: password_problems below
     role_key: str | None = Field(default=None, max_length=40)
     scope_type: str = Field(default="platform", pattern="^(platform|batch|course)$")
     scope_id: uuid.UUID | None = None
@@ -411,6 +421,11 @@ class CreateUserIn(BaseModel):
     # "Must change password on first login": the person signs in with the assigned password and
     # must choose a new one before anything else works (403 password_change_required).
     must_change_password: bool = False
+    # Student management (2026-11-14): "Course student" / "Internship student" (stored in
+    # ``student_records``) and an optional immediate enrolment (needs ``enrolment.manage``).
+    student_type: Literal["course", "internship"] | None = None
+    course_id: uuid.UUID | None = None
+    batch_id: uuid.UUID | None = None
 
 
 def _field_problem(field: str, code: str, message: str) -> ProblemError:
@@ -447,9 +462,31 @@ async def create_user(
         phone = normalize_phone(body.mobile)
         if not phone:
             raise _field_problem("mobile", "invalid_mobile", "Enter a valid mobile number")
-    probs = password_problems(body.password, context=(email.split("@")[0],))
-    if probs:
-        raise _field_problem("password", probs[0], "Choose a longer or less common password")
+    password = body.password or None  # empty: generate a temporary one
+    if password is not None:
+        probs = password_problems(password, context=(email.split("@")[0],))
+        if probs:
+            raise _field_problem("password", probs[0], "Choose a longer or less common password")
+    course: Any = None
+    batch: Any = None
+    if body.course_id is not None or body.batch_id is not None:
+        from app.modules.admin import students as stu
+
+        await stu.require_enrol_permissions(session, principal, batch=body.batch_id is not None)
+        cat = await stu.Catalog.load(session)
+        if body.course_id is not None:
+            course, err = cat.course(str(body.course_id))
+            if err:
+                raise _field_problem("course_id", "unknown_course", err)
+        if body.batch_id is not None:
+            batch, err = cat.batch(str(body.batch_id))
+            if err:
+                raise _field_problem("batch_id", "unknown_batch", err)
+            if course is None:
+                course = stu.batch_course(cat, batch)
+    # a student account gets a ``td######`` username (+ a temporary password when none was typed)
+    generated = password is None or body.student_type is not None
+    reveal: list[Any] = []
     role_key = (body.role_key or "").strip() or None
     if role_key is not None:
         if role_key not in ROLES:
@@ -466,47 +503,87 @@ async def create_user(
             raise _field_problem(
                 "mobile", "already_registered", "An account with this mobile number already exists"
             )
-        now = clock.now()
-        uid = uuid7()
-        user = User(
-            id=uid,
-            email=email,
-            email_verified_at=now,
-            phone_e164=phone,
-            status="active",
-            is_minor=False,
-            # The admin confirms the person is 18+ (form checkbox); recorded like a roster import.
-            age_verified_at=now,
-            age_verification_method="roster",
-            account_origin="staff_created",
-        )
-        await ipub.create_user(session, user, UserProfile(user_id=uid, full_name=body.full_name.strip()))
-        if ipub._fs():
-            user.status = "active"
-        await ids.set_password(session, uid, body.password, must_change_password=body.must_change_password)
-        await audit(
-            session,
-            principal,
-            "admin.user.created",
-            "user",
-            uid,
-            subject_user_id=uid,
-            reason=body.reason,
-            after={
-                "status": "active",
-                "account_origin": "staff_created",
-                "has_mobile": phone is not None,
-                "must_change_password": body.must_change_password,
-            },
-        )
-        ev = await emit_any(
-            session,
-            "identity.user_registered",
-            {"user_id": str(uid), "is_minor": False},
-            aggregate_type="user",
-            aggregate_id=uid,
-        )
-        _journal_outbox(session, ev)
+        reveal.clear()
+        username: str | None = None
+        must_change = body.must_change_password
+        if generated:
+            from app.modules.admin import students as stu
+
+            acct = await stu.create_account(
+                session,
+                principal,
+                email=email,
+                phone=phone,
+                full_name=body.full_name.strip(),
+                password=password,
+                must_change_password=body.must_change_password,
+                reason=body.reason,
+                source="admin_add_user",
+            )
+            user, uid, username = acct.user, acct.user.id, acct.username
+            must_change = bool(user.must_change_password)
+            if acct.temporary_password:
+                temp = acct.temporary_password
+                reveal.append(lambda b: b.__setitem__("temporary_password", temp))
+        else:
+            now = clock.now()
+            uid = uuid7()
+            user = User(
+                id=uid,
+                email=email,
+                email_verified_at=now,
+                phone_e164=phone,
+                status="active",
+                is_minor=False,
+                # The admin confirms the person is 18+ (form checkbox); recorded like a roster import.
+                age_verified_at=now,
+                age_verification_method="roster",
+                account_origin="staff_created",
+            )
+            await ipub.create_user(session, user, UserProfile(user_id=uid, full_name=body.full_name.strip()))
+            if ipub._fs():
+                user.status = "active"
+            assert password is not None
+            await ids.set_password(session, uid, password, must_change_password=body.must_change_password)
+            await audit(
+                session,
+                principal,
+                "admin.user.created",
+                "user",
+                uid,
+                subject_user_id=uid,
+                reason=body.reason,
+                after={
+                    "status": "active",
+                    "account_origin": "staff_created",
+                    "has_mobile": phone is not None,
+                    "must_change_password": body.must_change_password,
+                },
+            )
+            ev = await emit_any(
+                session,
+                "identity.user_registered",
+                {"user_id": str(uid), "is_minor": False},
+                aggregate_type="user",
+                aggregate_id=uid,
+            )
+            _journal_outbox(session, ev)
+        enrolment_out: dict[str, Any] | None = None
+        if body.student_type is not None or course is not None or batch is not None:
+            from app.modules.admin import students as stu
+
+            if body.student_type is not None:
+                await stu.save_student_record(
+                    uid, {"student_type": body.student_type}, source="admin", by=principal.user_id
+                )
+            if course is not None or batch is not None:
+                res = await stu.enrol(session, principal, uid, course=course, batch=batch, reason=body.reason)
+                enrolment_out = {
+                    "course": stu.course_out(course),
+                    "batch": stu.batch_out(batch),
+                    "enrolled": res.enrolled or res.already_enrolled,
+                    "added_to_batch": res.added_to_batch or res.already_in_batch,
+                }
         role_out: dict[str, Any] | None = None
         if role_key is not None:
             scope_id = None if body.scope_type == "platform" else body.scope_id
@@ -560,13 +637,18 @@ async def create_user(
                 "user_id": str(uid),
                 "status": user.status,
                 "role": role_out,
-                "must_change_password": body.must_change_password,
+                "must_change_password": must_change,
+                "username": username,
+                # shown once: the replay record keeps null (students.reveal_once)
+                "temporary_password": None,
+                "student_type": body.student_type,
+                "enrolment": enrolment_out,
             },
         )
 
-    return await idempotent(
-        request, idem_session(session), user_id=principal.user_id, operation=op, required=True
-    )
+    from app.modules.admin.students import reveal_once
+
+    return await reveal_once(request, session, user_id=principal.user_id, operation=op, reveal=reveal)
 
 
 @r.post("/admin/users/{user_id}/deactivate", dependencies=_JOURNAL)

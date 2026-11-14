@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import {
   Badge,
   Button,
@@ -12,6 +12,7 @@ import {
   FilterBar,
   FormField,
   Input,
+  LoadingBlock,
   Pagination,
   Segmented,
   Select,
@@ -115,7 +116,41 @@ function RecipientFields({ value, onChange }: { value: Recipient; onChange: (r: 
 
 /* ------------------------------------------------------------------ Create & send */
 
-export function CreateTab({ onIssued }: { onIssued: () => void }) {
+// Bulk (Excel / picked students) is a separate chunk: SheetJS and the bulk UI load only when used.
+const BulkCreate = lazy(() => import("./BulkCreate"));
+
+/** One document (form) or many (Bulk: spreadsheet / picked students). `onChanged` refreshes the
+ * counts without leaving the tab (the bulk results stay on screen); `onIssued` after one document. */
+export function CreateTab({ onIssued, onChanged }: { onIssued: () => void; onChanged?: () => void }) {
+  const [mode, setMode] = useState<"one" | "bulk">("one");
+  return (
+    <div className="pt-4">
+      <Segmented<"one" | "bulk">
+        legend="Create"
+        hideLegend
+        name="create-mode"
+        variant="pills"
+        value={mode}
+        onChange={setMode}
+        options={[
+          { value: "one", label: "One document" },
+          { value: "bulk", label: "Bulk (Excel / students)" },
+        ]}
+      />
+      {mode === "one" ? (
+        <SingleCreate onIssued={onIssued} />
+      ) : (
+        <div className="pt-4">
+          <Suspense fallback={<LoadingBlock label="Loading bulk create…" />}>
+            <BulkCreate onIssued={onChanged ?? (() => undefined)} />
+          </Suspense>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SingleCreate({ onIssued }: { onIssued: () => void }) {
   const catalogue = useApi<DocTypesResponse>("admin/documents/types");
   const [docType, setDocType] = useState("offer_course");
   const [recipient, setRecipient] = useState<Recipient>(EMPTY_RECIPIENT);
@@ -730,7 +765,8 @@ export function TemplatesTab() {
 
 const TEXT_SETTINGS: { key: keyof DocSettings; label: string; hint?: string; wide?: boolean }[] = [
   { key: "company", label: "Company name" },
-  { key: "legal_name", label: "Registered name", hint: "If different from the company name." },
+  { key: "legal_name", label: "Registered name", hint: "If different from the company name. Printed as the issuing organisation on certificates." },
+  { key: "tagline", label: "Tagline / department", hint: "Printed under the organisation name on certificates and letters. The default tagline is already part of the logo, so it is not repeated." },
   { key: "address", label: "Address", wide: true },
   { key: "phone", label: "Phone" },
   { key: "email", label: "Email" },
@@ -741,7 +777,14 @@ const TEXT_SETTINGS: { key: keyof DocSettings; label: string; hint?: string; wid
   { key: "signatory_email", label: "Signatory email", hint: "Printed on recommendation letters." },
   { key: "signatory_phone", label: "Signatory phone" },
 ];
-const IMAGE_LABEL: Record<"signature" | "seal" | "signature2", string> = { signature: "Signature", seal: "Seal / stamp", signature2: "Second signature" };
+type ImageSlot = "signature" | "seal" | "logo_left" | "logo_right";
+const IMAGE_SLOTS: { slot: ImageSlot; label: string; hint: string }[] = [
+  { slot: "signature", label: "Signature", hint: "The authorised signatory's signature, printed on every certificate and letter. Without it a blank signature line is printed." },
+  { slot: "seal", label: "Seal / stamp", hint: "Company stamp, printed beside the signature on letters." },
+  { slot: "logo_left", label: "Left logo", hint: "Optional, top-left of certificates and the letterhead. Empty = nothing printed." },
+  { slot: "logo_right", label: "Right logo", hint: "Optional, top-right of certificates and the letterhead. Empty = nothing printed." },
+];
+const IMAGE_LABEL = Object.fromEntries(IMAGE_SLOTS.map((s) => [s.slot, s.label])) as Record<ImageSlot, string>;
 
 export function DocSettingsTab({ onChanged }: { onChanged: () => void }) {
   const st = useApi<DocSettings>("admin/documents/settings");
@@ -774,7 +817,7 @@ export function DocSettingsTab({ onChanged }: { onChanged: () => void }) {
     }
   }
 
-  async function upload(slot: "signature" | "seal" | "signature2", file: File | undefined) {
+  async function upload(slot: ImageSlot, file: File | undefined) {
     if (!file) return;
     setBusy(slot);
     try {
@@ -789,7 +832,7 @@ export function DocSettingsTab({ onChanged }: { onChanged: () => void }) {
     }
   }
 
-  async function remove(slot: "signature" | "seal" | "signature2") {
+  async function remove(slot: ImageSlot) {
     setBusy(slot);
     try {
       await api.delete(`admin/documents/settings/images/${slot}`);
@@ -801,7 +844,7 @@ export function DocSettingsTab({ onChanged }: { onChanged: () => void }) {
     }
   }
 
-  async function view(slot: "signature" | "seal" | "signature2") {
+  async function view(slot: ImageSlot) {
     try {
       const r = await api.get<{ url: string }>(`admin/documents/settings/images/${slot}`);
       if (r.url) window.open(r.url, "_blank", "noopener,noreferrer");
@@ -830,9 +873,9 @@ export function DocSettingsTab({ onChanged }: { onChanged: () => void }) {
           </div>
         </div>
       </Card>
-      <Card title="Signature and seal images" icon="image" description="PNG or JPEG under 300 KB, ideally on a transparent background. Without a signature image a drawn signature line is printed; without a seal, the wax seal.">
+      <Card title="Signature, seal and logos" icon="image" description="PNG or JPEG under 300 KB, ideally on a transparent background. Upload only logos the company is authorised to use (for example, accreditation or registration marks it has been granted); government emblems need written permission.">
         <ul className="space-y-3">
-          {(["signature", "seal", "signature2"] as const).map((slot) => (
+          {IMAGE_SLOTS.map(({ slot, hint }) => (
             <li key={slot} className="flex flex-wrap items-center gap-3">
               <span className="w-40 font-medium text-fg">{IMAGE_LABEL[slot]}</span>
               <Badge tone={s?.images[slot] ? "success" : "neutral"}>{s?.images[slot] ? "Uploaded" : "Not set"}</Badge>
@@ -850,6 +893,7 @@ export function DocSettingsTab({ onChanged }: { onChanged: () => void }) {
                   </Button>
                 </>
               ) : null}
+              <span className="basis-full text-sm text-fg-secondary">{hint}</span>
             </li>
           ))}
         </ul>

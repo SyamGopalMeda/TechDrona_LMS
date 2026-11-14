@@ -36,12 +36,15 @@ export function SiteCourseSections({
   variant = "default",
   headingLevel = "h2",
   audience = "student",
+  planActive,
 }: {
   catalog: SiteCatalog;
   variant?: SiteCourseCardVariant;
   headingLevel?: "h2" | "h3";
-  /** Signed-in students register in the app (default); visitors on /register/<slug>. */
+  /** Signed-in students register in the app (default); visitors on /register/<slug>; "admin" manages. */
   audience?: SiteAudience;
+  /** Admin only: slug -> has an active fee plan (a course missing from a loaded map has none). */
+  planActive?: Record<string, boolean>;
 }) {
   if (!catalog.courses.length) return <SiteCatalogUnavailable catalog={catalog} compact={variant === "compact"} />;
   const compact = variant === "compact";
@@ -89,7 +92,7 @@ export function SiteCourseSections({
             {list.length ? (
               <div className={grid}>
                 {list.map((c, i) => (
-                  <SiteCourseCard key={c.slug} course={c} index={i} variant={variant} audience={audience} />
+                  <SiteCourseCard key={c.slug} course={c} index={i} variant={variant} audience={audience} planActive={planActive ? (planActive[c.slug] ?? false) : undefined} />
                 ))}
               </div>
             ) : (

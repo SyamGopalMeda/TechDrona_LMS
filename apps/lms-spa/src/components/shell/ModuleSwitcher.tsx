@@ -1,5 +1,6 @@
 "use client";
 
+import { FULL_SCREEN_COLLEGES } from "@/features/hub/last-page";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -24,7 +25,9 @@ export function ModuleSwitcher({ current: initial }: { current: "lms" | "college
   const hrefFor = (m: HubModule) => {
     if (m.key === current) return m.href;
     if (m.key === "lms") return continueHref("lms", m.href);
-    if (m.key === "colleges") return continueHref("colleges", m.href);
+    // Colleges Management always opens the portal full screen (owner 2026-11-14), never the
+    // embedded Admin page that "resume last page" could pick.
+    if (m.key === "colleges") return FULL_SCREEN_COLLEGES;
     return m.href;
   };
 

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Button,
@@ -57,6 +58,7 @@ import {
 import { useIntegrations } from "@/components/shell/Integrations";
 import { CourseStatusSection } from "./CourseStatus";
 import { LoginDetailsDialog, SendLoginEmailDialog, type LoginTarget } from "./LoginDetails";
+import { BulkLettersDialog, LetterStatus, LetterStepDialog } from "./AdmissionLetter";
 import { useResource } from "@/lib/api/use-resource";
 import { formatDate, formatDateTime } from "@/lib/format";
 
@@ -295,6 +297,7 @@ function enrolDetails(res: VerifyEnrolResult, reg: Registration | undefined, reg
     account: res.account,
     email: res.email,
     login_url: res.login_url,
+    letter_step_auto: res.letter_step_auto === true,
   };
 }
 
@@ -682,7 +685,17 @@ export function VerifyQueue() {
   const [status, setStatus] = useState("open");
   const [decided, setDecided] = useState<Decided[]>([]);
   const [details, setDetails] = useState<LoginDetails | null>(null);
+  // The admission-letter step: opened from the login details, the "Just decided" list, or by
+  // itself after the login details of a new enrolment are closed (admissions setting).
+  const [letterFor, setLetterFor] = useState<string | null>(null);
+  const autoLetter = useRef<string | null>(null);
   const list = useCursorList<Claim>("admin/admissions/claims", cleanQuery({ status }));
+  const closeDetails = () => {
+    const next = details && autoLetter.current === details.registration_id ? details.registration_id : null;
+    autoLetter.current = null;
+    setDetails(null);
+    if (next) setLetterFor(next);
+  };
   const remember = (c: Claim) => (d: LoginDetails) => {
     const entry: Decided = {
       claim_id: c.claim_id,
@@ -693,6 +706,7 @@ export function VerifyQueue() {
       login: d,
     };
     setDecided((x) => [entry, ...x.filter((y) => y.claim_id !== c.claim_id)].slice(0, 10));
+    autoLetter.current = d.letter_step_auto ? d.registration_id : null;
     setDetails(d);
   };
   const update = (d: LoginDetails) => {
@@ -735,9 +749,14 @@ export function VerifyQueue() {
                 </Link>
                 <span>{d.warning ?? d.text}</span>
                 {d.login ? (
-                  <Button size="sm" variant="secondary" onClick={() => setDetails(d.login!)}>
-                    Login details
-                  </Button>
+                  <>
+                    <Button size="sm" variant="secondary" onClick={() => setDetails(d.login!)}>
+                      Login details
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => setLetterFor(d.registration_id)}>
+                      Admission letter
+                    </Button>
+                  </>
                 ) : null}
               </li>
             ))}
@@ -762,7 +781,17 @@ export function VerifyQueue() {
       <div className="mt-4">
         <Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />
       </div>
-      <LoginDetailsDialog details={details} onClose={() => setDetails(null)} onUpdate={update} />
+      <LoginDetailsDialog
+        details={details}
+        onClose={closeDetails}
+        onUpdate={update}
+        onLetter={(d) => {
+          autoLetter.current = null;
+          setDetails(null);
+          setLetterFor(d.registration_id);
+        }}
+      />
+      <LetterStepDialog registrationId={letterFor} open={letterFor !== null} onClose={() => setLetterFor(null)} />
     </div>
   );
 }
@@ -811,8 +840,29 @@ export function RegistrationsList() {
   const [status, setStatus] = useState<RegStatus | "">("");
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
-  const list = useCursorList<Registration>("admin/admissions/registrations", cleanQuery({ status, q: search }));
+  // `?course=<slug>` (from Admin > Courses > Registrations) shows one course's registrations.
+  const course = (useSearchParams()?.get("course") ?? "").trim().toLowerCase();
+  const list = useCursorList<Registration>("admin/admissions/registrations", cleanQuery({ status, q: search, course_slug: course }));
+  // Bulk "Preview & issue letters": enrolled registrations only (at most 50 at a time).
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulk, setBulk] = useState(false);
+  const [letterFor, setLetterFor] = useState<string | null>(null);
+  const enrolledRows = (list.rows ?? []).filter((r) => r.enrolled_at && r.user_id);
+  const toggle = (id: string, on: boolean) => setSelected((x) => (on ? [...x.filter((y) => y !== id), id].slice(0, MAX_BULK_LETTERS) : x.filter((y) => y !== id)));
   const cols: Column<Registration>[] = [
+    {
+      key: "pick",
+      header: <span className="sr-only">Select</span>,
+      cell: (r) =>
+        r.enrolled_at && r.user_id ? (
+          <Checkbox
+            label={<span className="sr-only">{`Select ${r.name}`}</span>}
+            checked={selected.includes(r.registration_id)}
+            disabled={!selected.includes(r.registration_id) && selected.length >= MAX_BULK_LETTERS}
+            onChange={(e) => toggle(r.registration_id, e.target.checked)}
+          />
+        ) : null,
+    },
     {
       key: "name",
       header: "Student",
@@ -863,11 +913,38 @@ export function RegistrationsList() {
         ),
       priority: "secondary",
     },
+    {
+      key: "letter",
+      header: "Letter",
+      cell: (r) =>
+        r.enrolled_at && r.user_id ? (
+          <div className="space-y-1">
+            <LetterStatus letter={r.letter} enrolled />
+            <div>
+              <Button size="sm" variant="secondary" onClick={() => setLetterFor(r.registration_id)} aria-label={`${r.letter ? "Open letter" : "Issue letter"} for ${r.name}`}>
+                {r.letter ? "Open letter" : "Issue letter"}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <span className="text-sm text-fg-secondary">—</span>
+        ),
+    },
     { key: "at", header: "Registered", cell: (r) => formatDate(r.created_at), priority: "secondary" },
   ];
   return (
     <div>
       <PageHeader title="Registrations" description="Everyone who registered for a course (website or LMS), their registered email and what they have paid." />
+      {course ? (
+        <p className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-fg-secondary">
+          <span>
+            Course: <strong className="text-fg-heading">{list.rows?.find((r) => r.course_title)?.course_title || course}</strong>
+          </span>
+          <Link className={textLink} href="/finance/admissions/registrations">
+            Show all courses
+          </Link>
+        </p>
+      ) : null}
       {/* One form: FilterBar is the <form>, so the search box must not be a nested <form>
           (invalid HTML — the parser drops it and the page fails hydration, React #418). */}
       <FilterBar label="Registration filters" onSubmit={() => setSearch(q.trim())}>
@@ -883,6 +960,21 @@ export function RegistrationsList() {
           </Button>
         </div>
       </FilterBar>
+      {enrolledRows.length ? (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <Button size="sm" disabled={!selected.length} onClick={() => setBulk(true)}>
+            {selected.length ? `Preview & issue letters (${selected.length})` : "Preview & issue letters"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelected(enrolledRows.filter((r) => !r.letter).map((r) => r.registration_id).slice(0, MAX_BULK_LETTERS))}>
+            Select enrolled without a letter
+          </Button>
+          {selected.length ? (
+            <Button size="sm" variant="ghost" onClick={() => setSelected([])}>
+              Clear selection
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <Table
         caption="Registrations"
         columns={cols}
@@ -894,9 +986,21 @@ export function RegistrationsList() {
         empty={{ title: "No registrations", description: "Course registrations appear here.", icon: "users" }}
         footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />}
       />
+      <BulkLettersDialog
+        ids={selected}
+        open={bulk}
+        onClose={() => setBulk(false)}
+        onDone={() => {
+          setSelected([]);
+          void list.reload();
+        }}
+      />
+      <LetterStepDialog registrationId={letterFor} open={letterFor !== null} onClose={() => setLetterFor(null)} onChanged={() => void list.reload()} />
     </div>
   );
 }
+
+const MAX_BULK_LETTERS = 50;
 
 type RegAction = "record" | "status" | "contact" | "fee" | "enrol";
 
@@ -904,6 +1008,7 @@ export function RegistrationView({ registrationId }: { registrationId: string })
   const res = useResource<RegistrationDetail>(`admin/admissions/registrations/${registrationId}`);
   const notify = useWarningToast();
   const [details, setDetails] = useState<LoginDetails | null>(null);
+  const [letterOpen, setLetterOpen] = useState(false);
   const [open, setOpen] = useState<RegAction | null>(null);
   const [f, setF] = useState<Record<string, string>>({});
   const [checked, setChecked] = useState(false);
@@ -1017,6 +1122,16 @@ export function RegistrationView({ registrationId }: { registrationId: string })
               </Button>
             ) : null}
           </Card>
+          {r.enrolled_at ? (
+            <Card title="Admission letter">
+              <LetterStatus letter={r.letter} enrolled />
+              <div className="mt-3">
+                <Button size="md" variant={r.letter ? "secondary" : "primary"} onClick={() => setLetterOpen(true)}>
+                  {r.letter ? "Open letter" : "Preview & issue letter"}
+                </Button>
+              </div>
+            </Card>
+          ) : null}
           <Card title="LMS access">
             <KeyValueList
               columns={1}
@@ -1117,16 +1232,28 @@ export function RegistrationView({ registrationId }: { registrationId: string })
         description="Gives course access without a new payment (for example a scholarship). It creates (or finds) the student's LMS account and adds them to the linked batch; then use Send login email to give them their login."
         submitLabel="Enrol"
         onSubmit={async () => toOutcome(await api.post<ActionResult>(`${base}/enrol`, {}))}
-        onDone={done("Enrolled.")}
+        onDone={(o) => {
+          done("Enrolled.")(o);
+          if (o.kind === "ok" && o.data?.just_enrolled && o.data.letter_step_auto) setLetterOpen(true);
+        }}
       />
       <LoginDetailsDialog
         details={details}
-        onClose={() => setDetails(null)}
+        onClose={() => {
+          const next = details?.letter_step_auto === true;
+          setDetails(null);
+          if (next) setLetterOpen(true);
+        }}
         onUpdate={(d) => {
-          setDetails(d);
+          setDetails((prev) => ({ ...d, letter_step_auto: prev?.letter_step_auto }));
           void res.reload();
         }}
+        onLetter={() => {
+          setDetails(null);
+          setLetterOpen(true);
+        }}
       />
+      <LetterStepDialog registrationId={registrationId} open={letterOpen} onClose={() => setLetterOpen(false)} onChanged={() => void res.reload()} />
     </div>
   );
 }

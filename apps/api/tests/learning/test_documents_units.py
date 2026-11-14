@@ -286,3 +286,72 @@ def test_compose_refuses_leftover_template_text() -> None:
             )
         )
     assert e.value.code == "validation_failed"
+
+
+# --------------------------------------------------------------------------- certificate template
+
+
+def _cert_art(doc_type: str, fields: dict[str, str], settings: dict | None = None, **kw):
+    from app.modules.learning import docpdf
+
+    f = dd.clean_fields(doc_type, fields)
+    return docpdf.certificate_art(
+        doc_type=doc_type, name="Ananya Reddy", ref_no="TD-CC-2026-ABCDEF", issued_on=date(2026, 11, 11),
+        verify_url="https://lms.example.test/verify/TD-CC-2026-ABCDEF", extras=dd.render_extras(doc_type, f, R),
+        settings=settings or SETTINGS, **kw,
+    )  # fmt: skip
+
+
+def test_certificate_wording_leaves_out_missing_details() -> None:
+    full = _cert_art(
+        "cert_completion",
+        {
+            "program": "Full Stack",
+            "start_date": "2026-06-01",
+            "end_date": "2026-08-31",
+            "hours": "120",
+            "grade": "A",
+        },
+    )
+    assert full.subtitle == "of Completion" and full.citation == "has successfully completed the"
+    assert full.course_title == "Full Stack"
+    assert full.details == "from 1 June 2026 to 31 August 2026, comprising 120 hours, with grade A."
+    assert _cert_art("cert_completion", {"program": "Full Stack", "hours": "45 hours"}).details == (
+        "comprising 45 hours."
+    )
+    assert _cert_art("cert_completion", {"program": "Full Stack"}).details == ""
+    intern = _cert_art(
+        "cert_internship", {"role": "Data Intern", "start_date": "2026-06-01", "grade": "Distinction"}
+    )
+    assert intern.subtitle == "of Internship" and intern.citation.endswith("an internship as a")
+    assert intern.details == "at Tech Drona from 1 June 2026, with Distinction."
+    part = _cert_art("cert_participation", {"event": "Cloud Workshop", "event_date": "12 December 2026"})
+    assert part.details == "held on 12 December 2026." and part.course_title == "Cloud Workshop"
+    # one signatory from the settings; organisation and tagline default to Tech Drona's
+    assert (full.signatory, full.signatory_title) == ("A Signatory", "Director")
+    assert full.issuer == "Tech Drona" and full.tagline == dd.DEFAULT_TAGLINE
+
+
+def test_logo_slots_are_empty_by_default_and_rendered_when_uploaded() -> None:
+    from app.modules.learning.certpdf import render_certificate_pdf, tagline_shown
+
+    st = dd.clean_settings({})
+    assert {"logo_left", "logo_right"} <= set(dd.IMAGE_SLOTS)
+    assert st["logo_left_key"] is None and st["logo_right_key"] is None
+    assert st["tagline"] == dd.DEFAULT_TAGLINE and tagline_shown(st["tagline"]) == ""  # already in the lockup
+    assert tagline_shown("Department of Training") == "Department of Training"
+    from PIL import Image
+
+    buf = __import__("io").BytesIO()
+    Image.new("RGB", (40, 20), (200, 30, 30)).save(buf, "PNG")
+    plain = render_certificate_pdf(_cert_art("cert_completion", {"program": "Full Stack"}))
+    logos = render_certificate_pdf(
+        _cert_art(
+            "cert_completion",
+            {"program": "Full Stack"},
+            logo_left=buf.getvalue(),
+            signature_image=buf.getvalue(),
+        )
+    )
+    assert plain.startswith(b"%PDF-") and logos.startswith(b"%PDF-")
+    assert plain.count(b"/Subtype /Image") == 0 and logos.count(b"/Subtype /Image") >= 1

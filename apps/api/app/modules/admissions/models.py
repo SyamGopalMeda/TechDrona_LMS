@@ -42,6 +42,8 @@ class AdmissionPaySettings(Base):
     upi_id: Mapped[str | None] = mapped_column(Text)
     payee_name: Mapped[str | None] = mapped_column(Text)
     instructions: Mapped[str | None] = mapped_column(Text)
+    # admissions_0004: open the admission-letter step after enrolling (NULL = not chosen = on)
+    letter_step_auto: Mapped[bool | None] = mapped_column(Boolean)
     updated_by: Mapped[uuid.UUID | None] = mapped_column(_U)
     updated_at: Mapped[datetime] = mapped_column(_TS, nullable=False, server_default=func.now())
 

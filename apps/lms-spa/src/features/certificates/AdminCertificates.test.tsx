@@ -76,6 +76,32 @@ describe("Admin certificates (ADM-017)", () => {
     expect(api.calls.find((c) => c.method === "POST")?.headers["idempotency-key"]).toBeTruthy();
   });
 
+  it("asks for a certificate preview before issuing all eligible", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    Object.assign(URL, { createObjectURL: vi.fn(() => "blob:cert"), revokeObjectURL: vi.fn() });
+    const api = mockApi(
+      routes({
+        "POST admin/certificates/due/preview": { body: { pdf_base64: "JVBERg==", name: "Rahul Varma", course_title: "Data Structures" } },
+        "POST admin/certificates/due/issue": { body: { issued: 1, certificate_ids: ["c9"], skipped: [] } },
+      }),
+    );
+    cleanups.push(api.restore);
+    cleanups.push(() => open.mockRestore());
+    renderWithProviders(<AdminCertificates />);
+    await userEvent.click(await screen.findByRole("tab", { name: /Due/ }));
+    expect(await screen.findByText("Rahul Varma")).toBeInTheDocument();
+    const all = screen.getByRole("button", { name: "Issue all eligible (1)" });
+    expect(all).toBeDisabled();
+    expect(screen.getByText("Preview one certificate first.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Preview certificate for Rahul Varma" }));
+    await waitFor(() => expect(api.calls.find((c) => c.path === "admin/certificates/due/preview")?.body).toEqual({ enrolment_id: "e2" }));
+    await waitFor(() => expect(open).toHaveBeenCalledWith("blob:cert", "_blank", "noopener,noreferrer"));
+    await waitFor(() => expect(all).not.toBeDisabled());
+    await userEvent.click(all);
+    await userEvent.click(await screen.findByRole("button", { name: "Issue certificates" }));
+    await waitFor(() => expect(api.calls.find((c) => c.path === "admin/certificates/due/issue")?.body).toEqual({}));
+  });
+
   it("approves and sends from the approval queue, and toggles auto-send", async () => {
     const api = mockApi(
       routes({

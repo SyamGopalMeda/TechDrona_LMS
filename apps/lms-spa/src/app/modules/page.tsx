@@ -86,7 +86,7 @@ async function ModulesPage__server() {
 function cardHref(m: HubModule): string {
   if (m.external) return m.href;
   if (m.key === "lms") return continueHref("lms", m.href);
-  if (m.key === "colleges") return continueHref("colleges", m.href);
+  if (m.key === "colleges") return m.href; // always the full-screen portal (owner 2026-11-14)
   return m.href;
 }
 

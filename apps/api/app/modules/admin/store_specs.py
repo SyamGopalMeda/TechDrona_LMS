@@ -259,3 +259,16 @@ register_mapping(
     )
 )
 _row_mapping("break_glass_sessions", BREAK_GLASS, BreakGlassRow)
+
+
+# --------------------------------------------------------------------------- student records
+# Admin > Users "Student type" and the Excel import (2026-11-14): ``student_records/{user_id}`` holds
+# what the LMS account itself has no field for -- ``student_type`` (``course`` / ``internship``),
+# college / branch / year and the internship start / end dates. Optional: an account without a
+# record is a regular (course) learner, so older accounts need no backfill. Written by the named
+# job ``admin.students`` after the route's ``user.invite`` check; read with ``user.read``.
+
+STUDENT_RECORDS = "student_records"
+register_collection(
+    CollectionSpec(STUDENT_RECORDS, "shared", read_permission="user.read", write_permission="user.invite")
+)

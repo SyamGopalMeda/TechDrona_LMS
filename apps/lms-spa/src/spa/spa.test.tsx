@@ -33,8 +33,8 @@ describe("route tree", () => {
     // 207 pages (204 from apps/web + 3 SPA-only: /app/orders index redirect, /admin/system, the
     // /college-portal "being moved" fallback) − 28 removed 2026-11-14 (feature-removal-plan.md:
     // mentoring 7, company paths 3, hosting-redirected public pages 9, enquiries 3, diagnostic,
-    // question review, admin notifications, bookmarks, analytics, security policies) = 179.
-    expect(PAGE_COUNT).toBe(179);
+    // question review, admin notifications, bookmarks, analytics, security policies) = 179, + /admin/users/import (student import, 2026-11-14) = 180.
+    expect(PAGE_COUNT).toBe(180);
   });
 });
 

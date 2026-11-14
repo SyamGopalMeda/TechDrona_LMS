@@ -64,8 +64,14 @@ export interface CoursePublicState {
 /** LMS course registration status (admin: Open for registration / Coming soon / Closed). */
 export type CourseRegStatus = "open" | "coming_soon" | "closed";
 
-/** Who is looking at a card: signed-in students register in the app, visitors on /register. */
-export type SiteAudience = "student" | "public";
+/** Learners looking at a card: signed-in students register in the app, visitors on /register. */
+export type SiteLearnerAudience = "student" | "public";
+
+/**
+ * Who is looking at a card: a learner (above), or staff on Admin > Courses ("admin"), who get
+ * management links (status, fee plan, registrations) instead of Register / waitlist.
+ */
+export type SiteAudience = SiteLearnerAudience | "admin";
 
 export interface SiteCourse extends CatalogCourse {
   group: SiteCourseGroup;

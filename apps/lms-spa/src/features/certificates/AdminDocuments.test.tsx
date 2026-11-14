@@ -144,7 +144,7 @@ describe("Certificates & documents: templates and settings", () => {
   });
 
   it("saves the letterhead and signatory", async () => {
-    const settings = { company: "Tech Drona", legal_name: "", address: "", phone: "", email: "", website: "", reg_lines: [], signatory: "", designation: "", signatory_email: "", signatory_phone: "", signatory2: "", designation2: "", portal_url: "", auto_admission_letter: true, images: { signature: false, seal: false, signature2: false }, problem: "Add the signatory's name and designation in Documents → Settings.", auto_send: false };
+    const settings = { company: "Tech Drona", legal_name: "", tagline: "Debug your career. Deploy your dreams.", address: "", phone: "", email: "", website: "", reg_lines: [], signatory: "", designation: "", signatory_email: "", signatory_phone: "", signatory2: "", designation2: "", portal_url: "", auto_admission_letter: true, images: { signature: false, seal: false, signature2: false, logo_left: false, logo_right: false }, problem: "Add the signatory's name and designation in Documents → Settings.", auto_send: false };
     const api = mockApi({ "GET admin/documents/settings": { body: settings }, "PUT admin/documents/settings": { body: { ...settings, problem: null } } });
     cleanups.push(api.restore);
     renderWithProviders(<DocSettingsTab onChanged={vi.fn()} />);

@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Card, ErrorState, LinkButton, LoadingBlock, StatusBadge, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { cn } from "@/lib/ui/cn";
 import { formatINR } from "@/features/admin/lib/console";
-import { COURSE_STATUSES, COURSE_STATUS_LABEL, COURSE_STATUS_TONE, type CourseStatus, type CourseStatusRow } from "../lib/admissions";
+import { COURSE_STATUSES, COURSE_STATUS_LABEL, COURSE_STATUS_TONE, planEditHref, type CourseStatus, type CourseStatusRow } from "../lib/admissions";
 import { useResource } from "@/lib/api/use-resource";
 import { formatDateTime } from "@/lib/format";
 
@@ -16,7 +16,10 @@ import { formatDateTime } from "@/lib/format";
  * needs an active fee plan (409 no_fee_plan): the row then links to that course's fee plan.
  */
 
-export const planEditHref = (slug: string) => `/finance/admissions/plans?edit=${encodeURIComponent(slug)}`;
+export { planEditHref };
+
+/** Anchor of the Courses section (`COURSE_STATUS_HREF`). */
+const COURSE_STATUS_ID = "course-status";
 
 /** Three joined buttons (a native radio group) that wrap their text on a phone. */
 function StatusSwitch({ title, value, busy, onChange }: { title: string; value: CourseStatus; busy: boolean; onChange: (s: CourseStatus) => void }) {
@@ -123,26 +126,35 @@ export function CourseStatusSection({ titles = {} }: { titles?: Record<string, s
   useEffect(() => {
     if (res.data) setRows(res.data.data);
   }, [res.data]);
+  // Admin > Courses links here as /finance/admissions#course-status: the SPA doesn't scroll to a
+  // hash by itself, so bring the section into view once its rows are in.
+  const ref = useRef<HTMLDivElement>(null);
+  const loaded = rows !== null;
+  useEffect(() => {
+    if (loaded && typeof window !== "undefined" && window.location.hash === `#${COURSE_STATUS_ID}`) ref.current?.scrollIntoView?.({ block: "start" });
+  }, [loaded]);
 
   return (
-    <Card title="Courses" description="Choose which courses take registrations. Changes show on the website and in the LMS within a minute. Students can register only while a course is open." padding="none">
-      {res.error && !rows ? (
-        <div className="p-5">
-          <ErrorState error={res.error} onRetry={() => void res.reload()} />
-        </div>
-      ) : !rows ? (
-        <div className="p-5">
-          <LoadingBlock label="Loading courses…" rows={3} />
-        </div>
-      ) : rows.length === 0 ? (
-        <p className="px-5 pb-5 text-sm text-fg-secondary sm:px-6">No courses yet. Add a fee plan for a website course to manage it here.</p>
-      ) : (
-        <ul aria-label="Course registration status">
-          {rows.map((r) => (
-            <CourseRow key={r.course_slug} row={r} title={titles[r.course_slug] || r.course_slug} onSaved={(saved) => setRows((all) => (all ?? []).map((x) => (x.course_slug === saved.course_slug ? { ...x, ...saved } : x)))} />
-          ))}
-        </ul>
-      )}
-    </Card>
+    <div id={COURSE_STATUS_ID} ref={ref} className="scroll-mt-24">
+      <Card title="Courses" description="Choose which courses take registrations. Changes show on the website and in the LMS within a minute. Students can register only while a course is open." padding="none">
+        {res.error && !rows ? (
+          <div className="p-5">
+            <ErrorState error={res.error} onRetry={() => void res.reload()} />
+          </div>
+        ) : !rows ? (
+          <div className="p-5">
+            <LoadingBlock label="Loading courses…" rows={3} />
+          </div>
+        ) : rows.length === 0 ? (
+          <p className="px-5 pb-5 text-sm text-fg-secondary sm:px-6">No courses yet. Add a fee plan for a website course to manage it here.</p>
+        ) : (
+          <ul aria-label="Course registration status">
+            {rows.map((r) => (
+              <CourseRow key={r.course_slug} row={r} title={titles[r.course_slug] || r.course_slug} onSaved={(saved) => setRows((all) => (all ?? []).map((x) => (x.course_slug === saved.course_slug ? { ...x, ...saved } : x)))} />
+            ))}
+          </ul>
+        )}
+      </Card>
+    </div>
   );
 }

@@ -10,10 +10,15 @@ revoking a certificate.
 * ``POST   /admin/documents/preview``                  draft PDF (base64) + what still blocks issuing
 * ``GET    /admin/documents/prefill?enrolment_id=``    recipient + admission fields from an enrolment
 * ``GET|PUT /admin/documents/settings``                letterhead, signatory, automation
-* ``PUT|DELETE /admin/documents/settings/images/{slot}``  signature / seal / signature2 (data URL)
+* ``PUT|DELETE /admin/documents/settings/images/{slot}``  signature / seal / logo_left / logo_right (data URL)
 * ``GET    /admin/documents/settings/images/{slot}``   short-lived link to the stored image
 * ``GET    /admin/documents/templates``                defaults + overrides (documents, emails)
 * ``PUT|DELETE /admin/documents/templates/{kind}/{key}``  override / reset to default
+* ``POST   /admin/documents/bulk/validate``            bulk: check spreadsheet rows (no writes)
+* ``POST   /admin/documents/bulk/issue``               bulk: issue up to 200 rows (idempotency key)
+* ``GET    /admin/documents/bulk/enrolments``          bulk: students of a batch / course to pick
+* ``GET    /admin/documents/bulk/{bulk_id}``           bulk: the documents of one run
+* ``POST   /admin/documents/bulk/pdfs``                bulk: up to 20 PDFs (base64) for the ZIP
 * ``GET    /admin/documents/{id}``                     one document + its emails (sends log)
 * ``GET    /admin/documents/{id}/pdf``                 short-lived download link
 * ``POST   /admin/documents/{id}/regenerate``          re-render + store
@@ -25,6 +30,7 @@ revoking a certificate.
 
 from __future__ import annotations
 
+import time
 import uuid
 from datetime import date
 from typing import Annotated, Any, Literal
@@ -42,9 +48,9 @@ from app.core.principal import Principal
 from app.core.routing import authenticated_router, public_router
 from app.core.time import to_rfc3339
 from app.modules.learning import certificates as certs
+from app.modules.learning import doc_bulk, fs_docs
 from app.modules.learning import docdefs as dd
 from app.modules.learning import documents as docs
-from app.modules.learning import fs_docs
 from app.modules.learning import fs_store as fss
 from app.modules.learning.cert_models import CertificateOutbox
 from app.modules.learning.doc_models import IssuedDocument
@@ -128,6 +134,7 @@ class EmailIn(Strict):
 class SettingsIn(Strict):
     company: str | None = Field(default=None, max_length=120)
     legal_name: str | None = Field(default=None, max_length=160)
+    tagline: str | None = Field(default=None, max_length=120)
     address: str | None = Field(default=None, max_length=300)
     phone: str | None = Field(default=None, max_length=40)
     email: str | None = Field(default=None, max_length=160)
@@ -145,6 +152,10 @@ class SettingsIn(Strict):
 
 class ImageIn(Strict):
     data_url: str = Field(min_length=20, max_length=420_000)
+
+
+# settings image slots (``docdefs.IMAGE_SLOTS``); signature2 is accepted but not printed
+ImageSlot = Literal["signature", "seal", "signature2", "logo_left", "logo_right"]
 
 
 class TemplateIn(Strict):
@@ -200,6 +211,7 @@ def doc_out(d: IssuedDocument, *, last_email: CertificateOutbox | None = None) -
         "content_sha256": bytes(d.content_hash).hex() if d.content_hash else None,
         "template_version": d.template_version,
         "verify_url": f"/verify/{d.ref_no}",
+        "bulk_id": doc_bulk.bulk_tag(d).get("id"),
         "created_at": _ts(d.created_at),
         "email_status": last_email.status if last_email else None,
     }
@@ -424,7 +436,7 @@ async def put_settings(
 
 @router.put("/admin/documents/settings/images/{slot}", operation_id="doc_08_image_put")
 async def put_image(
-    slot: Literal["signature", "seal", "signature2"],
+    slot: ImageSlot,
     body: ImageIn,
     session: PrincipalDbSession,
     principal: Principal = _perm(),
@@ -434,7 +446,7 @@ async def put_image(
 
 @router.delete("/admin/documents/settings/images/{slot}", operation_id="doc_09_image_delete")
 async def delete_image(
-    slot: Literal["signature", "seal", "signature2"],
+    slot: ImageSlot,
     session: PrincipalDbSession,
     principal: Principal = _perm(),
 ) -> dict[str, Any]:
@@ -443,7 +455,7 @@ async def delete_image(
 
 @router.get("/admin/documents/settings/images/{slot}", openapi_extra=NEUTRAL, operation_id="doc_10_image_get")
 async def get_image(
-    slot: Literal["signature", "seal", "signature2"],
+    slot: ImageSlot,
     session: PrincipalDbSession,
     principal: Principal = _perm(),
 ) -> dict[str, Any]:
@@ -486,6 +498,122 @@ async def reset_template(
 ) -> dict[str, Any]:
     await docs.reset_template(session, principal, kind, key)
     return {"kind": kind, "key": key, "override": None}
+
+
+# --------------------------------------------------------------------------- bulk (doc_bulk)
+# Declared before ``/admin/documents/{document_id}`` so ``bulk/...`` never reads as an id.
+
+
+class BulkRowIn(Strict):
+    """One spreadsheet row (or picked student). Empty / invalid values are reported by validate,
+    not refused by the schema, so one bad row never rejects the whole upload."""
+
+    row: int | None = Field(default=None, ge=1, le=100_000)
+    name: str = Field(default="", max_length=300)
+    email: str = Field(default="", max_length=320)
+    mobile: str | None = Field(default=None, max_length=40)
+    college: str | None = Field(default=None, max_length=300)
+    reg_no: str | None = Field(default=None, max_length=120)
+    fields: dict[str, str] = Field(default_factory=dict, max_length=40)
+    user_id: uuid.UUID | None = None
+    enrolment_id: uuid.UUID | None = None
+    batch_id: uuid.UUID | None = None
+    course_id: uuid.UUID | None = None
+
+
+class BulkValidateIn(Strict):
+    doc_type: DocType
+    rows: list[BulkRowIn] = Field(min_length=1, max_length=doc_bulk.MAX_VALIDATE_ROWS)
+    issue_date: date | None = None
+
+
+class BulkIssueIn(Strict):
+    doc_type: DocType
+    bulk_id: uuid.UUID
+    label: str = Field(default="", max_length=120)
+    rows: list[BulkRowIn] = Field(min_length=1, max_length=doc_bulk.MAX_ISSUE_ROWS)
+    issue_date: date | None = None
+    email: Literal["outbox", "none"] = "none"
+
+
+class BulkPdfsIn(Strict):
+    document_ids: list[uuid.UUID] = Field(min_length=1, max_length=doc_bulk.MAX_PDF_IDS)
+
+
+@router.post("/admin/documents/bulk/validate", operation_id="doc_21_bulk_validate")
+async def bulk_validate(
+    body: BulkValidateIn, session: PrincipalDbSession, principal: Principal = _perm()
+) -> dict[str, Any]:
+    return await doc_bulk.validate(
+        session,
+        doc_type=body.doc_type,
+        rows=[r.model_dump() for r in body.rows],
+        issue_date=body.issue_date,
+    )
+
+
+@router.post("/admin/documents/bulk/issue", operation_id="doc_22_bulk_issue")
+async def bulk_issue(
+    request: Request, body: BulkIssueIn, session: PrincipalDbSession, principal: Principal = _perm()
+) -> Any:
+    """Issue up to 200 rows; per-row results, failures never abort the run. Rows not reached
+    within the time budget come back ``deferred`` (send them again). Idempotency key required:
+    a retried chunk replays its first answer instead of issuing twice."""
+    started = time.monotonic()
+
+    async def op() -> IdemResult:
+        out = await doc_bulk.issue_rows(
+            session,
+            principal,
+            doc_type=body.doc_type,
+            rows=[r.model_dump() for r in body.rows],
+            issue_date=body.issue_date,
+            email=body.email,
+            bulk_id=body.bulk_id,
+            label=body.label,
+            started=started,
+        )
+        return IdemResult(out, 200)
+
+    return await idempotent(request, session, user_id=principal.user_id, operation=op, required=True)
+
+
+@router.get("/admin/documents/bulk/enrolments", openapi_extra=NEUTRAL, operation_id="doc_23_bulk_enrolments")
+async def bulk_enrolments(
+    session: PrincipalDbSession,
+    principal: Principal = _perm(),
+    batch_id: uuid.UUID | None = None,
+    course_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    rows = await doc_bulk.enrolment_rows(session, batch_id=batch_id, course_id=course_id)
+    return {"data": rows, "truncated": len(rows) >= doc_bulk.MAX_ENROLMENTS}
+
+
+@router.post("/admin/documents/bulk/pdfs", operation_id="doc_24_bulk_pdfs")
+async def bulk_pdfs(
+    body: BulkPdfsIn, session: PrincipalDbSession, principal: Principal = _perm()
+) -> dict[str, Any]:
+    return await doc_bulk.pdfs(session, body.document_ids)
+
+
+@router.get("/admin/documents/bulk/{bulk_id}", openapi_extra=NEUTRAL, operation_id="doc_25_bulk_run")
+async def bulk_run(
+    bulk_id: uuid.UUID,
+    session: PrincipalDbSession,
+    principal: Principal = _perm(),
+    doc_type: DocType | None = None,
+) -> dict[str, Any]:
+    rows = await doc_bulk.run_documents(session, bulk_id, doc_type)
+    last = await _last_emails(session, [d.id for d in rows])
+    data = []
+    for d in rows:
+        out = doc_out(d, last_email=last.get(d.id))
+        out["bulk_row"] = doc_bulk.bulk_tag(d).get("row")
+        data.append(out)
+    counts = dict.fromkeys(docs.STATUSES, 0)
+    for d in rows:
+        counts[d.status] = counts.get(d.status, 0) + 1
+    return {"bulk_id": str(bulk_id), "data": data, "counts": counts}
 
 
 # --------------------------------------------------------------------------- one document

@@ -2,7 +2,8 @@ import type { CSSProperties } from "react";
 import { buttonClasses } from "@/components/ui/Button";
 import { Icon, isIconName, type IconName } from "@/components/ui";
 import { cn } from "@/lib/ui/cn";
-import type { SiteAudience, SiteCourse, SiteCourseGroup } from "../lib/types";
+import type { CourseRegStatus, SiteAudience, SiteCourse, SiteCourseGroup, SiteLearnerAudience } from "../lib/types";
+import { COURSE_STATUS_HREF, courseRegistrationsHref, planEditHref } from "@/features/admissions/lib/admissions";
 import { CourseScene } from "./CourseScene";
 import s from "./site-catalog.module.css";
 import { formatDate } from "@/lib/format";
@@ -64,7 +65,7 @@ export interface SiteCourseActions {
 export const OPENS_WEBSITE = "(opens the Tech Drona website in a new tab)";
 
 /** Register only when the course is open: signed-in students in the app, visitors on /register/<slug>. */
-export function siteCourseActions(c: SiteCourse, audience: SiteAudience = "student"): SiteCourseActions {
+export function siteCourseActions(c: SiteCourse, audience: SiteLearnerAudience = "student"): SiteCourseActions {
   return {
     // Full syllabus lives on the company website (opens in a new tab); everything else stays in the LMS.
     secondary: { href: c.courseUrl, label: "Course details" },
@@ -95,9 +96,35 @@ export const STRETCHED_LINK =
   "text-inherit no-underline after:absolute after:inset-0 after:z-[1] after:content-[''] hover:underline focus-visible:outline-none focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-brand";
 
 /** The title / banner link: registration when open, else the course details on the website. */
-export function siteCourseLink(c: SiteCourse, audience: SiteAudience = "student"): { href: string; external: boolean } {
+export function siteCourseLink(c: SiteCourse, audience: SiteLearnerAudience = "student"): { href: string; external: boolean } {
   const { primary, secondary } = siteCourseActions(c, audience);
   return primary.href ? { href: primary.href, external: false } : { href: secondary.href, external: true };
+}
+
+const REG_STATUS_LABEL: Record<CourseRegStatus, string> = { open: "Open", coming_soon: "Coming soon", closed: "Closed" };
+
+export interface SiteCourseAdminActions {
+  /** "Open" / "Coming soon" / "Closed": the LMS registration switch. */
+  registration: string;
+  changeStatus: { href: string; label: string };
+  feePlan: { href: string; label: string };
+  registrations: { href: string; label: string };
+  /** The course page on the website (new tab). */
+  website: { href: string; label: string };
+}
+
+/**
+ * Admin > Courses: staff manage a course, they don't join it. Registration status and fee plans
+ * are set in Payments > Admissions; the content (text, images, syllabus) in the Website Admin.
+ */
+export function siteCourseAdminActions(c: SiteCourse): SiteCourseAdminActions {
+  return {
+    registration: REG_STATUS_LABEL[c.regStatus],
+    changeStatus: { href: COURSE_STATUS_HREF, label: "Change status" },
+    feePlan: { href: planEditHref(c.slug), label: "Fee plan" },
+    registrations: { href: courseRegistrationsHref(c.slug), label: "Registrations" },
+    website: { href: c.courseUrl, label: "View on website" },
+  };
 }
 
 /** "Coming soon" / "Closed" in place of the Register button: looks disabled, is not a link. */
@@ -115,20 +142,24 @@ export type SiteCourseCardVariant = "default" | "compact";
 /**
  * A website course card (tech drona CatalogCard `.cc` + the featured `.cf` kicker/live pill):
  * accent banner with family + status, kicker, title, tagline, 2-3 facts, tech chips, start date,
- * and links to the course page / registration on the website. The whole card is one link (the
- * stretched title); the action buttons sit above it.
+ * and links to the course page / registration on the website. For learners the whole card is one
+ * link (the stretched title) and the action buttons sit above it; for admin (`audience="admin"`)
+ * the title is a plain heading and the buttons manage the course (status, fee plan, registrations).
  */
 export function SiteCourseCard({
   course: c,
   index = 0,
   variant = "default",
   audience = "student",
+  planActive,
   className,
 }: {
   course: SiteCourse;
   index?: number;
   variant?: SiteCourseCardVariant;
   audience?: SiteAudience;
+  /** Admin only: whether the course has an active fee plan (undefined = not known). */
+  planActive?: boolean;
   className?: string;
 }) {
   const compact = variant === "compact";
@@ -136,11 +167,7 @@ export function SiteCourseCard({
   const facts = c.facts.slice(0, compact ? 2 : 3);
   const tech = c.tech.slice(0, compact ? 4 : 5);
   const dateNote = siteCourseDateNote(c);
-  const actions = siteCourseActions(c, audience);
-  const { primary, secondary, waitlist } = actions;
-  const notOpen = notOpenLabel(c, actions);
-  const main = siteCourseLink(c, audience);
-  const ext = main.external ? { target: "_blank", rel: "noopener" } : {};
+  const admin = audience === "admin";
   const titleId = `site-course-${variant}-${c.slug}`;
   const tagline = c.tagline || (c.minimal ? MINIMAL_TAGLINE : "");
   const poster = c.imageSmallUrl ?? c.imageUrl;
@@ -193,16 +220,8 @@ export function SiteCourseCard({
       <div className={cn("flex flex-1 flex-col", compact ? "gap-2 p-4" : "gap-2.5 p-5")}>
         {c.kicker ? <p className={cn(s.kicker, "text-xs font-bold uppercase tracking-[0.12em]")}>{c.kicker}</p> : null}
         <h3 className={cn("font-display font-bold leading-snug text-fg-heading", compact ? "text-[0.98rem]" : "text-[1.08rem]")}>
-          {/* The whole card is this link (stretched); external = the course page on the website. */}
-          <a href={main.href} {...ext} className={cn(STRETCHED_LINK, "after:rounded-2xl")}>
-            <span id={titleId}>{c.title}</span>
-            {main.external ? (
-              <>
-                <Icon name="external" className="ml-1 inline h-3.5 w-3.5 align-baseline text-fg-muted" />
-                <span className="sr-only"> {OPENS_WEBSITE}</span>
-              </>
-            ) : null}
-          </a>
+          {/* Learners: the whole card is this link (stretched). Admin: a plain heading, the actions below. */}
+          {admin ? <span id={titleId}>{c.title}</span> : <SiteCourseTitleLink course={c} audience={audience} titleId={titleId} />}
         </h3>
         {tagline ? <p className={cn("text-fg-secondary", compact ? "line-clamp-2 text-[0.84rem]" : "text-[0.9rem]")}>{tagline}</p> : null}
 
@@ -237,26 +256,80 @@ export function SiteCourseCard({
           </p>
         ) : null}
 
-        <div className="relative z-[2] mt-auto flex flex-wrap gap-2 pt-2">
-          {primary.href ? (
-            <a href={primary.href} className={buttonClasses({ size: "sm", className: "gap-1.5" })} aria-label={`${primary.label}: ${c.title}`}>
-              {primary.label}
-              <Icon name="arrowRight" className="h-4 w-4" />
-            </a>
-          ) : waitlist ? (
-            <a href={waitlist.href} target="_blank" rel="noopener" className={buttonClasses({ size: "sm", className: "gap-1.5" })} aria-label={`${waitlist.label} ${OPENS_WEBSITE}: ${c.title}`}>
-              {waitlist.label}
-              <Icon name="external" className="h-4 w-4" />
-            </a>
-          ) : notOpen ? (
-            <NotOpenLabel label={notOpen} />
-          ) : null}
-          <a href={secondary.href} target="_blank" rel="noopener" className={buttonClasses({ variant: "secondary", size: "sm", className: "gap-1.5" })} aria-label={`${secondary.label} on the Tech Drona website (opens in a new tab): ${c.title}`}>
-            {secondary.label} on our website
-            <Icon name="external" className="h-4 w-4" />
-          </a>
-        </div>
+        {admin ? <SiteCourseAdminFooter course={c} planActive={planActive} /> : <SiteCourseLearnerFooter course={c} audience={audience} />}
       </div>
     </article>
+  );
+}
+
+/** Learners: the stretched title link (registration when open, else the course page on the website). */
+function SiteCourseTitleLink({ course: c, audience, titleId }: { course: SiteCourse; audience: SiteLearnerAudience; titleId: string }) {
+  const main = siteCourseLink(c, audience);
+  const ext = main.external ? { target: "_blank", rel: "noopener" } : {};
+  return (
+    <a href={main.href} {...ext} className={cn(STRETCHED_LINK, "after:rounded-2xl")}>
+      <span id={titleId}>{c.title}</span>
+      {main.external ? (
+        <>
+          <Icon name="external" className="ml-1 inline h-3.5 w-3.5 align-baseline text-fg-muted" />
+          <span className="sr-only"> {OPENS_WEBSITE}</span>
+        </>
+      ) : null}
+    </a>
+  );
+}
+
+/** Learners: Register (open) / waitlist (coming soon) / not-open label, and the course details. */
+function SiteCourseLearnerFooter({ course: c, audience }: { course: SiteCourse; audience: SiteLearnerAudience }) {
+  const actions = siteCourseActions(c, audience);
+  const { primary, secondary, waitlist } = actions;
+  const notOpen = notOpenLabel(c, actions);
+  return (
+    <div className="relative z-[2] mt-auto flex flex-wrap gap-2 pt-2">
+      {primary.href ? (
+        <a href={primary.href} className={buttonClasses({ size: "sm", className: "gap-1.5" })} aria-label={`${primary.label}: ${c.title}`}>
+          {primary.label}
+          <Icon name="arrowRight" className="h-4 w-4" />
+        </a>
+      ) : waitlist ? (
+        <a href={waitlist.href} target="_blank" rel="noopener" className={buttonClasses({ size: "sm", className: "gap-1.5" })} aria-label={`${waitlist.label} ${OPENS_WEBSITE}: ${c.title}`}>
+          {waitlist.label}
+          <Icon name="external" className="h-4 w-4" />
+        </a>
+      ) : notOpen ? (
+        <NotOpenLabel label={notOpen} />
+      ) : null}
+      <a href={secondary.href} target="_blank" rel="noopener" className={buttonClasses({ variant: "secondary", size: "sm", className: "gap-1.5" })} aria-label={`${secondary.label} on the Tech Drona website (opens in a new tab): ${c.title}`}>
+        {secondary.label} on our website
+        <Icon name="external" className="h-4 w-4" />
+      </a>
+    </div>
+  );
+}
+
+/** Admin: the registration state and management links (no Register / waitlist). */
+function SiteCourseAdminFooter({ course: c, planActive }: { course: SiteCourse; planActive?: boolean }) {
+  const a = siteCourseAdminActions(c);
+  const internal = [a.changeStatus, a.feePlan, a.registrations];
+  return (
+    <div className="mt-auto space-y-2 pt-2">
+      <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.84rem] text-fg-secondary">
+        <span>
+          Registration: <strong className="font-semibold text-fg-heading">{a.registration}</strong>
+        </span>
+        {planActive === false ? <span className="font-semibold text-warning-fg">No active fee plan</span> : null}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {internal.map((l, i) => (
+          <a key={l.label} href={l.href} className={buttonClasses({ variant: i === 0 ? "primary" : "secondary", size: "sm" })} aria-label={`${l.label}: ${c.title}`}>
+            {l.label}
+          </a>
+        ))}
+        <a href={a.website.href} target="_blank" rel="noopener" className={buttonClasses({ variant: "secondary", size: "sm", className: "gap-1.5" })} aria-label={`${a.website.label} ${OPENS_WEBSITE}: ${c.title}`}>
+          {a.website.label}
+          <Icon name="external" className="h-4 w-4" />
+        </a>
+      </div>
+    </div>
   );
 }

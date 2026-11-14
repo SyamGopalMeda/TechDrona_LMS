@@ -157,8 +157,51 @@ export interface paths {
          * Verify And Enrol
          * @description Verify the payment, find / create the LMS account, add to the batch, enrol, email the login
          *     details. ``account.temporary_password`` is returned once (only when the account was created now).
+         *     ``letter_step_auto``: open the admission-letter step next (admissions setting, default on).
          */
         post: operations["verify_and_enrol_api_v1_admin_admissions_claims__claim_id__verify_and_enrol_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/admissions/letter-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Letter Settings */
+        get: operations["get_letter_settings_api_v1_admin_admissions_letter_settings_get"];
+        /**
+         * Put Letter Settings
+         * @description Setting: after enrolling, open the admission-letter step automatically (default on).
+         */
+        put: operations["put_letter_settings_api_v1_admin_admissions_letter_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/admissions/letters/drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Letter Drafts
+         * @description The letter step of several registrations at once (bulk "Preview & issue letters"); read
+         *     only. Unknown ids are left out.
+         */
+        post: operations["letter_drafts_api_v1_admin_admissions_letters_drafts_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -296,6 +339,27 @@ export interface paths {
         put?: never;
         /** Set Fee */
         post: operations["set_fee_api_v1_admin_admissions_registrations__registration_id__fee_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/admissions/registrations/{registration_id}/letter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Registration Letter
+         * @description The admission-letter step: the prefilled draft (for ``/admin/documents/preview`` and
+         *     ``POST /admin/documents``), the letter in force and earlier ones, email state.
+         */
+        get: operations["registration_letter_api_v1_admin_admissions_registrations__registration_id__letter_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -614,6 +678,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/certificates/due/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Due Preview
+         * @description The certificate this enrolment would get (name, course, today), drawn by the same renderer
+         *     as the real one with a placeholder number. Nothing is stored; "issue all" stays a separate
+         *     step (the Due tab asks for a preview first).
+         */
+        post: operations["lrn_33b_admin_cert_due_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/certificates/outbox": {
         parameters: {
             query?: never;
@@ -837,6 +923,96 @@ export interface paths {
         put?: never;
         /** Issue */
         post: operations["doc_03_issue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/documents/bulk/enrolments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Bulk Enrolments */
+        get: operations["doc_23_bulk_enrolments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/documents/bulk/issue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk Issue
+         * @description Issue up to 200 rows; per-row results, failures never abort the run. Rows not reached
+         *     within the time budget come back ``deferred`` (send them again). Idempotency key required:
+         *     a retried chunk replays its first answer instead of issuing twice.
+         */
+        post: operations["doc_22_bulk_issue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/documents/bulk/pdfs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bulk Pdfs */
+        post: operations["doc_24_bulk_pdfs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/documents/bulk/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bulk Validate */
+        post: operations["doc_21_bulk_validate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/documents/bulk/{bulk_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Bulk Run */
+        get: operations["doc_25_bulk_run"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1249,6 +1425,71 @@ export interface paths {
         get: operations["retention_api_v1_admin_retention_policies_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/students/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Students
+         * @description Import students from a spreadsheet (``rows``) or enrol existing accounts (``user_ids``).
+         *
+         *     ``dry_run=true``: per-row ``status`` new / existing / error, nothing written. Otherwise
+         *     (Idempotency-Key required) per-row ``status`` created / existing / error; a failing row does
+         *     not stop the others. ``temporary_password`` is in this response only.
+         */
+        post: operations["import_students_api_v1_admin_students_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/students/import/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Import Options
+         * @description Courses (published) and batches (not archived) an import may name, + email status.
+         */
+        get: operations["import_options_api_v1_admin_students_import_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/students/send-login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Login
+         * @description Email each account a NEW temporary password (the old one stops working). Only when email
+         *     is integrated; staff accounts are refused (Admin > Users > Set new password instead).
+         */
+        post: operations["send_login_api_v1_admin_students_send_login_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9102,6 +9343,16 @@ export interface components {
              */
             label: string;
         };
+        /** AdmissionLetterDraftsIn */
+        AdmissionLetterDraftsIn: {
+            /** Registration Ids */
+            registration_ids: string[];
+        };
+        /** AdmissionLetterSettingsIn */
+        AdmissionLetterSettingsIn: {
+            /** Auto Open */
+            auto_open: boolean;
+        };
         /** AdmissionLoginEmailIn */
         AdmissionLoginEmailIn: {
             /**
@@ -9876,6 +10127,88 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** BulkIssueIn */
+        BulkIssueIn: {
+            /**
+             * Bulk Id
+             * Format: uuid
+             */
+            bulk_id: string;
+            /**
+             * Doc Type
+             * @enum {string}
+             */
+            doc_type: "offer_internship" | "offer_employment" | "offer_course" | "cert_completion" | "cert_internship" | "cert_appreciation" | "cert_participation" | "lor";
+            /**
+             * Email
+             * @default none
+             * @enum {string}
+             */
+            email: "outbox" | "none";
+            /** Issue Date */
+            issue_date?: string | null;
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+            /** Rows */
+            rows: components["schemas"]["BulkRowIn"][];
+        };
+        /** BulkPdfsIn */
+        BulkPdfsIn: {
+            /** Document Ids */
+            document_ids: string[];
+        };
+        /**
+         * BulkRowIn
+         * @description One spreadsheet row (or picked student). Empty / invalid values are reported by validate,
+         *     not refused by the schema, so one bad row never rejects the whole upload.
+         */
+        BulkRowIn: {
+            /** Batch Id */
+            batch_id?: string | null;
+            /** College */
+            college?: string | null;
+            /** Course Id */
+            course_id?: string | null;
+            /**
+             * Email
+             * @default
+             */
+            email: string;
+            /** Enrolment Id */
+            enrolment_id?: string | null;
+            /** Fields */
+            fields?: {
+                [key: string]: string;
+            };
+            /** Mobile */
+            mobile?: string | null;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /** Reg No */
+            reg_no?: string | null;
+            /** Row */
+            row?: number | null;
+            /** User Id */
+            user_id?: string | null;
+        };
+        /** BulkValidateIn */
+        BulkValidateIn: {
+            /**
+             * Doc Type
+             * @enum {string}
+             */
+            doc_type: "offer_internship" | "offer_employment" | "offer_course" | "cert_completion" | "cert_internship" | "cert_appreciation" | "cert_participation" | "lor";
+            /** Issue Date */
+            issue_date?: string | null;
+            /** Rows */
+            rows: components["schemas"]["BulkRowIn"][];
+        };
         /** CancelSubIn */
         CancelSubIn: {
             /** Feedback */
@@ -10242,11 +10575,15 @@ export interface components {
          *     an optional role is granted in the same step (Admin roles go to dual control as usual).
          */
         CreateUserIn: {
+            /** Batch Id */
+            batch_id?: string | null;
             /**
              * Confirm Adult
              * @default false
              */
             confirm_adult: boolean;
+            /** Course Id */
+            course_id?: string | null;
             /** Email */
             email: string;
             /** Full Name */
@@ -10259,7 +10596,7 @@ export interface components {
              */
             must_change_password: boolean;
             /** Password */
-            password: string;
+            password?: string | null;
             /** Reason */
             reason: string;
             /** Role Key */
@@ -10271,6 +10608,8 @@ export interface components {
              * @default platform
              */
             scope_type: string;
+            /** Student Type */
+            student_type?: ("course" | "internship") | null;
         };
         /** CreditNoteIn */
         CreditNoteIn: {
@@ -10342,6 +10681,14 @@ export interface components {
         DraftIn: {
             /** Source Code */
             source_code: string;
+        };
+        /** DuePreviewIn */
+        DuePreviewIn: {
+            /**
+             * Enrolment Id
+             * Format: uuid
+             */
+            enrolment_id: string;
         };
         /** Education */
         Education: {
@@ -10703,6 +11050,37 @@ export interface components {
             subject?: string | null;
             /** Topic */
             topic?: string | null;
+        };
+        /**
+         * ImportRowIn
+         * @description One spreadsheet row, as text (the browser parses the .xlsx / .csv). Every field is checked
+         *     per row, so a bad value is reported on its row instead of rejecting the whole file.
+         */
+        ImportRowIn: {
+            /** Batch */
+            batch?: string | null;
+            /** Branch */
+            branch?: string | null;
+            /** College */
+            college?: string | null;
+            /** Course */
+            course?: string | null;
+            /** Email */
+            email?: string | null;
+            /** End Date */
+            end_date?: string | null;
+            /** Full Name */
+            full_name?: string | null;
+            /** Mobile */
+            mobile?: string | null;
+            /** Row */
+            row?: number | null;
+            /** Start Date */
+            start_date?: string | null;
+            /** Student Type */
+            student_type?: string | null;
+            /** Year */
+            year?: string | null;
         };
         /** ImportValidateIn */
         ImportValidateIn: {
@@ -12238,6 +12616,16 @@ export interface components {
             /** Note */
             note: string;
         };
+        /** SendLoginIn */
+        SendLoginIn: {
+            /**
+             * Must Change Password
+             * @default true
+             */
+            must_change_password: boolean;
+            /** User Ids */
+            user_ids: string[];
+        };
         /** SessionChoiceIn */
         SessionChoiceIn: {
             /**
@@ -12351,6 +12739,42 @@ export interface components {
         StructureIn: {
             /** Sections */
             sections: components["schemas"]["app__modules__learning__structured_api__SectionIn"][];
+        };
+        /**
+         * StudentImportIn
+         * @description ``rows`` (import) or ``user_ids`` (enrol existing accounts), not both.
+         *
+         *     ``course`` / ``batch`` (id, slug / code, or title / name) apply to rows that leave theirs
+         *     empty, and are the target in ``user_ids`` mode.
+         */
+        StudentImportIn: {
+            /** Batch */
+            batch?: string | null;
+            /**
+             * Confirm Adult
+             * @default false
+             */
+            confirm_adult: boolean;
+            /** Course */
+            course?: string | null;
+            /**
+             * Must Change Password
+             * @default true
+             */
+            must_change_password: boolean;
+            /** Reason */
+            reason?: string | null;
+            /** Rows */
+            rows?: components["schemas"]["ImportRowIn"][];
+            /**
+             * Send Email
+             * @default false
+             */
+            send_email: boolean;
+            /** Student Type */
+            student_type?: ("course" | "internship") | null;
+            /** User Ids */
+            user_ids?: string[];
         };
         /** SubmissionIn */
         SubmissionIn: {
@@ -12997,6 +13421,8 @@ export interface components {
             signatory_email?: string | null;
             /** Signatory Phone */
             signatory_phone?: string | null;
+            /** Tagline */
+            tagline?: string | null;
             /** Website */
             website?: string | null;
         };
@@ -13625,6 +14051,98 @@ export interface operations {
             };
         };
     };
+    get_letter_settings_api_v1_admin_admissions_letter_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    put_letter_settings_api_v1_admin_admissions_letter_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdmissionLetterSettingsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    letter_drafts_api_v1_admin_admissions_letters_drafts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdmissionLetterDraftsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     overview_api_v1_admin_admissions_overview_get: {
         parameters: {
             query?: never;
@@ -13893,6 +14411,39 @@ export interface operations {
                 "application/json": components["schemas"]["AdmissionFeeIn"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    registration_letter_api_v1_admin_admissions_registrations__registration_id__letter_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -14581,6 +15132,41 @@ export interface operations {
             };
         };
     };
+    lrn_33b_admin_cert_due_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DuePreviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     lrn_34_admin_cert_outbox: {
         parameters: {
             query?: {
@@ -15045,6 +15631,178 @@ export interface operations {
             };
         };
     };
+    doc_23_bulk_enrolments: {
+        parameters: {
+            query?: {
+                batch_id?: string | null;
+                course_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    doc_22_bulk_issue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkIssueIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    doc_24_bulk_pdfs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkPdfsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    doc_21_bulk_validate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkValidateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    doc_25_bulk_run: {
+        parameters: {
+            query?: {
+                doc_type?: ("offer_internship" | "offer_employment" | "offer_course" | "cert_completion" | "cert_internship" | "cert_appreciation" | "cert_participation" | "lor") | null;
+            };
+            header?: never;
+            path: {
+                bulk_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     doc_05_prefill: {
         parameters: {
             query: {
@@ -15175,7 +15933,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                slot: "signature" | "seal" | "signature2";
+                slot: "signature" | "seal" | "signature2" | "logo_left" | "logo_right";
             };
             cookie?: never;
         };
@@ -15208,7 +15966,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                slot: "signature" | "seal" | "signature2";
+                slot: "signature" | "seal" | "signature2" | "logo_left" | "logo_right";
             };
             cookie?: never;
         };
@@ -15245,7 +16003,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                slot: "signature" | "seal" | "signature2";
+                slot: "signature" | "seal" | "signature2" | "logo_left" | "logo_right";
             };
             cookie?: never;
         };
@@ -15920,6 +16678,97 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    import_students_api_v1_admin_students_import_post: {
+        parameters: {
+            query?: {
+                /** @description Validate every row and answer; write nothing. */
+                dry_run?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StudentImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_options_api_v1_admin_students_import_options_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    send_login_api_v1_admin_students_send_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendLoginIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

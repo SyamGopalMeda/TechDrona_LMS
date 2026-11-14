@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, FormField, Input, LoadingBlock, PageHeader, Pagination, Select, Table, useToast, type Column } from "@/components/ui";
+import { Badge, Button, Card, Checkbox, Dialog, EmptyState, ErrorState, FormField, Input, LinkButton, LoadingBlock, PageHeader, Pagination, Select, Table, useToast, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import type { Body } from "@/lib/api-types";
 import { useSimpleAuth } from "@/components/shell/Integrations";
@@ -13,6 +13,8 @@ import { actionTypeLabel, type ApprovalRow } from "./ApprovalsQueue";
 import { restrictionText, roleLabel, scopeLabel } from "./Governance";
 import { useResource } from "@/lib/api/use-resource";
 import { formatDate, formatDateTime } from "@/lib/format";
+import { CredentialsPanel, EnrolDialog } from "./StudentImport";
+import type { ImportOptions } from "../lib/student-import";
 
 /** verified: app/modules/sessions/router.py REASON_CODES (required by staff session endpoints). */
 const SESSION_REASON_CODES = ["ticket", "unblock_request", "case", "incident", "user_request", "legal"] as const;
@@ -60,6 +62,8 @@ interface UserAccount {
   sessions: { active: number };
   pending_approvals: ApprovalRow[];
   break_glass_active: boolean;
+  /** Student type / college / internship dates (Add user, Import students); null when not recorded. */
+  student?: { student_type: string | null; college: string | null; branch: string | null; year: string | null; start_date: string | null; end_date: string | null } | null;
 }
 
 /** Readable name for an account: display name, then email, then "User #9F3C21AB" (never a raw id). */
@@ -78,7 +82,33 @@ export function UserSearch({ initialStatus = "", openAdd = false }: { initialSta
   const [status, setStatus] = useState(STATUS_FILTERS.includes(initialStatus) ? initialStatus : CURRENT);
   const list = useCursorList<UserRow>("admin/users", cleanQuery({ q: q.trim(), status: status === "any" ? "" : status }));
   const [addOpen, setAddOpen] = useState(openAdd);
+  // Bulk enrol: pick students on this page (or several pages), then "Enrol in course/batch".
+  const [selected, setSelected] = useState<Record<string, string>>({});
+  const [enrolOpen, setEnrolOpen] = useState(false);
+  const selectedIds = Object.keys(selected);
+  const pageRows = list.rows ?? [];
+  const allOnPage = pageRows.length > 0 && pageRows.every((u) => u.user_id in selected);
+  const toggle = (u: UserRow, on: boolean) =>
+    setSelected((s) => {
+      const next = { ...s };
+      if (on) next[u.user_id] = userName(u);
+      else delete next[u.user_id];
+      return next;
+    });
   const cols: Column<UserRow>[] = [
+    {
+      key: "pick",
+      header: (
+        <input
+          type="checkbox"
+          className="h-4 w-4 cursor-pointer"
+          aria-label="Select every user on this page"
+          checked={allOnPage}
+          onChange={(e) => pageRows.forEach((u) => toggle(u, e.target.checked))}
+        />
+      ),
+      cell: (u) => <input type="checkbox" className="h-4 w-4 cursor-pointer" aria-label={`Select ${userName(u)}`} checked={u.user_id in selected} onChange={(e) => toggle(u, e.target.checked)} />,
+    },
     {
       key: "name",
       header: "User",
@@ -109,7 +139,14 @@ export function UserSearch({ initialStatus = "", openAdd = false }: { initialSta
       <PageHeader
         title="Users"
         description="Find anyone by name, email, mobile number or id, then open their account to manage access."
-        actions={<Button onClick={() => setAddOpen(true)}>Add user</Button>}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <LinkButton variant="secondary" href="/admin/users/import">
+              Import students
+            </LinkButton>
+            <Button onClick={() => setAddOpen(true)}>Add user</Button>
+          </div>
+        }
       />
       <FilterBar label="User search">
         <FormField label="Search" hint="Name, email, mobile or user id">
@@ -119,8 +156,32 @@ export function UserSearch({ initialStatus = "", openAdd = false }: { initialSta
           {(f) => <Select {...f} value={status} onChange={(e) => setStatus(e.target.value)} options={STATUS_OPTIONS} />}
         </FormField>
       </FilterBar>
-      <Table caption="Users" columns={cols} rows={list.rows} rowKey={(u) => u.user_id} loading={list.loading} error={list.error} onRetry={() => void list.reload()} empty={{ title: "No users match", description: q || status !== CURRENT ? "Check the spelling, try their email or mobile number, or clear the status filter." : "People appear here once they sign up or you add them with Add user." }} footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />} />
+      <Table
+        caption="Users"
+        toolbar={
+          selectedIds.length ? (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="font-medium">{selectedIds.length} selected</span>
+              <Button size="sm" onClick={() => setEnrolOpen(true)}>
+                Enrol in course/batch
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelected({})}>
+                Clear selection
+              </Button>
+            </div>
+          ) : undefined
+        }
+        columns={cols} rows={list.rows} rowKey={(u) => u.user_id} loading={list.loading} error={list.error} onRetry={() => void list.reload()} empty={{ title: "No users match", description: q || status !== CURRENT ? "Check the spelling, try their email or mobile number, or clear the status filter." : "People appear here once they sign up or you add them with Add user." }} footer={<Pagination hasMore={list.hasMore} hasPrevious={list.hasPrevious} onNext={list.next} onPrevious={list.previous} />} />
       <AddUserDialog open={addOpen} onClose={() => setAddOpen(false)} onCreated={() => void list.reload()} />
+      <EnrolDialog
+        open={enrolOpen}
+        onClose={() => setEnrolOpen(false)}
+        userIds={selectedIds}
+        onDone={() => {
+          setSelected({});
+          void list.reload();
+        }}
+      />
     </div>
   );
 }
@@ -143,9 +204,23 @@ interface CreatedUser {
   user_id: string;
   status: string;
   role: { role_key: string; status: "granted" | "approval_pending"; approval_request_id?: string } | null;
+  must_change_password?: boolean;
+  /** `td######` (student accounts / generated logins); null for a typed password without a student type. */
+  username?: string | null;
+  /** Only in the response that created it (never stored). */
+  temporary_password?: string | null;
+  student_type?: string | null;
+  enrolment?: { course: { title: string } | null; batch: { name: string } | null; enrolled: boolean; added_to_batch: boolean } | null;
 }
 
-const EMPTY_NEW_USER = { full_name: "", email: "", mobile: "", password: "", must_change_password: false, role_key: "", batch_id: "", reason: "", confirm_adult: false };
+/** "" = not a student (staff or other). verified: app/modules/admin/accounts.py CreateUserIn.student_type */
+const STUDENT_TYPES = [
+  { value: "", label: "Not a student (staff or other)" },
+  { value: "course", label: "Course student" },
+  { value: "internship", label: "Internship student (never registered on the website)" },
+];
+
+const EMPTY_NEW_USER = { full_name: "", email: "", mobile: "", password: "", must_change_password: false, role_key: "", batch_id: "", reason: "", confirm_adult: false, student_type: "", enrol_course_id: "", enrol_batch_id: "" };
 const ADD_USER_DRAFT_KEY = "td-admin-add-user-draft";
 const isEmptyDraft = (f: typeof EMPTY_NEW_USER) => Object.entries(f).every(([k, v]) => v === EMPTY_NEW_USER[k as keyof typeof EMPTY_NEW_USER]);
 const PW_WORDS = ["river", "maple", "comet", "harbor", "violet", "cedar", "falcon", "amber", "orbit", "lotus", "summit", "pixel"];
@@ -178,25 +253,35 @@ export function AddUserDialog({ open, onClose, onCreated }: { open: boolean; onC
     }
   }, [form]);
   const clearForm = () => setForm(EMPTY_NEW_USER);
+  const [shown, setShown] = useState<(CreatedUser & { name: string; email: string; phone: string }) | null>(null);
+  const isStudent = form.student_type !== "";
+  const generate = form.password === "";
+  const enrolOptions = useResource<ImportOptions>(open && isStudent ? "admin/students/import/options" : null);
   const needsBatch = BATCH_ONLY_ROLES.has(form.role_key);
   const batches = useResource<{ data: { id: string; name: string; code: string; status: string }[] }>(open && needsBatch ? "batches" : null);
   const batchOptions = (batches.data?.data ?? []).filter((b) => b.status !== "archived").map((b) => ({ value: b.id, label: `${b.name} (${b.code})` }));
-  const set = (k: "full_name" | "email" | "mobile" | "password" | "batch_id" | "reason") => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const set = (k: "full_name" | "email" | "mobile" | "password" | "batch_id" | "reason" | "enrol_course_id" | "enrol_batch_id") => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const finish = (created: CreatedUser) => {
+    setShown(null);
+    onCreated?.();
+    router.push(`/admin/users/${created.user_id}`);
+  };
   const suggestPassword = () => setForm((f) => ({ ...f, password: `${PW_WORDS[rand(12)]}-${PW_WORDS[rand(12)]}-${PW_WORDS[rand(12)]}-${10 + rand(90)}` }));
   return (
+    <>
     <ActionDialog<CreatedUser>
       open={open}
       onClose={onClose}
       title="Add user"
-      description="Creates a ready-to-use account. Give the person their email and starting password; they can change the password after signing in."
+      description="Creates a ready-to-use account. Leave the password empty to get a username and temporary password to share (shown once)."
       submitLabel="Create account"
       validate={() =>
         form.full_name.trim().length < 2
           ? "Enter their full name."
           : !/^\S+@\S+\.\S+$/.test(form.email.trim())
             ? "Enter a valid email address."
-            : form.password.length < 6
-              ? "The starting password must be at least 6 characters."
+            : form.password !== "" && form.password.length < 6
+              ? "The starting password must be at least 6 characters (or leave it empty to generate one)."
               : needsBatch && !form.batch_id
                 ? "Choose the batch this trainer will teach."
                 : form.reason.trim().length < 5
@@ -213,30 +298,40 @@ export function AddUserDialog({ open, onClose, onCreated }: { open: boolean; onC
               full_name: form.full_name.trim(),
               email: form.email.trim(),
               mobile: form.mobile.trim() || null,
-              password: form.password,
-              must_change_password: form.must_change_password,
+              password: form.password || null,
+              must_change_password: generate || form.must_change_password,
               role_key: form.role_key || null,
               scope_type: needsBatch ? "batch" : "platform",
               scope_id: needsBatch ? form.batch_id : null,
               reason: form.reason.trim(),
               confirm_adult: form.confirm_adult,
-            } satisfies Body<"admin/users", "post"> & { must_change_password: boolean },
+              student_type: isStudent ? (form.student_type as "course" | "internship") : null,
+              course_id: isStudent && form.enrol_course_id ? form.enrol_course_id : null,
+              batch_id: isStudent && form.enrol_batch_id ? form.enrol_batch_id : null,
+            } satisfies Body<"admin/users", "post">,
             { idempotencyKey: true },
           ),
         )
       }
       onDone={(outcome) => {
         if (outcome.kind !== "ok") return;
+        const typed = { name: form.full_name.trim(), email: form.email.trim(), phone: form.mobile.trim() };
         clearForm();
         const created = outcome.data;
         const pendingRole = created.role?.status === "approval_pending";
+        const enrolled = created.enrolment ? [created.enrolment.course?.title, created.enrolment.batch?.name].filter(Boolean).join(" · ") : "";
         toast.show({
           title: "Account created",
-          description: pendingRole ? "The Admin role is waiting in Approvals (approve it there; with two or more admins another admin must). Share the email and starting password with the person." : "Share the email and starting password with the person.",
+          description: pendingRole
+            ? "The Admin role is waiting in Approvals (approve it there; with two or more admins another admin must). Share the email and starting password with the person."
+            : enrolled
+              ? `Enrolled: ${enrolled}. Share the login details with the person.`
+              : "Share the email and starting password with the person.",
           tone: "success",
         });
-        onCreated?.();
-        router.push(`/admin/users/${created.user_id}`);
+        // A generated login is shown once (copy / WhatsApp) before moving on to the account.
+        if (created.temporary_password || created.username) setShown({ ...created, ...typed });
+        else finish(created);
       }}
     >
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-surface-sunken px-3 py-2 text-sm text-fg-secondary">
@@ -254,7 +349,20 @@ export function AddUserDialog({ open, onClose, onCreated }: { open: boolean; onC
       <FormField label="Mobile number" hint="Optional">
         {(f) => <Input {...f} type="tel" inputMode="tel" value={form.mobile} onChange={set("mobile")} autoComplete="off" />}
       </FormField>
-      <FormField label="Starting password" required hint="At least 6 characters. Tip: Suggest makes a strong one.">
+      <FormField label="Student type" hint="Course student or Internship student (for interns who never registered on the website). Students get a username (td + 6 digits).">
+        {(f) => <Select {...f} value={form.student_type} onChange={(e) => setForm((prev) => ({ ...prev, student_type: e.target.value, enrol_course_id: "", enrol_batch_id: "" }))} options={STUDENT_TYPES} />}
+      </FormField>
+      {isStudent ? (
+        <div className="grid grid-cols-1 gap-3 rounded-lg border border-line p-3 sm:grid-cols-2">
+          <FormField label="Enrol in course" hint="Optional" error={enrolOptions.error ? "Courses could not be loaded." : undefined}>
+            {(f) => <Select {...f} value={form.enrol_course_id} onChange={set("enrol_course_id")} options={[{ value: "", label: "Not now" }, ...(enrolOptions.data?.courses ?? []).map((c) => ({ value: c.id, label: c.title }))]} />}
+          </FormField>
+          <FormField label="Add to batch" hint="Optional">
+            {(f) => <Select {...f} value={form.enrol_batch_id} onChange={set("enrol_batch_id")} options={[{ value: "", label: "Not now" }, ...(enrolOptions.data?.batches ?? []).map((b) => ({ value: b.id, label: `${b.name} (${b.code})` }))]} />}
+          </FormField>
+        </div>
+      ) : null}
+      <FormField label="Starting password" hint="Leave empty to generate a username and temporary password (shown once, to copy or share on WhatsApp). Or type one: at least 6 characters.">
         {(f) => (
           <div className="flex gap-2">
             <Input {...f} value={form.password} onChange={set("password")} autoComplete="new-password" className="min-w-0 flex-1" />
@@ -266,8 +374,9 @@ export function AddUserDialog({ open, onClose, onCreated }: { open: boolean; onC
       </FormField>
       <Checkbox
         label="Must change password on first login"
-        description="They'll be asked to choose their own password right after signing in."
-        checked={form.must_change_password}
+        description={generate ? "Always on for a generated temporary password." : "They'll be asked to choose their own password right after signing in."}
+        checked={generate || form.must_change_password}
+        disabled={generate}
         onChange={(e) => setForm((f) => ({ ...f, must_change_password: e.target.checked }))}
       />
       <FormField label="Role" hint={form.role_key === "super_admin" ? "Admin access starts after the request is approved in Approvals. While you are the only Admin you approve it yourself; otherwise another Admin must." : "You can change roles later in Roles."}>
@@ -288,6 +397,17 @@ export function AddUserDialog({ open, onClose, onCreated }: { open: boolean; onC
         onChange={(e) => setForm((f) => ({ ...f, confirm_adult: e.target.checked }))}
       />
     </ActionDialog>
+    <Dialog
+      open={shown !== null}
+      onClose={() => shown && finish(shown)}
+      size="lg"
+      title="Login details"
+      description={shown ? `${shown.name}${shown.enrolment?.course ? ` · ${shown.enrolment.course.title}` : ""}${shown.enrolment?.batch ? ` · ${shown.enrolment.batch.name}` : ""}` : undefined}
+      footer={<Button onClick={() => shown && finish(shown)}>Done</Button>}
+    >
+      {shown ? <CredentialsPanel name={shown.name} username={shown.username ?? null} email={shown.email} password={shown.temporary_password ?? null} mustChange={shown.must_change_password ?? true} phone={shown.phone} /> : null}
+    </Dialog>
+    </>
   );
 }
 
@@ -483,6 +603,13 @@ export function UserDetail({ userId }: { userId: string }) {
             { label: "Mobile", value: `${u.phone_masked ?? "—"}${u.phone_masked ? (u.phone_verified_at ? " · verified" : " · not verified") : ""}` },
             { label: "Restriction", value: restrictionText(u.restriction_level) },
             { label: "Origin", value: humanize(u.account_origin) },
+            ...(u.student
+              ? [
+                  { label: "Student type", value: u.student.student_type === "internship" ? "Internship student" : u.student.student_type === "course" ? "Course student" : "—" },
+                  ...(u.student.college || u.student.branch || u.student.year ? [{ label: "College", value: [u.student.college, u.student.branch, u.student.year ? `Year ${u.student.year}` : null].filter(Boolean).join(" · ") }] : []),
+                  ...(u.student.start_date || u.student.end_date ? [{ label: "Internship dates", value: `${u.student.start_date ? formatDate(u.student.start_date) : "—"} – ${u.student.end_date ? formatDate(u.student.end_date) : "—"}` }] : []),
+                ]
+              : []),
             ...(simple ? [] : [{ label: "MFA", value: u.mfa.enrolled ? u.mfa.factors.map((f) => humanize(f.factor_type)).join(", ") : "Not enrolled" }]),
             { label: "Active sessions", value: String(u.sessions.active) },
             { label: "Joined", value: formatDate(u.created_at) },

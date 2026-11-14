@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { buildSiteCatalog, courseStatusUrl, dateKey, fetchSiteCatalog, parseCatalogJson, parseCoursePublic, parseCourseStatus, siteCourseGroup, stripCourses, type FetchLike } from "./lib/catalog";
 import { siteBaseUrl } from "./lib/site-url";
 import type { CatalogCourse, CoursePublicState } from "./lib/types";
-import { SiteCourseCard } from "./components/SiteCourseCard";
+import { OPENS_WEBSITE, SiteCourseCard } from "./components/SiteCourseCard";
 import { SiteCourseSections } from "./components/SiteCourseSections";
 import { SiteCourseStripView } from "./components/SiteCourseStrip";
 
@@ -360,6 +360,58 @@ describe("site catalogue: LMS course registration status", () => {
     const links = screen.getAllByRole("link", { name: /^Register/ });
     expect(links.map((l) => l.getAttribute("href"))).toEqual(["/register/nextgen-career-accelerator-2026"]);
     expect(screen.getAllByText("Closed").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("admin audience: manage links (status, fee plan, registrations, website), no Register / waitlist / join", () => {
+    const cat = withStatus({ "generative-ai": "open", "python-full-stack-development": "coming_soon", "nextgen-career-accelerator-2026": "closed" });
+    const get = (slug: string) => cat.courses.find((c) => c.slug === slug)!;
+    for (const [slug, reg] of [["generative-ai", "Open"], ["python-full-stack-development", "Coming soon"], ["nextgen-career-accelerator-2026", "Closed"]] as const) {
+      const c = get(slug);
+      const r = render(<SiteCourseCard course={c} variant="compact" audience="admin" planActive={slug !== "python-full-stack-development"} />);
+      const card = screen.getByRole("article", { name: c.title });
+      expect(within(card).getByText((_, el) => el?.tagName === "SPAN" && el.textContent === `Registration: ${reg}`)).toBeInTheDocument();
+      expect(within(card).getByRole("link", { name: `Change status: ${c.title}` })).toHaveAttribute("href", "/finance/admissions#course-status");
+      expect(within(card).getByRole("link", { name: `Fee plan: ${c.title}` })).toHaveAttribute("href", `/finance/admissions/plans?edit=${slug}`);
+      expect(within(card).getByRole("link", { name: `Registrations: ${c.title}` })).toHaveAttribute("href", `/finance/admissions/registrations?course=${slug}`);
+      const site = within(card).getByRole("link", { name: `View on website ${OPENS_WEBSITE}: ${c.title}` });
+      expect(site).toHaveAttribute("href", `${SITE}/courses/${slug}`);
+      expect(site).toHaveAttribute("target", "_blank");
+      // the title is a plain heading, not a whole-card link; nothing a student would do
+      expect(within(card).getByRole("heading", { level: 3, name: c.title }).querySelector("a")).toBeNull();
+      expect(within(card).getAllByRole("link")).toHaveLength(4);
+      expect(within(card).queryByText(/register|waitlist|join/i)).not.toBeInTheDocument();
+      expect(within(card).queryByRole("link", { name: /register|waitlist|join|course details/i })).not.toBeInTheDocument();
+      expect(within(card).queryByText("No active fee plan") !== null).toBe(slug === "python-full-stack-development");
+      r.unmount();
+    }
+  });
+
+  it("admin audience through SiteCourseSections: fee-plan note only once the plan map is known", () => {
+    const cat = withStatus({ "generative-ai": "open", "python-full-stack-development": "coming_soon" });
+    const r1 = render(<SiteCourseSections catalog={cat} variant="compact" headingLevel="h3" audience="admin" />);
+    expect(screen.getAllByRole("link", { name: /^Change status: / }).length).toBe(cat.courses.length);
+    expect(screen.queryByText("No active fee plan")).not.toBeInTheDocument(); // unknown: no claim
+    expect(screen.queryByRole("link", { name: /^Register|waitlist/i })).not.toBeInTheDocument();
+    r1.unmount();
+    // loaded map: listed with an active plan -> no note; listed inactive or missing -> note
+    render(<SiteCourseSections catalog={cat} variant="compact" headingLevel="h3" audience="admin" planActive={{ "generative-ai": true, "python-full-stack-development": false }} />);
+    const ai = screen.getByRole("article", { name: "Generative AI" });
+    expect(within(ai).queryByText("No active fee plan")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("article", { name: "Python Full Stack Development" })).getByText("No active fee plan")).toBeInTheDocument();
+    expect(screen.getAllByText("No active fee plan")).toHaveLength(cat.courses.length - 1);
+  });
+
+  it("student and public audiences keep their actions (no admin links)", () => {
+    const cat = withStatus({ "generative-ai": "open", "python-full-stack-development": "coming_soon" });
+    for (const audience of ["student", "public"] as const) {
+      const r = render(<SiteCourseSections catalog={cat} audience={audience} />);
+      expect(screen.getByRole("link", { name: "Register: Generative AI" })).toHaveAttribute("href", audience === "public" ? "/register/generative-ai" : "/app/courses/generative-ai/register");
+      expect(screen.getByRole("link", { name: /^Join the waitlist on our website/ })).toBeInTheDocument();
+      expect(screen.getAllByRole("link", { name: /^Course details on the Tech Drona website/ }).length).toBe(cat.courses.length);
+      expect(screen.queryByRole("link", { name: /^(Change status|Fee plan|Registrations|View on website)/ })).not.toBeInTheDocument();
+      expect(screen.queryByText(/^Registration:/)).not.toBeInTheDocument();
+      r.unmount();
+    }
   });
 
   it("fetchSiteCatalog reads the status from the api when configured; failures fall back", async () => {

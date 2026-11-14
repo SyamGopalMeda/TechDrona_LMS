@@ -123,6 +123,8 @@ export const ADMIN_NAV: NavItem[] = [
   // Kept: revoking an Admin role, policy changes and MFA resets are still dual-controlled.
   { href: "/admin/approvals", label: "Approvals", screen: "ADM-010", section: "Overview" },
   { href: "/admin/users", label: "Users", screen: "ADM-004", section: "People" },
+  // Student management (2026-11-14): Excel / CSV import + enrolment of many students at once.
+  { href: "/admin/users/import", label: "Import students", screen: "ADM-024", section: "People", keywords: ["excel", "bulk", "upload", "csv", "students", "enrol"] },
   { href: "/admin/roles", label: "Role grants", screen: "ADM-005", section: "People" },
   { href: "/admin/privacy-requests", label: "Privacy requests", screen: "ADM-009", section: "People" },
   // documentNav: the College Data Portal is a separate app. While it is not deployed on Hosting,

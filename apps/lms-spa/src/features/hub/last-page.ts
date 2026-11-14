@@ -107,6 +107,9 @@ export function clearLastPage(): void {
  * Where /continue should go: the remembered page when it is safe, recent, in the requested area
  * and open to this user; otherwise `fallback`.
  */
+/** The College Data Portal, full screen (no LMS shell around it). */
+export const FULL_SCREEN_COLLEGES = "/college-portal/index.html";
+
 export function pickContinueTarget(opts: {
   record: LastPage | null;
   area?: ContinueArea;
@@ -125,6 +128,8 @@ export function pickContinueTarget(opts: {
   if (!path || !isTrackablePath(path)) return fallback;
   if (area && areaOf(path) !== area) return fallback;
   if (!allowedFor(path, portals)) return fallback;
+  // Resuming Colleges always lands on the full-screen portal, not the embedded Admin page.
+  if (areaOf(path) === "colleges" && under(pathnameOf(path), "/admin/college-data")) return FULL_SCREEN_COLLEGES;
   return path;
 }
 

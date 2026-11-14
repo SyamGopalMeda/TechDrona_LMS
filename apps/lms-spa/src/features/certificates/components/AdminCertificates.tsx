@@ -30,6 +30,7 @@ import { useApi, seg } from "@/features/trainer/shared/use-api";
 import { useFailToast } from "@/features/trainer/shared/ui";
 import { outboxItem, type AdminCertificate, type ApproveResult, type CertSummary, type CursorPage, type DueRow, type IssueDueResult, type OutboxRow, type OutboxStatus } from "../lib/types";
 import { CreateTab, DocSettingsTab, RegisterTab, TemplatesTab } from "./AdminDocuments";
+import { pdfUrlFromBase64 } from "../lib/docs";
 import { formatDate, formatDateTime } from "@/lib/format";
 
 const EMAIL_TONE: Record<OutboxStatus, BadgeTone> = { awaiting: "warning", pending: "info", sent: "success", failed: "danger", cancelled: "neutral" };
@@ -116,7 +117,7 @@ export function AdminCertificates({ initialCourse = "" }: { initialCourse?: stri
         items={[
           { id: "issued", label: "Issued", content: <IssuedTab courseId={courseId} onCourse={setCourseId} onChanged={refresh} /> },
           { id: "due", label: s ? `Due (${s.due_eligible})` : "Due", content: <DueTab courseId={courseId} onChanged={refresh} /> },
-          { id: "create", label: "Create & send", content: <CreateTab onIssued={() => { refresh(); setTab("register"); }} /> },
+          { id: "create", label: "Create & send", content: <CreateTab onIssued={() => { refresh(); setTab("register"); }} onChanged={refresh} /> },
           { id: "register", label: "Documents register", content: <RegisterTab onChanged={refresh} /> },
           { id: "queue", label: s ? `Approval queue (${s.outbox.awaiting})` : "Approval queue", content: <QueueTab courseId={courseId} onChanged={refresh} /> },
           { id: "templates", label: "Templates", content: <TemplatesTab /> },
@@ -333,9 +334,29 @@ function DueTab({ courseId, onChanged }: { courseId: string; onChanged: () => vo
   const due = useApi<{ data: DueRow[]; eligible: number }>("admin/certificates/due", { course_id: courseId || undefined });
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
+  const [previewed, setPreviewed] = useState(false);
   const fail = useFailToast();
   const toast = useToast();
   const eligible = due.data?.eligible ?? 0;
+  const firstEligible = due.data?.data.find((r) => r.eligible);
+
+  /** The certificate this learner would get (nothing stored). "Issue all" waits for one preview. */
+  async function preview(row: DueRow) {
+    setBusy(`preview:${row.enrolment_id}`);
+    try {
+      const r = await api.post<{ pdf_base64: string }>("admin/certificates/due/preview", { enrolment_id: row.enrolment_id });
+      if (r.kind === "ok") {
+        const url = pdfUrlFromBase64(r.data.pdf_base64);
+        window.open(url, "_blank", "noopener,noreferrer");
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        setPreviewed(true);
+      }
+    } catch (err) {
+      fail(err, "Couldn't build the preview");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function issue(body: { enrolment_ids?: string[]; course_id?: string }) {
     const r = await api.post<IssueDueResult>("admin/certificates/due/issue", body, { idempotencyKey: true });
@@ -366,9 +387,15 @@ function DueTab({ courseId, onChanged }: { courseId: string; onChanged: () => vo
         title="Learners due a certificate"
         description="Completed enrolments and enrolments in batches that have ended, without a certificate. Only learners who meet the course's certificate rule can be issued one."
         actions={
-          <Button onClick={() => setConfirmAll(true)} disabled={!eligible}>
-            {`Issue all eligible (${eligible})`}
-          </Button>
+          <>
+            {!previewed && eligible ? <span className="text-sm text-fg-muted">Preview one certificate first.</span> : null}
+            <Button variant="secondary" disabled={!firstEligible} loading={busy === `preview:${firstEligible?.enrolment_id}`} onClick={() => firstEligible && void preview(firstEligible)}>
+              Preview a certificate
+            </Button>
+            <Button onClick={() => setConfirmAll(true)} disabled={!eligible || !previewed}>
+              {`Issue all eligible (${eligible})`}
+            </Button>
+          </>
         }
         padding="none"
       >
@@ -408,9 +435,14 @@ function DueTab({ courseId, onChanged }: { courseId: string; onChanged: () => vo
               align: "right",
               cell: (r) =>
                 r.eligible ? (
-                  <Button size="sm" loading={busy === r.enrolment_id} onClick={() => void issueOne(r)} aria-label={`Issue certificate to ${r.name ?? r.email ?? "learner"}`}>
-                    Issue
-                  </Button>
+                  <div className="flex justify-end gap-2">
+                    <Button size="sm" variant="ghost" loading={busy === `preview:${r.enrolment_id}`} onClick={() => void preview(r)} aria-label={`Preview certificate for ${r.name ?? r.email ?? "learner"}`}>
+                      Preview
+                    </Button>
+                    <Button size="sm" loading={busy === r.enrolment_id} onClick={() => void issueOne(r)} aria-label={`Issue certificate to ${r.name ?? r.email ?? "learner"}`}>
+                      Issue
+                    </Button>
+                  </div>
                 ) : null,
             },
           ]}

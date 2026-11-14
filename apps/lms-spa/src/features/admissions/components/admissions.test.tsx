@@ -7,7 +7,7 @@ import { approvalEnrols, loginMessage, toPaise, upiLink, whatsappLink } from "..
 import { AdmissionsOverview, FeePlans, RegistrationsList, RegistrationView, VerifyQueue } from "./Admissions";
 
 vi.setConfig({ testTimeout: 20000 });
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }), usePathname: () => "/finance/admissions" }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }), usePathname: () => "/finance/admissions", useSearchParams: () => new URLSearchParams(window.location.search) }));
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -334,6 +334,16 @@ describe("Admissions (website registrations + manual UPI verification)", () => {
     await userEvent.type(screen.getByLabelText("Search"), "priya@example.com");
     await userEvent.click(screen.getByRole("button", { name: "Search" }));
     await waitFor(() => expect(api.calls.some((c) => c.url.includes("q=priya%40example.com"))).toBe(true));
+  });
+
+  it("?course=<slug> (from Admin > Courses) lists one course's registrations, with a way back to all", async () => {
+    const api = mockApi({ "GET admin/admissions/registrations": { body: { data: [reg], page: { next_cursor: null, has_more: false } } } });
+    cleanups.push(api.restore);
+    window.history.pushState({}, "", "/finance/admissions/registrations?course=Java-Full-Stack");
+    cleanups.push(() => window.history.pushState({}, "", "/"));
+    renderWithProviders(<RegistrationsList />);
+    await waitFor(() => expect(api.calls.some((c) => c.url.includes("course_slug=java-full-stack"))).toBe(true));
+    expect(screen.getByRole("link", { name: "Show all courses" })).toHaveAttribute("href", "/finance/admissions/registrations");
   });
 
   it("shows a registration with its payments, instalments and history", async () => {

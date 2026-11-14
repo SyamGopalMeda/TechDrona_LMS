@@ -595,6 +595,40 @@
         "title": "AdmissionInstalmentIn",
         "type": "object"
       },
+      "AdmissionLetterDraftsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "registration_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Registration Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "registration_ids"
+        ],
+        "title": "AdmissionLetterDraftsIn",
+        "type": "object"
+      },
+      "AdmissionLetterSettingsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "auto_open": {
+            "title": "Auto Open",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "auto_open"
+        ],
+        "title": "AdmissionLetterSettingsIn",
+        "type": "object"
+      },
       "AdmissionLoginEmailIn": {
         "additionalProperties": false,
         "properties": {
@@ -3205,6 +3239,264 @@
         "title": "BulkIn",
         "type": "object"
       },
+      "BulkIssueIn": {
+        "additionalProperties": false,
+        "properties": {
+          "bulk_id": {
+            "format": "uuid",
+            "title": "Bulk Id",
+            "type": "string"
+          },
+          "doc_type": {
+            "enum": [
+              "offer_internship",
+              "offer_employment",
+              "offer_course",
+              "cert_completion",
+              "cert_internship",
+              "cert_appreciation",
+              "cert_participation",
+              "lor"
+            ],
+            "title": "Doc Type",
+            "type": "string"
+          },
+          "email": {
+            "default": "none",
+            "enum": [
+              "outbox",
+              "none"
+            ],
+            "title": "Email",
+            "type": "string"
+          },
+          "issue_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue Date"
+          },
+          "label": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Label",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/BulkRowIn"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "doc_type",
+          "bulk_id",
+          "rows"
+        ],
+        "title": "BulkIssueIn",
+        "type": "object"
+      },
+      "BulkPdfsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "document_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Document Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "document_ids"
+        ],
+        "title": "BulkPdfsIn",
+        "type": "object"
+      },
+      "BulkRowIn": {
+        "additionalProperties": false,
+        "description": "One spreadsheet row (or picked student). Empty / invalid values are reported by validate,\nnot refused by the schema, so one bad row never rejects the whole upload.",
+        "properties": {
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
+          "college": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College"
+          },
+          "course_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
+          },
+          "email": {
+            "default": "",
+            "maxLength": 320,
+            "title": "Email",
+            "type": "string"
+          },
+          "enrolment_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enrolment Id"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 40,
+            "title": "Fields",
+            "type": "object"
+          },
+          "mobile": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mobile"
+          },
+          "name": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Name",
+            "type": "string"
+          },
+          "reg_no": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reg No"
+          },
+          "row": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "title": "BulkRowIn",
+        "type": "object"
+      },
+      "BulkValidateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "doc_type": {
+            "enum": [
+              "offer_internship",
+              "offer_employment",
+              "offer_course",
+              "cert_completion",
+              "cert_internship",
+              "cert_appreciation",
+              "cert_participation",
+              "lor"
+            ],
+            "title": "Doc Type",
+            "type": "string"
+          },
+          "issue_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue Date"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/BulkRowIn"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "doc_type",
+          "rows"
+        ],
+        "title": "BulkValidateIn",
+        "type": "object"
+      },
       "CancelSubIn": {
         "additionalProperties": false,
         "properties": {
@@ -4370,10 +4662,34 @@
         "additionalProperties": false,
         "description": "ADM-06 staff-created account. The admin sets a starting password and tells the person;\nan optional role is granted in the same step (Admin roles go to dual control as usual).",
         "properties": {
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
           "confirm_adult": {
             "default": false,
             "title": "Confirm Adult",
             "type": "boolean"
+          },
+          "course_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
           },
           "email": {
             "maxLength": 254,
@@ -4405,10 +4721,16 @@
             "type": "boolean"
           },
           "password": {
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Password",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
           },
           "reason": {
             "maxLength": 500,
@@ -4445,12 +4767,26 @@
             "pattern": "^(platform|batch|course)$",
             "title": "Scope Type",
             "type": "string"
+          },
+          "student_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "course",
+                  "internship"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Student Type"
           }
         },
         "required": [
           "full_name",
           "email",
-          "password",
           "reason"
         ],
         "title": "CreateUserIn",
@@ -4676,6 +5012,21 @@
           "source_code"
         ],
         "title": "DraftIn",
+        "type": "object"
+      },
+      "DuePreviewIn": {
+        "additionalProperties": false,
+        "properties": {
+          "enrolment_id": {
+            "format": "uuid",
+            "title": "Enrolment Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enrolment_id"
+        ],
+        "title": "DuePreviewIn",
         "type": "object"
       },
       "Education": {
@@ -5868,6 +6219,159 @@
           "question_type"
         ],
         "title": "ImportPromptIn",
+        "type": "object"
+      },
+      "ImportRowIn": {
+        "additionalProperties": false,
+        "description": "One spreadsheet row, as text (the browser parses the .xlsx / .csv). Every field is checked\nper row, so a bad value is reported on its row instead of rejecting the whole file.",
+        "properties": {
+          "batch": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "college": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College"
+          },
+          "course": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 320,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "mobile": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mobile"
+          },
+          "row": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "student_type": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Student Type"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "title": "ImportRowIn",
         "type": "object"
       },
       "ImportValidateIn": {
@@ -10764,6 +11268,31 @@
         "title": "SendBackIn",
         "type": "object"
       },
+      "SendLoginIn": {
+        "additionalProperties": false,
+        "properties": {
+          "must_change_password": {
+            "default": true,
+            "title": "Must Change Password",
+            "type": "boolean"
+          },
+          "user_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "User Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "user_ids"
+        ],
+        "title": "SendLoginIn",
+        "type": "object"
+      },
       "SessionChoiceIn": {
         "additionalProperties": false,
         "properties": {
@@ -11140,6 +11669,97 @@
           "sections"
         ],
         "title": "StructureIn",
+        "type": "object"
+      },
+      "StudentImportIn": {
+        "additionalProperties": false,
+        "description": "``rows`` (import) or ``user_ids`` (enrol existing accounts), not both.\n\n``course`` / ``batch`` (id, slug / code, or title / name) apply to rows that leave theirs\nempty, and are the target in ``user_ids`` mode.",
+        "properties": {
+          "batch": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch"
+          },
+          "confirm_adult": {
+            "default": false,
+            "title": "Confirm Adult",
+            "type": "boolean"
+          },
+          "course": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course"
+          },
+          "must_change_password": {
+            "default": true,
+            "title": "Must Change Password",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ImportRowIn"
+            },
+            "maxItems": 500,
+            "title": "Rows",
+            "type": "array"
+          },
+          "send_email": {
+            "default": false,
+            "title": "Send Email",
+            "type": "boolean"
+          },
+          "student_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "course",
+                  "internship"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Student Type"
+          },
+          "user_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "User Ids",
+            "type": "array"
+          }
+        },
+        "title": "StudentImportIn",
         "type": "object"
       },
       "SubmissionIn": {
@@ -13610,6 +14230,18 @@
             ],
             "title": "Signatory Phone"
           },
+          "tagline": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tagline"
+          },
           "website": {
             "anyOf": [
               {
@@ -15089,7 +15721,7 @@
     },
     "/api/v1/admin/admissions/claims/{claim_id}/verify-and-enrol": {
       "post": {
-        "description": "Verify the payment, find / create the LMS account, add to the batch, enrol, email the login\ndetails. ``account.temporary_password`` is returned once (only when the account was created now).",
+        "description": "Verify the payment, find / create the LMS account, add to the batch, enrol, email the login\ndetails. ``account.temporary_password`` is returned once (only when the account was created now).\n``letter_step_auto``: open the admission-letter step next (admissions setting, default on).",
         "operationId": "verify_and_enrol_api_v1_admin_admissions_claims__claim_id__verify_and_enrol_post",
         "parameters": [
           {
@@ -15138,6 +15770,121 @@
           }
         },
         "summary": "Verify And Enrol",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/letter-settings": {
+      "get": {
+        "operationId": "get_letter_settings_api_v1_admin_admissions_letter_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Letter Settings Api V1 Admin Admissions Letter Settings Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Letter Settings",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      },
+      "put": {
+        "description": "Setting: after enrolling, open the admission-letter step automatically (default on).",
+        "operationId": "put_letter_settings_api_v1_admin_admissions_letter_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionLetterSettingsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Put Letter Settings Api V1 Admin Admissions Letter Settings Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Letter Settings",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/letters/drafts": {
+      "post": {
+        "description": "The letter step of several registrations at once (bulk \"Preview & issue letters\"); read\nonly. Unknown ids are left out.",
+        "operationId": "letter_drafts_api_v1_admin_admissions_letters_drafts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionLetterDraftsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Letter Drafts Api V1 Admin Admissions Letters Drafts Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Letter Drafts",
         "tags": [
           "admissions"
         ],
@@ -15613,6 +16360,54 @@
           "admissions"
         ],
         "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/registrations/{registration_id}/letter": {
+      "get": {
+        "description": "The admission-letter step: the prefilled draft (for ``/admin/documents/preview`` and\n``POST /admin/documents``), the letter in force and earlier ones, email state.",
+        "operationId": "registration_letter_api_v1_admin_admissions_registrations__registration_id__letter_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Registration Letter Api V1 Admin Admissions Registrations  Registration Id  Letter Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Registration Letter",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "neutral",
         "x-td-route-tag": "default"
       }
     },
@@ -16659,6 +17454,52 @@
         "x-td-route-tag": "default"
       }
     },
+    "/api/v1/admin/certificates/due/preview": {
+      "post": {
+        "description": "The certificate this enrolment would get (name, course, today), drawn by the same renderer\nas the real one with a placeholder number. Nothing is stored; \"issue all\" stays a separate\nstep (the Due tab asks for a preview first).",
+        "operationId": "lrn_33b_admin_cert_due_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DuePreviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Lrn 33B Admin Cert Due Preview",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Due Preview",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
     "/api/v1/admin/certificates/outbox": {
       "get": {
         "operationId": "lrn_34_admin_cert_outbox",
@@ -17451,6 +18292,284 @@
         "x-td-route-tag": "default"
       }
     },
+    "/api/v1/admin/documents/bulk/enrolments": {
+      "get": {
+        "operationId": "doc_23_bulk_enrolments",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "batch_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Batch Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "course_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Course Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 23 Bulk Enrolments",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Enrolments",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/bulk/issue": {
+      "post": {
+        "description": "Issue up to 200 rows; per-row results, failures never abort the run. Rows not reached\nwithin the time budget come back ``deferred`` (send them again). Idempotency key required:\na retried chunk replays its first answer instead of issuing twice.",
+        "operationId": "doc_22_bulk_issue",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkIssueIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Doc 22 Bulk Issue"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Issue",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/bulk/pdfs": {
+      "post": {
+        "operationId": "doc_24_bulk_pdfs",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkPdfsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 24 Bulk Pdfs",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Pdfs",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/bulk/validate": {
+      "post": {
+        "operationId": "doc_21_bulk_validate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkValidateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 21 Bulk Validate",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Validate",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/documents/bulk/{bulk_id}": {
+      "get": {
+        "operationId": "doc_25_bulk_run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bulk_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Bulk Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "doc_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "offer_internship",
+                    "offer_employment",
+                    "offer_course",
+                    "cert_completion",
+                    "cert_internship",
+                    "cert_appreciation",
+                    "cert_participation",
+                    "lor"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Doc Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doc 25 Bulk Run",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Run",
+        "tags": [
+          "learning"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
     "/api/v1/admin/documents/prefill": {
       "get": {
         "operationId": "doc_05_prefill",
@@ -17623,7 +18742,9 @@
               "enum": [
                 "signature",
                 "seal",
-                "signature2"
+                "signature2",
+                "logo_left",
+                "logo_right"
               ],
               "title": "Slot",
               "type": "string"
@@ -17672,7 +18793,9 @@
               "enum": [
                 "signature",
                 "seal",
-                "signature2"
+                "signature2",
+                "logo_left",
+                "logo_right"
               ],
               "title": "Slot",
               "type": "string"
@@ -17721,7 +18844,9 @@
               "enum": [
                 "signature",
                 "seal",
-                "signature2"
+                "signature2",
+                "logo_left",
+                "logo_right"
               ],
               "title": "Slot",
               "type": "string"
@@ -18711,6 +19836,130 @@
           "admin"
         ],
         "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/students/import": {
+      "post": {
+        "description": "Import students from a spreadsheet (``rows``) or enrol existing accounts (``user_ids``).\n\n``dry_run=true``: per-row ``status`` new / existing / error, nothing written. Otherwise\n(Idempotency-Key required) per-row ``status`` created / existing / error; a failing row does\nnot stop the others. ``temporary_password`` is in this response only.",
+        "operationId": "import_students_api_v1_admin_students_import_post",
+        "parameters": [
+          {
+            "description": "Validate every row and answer; write nothing.",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Validate every row and answer; write nothing.",
+              "title": "Dry Run",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudentImportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Students",
+        "tags": [
+          "admin"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/students/import/options": {
+      "get": {
+        "description": "Courses (published) and batches (not archived) an import may name, + email status.",
+        "operationId": "import_options_api_v1_admin_students_import_options_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Import Options Api V1 Admin Students Import Options Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Import Options",
+        "tags": [
+          "admin"
+        ],
+        "x-td-idle": "neutral",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/students/send-login": {
+      "post": {
+        "description": "Email each account a NEW temporary password (the old one stops working). Only when email\nis integrated; staff accounts are refused (Admin > Users > Set new password instead).",
+        "operationId": "send_login_api_v1_admin_students_send_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendLoginIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Send Login",
+        "tags": [
+          "admin"
+        ],
+        "x-td-idle": "extends",
         "x-td-route-tag": "default"
       }
     },

@@ -8,6 +8,7 @@ issue certificates); issuing one certificate and revoking stay on the existing
 * ``GET  /admin/certificates/summary``         KPI counts + the auto-send setting
 * ``GET  /admin/certificates/due``             enrolments without a certificate (completed / batch ended)
 * ``POST /admin/certificates/due/issue``       issue the eligible due rows (all, or ``enrolment_ids``)
+* ``POST /admin/certificates/due/preview``     draft PDF of one due row's certificate (nothing stored)
 * ``GET  /admin/certificates/outbox``          the email approval queue (certificates + issued
   documents; each row has a normalised ``item``; ``kind`` filters)
 * ``POST /admin/certificates/outbox/approve``  approve (single or bulk) -> sent
@@ -68,6 +69,10 @@ class IssueDueIn(Strict):
 
 class SettingsIn(Strict):
     auto_send: bool
+
+
+class DuePreviewIn(Strict):
+    enrolment_id: uuid.UUID
 
 
 def _ts(v: Any) -> str | None:
@@ -293,6 +298,49 @@ async def issue_due(
         return IdemResult(out, 200)
 
     return await idempotent(request, session, user_id=principal.user_id, operation=op, required=False)
+
+
+PREVIEW_CODE = "PREVIEW00000"
+
+
+@router.post("/admin/certificates/due/preview", operation_id="lrn_33b_admin_cert_due_preview")
+async def due_preview(
+    body: DuePreviewIn, session: PrincipalDbSession, principal: Principal = _perm()
+) -> dict[str, Any]:
+    """The certificate this enrolment would get (name, course, today), drawn by the same renderer
+    as the real one with a placeholder number. Nothing is stored; "issue all" stays a separate
+    step (the Due tab asks for a preview first)."""
+    import base64
+
+    from app.core.ids import uuid7
+    from app.core.time import utcnow
+    from app.modules.learning import service as svc
+    from app.modules.learning.certpdf import TEMPLATE_VERSION
+    from app.modules.learning.models import Enrolment
+
+    enr = await fss.get(session, Enrolment, body.enrolment_id)
+    if enr is None:
+        raise ProblemError("not_found")
+    draft = Certificate(
+        id=uuid7(),
+        public_code=PREVIEW_CODE,
+        user_id=enr.user_id,
+        organization_id=enr.organization_id,
+        course_id=enr.course_id,
+        course_version_id=enr.course_version_id,
+        enrolment_id=enr.id,
+        name_on_certificate=await svc._name_for(session, enr.user_id),
+        template_version=TEMPLATE_VERSION,
+        content_hash=b"",
+        issued_at=utcnow(),
+    )
+    data = await certs.render_pdf(session, draft)
+    title = (await certs.course_titles(session, {enr.course_version_id})).get(enr.course_version_id)
+    return {
+        "pdf_base64": base64.b64encode(data).decode("ascii"),
+        "name": draft.name_on_certificate,
+        "course_title": title,
+    }
 
 
 # --------------------------------------------------------------------------- outbox

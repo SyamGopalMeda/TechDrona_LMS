@@ -369,6 +369,7 @@ async def templates_catalogue(session: AsyncSession) -> dict[str, Any]:
 _SNAPSHOT_KEYS = (
     "company", "legal_name", "address", "phone", "email", "website", "reg_lines", "signatory",
     "designation", "signatory_email", "signatory_phone", "signature_key", "seal_key",
+    "tagline", "logo_left_key", "logo_right_key",
 )  # fmt: skip
 
 
@@ -434,11 +435,14 @@ async def _art(
     lh = content.get("letterhead") or {}
     url = verify_url(ref_no, content.get("site_url"))
     sig = await _read_object(lh["signature_key"]) if lh.get("signature_key") else None
+    logo_l = await _read_object(lh["logo_left_key"]) if lh.get("logo_left_key") else None
+    logo_r = await _read_object(lh["logo_right_key"]) if lh.get("logo_right_key") else None
     extras = content.get("extras") or {}
     if dd.is_certificate(doc_type):
         return docpdf.certificate_art(
             doc_type=doc_type, name=recipient.get("name") or "", ref_no=ref_no, issued_on=issued_on,
-            verify_url=url, extras=extras, settings=lh, signature_image=sig,
+            verify_url=url, extras=extras, settings=lh, signature_image=sig, logo_left=logo_l,
+            logo_right=logo_r, lead=(content.get("paragraphs") or [""])[0],
         )  # fmt: skip
     seal = await _read_object(lh["seal_key"]) if lh.get("seal_key") else None
     sections = content.get("sections") or {}
@@ -482,6 +486,9 @@ async def _art(
         signatory_contact=sig_contact,
         signature_image=sig,
         seal_image=seal,
+        tagline=lh.get("tagline") or dd.DEFAULT_TAGLINE,
+        logo_left=logo_l,
+        logo_right=logo_r,
     )
 
 
@@ -582,7 +589,9 @@ async def issue_document(
     organization_id: uuid.UUID | None = None,
     replaces: IssuedDocument | None = None,
     origin: str = "manual",
+    bulk: dict[str, Any] | None = None,
 ) -> IssuedDocument:
+    """``bulk``: the bulk run tag (``doc_bulk``), kept in ``content["bulk"]`` (never printed)."""
     if doc_type not in dd.DOC_TYPES:
         raise ProblemError("validation_failed", detail="Unknown document type.")
     validate_cert_completion_target(doc_type, enrolment_id)
@@ -622,6 +631,8 @@ async def issue_document(
         settings=st,
         site_url=site,
     )
+    if bulk:
+        content["bulk"] = dict(bulk)
     doc = IssuedDocument(
         id=uuid7(),
         doc_type=doc_type,

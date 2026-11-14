@@ -157,8 +157,11 @@ export function LoginDetailsPanel({ details, onUpdate }: { details: LoginDetails
   );
 }
 
-/** The panel in a dialog (after verify, or after a (re)send from a list). Closing forgets the password. */
-export function LoginDetailsDialog({ details, onClose, onUpdate }: { details: LoginDetails | null; onClose: () => void; onUpdate: (d: LoginDetails) => void }) {
+/**
+ * The panel in a dialog (after verify, or after a (re)send from a list). Closing forgets the password.
+ * `onLetter`: the next step after enrolment (admission / offer letter).
+ */
+export function LoginDetailsDialog({ details, onClose, onUpdate, onLetter }: { details: LoginDetails | null; onClose: () => void; onUpdate: (d: LoginDetails) => void; onLetter?: (d: LoginDetails) => void }) {
   return (
     <Dialog
       open={details !== null}
@@ -166,7 +169,16 @@ export function LoginDetailsDialog({ details, onClose, onUpdate }: { details: Lo
       size="lg"
       title="Login details"
       description={details ? `${details.name} · ${details.course_title}${details.batch_name ? ` · ${details.batch_name}` : ""}` : undefined}
-      footer={<Button onClick={onClose}>Done</Button>}
+      footer={
+        <>
+          {onLetter && details ? (
+            <Button variant="secondary" onClick={() => onLetter(details)}>
+              Next: admission letter
+            </Button>
+          ) : null}
+          <Button onClick={onClose}>Done</Button>
+        </>
+      }
     >
       {details ? <LoginDetailsPanel details={details} onUpdate={onUpdate} /> : null}
     </Dialog>

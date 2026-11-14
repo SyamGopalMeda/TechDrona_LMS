@@ -114,6 +114,7 @@ export interface Prefill {
 export interface DocSettings {
   company: string;
   legal_name: string;
+  tagline: string;
   address: string;
   phone: string;
   email: string;
@@ -127,7 +128,7 @@ export interface DocSettings {
   designation2: string;
   portal_url: string;
   auto_admission_letter: boolean;
-  images: Record<"signature" | "seal" | "signature2", boolean>;
+  images: Record<"signature" | "seal" | "signature2" | "logo_left" | "logo_right", boolean>;
   problem: string | null;
   auto_send: boolean;
 }

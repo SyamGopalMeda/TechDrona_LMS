@@ -111,12 +111,34 @@ async def course_titles(session: AsyncSession, version_ids: set[uuid.UUID]) -> d
 
 async def art_for(session: AsyncSession, cert: Certificate) -> CertificateArt:
     title = (await course_titles(session, {cert.course_version_id})).get(cert.course_version_id) or "Course"
+    # organisation, tagline, signatory, signature and logo slots: Documents -> Settings (shared
+    # with the issued documents, so every certificate looks the same)
+    from app.modules.learning import documents as docs
+
+    try:
+        st = await docs.load_settings(session)
+    except Exception as e:  # settings unreadable: the certificate still renders (defaults)
+        log.warning("certificate_settings_unreadable", error=type(e).__name__)
+        st = {}
+
+    async def image(slot: str) -> bytes | None:
+        key = st.get(f"{slot}_key")
+        return await docs._read_object(key) if key else None
+
     return CertificateArt(
         name=cert.name_on_certificate,
         course_title=title,
         public_code=cert.public_code,
         issued_on=ist_date(cert.issued_at),
         verify_url=verify_url(cert.public_code),
+        citation="has successfully completed the course",
+        issuer=st.get("legal_name") or st.get("company") or "Tech Drona",
+        signatory=st.get("signatory") or "",
+        signatory_title=st.get("designation") or "",
+        tagline=st.get("tagline") or "",
+        signature_image=await image("signature"),
+        logo_left=await image("logo_left"),
+        logo_right=await image("logo_right"),
     )
 
 
