@@ -146,6 +146,21 @@ describe("Hosting headers", () => {
     expect(login?.headers.find((h) => h.key === "Content-Security-Policy")?.value).toContain("https://demo.firebaseapp.com");
     expect(rules[0]?.headers.find((h) => h.key === "Content-Security-Policy")?.value).not.toContain("firebaseapp.com");
   });
+
+  it("caches only static files and the public course status; API and portal stay uncached", () => {
+    const rules = hostingHeaders({});
+    const cc = (source: string) => rules.find((r) => r.source === source)?.headers.find((h) => h.key === "Cache-Control")?.value;
+    const idx = (source: string) => rules.findIndex((r) => r.source === source);
+    expect(cc("/**")).toBe("no-cache");
+    expect(cc("/fonts/**")).toBe("public, max-age=86400");
+    expect(cc("/{favicon.ico,favicon-32.png,apple-touch-icon.png,icon-512.png,manifest.webmanifest,robots.txt}")).toBe("public, max-age=86400");
+    expect(cc("/api/**")).toBe("private, no-store");
+    expect(cc("/api/public/courses/status")).toMatch(/^public, .*s-maxage=60$/);
+    // later rules win: the status rule must come after /api/**, which must come after /**
+    expect(idx("/api/public/courses/status")).toBeGreaterThan(idx("/api/**"));
+    expect(idx("/api/**")).toBeGreaterThan(idx("/**"));
+    expect(cc("/college-portal/**")).toBe("private, no-store");
+  });
 });
 
 describe("session probe (GET /api/v1/_bff/session)", () => {

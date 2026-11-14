@@ -73,6 +73,13 @@ const COLLEGE_PORTAL_HEADERS = [
   { key: "Cache-Control", value: "private, no-store" },
 ];
 
+/** public/ folders and root files served as-is (not content-hashed). docs/firebase/cdn-caching.md */
+export const STATIC_DIRS = ["brand", "fonts", "vendor"];
+export const STATIC_ROOT_FILES = ["favicon.ico", "favicon-32.png", "apple-touch-icon.png", "icon-512.png", "manifest.webmanifest", "robots.txt"];
+export const STATIC_CACHE = "public, max-age=86400";
+/** GET /api/public/courses/status: browser 30 s, CDN 60 s, so a status change shows within ~1 min. */
+export const COURSE_STATUS_CACHE = "public, max-age=30, s-maxage=60";
+
 /** Rules in firebase.json order (later rules override earlier ones for the same header key). */
 export function hostingHeaders(opts: HostingCspInput): HostingHeaderRule[] {
   const general = { ...opts, firebaseAuthDomain: null, frameSelf: false };
@@ -82,6 +89,20 @@ export function hostingHeaders(opts: HostingCspInput): HostingHeaderRule[] {
     // hashed asset names it references. It carries no user data (pages load data via /api/v1).
     { source: "/**", headers: [...BASE, { key: "Content-Security-Policy", value: staticCsp(general) }, { key: "Cache-Control", value: "no-cache" }] },
     { source: "/assets/**", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
+    // Non-hashed files from public/ (icons, brand images, self-hosted fonts, Monaco, manifest,
+    // robots.txt): same URL across deploys, so a day, not a year. A deploy clears the CDN copy.
+    ...[...STATIC_DIRS.map((d) => `/${d}/**`), `/{${STATIC_ROOT_FILES.join(",")}}`].map((source) => ({
+      source,
+      headers: [{ key: "Cache-Control", value: STATIC_CACHE }],
+    })),
+    // Hosting headers REPLACE a function's own Cache-Control on 2xx answers (measured
+    // 2026-11-14: the `/**` no-cache above overwrote the API's `private, no-store`). API answers
+    // are personal by default: never stored by the CDN or the browser.
+    { source: "/api/**", headers: [{ key: "Cache-Control", value: "private, no-store" }] },
+    // The one API answer that is the same for every visitor: the website asks for it on every
+    // page view. The CDN serves it for a minute (the admin screen promises "within a minute");
+    // errors keep the function's no-store (Hosting does not override non-2xx answers).
+    { source: "/api/public/courses/status", headers: [{ key: "Cache-Control", value: COURSE_STATUS_CACHE }] },
     // Google sign-in (Firebase Auth signInWithPopup) needs the popup to keep its opener.
     ...["/login", "/signup"].map((source) => ({
       source,
