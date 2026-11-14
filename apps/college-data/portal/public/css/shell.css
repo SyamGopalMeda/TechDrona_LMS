@@ -504,3 +504,7 @@
 :root[data-form="phone"] .td-sectiontabs .td-linktab { flex: 1 0 auto; justify-content: center; }
 /* final device QA: phone top bar keeps the district button at 44px on touch (the compact 40px only on short/landscape bars) */
 @media (pointer: coarse) { :root[data-form="phone"]:not([data-short]) .td-scope__btn { height: 44px; } .td-scope__more > summary { min-height: 44px; } }
+
+/* Module switcher in the top bar (LMS SSO mode), like the LMS's "Modules" button. */
+.td-topbar__modules { white-space: nowrap; }
+@media (max-width: 420px) { .td-topbar__modules { padding-inline: .6rem; font-size: .8125rem; } }

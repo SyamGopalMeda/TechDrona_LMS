@@ -190,9 +190,17 @@ function buildShell() {
   // Owner review 2026-11-14: the "Checked 5 h ago" official-source chip was a background technical detail, so it is no longer
   // shown in the top bar. The background refresh still runs (boot) and the status stays on More › Official sources.
   $.liveSlot = h('span', { class: 'td-liveslot', hidden: true });
+  // Module switcher (owner 2026-11-14): the same "Modules" menu as the LMS top bar, shown when the portal runs
+  // inside the LMS (SSO). The list comes from the LMS itself (GET /api/v1/me/modules, same origin), so it always
+  // matches what this account may open; "All modules" opens the LMS hub.
+  $.modItems = [];
+  $.modulesBtn = ui.menu({ label: 'Modules', icon: null, tone: 'secondary', size: 'sm', ariaLabel: 'Switch module', items: $.modItems });
+  $.modulesBtn.classList.add('td-topbar__modules');
+  $.modulesBtn.hidden = true;
+  loadModules();
   const topbar = h('header', { class: 'td-topbar' },
     $.navToggle, brand, $.pageTitle, $.scope.root, $.search.root,
-    h('div', { class: 'td-topbar__actions' }, $.liveSlot, $.searchBtn, $.themeBtn, $.userBtn));
+    h('div', { class: 'td-topbar__actions' }, $.liveSlot, $.modulesBtn, $.searchBtn, $.themeBtn, $.userBtn));
 
   $.banners = h('div', { class: 'td-banners' });
 
@@ -312,6 +320,24 @@ function isSso() { return !!state.session.sso || /^\/college-portal(\/|$)/.test(
 function topNavigate(url) {
   try { if (window.top && window.top !== window) { window.top.location.href = url; return; } } catch { /* cross-origin top: fall back */ }
   location.href = url;
+}
+
+/** Fill the Modules menu from the LMS (SSO mode only). Silent on failure: the button simply stays hidden. */
+async function loadModules() {
+  if (!isSso()) return;
+  let mods = [];
+  try {
+    const r = await fetch('/api/v1/me/modules', { credentials: 'same-origin', headers: { accept: 'application/json' } });
+    if (!r.ok) return;
+    mods = (await r.json()).modules || [];
+  } catch { return; }
+  const hrefFor = (m) => (m.key === 'lms' ? `/continue?area=lms&fallback=${encodeURIComponent(m.href || '/modules')}` : m.href);
+  const items = mods.filter((m) => m && m.href).map((m) => (m.key === 'colleges'
+    ? { label: `${m.title} (you are here)`, icon: 'check', onClick: () => {} }
+    : { label: m.title, icon: m.external ? 'external' : null, onClick: () => topNavigate(hrefFor(m)) }));
+  items.push({ label: 'All modules', icon: 'home', onClick: () => topNavigate('/modules') });
+  $.modItems.splice(0, $.modItems.length, ...items);
+  $.modulesBtn.hidden = false;
 }
 
 /** Session mode: account menu (who + sign out). Legacy mode: the "Who's using this?" dialog. SSO: who + back to the LMS. */
