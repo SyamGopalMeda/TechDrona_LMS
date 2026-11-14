@@ -218,6 +218,22 @@ def _relay_fp() -> str:
     return f"max_attempts={get_settings().TD_OUTBOX_MAX_ATTEMPTS}"
 
 
+async def _judge_idle(client: Any, _result: Any) -> bool:
+    from app.modules.coding.judge_gateway import judge_enabled
+
+    # JUDGE_PROVIDER=disabled: process_pending returns at once and queued rows can only move once
+    # the judge is enabled again (a config change: ``_judge_fp`` invalidates this verdict).
+    if not judge_enabled():
+        return True
+    return not await _exists(client, "code_submissions", (("status", "in", ["queued", "running"]),))
+
+
+def _judge_fp() -> str:
+    from app.modules.coding.judge_gateway import judge_enabled
+
+    return f"judge_enabled={judge_enabled()}"
+
+
 def _analytics_idle_state(job: str, result: dict[str, Any]) -> Callable[[], Awaitable[None]]:
     async def touch() -> None:
         from app.modules.analytics.fs_raw import record_idle_run
@@ -248,9 +264,7 @@ GATES: dict[str, Gate] = {
         ("test_attempts", "attempt_sections", "tests"),
         _none_of("test_attempts", ("status", "==", "in_progress")),
     ),
-    "coding.process_pending": Gate(
-        ("code_submissions",), _none_of("code_submissions", ("status", "in", ["queued", "running"]))
-    ),
+    "coding.process_pending": Gate(("code_submissions",), _judge_idle, fingerprint=_judge_fp),
     "commerce.webhook_retry": Gate(
         ("payment_webhook_events",), _none_of("payment_webhook_events", ("status", "==", "received"))
     ),
@@ -269,7 +283,11 @@ GATES: dict[str, Gate] = {
     "security.heartbeat_batch": Gate(("auth_sessions",), _sessions_seen_recently),
     "security.restriction_expiry": Gate(
         ("account_restrictions",),
-        _none_of("account_restrictions", ("level", "==", 3), ("family", "==", "sharing")),
+        # ``ended_at == None`` as in the job's own query: a lifted L3 row is no work, and without
+        # it the gate stayed busy forever once any L3 sharing restriction had existed.
+        _none_of(
+            "account_restrictions", ("level", "==", 3), ("family", "==", "sharing"), ("ended_at", "==", None)
+        ),
     ),
 }
 

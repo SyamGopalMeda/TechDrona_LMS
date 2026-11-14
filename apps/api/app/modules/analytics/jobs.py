@@ -105,6 +105,21 @@ async def _set_state(
     )
 
 
+def _scan_watermark(
+    wm: datetime, newest: datetime | None, now: datetime, *, complete: bool = True
+) -> datetime:
+    """The watermark after a discovery scan over ``received_at > wm - 2 min``.
+
+    A complete scan has seen every row committed by the time it ran, so the watermark moves to
+    the scan time (``now``, never past the real clock: tests pass simulated times), not only to
+    the newest ``received_at`` found. Otherwise the 2-minute in-flight overlap re-discovers the
+    newest rows on every run and an idle job never reports zero work (the scheduler gate keeps
+    running it every minute). The overlap still re-reads rows received in the last 2 minutes
+    before the previous scan, once."""
+    out = max(wm, newest) if newest is not None else wm
+    return max(out, min(now, utcnow())) if complete else out
+
+
 async def _get_watermark(session: AsyncSession, job: str) -> datetime | None:
     if _fs():
         from app.modules.analytics import fs_raw
@@ -418,7 +433,10 @@ async def run_interval_builder(
     for r in rows:
         built += len(await rebuild_page_instance(session, r.user_id, r.page_instance_id, now=now))
     result = {"page_instances": len(rows), "intervals": built}
-    await _set_state(session, "interval_builder", max(newest, wm) if newest else wm, result)
+    # A truncated scan (``limit`` pages) only advances to the newest row it processed.
+    await _set_state(
+        session, "interval_builder", _scan_watermark(wm, newest, now, complete=len(rows) < limit), result
+    )
     return result
 
 
@@ -1148,7 +1166,7 @@ async def run_video_coverage(session: AsyncSession, *, now: datetime | None = No
             )
         ).all()
     if not rows:
-        await _set_state(session, "video_coverage", wm, {"assets": 0})
+        await _set_state(session, "video_coverage", _scan_watermark(wm, None, now), {"assets": 0})
         return {"assets": 0}
     assets = await hooks.lesson_meta_lookup().assets(session, {r.lesson_asset_id for r in rows})
     durations: dict[uuid.UUID, float] = {k: v.duration_s for k, v in assets.items() if v.duration_s}
@@ -1254,7 +1272,7 @@ async def run_video_coverage(session: AsyncSession, *, now: datetime | None = No
         )
         newest = max(newest, r.rec)
     result = {"assets": len(rows)}
-    await _set_state(session, "video_coverage", newest, result)
+    await _set_state(session, "video_coverage", _scan_watermark(wm, newest, now), result)
     return result
 
 

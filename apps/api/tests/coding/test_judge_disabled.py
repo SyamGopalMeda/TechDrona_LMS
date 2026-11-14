@@ -40,3 +40,19 @@ async def test_create_submission_refuses_when_disabled(monkeypatch: pytest.Monke
             idempotency_key="k",
         )
     assert e.value.code == "service_unavailable"
+
+
+async def test_process_pending_is_idle_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The scheduler sweep must not fail every minute (and must count as idle) while disabled:
+    no adapter is built and no submission is read."""
+    from app.modules.coding import worker
+
+    def boom(*a: object, **k: object) -> None:
+        raise AssertionError("must not be called while the judge is disabled")
+
+    jg.set_judge_adapter(None)
+    monkeypatch.setattr(worker, "judge_enabled", lambda: False)
+    monkeypatch.setattr(worker, "get_judge_adapter", boom)
+    monkeypatch.setattr(worker, "pending_ids", boom)
+    monkeypatch.setattr(worker, "get_sessionmaker", boom)
+    assert await worker.process_pending() == {}

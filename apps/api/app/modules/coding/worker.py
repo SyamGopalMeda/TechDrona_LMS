@@ -41,6 +41,7 @@ from app.modules.coding.judge_gateway import (
     JudgeTimeout,
     JudgeUnavailable,
     get_judge_adapter,
+    judge_enabled,
     run_jobs,
 )
 from app.modules.coding.judge_gateway.checker import ScoredCase, aggregate, case_verdict
@@ -446,6 +447,10 @@ async def process_pending(
     limit: int = 16,
     factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> dict[uuid.UUID, str]:
+    if adapter is None and not judge_enabled():
+        # JUDGE_PROVIDER=disabled: nothing can be judged, so the sweep is idle (no adapter, no
+        # submission reads); create_submission already refuses new runs with 503.
+        return {}
     adapter = adapter or get_judge_adapter()
     if _fs():
         ids = await pending_ids(None, limit)

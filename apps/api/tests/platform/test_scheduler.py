@@ -497,6 +497,49 @@ def test_relay_gate_sees_pending_events_and_revivable_dead_letters(event_mode: l
     assert jobs.run_async(run()) == [True, True, False, False]
 
 
+def test_judge_gate_is_idle_while_the_judge_is_disabled(
+    event_mode: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.core.firestore.store import ScopedStore
+    from app.modules.coding import judge_gateway
+
+    enabled = [True]
+    monkeypatch.setattr(judge_gateway, "judge_enabled", lambda: enabled[0])
+
+    async def run() -> list[Any]:
+        client = ScopedStore.system("schedtest").client
+        coll = client.collection(physical_name("code_submissions"))
+        out: list[Any] = [await scheduler._judge_idle(client, {})]
+        await coll.document("s").set({"status": "queued"})
+        out.append(await scheduler._judge_idle(client, {}))  # enabled + queued: work
+        enabled[0] = False
+        out += [await scheduler._judge_idle(client, {}), scheduler._judge_fp()]  # nothing can judge it
+        enabled[0] = True
+        out.append(scheduler._judge_fp())  # re-enabling invalidates the idle verdict
+        return out
+
+    assert jobs.run_async(run()) == [True, False, True, "judge_enabled=False", "judge_enabled=True"]
+
+
+def test_restriction_gate_ignores_lifted_restrictions(event_mode: list[dict[str, Any]]) -> None:
+    from app.core.firestore.store import ScopedStore
+
+    gate = scheduler.GATES["security.restriction_expiry"]
+
+    async def run() -> list[bool]:
+        client = ScopedStore.system("schedtest").client
+        coll = client.collection(physical_name("account_restrictions"))
+        await coll.document("lifted").set(
+            {"level": 3, "family": "sharing", "ended_at": datetime.now(UTC) - timedelta(days=1)}
+        )
+        out = [await gate.idle(client, None)]  # a lifted L3 row is no work
+        await coll.document("live").set({"level": 3, "family": "sharing", "ended_at": None})
+        out.append(await gate.idle(client, None))
+        return out
+
+    assert jobs.run_async(run()) == [True, False]
+
+
 def test_audit_seal_with_nothing_pending_takes_no_lease(event_mode: list[dict[str, Any]]) -> None:
     from app.core.firestore.collections import LOCKS
     from app.core.firestore.store import ScopedStore
