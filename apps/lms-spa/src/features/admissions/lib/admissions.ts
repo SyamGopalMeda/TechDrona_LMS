@@ -259,8 +259,7 @@ export const regHref = (id: string) => `/finance/admissions/registrations/${id}`
 
 /* ------------------------------------------------------------------ course registration status */
 
-/** Whether a course takes registrations (website + LMS read it within a minute). */
-/** Payments > Admissions > Courses (the per-course registration switch). */
+/** Payments > Admissions > Courses (the per-course registration switch; website + LMS read it within a minute). */
 export const COURSE_STATUS_HREF = "/finance/admissions#course-status";
 /** That course's fee plan (opens the plan form; a new plan when the course has none). */
 export const planEditHref = (slug: string) => `/finance/admissions/plans?edit=${encodeURIComponent(slug)}`;
@@ -280,7 +279,15 @@ export const COURSE_STATUS_TONE: Record<CourseStatus, string> = { open: "active"
 /** GET /admin/courses/status row. */
 export interface CourseStatusRow {
   course_slug: string;
+  /** The fee plan's title, else the linked batch's name, else the slug. */
+  title?: string;
+  /** What the admin chose. */
   status: CourseStatus;
+  /**
+   * What students see: a course set "open" whose fee plan is inactive (or has no fee) reads
+   * "closed", because registration would be refused (courses.effective).
+   */
+  effective_status?: CourseStatus;
   updated_at: string | null;
   fee_paise: number | null;
   plan_active: boolean;

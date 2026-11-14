@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import { Card, ErrorState, LinkButton, LoadingBlock, StatusBadge, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
@@ -106,13 +107,19 @@ function CourseRow({ row, title, onSaved }: { row: CourseStatusRow; title: strin
             </LinkButton>
           ) : null}
         </div>
-      ) : row.fee_paise == null || !row.batch ? (
-        <p className="text-xs text-fg-secondary">
-          {row.fee_paise == null ? "Set a fee before opening registration. " : ""}
+      ) : row.fee_paise == null || !row.plan_active || !row.batch ? (
+        <p className={cn("text-xs", value === "open" && !row.plan_active ? "font-medium text-warning-fg" : "text-fg-secondary")}>
+          {value === "open" && !row.plan_active
+            ? "Students see this course as Closed: its fee plan is inactive. Activate the plan to take registrations. "
+            : row.fee_paise == null
+              ? "Set a fee before opening registration. "
+              : !row.plan_active
+                ? "The fee plan is inactive: activate it before opening registration. "
+                : ""}
           {!row.batch ? "Link a batch so verified students are added to it. " : ""}
-          <a className="font-semibold text-brand underline" href={planEditHref(row.course_slug)}>
-            Open the fee plan
-          </a>
+          <Link className="font-semibold text-brand underline" href={planEditHref(row.course_slug)}>
+            {row.fee_paise == null ? "Set up the fee plan" : "Open the fee plan"}
+          </Link>
         </p>
       ) : null}
     </li>
@@ -123,9 +130,18 @@ function CourseRow({ row, title, onSaved }: { row: CourseStatusRow; title: strin
 export function CourseStatusSection({ titles = {} }: { titles?: Record<string, string> }) {
   const res = useResource<{ data: CourseStatusRow[] }>("admin/courses/status");
   const [rows, setRows] = useState<CourseStatusRow[] | null>(null);
+  // Every website course is listed, also one the api doesn't know yet (no status row, fee plan or
+  // batch): it reads Coming soon; opening it needs a fee plan (409 no_fee_plan -> "Set the fee").
+  const titleKey = Object.keys(titles).join("|");
   useEffect(() => {
-    if (res.data) setRows(res.data.data);
-  }, [res.data]);
+    if (!res.data) return;
+    const known = new Set(res.data.data.map((r) => r.course_slug));
+    const extra: CourseStatusRow[] = titleKey
+      .split("|")
+      .filter((slug) => slug && !known.has(slug))
+      .map((slug) => ({ course_slug: slug, status: "coming_soon", effective_status: "coming_soon", updated_at: null, fee_paise: null, plan_active: false, batch: null }));
+    setRows([...res.data.data, ...extra]);
+  }, [res.data, titleKey]);
   // Admin > Courses links here as /finance/admissions#course-status: the SPA doesn't scroll to a
   // hash by itself, so bring the section into view once its rows are in.
   const ref = useRef<HTMLDivElement>(null);
@@ -150,7 +166,7 @@ export function CourseStatusSection({ titles = {} }: { titles?: Record<string, s
         ) : (
           <ul aria-label="Course registration status">
             {rows.map((r) => (
-              <CourseRow key={r.course_slug} row={r} title={titles[r.course_slug] || r.course_slug} onSaved={(saved) => setRows((all) => (all ?? []).map((x) => (x.course_slug === saved.course_slug ? { ...x, ...saved } : x)))} />
+              <CourseRow key={r.course_slug} row={r} title={titles[r.course_slug] || r.title || r.course_slug} onSaved={(saved) => setRows((all) => (all ?? []).map((x) => (x.course_slug === saved.course_slug ? { ...x, ...saved } : x)))} />
             ))}
           </ul>
         )}

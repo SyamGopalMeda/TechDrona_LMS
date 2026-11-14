@@ -1621,13 +1621,44 @@ async def save_plan(session: AsyncSession, actor: Actor, body: dict[str, Any]) -
     batch_id = body.get("batch_id")
     if batch_id and await orgs_public.get_batch(session, batch_id) is None:
         raise vf("batch_id", "unknown_batch", "Choose an existing batch.")
+    course_id = body.get("course_id")
+    if course_id:
+        from app.modules.catalog import api as catalog_api
+
+        course = (await catalog_api.get_courses(session, [course_id])).get(course_id)
+        if course is None or course.deleted_at is not None:
+            raise vf(
+                "course_id",
+                "unknown_course",
+                "No LMS course has that id. Leave it empty to use the batch's course.",
+            )
     p = await plan_by_slug(session, slug)
+    plan_id = body.get("fee_plan_id")
+    if plan_id is not None:
+        # Edit of an existing plan: the slug keys the course status, the website page and the
+        # registrations, so it can't move (saving under another slug used to create a second plan).
+        current = await ads.get(session, AdmissionFeePlan, plan_id)
+        if current is None:
+            raise ProblemError("not_found", detail="That fee plan no longer exists. Reload the page.")
+        if current.course_slug != slug:
+            raise conflict(
+                "slug",
+                "slug_locked",
+                "The website course slug of a saved plan can't be changed. "
+                "Add a new fee plan for the other course.",
+            )
+    payee = str(body.get("payee_name") or "").strip()[:80] or None
+    bank = str(body.get("bank_details") or "").strip()[:600] or None
+    active = bool(body.get("active"))
+    # Checked before anything is written (a new slug also inserts its course status row).
+    if active and not _pay_to_ok(upi, bank, pay_settings_out(await pay_settings(session))):
+        raise _pay_to_missing()
     created = p is None
     if p is None:
         p = AdmissionFeePlan(id=uuid7(), course_slug=slug)
         ads.add(session, p)
     p.title = title
-    p.course_id, p.batch_id = body.get("course_id") or None, batch_id or None
+    p.course_id, p.batch_id = course_id or None, batch_id or None
     p.fee_paise, p.allow_instalments = terms.fee_paise, terms.allow_instalments
     p.schedule = [x.as_dict() for x in terms.schedule]
     p.policy, p.min_first_paise, p.access_min_paise = (
@@ -1636,22 +1667,15 @@ async def save_plan(session: AsyncSession, actor: Actor, body: dict[str, Any]) -
         terms.access_min_paise,
     )
     p.upi_id = upi
-    p.payee_name = str(body.get("payee_name") or "").strip()[:80] or None
-    p.bank_details = str(body.get("bank_details") or "").strip()[:600] or None
+    p.payee_name = payee
+    p.bank_details = bank
     p.instructions = str(body.get("instructions") or "").strip()[:800] or None
-    p.active = bool(body.get("active"))
+    p.active = active
     p.updated_by, p.updated_at = actor.user_id, utcnow()
     if created:
         from app.modules.admissions import courses
 
         await courses.ensure_row(session, slug)
-    if p.active and not pay_configured(p, pay_settings_out(await pay_settings(session))):
-        raise vf(
-            "active",
-            "pay_to_missing",
-            "Set the payment number in Payment details (or this course's UPI ID / "
-            "bank details) before opening online registration.",
-        )
     await ads.flush(session)
     await audit(
         session,
@@ -1667,7 +1691,61 @@ async def save_plan(session: AsyncSession, actor: Actor, body: dict[str, Any]) -
             "created": created,
         },
     )
-    return plan_out(p, staff=True)
+    return await _plan_with_status(session, p)
+
+
+def _pay_to_ok(plan_upi: str | None, plan_bank: str | None, pay: dict[str, Any]) -> bool:
+    return bool(pay.get("phone") or pay.get("upi_id") or plan_upi or plan_bank)
+
+
+def _pay_to_missing() -> ProblemError:
+    return vf(
+        "active",
+        "pay_to_missing",
+        "Set the payment number in Payment details (or this course's UPI ID / "
+        "bank details) before opening online registration.",
+    )
+
+
+async def _plan_with_status(session: AsyncSession, p: AdmissionFeePlan) -> dict[str, Any]:
+    """``plan_out(staff)`` + the course's registration switch (``course_status``) and what
+    students see (``effective_status``): an ``open`` course whose plan is off reads ``closed``."""
+    from app.modules.admissions import courses
+
+    raw = await courses.raw_status(session, p.course_slug)
+    return {
+        **plan_out(p, staff=True),
+        "course_status": raw or courses.DEFAULT,
+        "effective_status": courses.effective(raw, p),
+    }
+
+
+async def set_plan_active(session: AsyncSession, actor: Actor, slug: str, active: bool) -> dict[str, Any]:
+    """Switch one plan on / off without resending (and overwriting) the rest of it."""
+    p = await plan_by_slug(session, slug.strip().lower())
+    if p is None:
+        raise ProblemError("not_found", detail="That fee plan no longer exists. Reload the page.")
+    await ads.get(session, AdmissionFeePlan, p.id, with_for_update=True)
+    if active:
+        terms = plan_terms(p)
+        if terms.problems:
+            raise vf("fee_paise", "invalid_plan", " ".join(terms.problems))
+        if not _pay_to_ok(p.upi_id, p.bank_details, pay_settings_out(await pay_settings(session))):
+            raise _pay_to_missing()
+    before = p.active
+    p.active = active
+    p.updated_by, p.updated_at = actor.user_id, utcnow()
+    await ads.flush(session)
+    await audit(
+        session,
+        actor.audit_actor(),
+        "admissions.fee_plan.saved",
+        "admission_fee_plan",
+        p.id,
+        before={"active": before},
+        after={"slug": p.course_slug, "active": active, "created": False},
+    )
+    return await _plan_with_status(session, p)
 
 
 # --------------------------------------------------------------------------- figures

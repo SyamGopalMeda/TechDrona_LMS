@@ -36,7 +36,7 @@ import {
   REG_LABEL,
   REG_STATUSES,
   approvalEnrols,
-  upiLink,
+  courseRegistrationsHref,
   isImageProof,
   paiseToInput,
   regHref,
@@ -44,10 +44,8 @@ import {
   type ActionResult,
   type Claim,
   type ClaimStatus,
-  type FeePlan,
   type Instalment,
   type Overview,
-  type PaySettings,
   type PlansEnvelope,
   type RegStatus,
   type Registration,
@@ -102,7 +100,15 @@ export function AdmissionsOverview({ titles = {} }: { titles?: Record<string, st
   const o = res.data;
   const courseTitles: Record<string, string> = { ...Object.fromEntries((o?.courses ?? []).map((c) => [c.slug, c.title])), ...titles };
   const cols: Column<Overview["courses"][number]>[] = [
-    { key: "title", header: "Course", cell: (c) => c.title },
+    {
+      key: "title",
+      header: "Course",
+      cell: (c) => (
+        <Link className={textLink} href={courseRegistrationsHref(c.slug)}>
+          {courseTitles[c.slug] || c.title}
+        </Link>
+      ),
+    },
     { key: "reg", header: "Registered", cell: (c) => c.registered, align: "right" },
     { key: "enr", header: "Enrolled", cell: (c) => c.enrolled, align: "right" },
     { key: "pend", header: "Waiting", cell: (c) => c.pending, align: "right" },
@@ -237,9 +243,16 @@ export function Receipt({ claim, size = "md" }: { claim: Claim; size?: "md" | "s
   if (!claim.has_proof) return <span className="text-sm text-fg-secondary">No receipt</span>;
   if (!image) {
     return (
-      <Button size="sm" variant="secondary" onClick={() => void openPrivate(proofPath(claim.claim_id)).catch(setError)}>
-        Open receipt (PDF)
-      </Button>
+      <span className="inline-flex flex-col gap-1">
+        <Button size="sm" variant="secondary" onClick={() => { setError(null); void openPrivate(proofPath(claim.claim_id)).catch(setError); }}>
+          {error ? "Retry receipt (PDF)" : "Open receipt (PDF)"}
+        </Button>
+        {error ? (
+          <span role="alert" className="text-xs text-danger-fg">
+            Couldn&apos;t open the receipt. Try again.
+          </span>
+        ) : null}
+      </span>
     );
   }
   const openFull = async () => {
@@ -569,7 +582,10 @@ export function ClaimActions({
         description="The UTR and receipt of this closed payment can be submitted again."
         submitLabel="Allow"
         onSubmit={() => post<{ claim: Claim }>("release-locks", {})}
-        onDone={() => onChanged(undefined, "release-locks")}
+        onDone={(o) => {
+          if (o.kind === "ok") toast.show({ title: "The UTR and receipt can be submitted again.", tone: "success" });
+          onChanged(undefined, "release-locks");
+        }}
       />
     </div>
   );
@@ -848,6 +864,8 @@ export function RegistrationsList() {
   const [bulk, setBulk] = useState(false);
   const [letterFor, setLetterFor] = useState<string | null>(null);
   const enrolledRows = (list.rows ?? []).filter((r) => r.enrolled_at && r.user_id);
+  // A new filter shows other rows: drop the selection so hidden rows never go into bulk letters.
+  useEffect(() => setSelected([]), [status, search, course]);
   const toggle = (id: string, on: boolean) => setSelected((x) => (on ? [...x.filter((y) => y !== id), id].slice(0, MAX_BULK_LETTERS) : x.filter((y) => y !== id)));
   const cols: Column<Registration>[] = [
     {
@@ -1002,6 +1020,11 @@ export function RegistrationsList() {
 
 const MAX_BULK_LETTERS = 50;
 
+/** Today as YYYY-MM-DD in the admin's time zone (toISOString() is UTC: yesterday before 05:30 IST). */
+function localDate(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 type RegAction = "record" | "status" | "contact" | "fee" | "enrol";
 
 export function RegistrationView({ registrationId }: { registrationId: string }) {
@@ -1045,7 +1068,7 @@ export function RegistrationView({ registrationId }: { registrationId: string })
         actions={
           <div className="flex flex-wrap gap-2">
             {!closed ? (
-              <Button onClick={() => { setF({ method: "upi", paid_on: new Date().toISOString().slice(0, 10) }); setChecked(false); setOpen("record"); }}>Record a payment</Button>
+              <Button onClick={() => { setF({ method: "upi", paid_on: localDate() }); setChecked(false); setOpen("record"); }}>Record a payment</Button>
             ) : null}
             {r.eligible && !r.enrolled_at ? (
               <Button variant="secondary" onClick={() => setOpen("enrol")}>
@@ -1260,263 +1283,6 @@ export function RegistrationView({ registrationId }: { registrationId: string })
 
 /* ================================================================== fee plans */
 
-interface PlanForm {
-  slug: string;
-  title: string;
-  course_id: string;
-  batch_id: string;
-  fee: string;
-  allow_instalments: boolean;
-  schedule: { label: string; amount: string; due: string }[];
-  min_first: string;
-  access_min: string;
-  upi_id: string;
-  payee_name: string;
-  bank_details: string;
-  instructions: string;
-  active: boolean;
-}
-
-const emptyPlan = (): PlanForm => ({
-  slug: "",
-  title: "",
-  course_id: "",
-  batch_id: "",
-  fee: "",
-  allow_instalments: false,
-  schedule: [{ label: "First instalment", amount: "", due: "" }],
-  min_first: "",
-  access_min: "",
-  upi_id: "",
-  payee_name: "",
-  bank_details: "",
-  instructions: "",
-  active: false,
-});
-
-function planToForm(p: FeePlan): PlanForm {
-  return {
-    slug: p.slug,
-    title: p.title,
-    course_id: p.course_id ?? "",
-    batch_id: p.batch_id ?? "",
-    fee: paiseToInput(p.fee_paise),
-    allow_instalments: p.allow_instalments,
-    schedule: p.schedule.map((x) => ({ label: x.label, amount: paiseToInput(x.amount_paise), due: x.due })),
-    min_first: paiseToInput(p.min_first_paise),
-    access_min: paiseToInput(p.access_min_paise),
-    upi_id: p.upi_id,
-    payee_name: p.payee_name,
-    bank_details: p.bank_details,
-    instructions: p.instructions,
-    active: p.active,
-  };
-}
-
-/** The QR students scan, as the admin will see it (made from the UPI ID; no amount). */
-function UpiQrPreview({ upiId, payee }: { upiId: string; payee: string }) {
-  const [src, setSrc] = useState<string | null>(null);
-  const valid = /^[a-zA-Z0-9._-]{2,255}@[a-zA-Z][a-zA-Z0-9.-]{1,64}$/.test(upiId.trim());
-  const link = valid ? upiLink(upiId, payee) : "";
-  useEffect(() => {
-    let live = true;
-    if (!link) {
-      setSrc(null);
-      return;
-    }
-    import("qrcode")
-      .then((q) => q.toDataURL(link, { margin: 1, width: 220 }))
-      .then((url) => {
-        if (live) setSrc(url);
-      })
-      .catch(() => {
-        if (live) setSrc(null);
-      });
-    return () => {
-      live = false;
-    };
-  }, [link]);
-  if (!upiId.trim()) return null;
-  if (!valid) return <p className="mt-3 text-sm text-warning-fg">The UPI ID doesn&apos;t look right (it should look like name@bank).</p>;
-  return (
-    <div className="mt-4 flex flex-wrap items-center gap-4">
-      {/* eslint-disable-next-line @next/next/no-img-element -- generated data: URL */}
-      {src ? <img src={src} alt={`UPI QR code for ${upiId}`} width={160} height={160} className="rounded-md border border-line bg-white p-1" /> : null}
-      <p className="max-w-xs text-sm text-fg-secondary">Scan it with PhonePe to check it opens a payment to {payee.trim() || upiId}. Students scan this QR to pay the course fee.</p>
-    </div>
-  );
-}
-
-export function FeePlans({ titles = {} }: { titles?: Record<string, string> }) {
-  const res = useResource<PlansEnvelope>("admin/admissions/plans");
-  const toast = useToast();
-  const [pay, setPay] = useState<PaySettings | null>(null);
-  const [form, setForm] = useState<PlanForm | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  const formRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    if (res.data) setPay(res.data.pay);
-  }, [res.data]);
-  // On a phone the plan form opens above the list: bring it into view.
-  const formOpen = form !== null;
-  // "Set the fee" from the Courses switch links here with ?edit=<slug>: open that course's plan.
-  const [editSlug, setEditSlug] = useState<string | null>(null);
-  useEffect(() => {
-    const slug = new URLSearchParams(window.location.search).get("edit");
-    if (slug) setEditSlug(slug.toLowerCase());
-  }, []);
-  useEffect(() => {
-    if (!editSlug || !res.data) return;
-    const plan = res.data.data.find((p) => p.slug === editSlug);
-    setForm(plan ? planToForm(plan) : { ...emptyPlan(), slug: editSlug, title: titles[editSlug] ?? "" });
-    setEditSlug(null);
-  }, [editSlug, res.data, titles]);
-  useEffect(() => {
-    if (formOpen) formRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
-  }, [formOpen]);
-
-  if (res.error && !res.data) return <ErrorState error={res.error} onRetry={() => void res.reload()} />;
-  if (!res.data || !pay) return <LoadingBlock label="Loading fee plans…" rows={4} />;
-  const env = res.data;
-
-  const savePay = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.put("admin/admissions/pay-settings", pay);
-      toast.show({ title: "Payment details saved.", tone: "success" });
-      await res.reload();
-    } catch (e) {
-      setError(e);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const savePlan = async () => {
-    if (!form) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await api.put("admin/admissions/plans", {
-        slug: form.slug.trim().toLowerCase(),
-        title: form.title.trim(),
-        course_id: form.course_id.trim() || null,
-        batch_id: form.batch_id || null,
-        fee_paise: toPaise(form.fee) || 0,
-        allow_instalments: form.allow_instalments,
-        schedule: form.allow_instalments ? form.schedule.map((x) => ({ label: x.label, amount_paise: toPaise(x.amount) || 0, due: x.due })) : [],
-        min_first_paise: form.min_first ? toPaise(form.min_first) : null,
-        access_min_paise: form.access_min ? toPaise(form.access_min) : null,
-        upi_id: form.upi_id || null,
-        payee_name: form.payee_name || null,
-        bank_details: form.bank_details || null,
-        instructions: form.instructions || null,
-        active: form.active,
-      });
-      toast.show({ title: "Fee plan saved. Existing registrations keep the fee they registered with.", tone: "success" });
-      setForm(null);
-      await res.reload();
-    } catch (e) {
-      setError(e);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const upd = (k: keyof PlanForm) => (e: { target: { value: string } }) => setForm((x) => (x ? { ...x, [k]: e.target.value } : x));
-  const cols: Column<FeePlan>[] = [
-    { key: "title", header: "Course", cell: (p) => <div><div className="font-semibold">{p.title}</div><div className="text-xs text-fg-secondary">{p.slug}</div></div> },
-    { key: "fee", header: "Fee", cell: (p) => `${formatINR(p.fee_paise)}${p.allow_instalments ? ` · ${p.schedule.length} instalments` : ""}` },
-    { key: "access", header: "Access from", cell: (p) => formatINR(p.access_min_paise), priority: "secondary" },
-    { key: "link", header: "LMS link", cell: (p) => (p.batch_id ? "Batch" : p.course_id ? "Course" : <span className="text-warning-fg">Not linked</span>) },
-    { key: "open", header: "Plan", cell: (p) => <StatusBadge status={p.active ? "active" : "inactive"} label={p.active ? "Active" : "Inactive"} /> },
-    { key: "edit", header: "", cell: (p) => <Button size="sm" variant="secondary" onClick={() => setForm(planToForm(p))}>Edit</Button> },
-  ];
-
-  return (
-    <div>
-      <PageHeader
-        title="Fee plans"
-        description="Per course: the fee (for example ₹5,000), instalments, when course access starts and where students pay. Changing a plan affects new registrations only."
-        actions={<Button onClick={() => setForm(emptyPlan())}>Add fee plan</Button>}
-      />
-      <InlineProblem error={error} />
-      <div className="space-y-6">
-        <Card title="Payment details" description="Where students pay (UPI QR). Shown on every registration form; until set, the form says payment details aren't set up.">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FormField label="UPI ID (students scan a QR made from it)" hint="Like techdrona@ybl. Enter a UPI ID or a payment number.">{(p) => <Input {...p} autoCapitalize="none" autoCorrect="off" value={pay.upi_id} onChange={(e) => setPay({ ...pay, upi_id: e.target.value })} />}</FormField>
-            <FormField label="Payment number (10 digits)">{(p) => <Input {...p} inputMode="tel" value={pay.phone} onChange={(e) => setPay({ ...pay, phone: e.target.value })} />}</FormField>
-            <FormField label="Preferred app">{(p) => <Input {...p} value={pay.preferred_app} onChange={(e) => setPay({ ...pay, preferred_app: e.target.value })} />}</FormField>
-            <FormField label="Payee name (as the bank shows it)">{(p) => <Input {...p} value={pay.payee_name} onChange={(e) => setPay({ ...pay, payee_name: e.target.value })} />}</FormField>
-          </div>
-          <div className="mt-4">
-            <FormField label="Instructions (optional)">{(p) => <TextArea {...p} rows={2} maxLength={800} value={pay.instructions} onChange={(e) => setPay({ ...pay, instructions: e.target.value })} />}</FormField>
-          </div>
-          <UpiQrPreview upiId={pay.upi_id} payee={pay.payee_name} />
-          <Button className="mt-4 w-full sm:w-auto" loading={busy} onClick={() => void savePay()}>
-            Save payment details
-          </Button>
-        </Card>
-
-        {form ? (
-          <Card ref={formRef} title={form.slug ? `Fee plan: ${form.title || form.slug}` : "New fee plan"}>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <FormField label="Website course slug" hint="The course page slug (the part after /courses/).">{(p) => <Input {...p} value={form.slug} onChange={upd("slug")} />}</FormField>
-              <FormField label="Course title">{(p) => <Input {...p} value={form.title} onChange={upd("title")} />}</FormField>
-              <FormField label="LMS batch" hint="Enrolment adds the student to this batch (and its course).">
-                {(p) => <Select {...p} value={form.batch_id} onChange={upd("batch_id")} options={[{ value: "", label: "No batch" }, ...env.batches.map((b) => ({ value: b.batch_id, label: `${b.name} (${b.code})` }))]} />}
-              </FormField>
-              <FormField label="LMS course id (optional)" hint="Needed when the batch has no course, or without a batch.">{(p) => <Input {...p} value={form.course_id} onChange={upd("course_id")} />}</FormField>
-              <FormField label="Course fee (₹)">{(p) => <Input {...p} inputMode="decimal" value={form.fee} onChange={upd("fee")} />}</FormField>
-            </div>
-            <Checkbox className="mt-4" label="Allow instalments" checked={form.allow_instalments} onChange={(e) => setForm({ ...form, allow_instalments: e.target.checked })} />
-            {form.allow_instalments ? (
-              <div className="mt-3 space-y-2">
-                {form.schedule.map((x, i) => (
-                  <div key={i} className="grid grid-cols-1 gap-2 sm:grid-cols-4">
-                    <FormField label={`Instalment ${i + 1} label`}>{(p) => <Input {...p} value={x.label} onChange={(e) => setForm({ ...form, schedule: form.schedule.map((y, j) => (j === i ? { ...y, label: e.target.value } : y)) })} />}</FormField>
-                    <FormField label="Amount (₹)">{(p) => <Input {...p} inputMode="decimal" value={x.amount} onChange={(e) => setForm({ ...form, schedule: form.schedule.map((y, j) => (j === i ? { ...y, amount: e.target.value } : y)) })} />}</FormField>
-                    <FormField label="Due date">{(p) => <Input {...p} type="date" value={x.due} onChange={(e) => setForm({ ...form, schedule: form.schedule.map((y, j) => (j === i ? { ...y, due: e.target.value } : y)) })} />}</FormField>
-                    <div className="flex items-end">
-                      <Button size="sm" variant="secondary" onClick={() => setForm({ ...form, schedule: form.schedule.filter((_, j) => j !== i) })} disabled={form.schedule.length <= 1}>
-                        Remove
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-                {form.schedule.length < 6 ? (
-                  <Button size="sm" variant="secondary" onClick={() => setForm({ ...form, schedule: [...form.schedule, { label: `Instalment ${form.schedule.length + 1}`, amount: "", due: "" }] })}>
-                    Add instalment
-                  </Button>
-                ) : null}
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <FormField label="Minimum first payment (₹)" hint="Default: the first instalment.">{(p) => <Input {...p} inputMode="decimal" value={form.min_first} onChange={upd("min_first")} />}</FormField>
-                  <FormField label="Course access starts at (₹ verified)" hint="Default: the first instalment.">{(p) => <Input {...p} inputMode="decimal" value={form.access_min} onChange={upd("access_min")} />}</FormField>
-                </div>
-              </div>
-            ) : null}
-            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <FormField label="Course UPI ID (optional)">{(p) => <Input {...p} value={form.upi_id} onChange={upd("upi_id")} />}</FormField>
-              <FormField label="Course payee name (optional)">{(p) => <Input {...p} value={form.payee_name} onChange={upd("payee_name")} />}</FormField>
-              <FormField label="Bank details (optional)">{(p) => <TextArea {...p} rows={3} maxLength={600} value={form.bank_details} onChange={upd("bank_details")} />}</FormField>
-              <FormField label="Instructions (optional)">{(p) => <TextArea {...p} rows={3} maxLength={800} value={form.instructions} onChange={upd("instructions")} />}</FormField>
-            </div>
-            <Checkbox className="mt-4" label="Fee plan active (needed to open registration)" description="Open or close registration itself under Admissions > Courses." checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />
-            <div className="mt-4 flex gap-2">
-              <Button loading={busy} onClick={() => void savePlan()}>
-                Save fee plan
-              </Button>
-              <Button variant="secondary" onClick={() => setForm(null)}>
-                Cancel
-              </Button>
-            </div>
-          </Card>
-        ) : null}
-
-        <Card title="Fee plans" padding="none">
-          <Table caption="Fee plans" columns={cols} rows={env.data} rowKey={(p) => p.slug} empty={{ title: "No fee plans yet", description: "Add one per course that takes online registrations." }} />
-        </Card>
-      </div>
-    </div>
-  );
-}
+// The Fee plans page lives in ./FeePlans (list of website courses first, plan form in a dialog,
+// default payment details in their own card); re-exported so existing imports keep working.
+export { FeePlans } from "./FeePlans";

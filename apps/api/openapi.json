@@ -737,6 +737,20 @@
         "title": "AdmissionPayIn",
         "type": "object"
       },
+      "AdmissionPlanActiveIn": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "active"
+        ],
+        "title": "AdmissionPlanActiveIn",
+        "type": "object"
+      },
       "AdmissionPlanIn": {
         "additionalProperties": false,
         "properties": {
@@ -804,6 +818,18 @@
             "minimum": 0.0,
             "title": "Fee Paise",
             "type": "integer"
+          },
+          "fee_plan_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fee Plan Id"
           },
           "instructions": {
             "anyOf": [
@@ -15987,6 +16013,7 @@
         "x-td-route-tag": "default"
       },
       "put": {
+        "description": "Create / update a plan. The response adds ``course_status`` (the registration switch) and\n``effective_status`` (what students see: ``closed`` while an ``open`` course's plan is off).",
         "operationId": "save_plan_api_v1_admin_admissions_plans_put",
         "requestBody": {
           "content": {
@@ -16023,6 +16050,63 @@
           }
         },
         "summary": "Save Plan",
+        "tags": [
+          "admissions"
+        ],
+        "x-td-idle": "extends",
+        "x-td-route-tag": "default"
+      }
+    },
+    "/api/v1/admin/admissions/plans/{slug}/active": {
+      "post": {
+        "description": "Switch a plan on / off only (no full PUT, no lost update). Activating checks the fee and the\npay-to details (422 ``invalid_plan`` / ``pay_to_missing``); 404 for an unknown slug. Same\nresponse as PUT (plan + ``course_status`` + ``effective_status``).",
+        "operationId": "set_plan_active_api_v1_admin_admissions_plans__slug__active_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionPlanActiveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Plan Active Api V1 Admin Admissions Plans  Slug  Active Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Plan Active",
         "tags": [
           "admissions"
         ],
@@ -17999,7 +18083,7 @@
     },
     "/api/v1/admin/courses/status": {
       "get": {
-        "description": "Every website course known from status rows, fee plans and ``web-*`` batches.",
+        "description": "Every website course known from status rows, fee plans and ``web-*`` batches. Read with\n``payment.read`` like the plans list (no personal data); changing it needs ``price.manage``.",
         "operationId": "list_course_status_api_v1_admin_courses_status_get",
         "responses": {
           "200": {

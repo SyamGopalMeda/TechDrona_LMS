@@ -425,10 +425,12 @@ async def _last_payments(session: Any, reg_ids: list[uuid.UUID]) -> dict[uuid.UU
             .order_by(AdmissionPaymentClaim.registration_id, AdmissionPaymentClaim.submitted_at.desc()),
         )
     ).all()
-    return {
-        rid: {"last_utr": utr, "last_paid_on": sv.iso(paid_on), "last_claim_status": status}
-        for rid, utr, paid_on, status in rows
-    }
+    # Newest first per registration. The first row wins: the Firestore engine ignores DISTINCT ON
+    # and returns every claim (a dict comprehension kept the OLDEST one there).
+    out: dict[uuid.UUID, dict[str, Any]] = {}
+    for rid, utr, paid_on, status in rows:
+        out.setdefault(rid, {"last_utr": utr, "last_paid_on": sv.iso(paid_on), "last_claim_status": status})
+    return out
 
 
 async def _reg(session: Any, reg_id: uuid.UUID) -> AdmissionRegistration:
@@ -680,6 +682,9 @@ class AdmissionInstalmentIn(Strict):
 
 
 class AdmissionPlanIn(Strict):
+    # Set when editing a saved plan (the list's ``fee_plan_id``): the slug must stay the same
+    # (409 ``slug_locked``); 404 when the plan is gone. Omitted: create, or update by slug.
+    fee_plan_id: uuid.UUID | None = None
     slug: str = Field(min_length=1, max_length=80)
     title: str = Field(min_length=1, max_length=160)
     course_id: uuid.UUID | None = None
@@ -700,7 +705,23 @@ class AdmissionPlanIn(Strict):
 async def save_plan(
     body: AdmissionPlanIn, session: PrincipalDbSession, principal: Principal = PLANS
 ) -> dict[str, Any]:
+    """Create / update a plan. The response adds ``course_status`` (the registration switch) and
+    ``effective_status`` (what students see: ``closed`` while an ``open`` course's plan is off)."""
     return await sv.save_plan(session, await sv.staff_actor(session, principal), body.model_dump())
+
+
+class AdmissionPlanActiveIn(Strict):
+    active: bool
+
+
+@staff.post("/admin/admissions/plans/{slug}/active")
+async def set_plan_active(
+    slug: str, body: AdmissionPlanActiveIn, session: PrincipalDbSession, principal: Principal = PLANS
+) -> dict[str, Any]:
+    """Switch a plan on / off only (no full PUT, no lost update). Activating checks the fee and the
+    pay-to details (422 ``invalid_plan`` / ``pay_to_missing``); 404 for an unknown slug. Same
+    response as PUT (plan + ``course_status`` + ``effective_status``)."""
+    return await sv.set_plan_active(session, await sv.staff_actor(session, principal), slug, body.active)
 
 
 class AdmissionPayIn(Strict):
@@ -722,8 +743,9 @@ async def save_pay(
 
 
 @staff.get("/admin/courses/status", openapi_extra=NEUTRAL)
-async def list_course_status(session: PrincipalDbSession, principal: Principal = PLANS) -> dict[str, Any]:
-    """Every website course known from status rows, fee plans and ``web-*`` batches."""
+async def list_course_status(session: PrincipalDbSession, principal: Principal = READ) -> dict[str, Any]:
+    """Every website course known from status rows, fee plans and ``web-*`` batches. Read with
+    ``payment.read`` like the plans list (no personal data); changing it needs ``price.manage``."""
     return await courses.admin_list(session)
 
 

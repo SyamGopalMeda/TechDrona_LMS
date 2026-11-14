@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockApi, problem, renderWithProviders } from "@/features/auth/test/mock-api";
 import { resetIntegrationsCache } from "@/components/shell/Integrations";
 import { approvalEnrols, loginMessage, toPaise, upiLink, whatsappLink } from "../lib/admissions";
-import { AdmissionsOverview, FeePlans, RegistrationsList, RegistrationView, VerifyQueue } from "./Admissions";
+import { AdmissionsOverview, RegistrationsList, RegistrationView, VerifyQueue } from "./Admissions";
 
 vi.setConfig({ testTimeout: 20000 });
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }), usePathname: () => "/finance/admissions", useSearchParams: () => new URLSearchParams(window.location.search) }));
@@ -398,29 +398,33 @@ describe("Admissions (website registrations + manual UPI verification)", () => {
     expect(within(result).getByRole("link", { name: "Share on WhatsApp" }).getAttribute("href")).toContain("Nw4-zzk2-Pq8");
   });
 
-  it("saves the pay-to settings and a new fee plan with instalments in paise", async () => {
+  it("says so when a PDF receipt can't be opened (it used to fail silently)", async () => {
+    const tab = { opener: {} as unknown, location: { href: "" }, close: vi.fn() };
+    const open = vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
+    cleanups.push(() => open.mockRestore());
     const api = mockApi({
-      "GET admin/admissions/plans": { body: { data: [], pay: { phone: "", preferred_app: "PhonePe", upi_id: "", payee_name: "", instructions: "" }, batches: [{ batch_id: "b1", name: "Java Jan", code: "JJ1", course_id: "c9", website_course_slug: "java" }] } },
-      "PUT admin/admissions/pay-settings": (c) => ({ body: c.body }),
-      "PUT admin/admissions/plans": (c) => ({ body: c.body }),
+      "GET admin/admissions/claims": { body: { data: [{ ...claim, proof_type: "application/pdf" }], page: { next_cursor: null, has_more: false } } },
+      "GET admin/admissions/claims/c1/proof": problem(404, "not_found", "Not found"),
     });
     cleanups.push(api.restore);
-    renderWithProviders(<FeePlans />);
-    await userEvent.type(await screen.findByLabelText("Payment number (10 digits)"), "9502524924");
-    await userEvent.type(screen.getByLabelText(/UPI ID \(students scan/), "techdrona@ybl");
-    expect(await screen.findByRole("img", { name: "UPI QR code for techdrona@ybl" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Save payment details" }));
-    await waitFor(() => expect(api.calls.some((c) => c.method === "PUT" && c.path.endsWith("pay-settings"))).toBe(true));
-    await userEvent.click(screen.getByRole("button", { name: "Add fee plan" }));
-    await userEvent.type(screen.getByLabelText("Website course slug"), "java");
-    await userEvent.type(screen.getByLabelText("Course title"), "Full Stack Java");
-    await userEvent.selectOptions(screen.getByLabelText("LMS batch"), "b1");
-    await userEvent.type(screen.getByLabelText("Course fee (₹)"), "3000");
-    await userEvent.click(screen.getByLabelText("Allow instalments"));
-    await userEvent.type(screen.getByLabelText("Amount (₹)"), "3000");
-    await userEvent.click(screen.getByRole("button", { name: "Save fee plan" }));
-    await waitFor(() => expect(api.calls.some((c) => c.method === "PUT" && c.path.endsWith("plans"))).toBe(true));
-    const body = api.calls.find((c) => c.method === "PUT" && c.path.endsWith("plans"))!.body as Record<string, unknown>;
-    expect(body).toMatchObject({ slug: "java", batch_id: "b1", fee_paise: 300000, allow_instalments: true, schedule: [{ label: "First instalment", amount_paise: 300000, due: "" }] });
+    renderWithProviders(<VerifyQueue />);
+    await userEvent.click(await screen.findByRole("button", { name: "Open receipt (PDF)" }));
+    expect(await screen.findByText("Couldn't open the receipt. Try again.")).toBeInTheDocument();
+    expect(tab.close).toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Retry receipt (PDF)" })).toBeInTheDocument();
+  });
+
+  it("confirms 'Allow reference again' with a toast and reloads the list", async () => {
+    const api = mockApi({
+      "GET admin/admissions/claims": { body: { data: [{ ...claim, status: "rejected", has_proof: false }], page: { next_cursor: null, has_more: false } } },
+      "POST admin/admissions/claims/c1/release-locks": { body: { claim: { ...claim, status: "rejected", locks_released: true } } },
+    });
+    cleanups.push(api.restore);
+    renderWithProviders(<VerifyQueue />);
+    await userEvent.selectOptions(await screen.findByLabelText("Show"), "rejected");
+    await userEvent.click(await screen.findByRole("button", { name: "Allow reference again" }));
+    await userEvent.click(within(await screen.findByRole("dialog", { name: "Allow this reference again" })).getByRole("button", { name: "Allow" }));
+    expect(await screen.findByText("The UTR and receipt can be submitted again.")).toBeInTheDocument();
+    expect(api.calls.filter((c) => c.method === "GET" && c.path === "admin/admissions/claims").length).toBeGreaterThanOrEqual(3);
   });
 });
