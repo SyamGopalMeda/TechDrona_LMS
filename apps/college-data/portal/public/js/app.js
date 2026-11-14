@@ -808,7 +808,12 @@ function openMoreSheet() {
     h('span', { class: 'td-more__icon' }, ui.icon(n.icon, { size: 20 })), h('span', null, n.label), ui.icon('chevron', { size: 16 }));
   const sess = state.session;
   const who = sess.mode === 'session' ? `${sess.user || api.user || 'Signed in'}${sess.role ? ` · ${ROLE_LABEL[sess.role] || sess.role}` : ''}` : (api.user ? `You are ${api.user}` : "Who's using this?");
+  // Phones have no top-bar Modules button: the same module list leads the More sheet (inside the LMS only).
+  const mods = ($.modulesBtn && !$.modulesBtn.hidden ? $.modItems : []).map((it) => h('button', {
+    type: 'button', class: 'td-more__item', onClick: () => { d.close(); it.onClick(); },
+  }, h('span', { class: 'td-more__icon' }, ui.icon(it.icon || 'external', { size: 20 })), h('span', null, it.label), ui.icon('chevron', { size: 16 })));
   const list = h('div', { class: 'td-more' },
+    mods.length ? [h('div', { class: 'td-more__label td-muted' }, 'Switch module'), ...mods, h('div', { class: 'td-more__sep' })] : null,
     PRIMARY.slice(TAB_COUNT).map(item),
     h('div', { class: 'td-more__sep' }),
     SECONDARY.map(item),

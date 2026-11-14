@@ -508,3 +508,4 @@
 /* Module switcher in the top bar (LMS SSO mode), like the LMS's "Modules" button. */
 .td-topbar__modules { white-space: nowrap; }
 @media (max-width: 420px) { .td-topbar__modules { padding-inline: .6rem; font-size: .8125rem; } }
+.td-more__label { padding: var(--sp-2) var(--sp-3) var(--sp-1); font-size: var(--td-text-xs, .75rem); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
