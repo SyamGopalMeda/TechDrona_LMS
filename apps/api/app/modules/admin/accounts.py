@@ -266,6 +266,9 @@ async def search_users(
         after=after,
         limit=limit,
     )
+    # The break-glass system identity is not a person (it can never sign in; it only signs the
+    # time-boxed emergency grants): never listed among users (owner request 2026-11-14).
+    rows = [r for r in rows if r[0].id != BREAK_GLASS_SYSTEM_USER_ID]
     more = len(rows) > limit
     rows = rows[:limit]
     roles = await _roles_for(session, [u.id for u, _ in rows])
