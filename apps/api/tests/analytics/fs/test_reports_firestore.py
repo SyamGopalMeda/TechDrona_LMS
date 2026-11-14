@@ -348,7 +348,6 @@ async def test_evidence_retention_and_erasure(seeded: dict[str, Any]) -> None:
     )
     cov = await evidence.video_coverage(FakeSession(), u, asset)
     assert cov is not None and cov.coverage == 0.5 and cov.covered_s == 60.0
-    assert await evidence.watched_seconds_for_lesson(FakeSession(), u, lesson) == 60
     ev = await evidence.lesson_time_evidence(FakeSession(), u, lesson)
     assert ev.learning_s == 0 and [c.lesson_asset_id for c in ev.coverage] == [asset]
 

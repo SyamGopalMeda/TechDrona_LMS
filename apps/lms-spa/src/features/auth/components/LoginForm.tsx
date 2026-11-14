@@ -7,10 +7,11 @@ import { Button, Checkbox, FormField, Input, standaloneLinkClass } from "@/compo
 import { useSimpleAuth } from "@/components/shell/Integrations";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import { formatCountdown, retryAfterSeconds, toFormError, type FormErrorInfo } from "../lib/errors";
+import { retryAfterSeconds, toFormError, type FormErrorInfo } from "../lib/errors";
 import { routeForLoginResult, routeForSessionCap } from "../lib/login-flow";
 import type { LoginResponse } from "../lib/types";
 import { FormAlert, PasswordInput, useCountdown } from "./shared";
+import { formatCountdown } from "@/lib/format";
 
 const COPY = {
   invalid: "That email/mobile and password don't match. Check them and try again.",
@@ -91,7 +92,7 @@ export function LoginForm({ next }: { next?: string }) {
         <FormAlert ref={alertRef} error={error}>
           {throttled ? (
             <p className="mt-1 text-fg-secondary">
-              {throttle > 0 ? <>Try again in <span aria-live="off">{formatCountdown(throttle)}</span>, or </> : "Wait a little before trying again, or "}
+              {throttle > 0 ? <>Try again in <span aria-live="off">{formatCountdown(throttle, "short")}</span>, or </> : "Wait a little before trying again, or "}
               <Link href="/forgot-password" className="text-fg-link underline">
                 reset your password
               </Link>

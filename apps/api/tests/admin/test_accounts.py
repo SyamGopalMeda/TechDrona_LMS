@@ -12,7 +12,7 @@ from sqlalchemy import select, update
 
 from app.core.db import system_context
 from app.core.ids import uuid7
-from app.modules.admin.accounts import add_business_days, expire_break_glass
+from app.modules.admin.accounts import expire_break_glass
 from app.modules.admin.models import BreakGlassSession
 from app.modules.identity import clock
 from app.modules.identity.models import MfaFactor
@@ -161,7 +161,7 @@ async def _historic_session(db, user_id, *, minutes: int = 30) -> uuid.UUID:
             status="active",
             started_at=now,
             expires_at=now + timedelta(minutes=minutes),
-            review_due_at=add_business_days(now + timedelta(minutes=minutes), 2),
+            review_due_at=now + timedelta(minutes=minutes, days=2),
             created_at=now,
             updated_at=now,
         )

@@ -1,22 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { Card, EmptyState, ErrorState, LoadingBlock as KitLoadingBlock } from "@/components/ui";
+import { Card, EmptyState, ErrorState } from "@/components/ui";
 import { LMS_COURSES_HREF } from "@/lib/site/website";
 import { isApiError } from "@/lib/api/errors";
-import { formatDateTime, formatMoney } from "@/features/catalog/lib/format";
+import { formatMoney } from "@/features/catalog/lib/format";
 import { LinkButton } from "@/features/catalog/components/LinkButton";
+import { formatDateTime } from "@/lib/format";
 
 interface PurchaseOption {
   sku?: string;
   price_id?: string;
   total_paise?: number;
   name?: string;
-}
-
-/** L state: the kit LoadingBlock with card-height rows (one polite status). */
-export function LoadingBlock({ label, rows = 3 }: { label: string; rows?: number }) {
-  return <KitLoadingBlock label={label} rows={rows} size="card" />;
 }
 
 /**
@@ -58,7 +54,7 @@ export function ContentErrorState({ error, onRetry }: { error: unknown; onRetry?
       return (
         <Card title="Learning access paused">
           <p className="text-sm text-fg-secondary">
-            {p?.until ? `Learning access is paused until ${formatDateTime(p.until)}.` : p?.detail ?? "Learning access is paused on this account."}
+            {p?.until ? `Learning access is paused until ${formatDateTime(p.until, { year: true })}.` : p?.detail ?? "Learning access is paused on this account."}
             {p?.case_ref ? ` Case reference ${p.case_ref}.` : ""}
           </p>
           <LinkButton href="/app/account-status" variant="secondary" size="sm" className="mt-3">

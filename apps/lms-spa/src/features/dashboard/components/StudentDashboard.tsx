@@ -2,15 +2,15 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Button, Card, DashboardHero, EmptyState, LinkButton, ProgressBar, QuickActions, Reveal, StatTile, StatusBadge, ViewAllLink } from "@/components/ui";
+import { Button, Card, DashboardHero, EmptyState, LinkButton, LoadingBlock, ProgressBar, QuickActions, Reveal, StatTile, StatusBadge, ViewAllLink } from "@/components/ui";
 import { useIntegrations } from "@/components/shell/Integrations";
 import { useActivityTracker } from "@/lib/analytics/use-activity-tracker";
-import { formatDate, formatDateTime } from "@/features/catalog/lib/format";
 import type { MyTestsResponse, TestListItem } from "@/features/assessment/lib/types";
 import { NoCoursesEmptyState } from "@/features/learning/components/BrowseCoursesCta";
-import { ContentErrorState, LoadingBlock } from "@/features/learning/components/States";
+import { ContentErrorState } from "@/features/learning/components/States";
 import type { AssignmentListItemDto, DashboardDto } from "@/features/learning/lib/types";
-import { useResource, type Resource } from "@/features/learning/lib/use-resource";
+import { formatDate, formatDateTime } from "@/lib/format";
+import { type Resource, useResource } from "@/lib/api/use-resource";
 
 const enc = encodeURIComponent;
 const courseHref = (slug: string | null) => (slug ? `/app/courses/${enc(slug)}` : "/app/learning");
@@ -72,7 +72,7 @@ function DueSoon({ work, tests }: { work: AssignmentListItemDto[]; tests: Resour
   return (
     <Card title="Due soon" icon="clock" description="Assignments and tests waiting for you, soonest first." actions={<ViewAllLink href="/app/tests">All tests</ViewAllLink>}>
       {tests.loading && !tests.data && items.length === 0 ? (
-        <LoadingBlock label="Loading what's due" rows={2} />
+        <LoadingBlock label="Loading what's due" rows={2} size="card" />
       ) : items.length === 0 ? (
         <EmptyState
           variant="inline"
@@ -95,7 +95,7 @@ function DueSoon({ work, tests }: { work: AssignmentListItemDto[]; tests: Resour
                 </Link>
                 <p className="text-sm text-fg-muted">
                   {i.kind}
-                  {i.when ? ` · ${i.when.verb} ${formatDateTime(i.when.at)}` : ""}
+                  {i.when ? ` · ${i.when.verb} ${formatDateTime(i.when.at, { year: true })}` : ""}
                 </p>
               </div>
               <StatusBadge status={i.status} label={i.statusLabel} className="self-start sm:self-auto" />
@@ -133,7 +133,7 @@ export function StudentDashboard({ courses, myCourses }: { courses?: ReactNode; 
   const payments = useIntegrations()?.payments === true;
 
   if (error) return <ContentErrorState error={error} onRetry={reload} />;
-  if (loading && !data) return <LoadingBlock label="Loading your dashboard" rows={4} />;
+  if (loading && !data) return <LoadingBlock label="Loading your dashboard" rows={4} size="card" />;
   if (!data) return null;
 
   const cont = data.continue_learning;

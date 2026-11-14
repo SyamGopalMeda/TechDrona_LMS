@@ -7,7 +7,7 @@ indexes). There is **no repository and no routing yet**: ``TD_STORE_LEARNING`` m
 plus 7 other modules that query the learning tables directly).
 
 Every table maps 1:1 to a collection keyed by the row's primary key, the document being the row
-(``fs_rows`` codec: UUID -> str, Decimal -> str, bytes -> hex, nested arrays wrapped). The
+(``core.firestore.rows`` json codec: UUID -> str, Decimal -> str, bytes -> hex, nested arrays wrapped). The
 Postgres UNIQUE constraints become **key documents** (``create()`` on a deterministic id fails on
 a duplicate, in the same transaction as the row), backfilled from the same tables so ``verify``
 checks them too:
@@ -55,9 +55,9 @@ from typing import Any
 from app.core.firestore.backfill import TableMapping, register_mapping
 from app.core.firestore.collections import CollectionSpec, register_collection
 from app.core.firestore.ids import compose_id
+from app.core.firestore.rows import doc_mapper
 from app.modules.learning.cert_models import CertificateOutbox
 from app.modules.learning.doc_models import DocumentSettings, DocumentTemplate, IssuedDocument
-from app.modules.learning.fs_rows import doc_mapper
 from app.modules.learning.models import (
     Assignment,
     AssignmentAllocation,

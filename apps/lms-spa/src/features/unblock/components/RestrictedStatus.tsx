@@ -4,12 +4,12 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ErrorState, Skeleton } from "@/components/ui";
 import { ReferenceChip } from "@/features/auth/components/shared";
-import { formatDateTime } from "@/features/auth/lib/format";
-import { useResource } from "@/features/account/lib/use-resource";
 import { cn } from "@/lib/ui/cn";
 import type { SecurityStatus } from "../lib/types";
 import { ReverifyPanel } from "./ReverifyPanel";
 import { UnblockStatusCard } from "./UnblockStatus";
+import { formatDateTime } from "@/lib/format";
+import { useResource } from "@/lib/api/use-resource";
 
 const linkBtn = "inline-flex min-h-touch items-center justify-center rounded-md px-4 text-sm font-medium focus-visible:shadow-focus focus-visible:outline-none";
 const primary = cn(linkBtn, "bg-brand text-brand-on hover:bg-brand-hover");

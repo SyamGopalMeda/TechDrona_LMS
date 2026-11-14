@@ -23,7 +23,6 @@ import {
   type BadgeTone,
 } from "@/components/ui";
 import { api } from "@/lib/api/client";
-import { formatDate, formatDateTime } from "@/features/catalog/lib/format";
 import { useApi, seg } from "@/features/trainer/shared/use-api";
 import { useFailToast } from "@/features/trainer/shared/ui";
 import type { CursorPage, OutboxStatus } from "../lib/types";
@@ -46,6 +45,7 @@ import {
   type Recipient,
   type TemplatesCatalogue,
 } from "../lib/docs";
+import { formatDate, formatDateTime } from "@/lib/format";
 
 const STATUS_TONE: Record<DocStatus, BadgeTone> = { valid: "success", revoked: "danger", superseded: "neutral" };
 const EMAIL_LABEL: Record<OutboxStatus, string> = { awaiting: "Awaiting approval", pending: "Sending", sent: "Sent", failed: "Failed", cancelled: "Cancelled" };
@@ -556,7 +556,7 @@ function DocDetailDialog({ id, onClose }: { id: string; onClose: () => void }) {
                 {doc.emails.map((e) => (
                   <li key={e.id} className="flex flex-wrap items-center gap-2">
                     <EmailBadge status={e.status} />
-                    <span className="text-fg-muted">{`${e.origin} · ${formatDateTime(e.sent_at ?? e.created_at)}${e.to ? ` · to ${e.to}` : ""}`}</span>
+                    <span className="text-fg-muted">{`${e.origin} · ${formatDateTime(e.sent_at ?? e.created_at, { year: true })}${e.to ? ` · to ${e.to}` : ""}`}</span>
                     {e.last_error ? <span className="text-danger-fg">{e.last_error}</span> : null}
                   </li>
                 ))}

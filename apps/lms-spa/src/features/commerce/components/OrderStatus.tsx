@@ -2,16 +2,17 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { StatusBadge, Card, PageHeader } from "@/components/ui";
+import { Card, LoadingBlock, PageHeader, StatusBadge } from "@/components/ui";
 import { PLANS_HREF } from "@/lib/site/website";
-import { formatDate, formatDateTime, formatMoney, humanize } from "@/features/catalog/lib/format";
-import { ContentErrorState, LoadingBlock } from "@/features/learning/components/States";
-import { useResource } from "@/features/learning/lib/use-resource";
+import { formatMoney, humanize } from "@/features/catalog/lib/format";
+import { ContentErrorState } from "@/features/learning/components/States";
 import { trackEvent } from "@/lib/firebase/analytics";
 import { isTestMode, type PayableOrder } from "../lib/payment-provider";
 import type { OrderDto } from "../lib/types";
 import { PaymentStep, TestModeBadge } from "./PaymentStep";
 import { ServiceNotIntegrated } from "@/components/shell/Integrations";
+import { formatDate, formatDateTime } from "@/lib/format";
+import { useResource } from "@/lib/api/use-resource";
 
 const POLL_MS = 4000;
 const POLL_LIMIT_MS = 15 * 60 * 1000;
@@ -69,7 +70,7 @@ export function OrderStatus({ orderId, mode = "status" }: { orderId: string; mod
   }, [paidOrder]);
 
   if (error) return <ContentErrorState error={error} onRetry={reload} />;
-  if (loading && !order) return <LoadingBlock label="Loading order" rows={2} />;
+  if (loading && !order) return <LoadingBlock label="Loading order" rows={2} size="card" />;
   if (!order) return null;
 
   const awaiting = order.status === "pending_payment" || order.status === "created";
@@ -93,7 +94,7 @@ export function OrderStatus({ orderId, mode = "status" }: { orderId: string; mod
           {order.paid_at ? (
             <>
               <dt className="text-fg-muted">Paid</dt>
-              <dd className="text-fg">{formatDateTime(order.paid_at)}</dd>
+              <dd className="text-fg">{formatDateTime(order.paid_at, { year: true })}</dd>
             </>
           ) : null}
         </dl>
@@ -116,7 +117,7 @@ export function OrderStatus({ orderId, mode = "status" }: { orderId: string; mod
           ) : (
             <p role="status" className="text-sm text-fg-secondary">
               This order can’t be paid from here any more. If you haven’t paid, it expires on its own
-              {order.expires_at ? ` at ${formatDateTime(order.expires_at)}` : ""} — you can start a new checkout from{" "}
+              {order.expires_at ? ` at ${formatDateTime(order.expires_at, { year: true })}` : ""} — you can start a new checkout from{" "}
               <a href={PLANS_HREF} className="font-medium text-fg-link">
                 plans
               </a>

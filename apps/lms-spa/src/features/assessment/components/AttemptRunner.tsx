@@ -14,7 +14,7 @@ import { localPendingStore, type PendingStore } from "../lib/local-store";
 import { paletteCounts, paletteState } from "../lib/palette";
 import { isAnswered, planResume, type AnswerState } from "../lib/resume";
 import { createEventThrottle, eventFilter, integrityWarning, isRecordable } from "../lib/integrity-capture";
-import { formatCountdown, ServerClock } from "../lib/server-clock";
+import { ServerClock } from "../lib/server-clock";
 import type {
   AttemptPayload,
   AttemptSection,
@@ -28,6 +28,7 @@ import type {
 import { BoundElsewhereView } from "./BoundElsewhere";
 import { QuestionView } from "./QuestionView";
 import { AutosaveIndicator, QuestionPalette, Timer } from "./RunnerParts";
+import { formatCountdown } from "@/lib/format";
 
 export const INTEGRITY_FLAG_KEY = (attemptId: string) => `td.attempt.integrity.${attemptId}`;
 export const SUBMITTED_KEY = (attemptId: string) => `td.attempt.submitted.${attemptId}`;
@@ -789,7 +790,7 @@ export function AttemptRunner({ attemptId, forceResume = false, store = localPen
           <div className="space-y-2 text-sm text-fg-secondary">
             <p>
               We&apos;ve restored {resumeNotice.restored} answers. The timer kept running on our server, so you have{" "}
-              <strong className="font-mono">{remainingNow === null ? "—" : formatCountdown(remainingNow)}</strong> left.
+              <strong className="font-mono">{remainingNow === null ? "—" : formatCountdown(remainingNow / 1000)}</strong> left.
             </p>
             {resumeNotice.pending > 0 ? (
               <p role="status">
@@ -832,7 +833,7 @@ export function AttemptRunner({ attemptId, forceResume = false, store = localPen
           <dt className="text-fg-muted">Not visited</dt>
           <dd className="tabular-nums">{counts.not_visited}</dd>
           <dt className="text-fg-muted">Time left</dt>
-          <dd className="font-mono tabular-nums">{remainingNow === null ? "—" : formatCountdown(remainingNow)}</dd>
+          <dd className="font-mono tabular-nums">{remainingNow === null ? "—" : formatCountdown(remainingNow / 1000)}</dd>
         </dl>
         {rejectedCount > 0 ? (
           <p role="alert" className="mt-3 border-l-4 border-danger-border bg-danger-subtle p-2 text-sm text-danger-fg">

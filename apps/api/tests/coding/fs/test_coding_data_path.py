@@ -42,15 +42,6 @@ def test_mapper_round_trip_keeps_model_values(model: Any) -> None:
     assert orm_doc(back) == doc
 
 
-def test_fsmap_copies_are_identical() -> None:
-    root = Path(__file__).resolve().parents[3] / "app/modules"
-    body = [
-        (root / m / "fsmap.py").read_text(encoding="utf-8").split('"""', 2)[2]
-        for m in ("placement", "coding")
-    ]
-    assert body[0] == body[1]
-
-
 async def test_backfill_verify_with_key_documents(coding_fs: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     from app.core.firestore.store import ScopedStore
     from app.modules.coding.store_specs import DRAFTS, PROBLEMS_BY_SLUG, TOKENS, slug_id

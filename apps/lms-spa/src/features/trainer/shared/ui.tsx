@@ -4,18 +4,12 @@ import type { ReactNode } from "react";
 import {
   Badge,
   ErrorState,
-  LoadingBlock as KitLoadingBlock,
+  LoadingBlock,
   StatusBadge as KitStatusBadge,
   useToast,
 } from "@/components/ui";
 import { ApiError } from "@/lib/api/errors";
 import type { ApiState } from "./use-api";
-
-export {
-  formatDate,
-  formatDateTime,
-  formatRelative,
-} from "@/features/auth/lib/format";
 
 /* ------------------------------------------------------------ k-anonymity floor */
 
@@ -59,15 +53,6 @@ export function KFloorNotice({
   );
 }
 
-/** Suppressed aggregate cell (`{"suppressed": true}`). */
-export function isSuppressed(v: unknown): v is { suppressed: true } {
-  return (
-    typeof v === "object" &&
-    v !== null &&
-    (v as { suppressed?: unknown }).suppressed === true
-  );
-}
-
 /**
  * analytics `k_cell` (apps/api analytics/reports.py): a count/ratio below the k-floor arrives
  * as the string "<10" instead of a number. Returns the number, or null when suppressed.
@@ -76,44 +61,7 @@ export function kValue(v: unknown): number | null {
   return typeof v === "number" ? v : null;
 }
 
-/** Honest placeholder for a screen/section whose backend endpoint doesn't exist yet. */
-export function NotAvailable({
-  title = "Not available yet",
-  description,
-  compact = false,
-}: {
-  title?: string;
-  description?: string;
-  compact?: boolean;
-}) {
-  if (compact) return <p className="text-sm text-fg-muted">{title}</p>;
-  return (
-    <div
-      role="status"
-      className="rounded-xl border border-dashed border-line-strong bg-surface p-6 text-center"
-    >
-      <p className="font-medium text-fg">{title}</p>
-      {description ? (
-        <p className="mx-auto mt-1 max-w-prose text-sm text-fg-muted">
-          {description}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 /* ------------------------------------------------------------------ boundaries */
-
-/** The kit LoadingBlock (one polite status + skeleton rows), kept under the trainer signature. */
-export function LoadingBlock({
-  rows = 3,
-  label = "Loading",
-}: {
-  rows?: number;
-  label?: string;
-}) {
-  return <KitLoadingBlock label={label} rows={rows} size="row" />;
-}
 
 /** L / X / k-floor states around one resource, then renders children with the data. */
 export function Boundary<T>({
@@ -132,7 +80,7 @@ export function Boundary<T>({
     );
   }
   if (state.loading && state.data === undefined)
-    return <LoadingBlock rows={rows} />;
+    return <LoadingBlock rows={rows} label="Loading" size="row" />;
   if (state.data === undefined) return null;
   return <>{children(state.data)}</>;
 }
@@ -254,13 +202,6 @@ export function BarList({
 }
 
 /* ------------------------------------------------------------------- helpers */
-
-/** `<input type="datetime-local">` value (browser local time) → RFC 3339 UTC. */
-export function localInputToIso(v: string): string | null {
-  if (!v) return null;
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
-}
 
 export function pct(v: number | null | undefined): string {
   return typeof v === "number" ? `${Math.round(v)}%` : "—";

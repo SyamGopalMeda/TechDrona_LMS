@@ -55,12 +55,6 @@ EVENT_TYPES = (
 _enabled = True
 
 
-def set_enabled(on: bool) -> None:
-    """Kill switch (tests / incident response)."""
-    global _enabled
-    _enabled = on
-
-
 def _redis() -> Any:
     from app.core.redis import get_cache_redis
 

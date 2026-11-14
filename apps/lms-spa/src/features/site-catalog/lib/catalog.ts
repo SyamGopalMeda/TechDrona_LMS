@@ -17,6 +17,7 @@ import type {
 } from "./types";
 import { publicRegisterHref, registerHref } from "@/features/registration/lib/registration";
 import { siteBaseUrl, siteCourseUrl } from "./site-url";
+import { todayIST } from "@/lib/time";
 
 type Env = Record<string, string | undefined>;
 export type FetchLike = (url: string, init?: RequestInit & { next?: { revalidate?: number } }) => Promise<Response>;
@@ -180,11 +181,6 @@ export function derivedRegStatus(group: SiteCourseGroup): CourseRegStatus {
 }
 
 /* ------------------------------------------------------------------ grouping */
-
-/** Today's date (YYYY-MM-DD) in India time, the zone course dates are planned in. */
-export function todayIST(now: Date = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-}
 
 /** "2026-12-01" or an ISO timestamp -> YYYY-MM-DD (IST); anything else -> null. */
 export function dateKey(v: string | null | undefined): string | null {

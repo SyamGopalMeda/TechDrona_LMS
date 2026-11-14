@@ -7,12 +7,12 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button, FormField } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import { formatCountdown, retryAfterSeconds, toFormError, type FormErrorInfo } from "../lib/errors";
-import { formatDate, formatRelative } from "../lib/format";
+import { retryAfterSeconds, toFormError, type FormErrorInfo } from "../lib/errors";
 import { routeForLoginResult, routeForSessionCap } from "../lib/login-flow";
 import { readPendingLogin } from "../lib/pending-login";
 import type { CapDevice, DeviceChannel, DeviceVerifyBody, LoginResponse, OtpSentResponse } from "../lib/types";
 import { FormAlert, Notice, OtpInput, useCountdown } from "./shared";
+import { formatCountdown, formatDate, formatRelative } from "@/lib/format";
 
 const RESEND_SECONDS = 45;
 
@@ -73,7 +73,7 @@ export function DeviceVerificationForm() {
       setError({ title: "That code has expired", detail: "Send a new code and try again.", requestId: err.requestId, code: err.code });
     } else if (err instanceof ApiError && (err.code === "otp_send_limited" || err.code === "otp_attempts_exceeded")) {
       const s = retryAfterSeconds(err);
-      setError({ title: err.title, detail: s ? `Try again in ${formatCountdown(s)}.` : err.detail, requestId: err.requestId, code: err.code });
+      setError({ title: err.title, detail: s ? `Try again in ${formatCountdown(s, "short")}.` : err.detail, requestId: err.requestId, code: err.code });
     } else {
       setError(toFormError(err));
     }
@@ -213,7 +213,7 @@ export function DeviceVerificationForm() {
                   </Button>
                 ))}
               </div>
-              {resendIn > 0 ? <p className="text-xs text-fg-muted">Resend in {formatCountdown(resendIn)}</p> : null}
+              {resendIn > 0 ? <p className="text-xs text-fg-muted">Resend in {formatCountdown(resendIn, "short")}</p> : null}
             </div>
           )}
         </>

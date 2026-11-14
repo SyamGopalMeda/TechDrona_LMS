@@ -278,9 +278,3 @@ async def fixed_versions_in_live_tests(
     fixed_q = {r[1] for r in rows if r[1] is not None}
     qmap = question_of or {}
     return {v for v in pool if v in fixed_v or qmap.get(v) in fixed_q}
-
-
-async def test_exists(session: AsyncSession, test_id: uuid.UUID) -> bool:
-    """``SELECT 1 FROM tests WHERE id = :id`` (caller's RLS): placement company-path step check."""
-    async with _sess(session) as s:
-        return (await adb.execute(s, select(Test.id).where(Test.id == test_id))).first() is not None

@@ -86,17 +86,6 @@ def admin_roles() -> frozenset[str]:
     return frozenset({ADMIN_ROLE})
 
 
-def successor_role(role_key: str) -> str | None:
-    """The role that now carries a removed role's duties (``None`` for unknown keys).
-
-    ``college_coordinator`` maps to Admin too (batches, member moves, test assignment)."""
-    if role_key in ROLES:
-        return role_key
-    if role_key in REMOVED_ROLES:
-        return ADMIN_ROLE
-    return None
-
-
 _MODULE_PREFIX = {
     "user": "identity",
     "session": "sessions",
@@ -371,7 +360,3 @@ def role_permission_pairs() -> list[tuple[str, str]]:
 
 def permissions_for_role(role: str) -> frozenset[str]:
     return frozenset(p for r, p in role_permission_pairs() if r == role)
-
-
-def cell_scope(role: str, cell: str) -> str:
-    return {"P": "platform", "B": "batch", "C": "course"}.get(cell, ROLES[role].default_scope)

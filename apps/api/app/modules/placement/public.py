@@ -55,17 +55,6 @@ async def get_version(session: AsyncSession, version_id: uuid.UUID) -> QuestionV
     return await session.get(QuestionVersion, version_id)
 
 
-async def topic_names(session: AsyncSession, topic_ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, str]:
-    ids = list(dict.fromkeys(topic_ids))
-    if not ids:
-        return {}
-    if _fs():
-        r = await _repo(session)
-        return {t.id: t.name for t in await r.get_topics(ids)}
-    rows = await session.execute(select(Topic).where(Topic.id.in_(ids)))
-    return {t.id: t.name for t in rows.scalars()}
-
-
 async def topic_roots(session: AsyncSession, topic_ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, uuid.UUID]:
     """Root ``subject`` of each topic (walks ``parent_id`` up, like the recursive CTE)."""
     ids = list(dict.fromkeys(topic_ids))
@@ -122,16 +111,6 @@ async def topic_with_root(
         )
     ).first()
     return (row[0], row[1]) if row else None
-
-
-async def existing_company_ids(session: AsyncSession, company_ids: Iterable[uuid.UUID]) -> set[uuid.UUID]:
-    ids = list(dict.fromkeys(company_ids))
-    if not ids:
-        return set()
-    if _fs():
-        r = await _repo(session)
-        return {c.id for c in await r.companies() if c.id in set(ids)}
-    return set((await session.execute(select(Company.id).where(Company.id.in_(ids)))).scalars())
 
 
 async def get_company(session: AsyncSession, company_id: uuid.UUID) -> Company | None:
@@ -267,7 +246,6 @@ __all__ = [
     "coding_pool",
     "coding_question_for_problem",
     "delivery",
-    "existing_company_ids",
     "get_company",
     "get_question",
     "get_topic",
@@ -278,7 +256,6 @@ __all__ = [
     "key_payload",
     "load_bundles",
     "normalise_response",
-    "topic_names",
     "topic_roots",
     "topic_with_root",
     "versions_of",

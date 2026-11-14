@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Badge, Button, Card, Checkbox, ErrorState, FormField, Input, LinkButton, PageHeader, Select, StatusBadge, useToast } from "@/components/ui";
+import { Badge, Button, Card, Checkbox, ErrorState, FormField, Input, LinkButton, LoadingBlock, PageHeader, Select, StatusBadge, useToast } from "@/components/ui";
 import { ApiError } from "@/lib/api/errors";
-import { LoadingBlock, TextArea, useFailToast } from "@/features/trainer/shared/ui";
+import { TextArea, useFailToast } from "@/features/trainer/shared/ui";
 import { fmtMarks, itemTypeLabel, staffApi, stripHtml, truncate } from "./api";
 import { QuestionBankPicker } from "@/features/question-bank";
 import type { RenderBankPicker } from "./bank-picker";
@@ -255,7 +255,7 @@ export function AssignmentEditor({ assignmentId, renderPicker }: { assignmentId:
     return (
       <>
         <PageHeader title="Edit assignment" breadcrumbs={[...crumbs, { label: "Edit assignment" }]} />
-        <LoadingBlock rows={4} />
+        <LoadingBlock rows={4} label="Loading" size="row" />
       </>
     );
 

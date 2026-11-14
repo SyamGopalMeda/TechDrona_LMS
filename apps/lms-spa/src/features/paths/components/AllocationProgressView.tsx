@@ -1,13 +1,13 @@
 "use client";
 
 import { Badge, PageHeader, StatGrid, StatTile, StatusBadge, Table } from "@/components/ui";
-import { formatDateTime } from "@/features/trainer/shared/ui";
 import { useApi } from "@/features/trainer/shared/use-api";
 import { seg } from "../lib/api";
 import { formatHours, formatPlanDate } from "../lib/pace";
 import type { AllocationProgress, LearnerProgress } from "../lib/types";
 import { FlowBadge, OrderBadge, ProgressBar } from "./bits";
 import { usePathsBase } from "../lib/base";
+import { formatDateTime } from "@/lib/format";
 
 /** Per-allocation progress dashboard (trainer). */
 export function AllocationProgressView({ allocationId }: { allocationId: string }) {

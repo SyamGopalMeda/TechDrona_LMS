@@ -201,14 +201,6 @@ async def get_device(session: AsyncSession, device_id: uuid.UUID) -> Device | No
     return await session.get(Device, device_id)
 
 
-async def add_device(session: AsyncSession, d: Device) -> Device:
-    if _fs():
-        return await _repo().save_device(d)
-    session.add(d)
-    await session.flush()
-    return d
-
-
 async def list_user_devices(
     session: AsyncSession,
     *,

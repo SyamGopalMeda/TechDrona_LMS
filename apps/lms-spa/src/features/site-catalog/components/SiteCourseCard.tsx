@@ -1,11 +1,11 @@
 import type { CSSProperties } from "react";
 import { buttonClasses } from "@/components/ui/Button";
 import { Icon, isIconName, type IconName } from "@/components/ui";
-import { formatDate } from "@/features/catalog/lib/format";
 import { cn } from "@/lib/ui/cn";
 import type { SiteAudience, SiteCourse, SiteCourseGroup } from "../lib/types";
 import { CourseScene } from "./CourseScene";
 import s from "./site-catalog.module.css";
+import { formatDate } from "@/lib/format";
 
 /* Website icon names (tech drona Icon.jsx) -> the LMS kit set. */
 const ICONS: Record<string, IconName> = {

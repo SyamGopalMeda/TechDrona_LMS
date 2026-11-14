@@ -30,12 +30,13 @@ import {
 } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import type { Body, Schema } from "@/lib/api-types";
-import { useResource } from "@/features/account/lib/use-resource";
 import { LEVEL_NAME, toLevel } from "@/features/security-admin/components/RiskLevel";
 import { ActionDialog, FilterBar, InlineProblem, KeyValueList, StateBadge, TextArea, ValueSummary, textLink } from "./console-ui";
 import { AdminCoursesSection } from "./CourseCards";
 import { INTEGRATION_LABELS, useIntegrations, useSimpleAuth, type IntegrationKey } from "@/components/shell/Integrations";
-import { cleanQuery, formatCountdown, formatDate, formatDateTime, formatINR, humanize, shortRef, toOutcome, useCursorList } from "../lib/console";
+import { cleanQuery, formatINR, humanize, shortRef, toOutcome, useCursorList } from "../lib/console";
+import { useResource } from "@/lib/api/use-resource";
+import { formatDate, formatDateTime, formatTimeUntil } from "@/lib/format";
 
 /** The api types these filters as UUIDs (a partial id would be a 422), so only complete ones are sent. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -849,10 +850,10 @@ export function PrivacyRequests() {
         r.overdue ? (
           <span className="flex flex-wrap items-center gap-1">
             <StatusBadge status="overdue" />
-            <span className="text-sm">{formatCountdown(r.due_at)}</span>
+            <span className="text-sm">{formatTimeUntil(r.due_at)}</span>
           </span>
         ) : PRIVACY_OPEN.has(r.status) ? (
-          formatCountdown(r.due_at)
+          formatTimeUntil(r.due_at)
         ) : (
           "—"
         ),
@@ -990,7 +991,7 @@ export function BreakGlass() {
       {active ? (
         <div role="alert" className="mb-4 rounded-lg border border-danger-border bg-danger-subtle p-3 text-sm">
           <p className="font-semibold text-danger-fg">
-            Break-glass is active until {formatDateTime(active.expires_at)} ({formatCountdown(active.expires_at)}).
+            Break-glass is active until {formatDateTime(active.expires_at)} ({formatTimeUntil(active.expires_at)}).
           </p>
           <p className="mt-1 text-fg-secondary">
             Elevated role: {humanize(active.elevated_role)}. Reason: {active.reason}

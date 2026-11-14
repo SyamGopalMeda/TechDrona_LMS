@@ -1,13 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Badge, Button, Card, Dialog, ErrorState, FormField, Select, useToast } from "@/components/ui";
+import { Badge, Button, Card, Dialog, ErrorState, FormField, LoadingBlock, Select, useToast } from "@/components/ui";
 import { ApiError } from "@/lib/api/errors";
-import { formatDateTime } from "@/features/catalog/lib/format";
 import { fmtMarks, itemTypeLabel, learnerApi, stripHtml, truncate } from "../assignment-manager/api";
 import { AnswerView, QuestionText } from "../assignment-manager/AnswerView";
 import type { RegradeOut, ResultItem, ResultOut } from "../assignment-manager/types";
-import { LoadingBlock } from "../components/States";
+import { formatDateTime } from "@/lib/format";
 
 const REASON_MIN = 10;
 const REASON_MAX = 2000;
@@ -27,7 +26,7 @@ function RegradeStatus({ r }: { r: RegradeOut }) {
     <div className="rounded-lg border border-line p-3 text-sm" data-testid="regrade-status">
       <Badge tone={tone}>{label}</Badge>
       <p className="mt-2 text-fg-secondary">
-        Sent {formatDateTime(r.created_at)}: {r.reason}
+        Sent {formatDateTime(r.created_at, { year: true })}: {r.reason}
       </p>
       {r.resolution_note ? <p className="mt-1 text-fg">Trainer&apos;s note: {r.resolution_note}</p> : null}
     </div>
@@ -64,7 +63,7 @@ export function ResultsView({ assignmentId }: { assignmentId: string }) {
   }, [load]);
 
   if (error) return <ErrorState error={error} onRetry={() => void load()} />;
-  if (!data) return <LoadingBlock label="Loading result" />;
+  if (!data) return <LoadingBlock label="Loading result" size="card" />;
 
   const sub = data.submission;
   const regradeOpen = data.regrade?.status === "open";
@@ -102,7 +101,7 @@ export function ResultsView({ assignmentId }: { assignmentId: string }) {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="flex items-center gap-2 font-semibold text-success-fg">
-              <span aria-hidden="true">✓</span> Submitted{sub?.submitted_at ? ` on ${formatDateTime(sub.submitted_at)}` : ""}
+              <span aria-hidden="true">✓</span> Submitted{sub?.submitted_at ? ` on ${formatDateTime(sub.submitted_at, { year: true })}` : ""}
               {sub?.status === "late" ? <Badge tone="warning">Late</Badge> : null}
             </p>
             <p className="mt-1 text-lg tabular-nums text-fg" data-testid="final-score">

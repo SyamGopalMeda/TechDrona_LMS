@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Badge, Button, EmptyState, ErrorState, Input, PageHeader, StatGrid, StatTile } from "@/components/ui";
-import { LoadingBlock } from "@/features/trainer/shared/ui";
+import { Badge, Button, EmptyState, ErrorState, Input, LoadingBlock, PageHeader, StatGrid, StatTile } from "@/components/ui";
 import { seg, useApi } from "@/features/trainer/shared/use-api";
 import { cn } from "@/lib/ui/cn";
 import { useDebounced } from "../lib/hooks";
@@ -104,7 +103,7 @@ export function BankList() {
       {list.error ? (
         <ErrorState error={list.error} onRetry={() => void list.reload()} />
       ) : list.loading && !data ? (
-        <LoadingBlock rows={4} label="Loading banks" />
+        <LoadingBlock rows={4} label="Loading banks" size="row" />
       ) : !items.length ? (
         <EmptyState
           title={query ? "No banks match" : "No question banks yet"}

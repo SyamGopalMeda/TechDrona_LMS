@@ -2,7 +2,7 @@
 
 import type { CourseDetailDto } from "@/features/catalog/lib/types";
 import type { CourseOverviewDto } from "./types";
-import { useResource, type Resource } from "./use-resource";
+import { type Resource, useResource } from "@/lib/api/use-resource";
 
 /**
  * Student routes are slug-based (/app/courses/[slug], /app/learn/[course_slug]/…) while LRN

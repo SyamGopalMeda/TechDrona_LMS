@@ -120,34 +120,6 @@ export function truncate(s: string, n = 120): string {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
 }
 
-/** RFC 3339 → `<input type="datetime-local">` value in the browser's local time. */
-export function isoToLocalInput(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-}
-
-/** `<input type="datetime-local">` value → RFC 3339 UTC, or null when empty/invalid. */
-export function localInputToIso(v: string): string | null {
-  if (!v) return null;
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
-}
-
-/** Compact countdown ("2d 4h", "23h 54m", "5m 12s"); "Time's up" at 0. */
-export function formatCountdown(seconds: number): string {
-  if (seconds <= 0) return "Time's up";
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m ${s}s`;
-}
-
 /** Marks as shown in the UI (no trailing ".0"). */
 export function fmtMarks(n: number | null | undefined): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return "—";

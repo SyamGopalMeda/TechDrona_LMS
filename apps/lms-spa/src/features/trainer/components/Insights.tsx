@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Card, ErrorState, StatGrid, StatTile, Table } from "@/components/ui";
+import { Card, ErrorState, LoadingBlock, StatGrid, StatTile, Table } from "@/components/ui";
 import { api, type Page } from "@/lib/api/client";
 import { useMemberNames, useTeachingQuery } from "../lib/batches";
 import type { AssignmentSummary, TestAssignment, TestSummary } from "../lib/types";
 import { useApi, seg } from "../shared/use-api";
-import { LoadingBlock, formatDateTime } from "../shared/ui";
 import { LessonFunnelView, ProgressDistributionView, type LessonFunnelCourse, type ProgressDistribution } from "../shared/report-sections";
+import { formatDateTime } from "@/lib/format";
 
 /* ---------------------------------------------------------------- grading backlog */
 
@@ -102,7 +102,7 @@ export function LiveTests({ batches }: { batches: { id: string; name: string }[]
 
   const err = tests.error ?? error;
   if (err) return <ErrorState error={err} onRetry={() => void tests.reload()} />;
-  if (tests.loading || rows === null) return <LoadingBlock rows={2} label="Loading live tests" />;
+  if (tests.loading || rows === null) return <LoadingBlock rows={2} label="Loading live tests" size="row" />;
   const batchName = (id: string | null) => batches.find((b) => b.id === id)?.name ?? "Batch";
   return (
     <div className="space-y-2">
@@ -153,7 +153,7 @@ export function BatchProgress({ batchId }: { batchId: string }) {
   const report = useApi<BatchReport>(`analytics/reports/batches/${seg(batchId)}`);
   const nameOf = useMemberNames([batchId]);
   if (report.error) return <ErrorState error={report.error} onRetry={() => void report.reload()} />;
-  if (report.loading || !report.data) return <LoadingBlock rows={3} label="Loading batch progress" />;
+  if (report.loading || !report.data) return <LoadingBlock rows={3} label="Loading batch progress" size="row" />;
   const r = report.data;
   const atRisk = r.learners.filter((l) => l.needs_attention);
   const weak = r.learners.filter((l) => l.weak_topics > 0).sort((a, b) => b.weak_topics - a.weak_topics);

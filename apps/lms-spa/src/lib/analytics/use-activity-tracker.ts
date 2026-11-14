@@ -62,14 +62,6 @@ export interface EditorEvents {
   edit(n?: number): void;
 }
 
-/** A handle whose calls are all dropped (for components rendered without a tracker). */
-export const NOOP_TRACKER: ActivityTrackerHandle = {
-  video: forwardVideo(() => null),
-  event: () => undefined,
-  editor: { focus: () => undefined, blur: () => undefined, edit: () => undefined },
-  scrollDepth: () => undefined,
-};
-
 const INPUT_EVENTS = ["keydown", "pointerdown", "wheel", "scroll", "touchstart"] as const;
 
 /**

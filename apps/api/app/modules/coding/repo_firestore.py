@@ -31,9 +31,9 @@ from app.core.errors import ProblemError
 from app.core.firestore.errors import UniqueViolationError
 from app.core.firestore.ids import compose_id
 from app.core.firestore.repository import FirestoreRepository, platform_only
+from app.core.firestore.rows import to_doc_value
 from app.core.firestore.store import Doc, ScopedStore, ScopedTransaction
 from app.core.time import utcnow
-from app.modules.coding.fsmap import to_doc_value
 from app.modules.coding.models import (
     CodeSubmission,
     CodingDraft,

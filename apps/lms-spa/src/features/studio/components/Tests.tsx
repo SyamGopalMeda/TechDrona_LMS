@@ -8,12 +8,13 @@ import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import type { Body, Schema } from "@/lib/api-types";
 import { useApi, seg } from "@/features/trainer/shared/use-api";
-import { Boundary, StatusBadge, fieldErrorsOf, localInputToIso, useFailToast } from "@/features/trainer/shared/ui";
+import { Boundary, StatusBadge, fieldErrorsOf, useFailToast } from "@/features/trainer/shared/ui";
 import type { TestSummary } from "@/features/trainer/lib/types";
 import { ExamProtocolSettings, validateProtocol } from "@/features/assessment/components/ExamProtocolSettings";
 import { QuestionBankPicker } from "@/features/question-bank/QuestionBankPicker";
 import { EntityHeader, SectionNav, StickyActionBar } from "./EditorChrome";
 import type { PublishedCodingProblem, QuestionSummary, TestDefinition, TestSectionOut, ValidationResult } from "../lib/types";
+import { isoToLocalInput, localInputToIso } from "@/lib/time";
 
 type TestKind = Schema<"TestCreate">["test_kind"];
 type Phase = Schema<"PhaseVisibility">;
@@ -264,15 +265,6 @@ const asPhase = (v: unknown, fallback: Phase): Phase => {
   for (const { key } of PHASE_KEYS) if (typeof o[key] === "boolean") out[key] = o[key] as boolean;
   return out;
 };
-
-/** RFC 3339 → `<input type="datetime-local">` value in browser local time. */
-export function isoToLocalInput(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-}
 
 function toSettings(t: TestDefinition): SettingsDraft {
   const rp = (t.review_policy ?? {}) as Record<string, unknown>;

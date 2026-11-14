@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { EmptyState, ErrorState, LoadingBlock, PageHeader } from "@/components/ui";
 import { buttonClasses } from "@/components/ui/Button";
-import { useResource } from "@/features/account/lib/use-resource";
 import { MY_ADMISSIONS, registerHref, type MyRegistration } from "../lib/registration";
 import { RegistrationStatus } from "./RegistrationStatus";
+import { useResource } from "@/lib/api/use-resource";
 
 /** My course registrations: status of each payment, reasons, and the next step. */
 export function MyRegistrations() {

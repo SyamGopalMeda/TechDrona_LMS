@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { Badge, Card, Icon, ViewAllLink } from "@/components/ui";
 import { buttonClasses } from "@/components/ui/Button";
-import { useResource } from "@/features/account/lib/use-resource";
 import { fmtDay, type MyBatchClasses, type MyClasses } from "@/features/batches/lib/delivery";
 import { MY_ADMISSIONS, MY_REGISTRATIONS_HREF, STATE_LABEL, registerHref, type MyRegistration } from "../lib/registration";
+import { useResource } from "@/lib/api/use-resource";
 
 export const MY_CLASSES_HREF = "/app/classes";
 

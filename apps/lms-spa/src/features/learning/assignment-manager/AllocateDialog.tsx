@@ -6,8 +6,9 @@ import { api } from "@/lib/api/client";
 import { ApiError, isApiError } from "@/lib/api/errors";
 import { useTrainerBatches } from "@/features/trainer/lib/batches";
 import type { BatchMember } from "@/features/batches/lib/types";
-import { ENGINES, localInputToIso, staffApi } from "./api";
+import { ENGINES, staffApi } from "./api";
 import type { AllocationIn, AssignmentOut, GradingEngine } from "./types";
+import { localInputToIso } from "@/lib/time";
 
 export interface Person {
   user_id: string;

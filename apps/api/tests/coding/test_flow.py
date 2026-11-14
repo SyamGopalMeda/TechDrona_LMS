@@ -339,4 +339,3 @@ async def test_normalized_hash_plagiarism_hook(client, db, actors, access) -> No
     await system_context(db, "test.check")
     sub = await db.get(CodeSubmission, ids[0])
     assert sub is not None and sub.normalized_sha256 is not None
-    assert await service.similarity_candidates(db, sub) == [ids[1]]

@@ -3,11 +3,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Button, Card, Checkbox, EmptyState, ErrorState, PageHeader, LoadingBlock, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
-import { useResource } from "@/features/account/lib/use-resource";
 import { InlineProblem } from "@/features/admin/components/console-ui";
 import { humanize } from "@/features/admin/lib/console";
 import { AI_ADMIN_API } from "./endpoints";
 import type { AIProviderStatusOut, OrgApp, OrgAppsOut } from "../types";
+import { useResource } from "@/lib/api/use-resource";
 
 const CATEGORY_LABELS: Record<string, string> = { learning: "Learning apps", ai: "AI apps" };
 

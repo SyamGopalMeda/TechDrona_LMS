@@ -19,9 +19,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.time import utcnow
+from app.core.firestore.rows import as_dt
 from app.modules.learning import fs_store as fss
-from app.modules.learning.fs_rows import as_dt
 from app.modules.learning.models import (
     AssignmentAllocation,
     AssignmentItem,
@@ -135,61 +134,4 @@ def _visible(al: AssignmentAllocation, now: datetime) -> bool:
     )
 
 
-async def _targeting(
-    session: AsyncSession | None, user_id: uuid.UUID, batches: set[uuid.UUID]
-) -> list[AssignmentAllocation]:
-    rows = {
-        al.id: al
-        for al in await fss.find(
-            session, AssignmentAllocation, filters=(("user_ids", "array-contains", user_id),)
-        )
-    }
-    if batches:
-        for al in await find_in(session, AssignmentAllocation, "batch_id", batches):
-            rows[al.id] = al
-    return list(rows.values())
-
-
-async def learner_assignment_ids(
-    session: AsyncSession | None, user_id: uuid.UUID, batches: set[uuid.UUID], now: datetime | None = None
-) -> set[uuid.UUID]:
-    """``structured.allocated_to_learner_filter``: assignments allocated to the learner (batch or
-    explicit list) that are visible now, or that the learner already handed in."""
-    now = now or utcnow()
-    allocs = await _targeting(session, user_id, batches)
-    out = {al.assignment_id for al in allocs if _visible(al, now)}
-    rest = {al.assignment_id for al in allocs} - out
-    if rest:
-        handed = await fss.find(
-            session,
-            AssignmentSubmission,
-            filters=(("user_id", "==", user_id),),
-            where=lambda s: s.status != "draft",
-        )
-        out |= rest & {s.assignment_id for s in handed}
-    return out
-
-
-async def batch_assignment_ids(session: AsyncSession | None, batches: set[uuid.UUID]) -> set[uuid.UUID]:
-    """``structured.allocated_to_batches_filter``."""
-    if not batches:
-        return set()
-    return {al.assignment_id for al in await find_in(session, AssignmentAllocation, "batch_id", batches)}
-
-
-async def evaluator_assignment_ids(session: AsyncSession | None, user_id: uuid.UUID) -> set[uuid.UUID]:
-    """``structured.evaluator_filter``."""
-    rows = await fss.find(
-        session, AssignmentAllocation, filters=(("evaluator_ids", "array-contains", user_id),)
-    )
-    return {al.assignment_id for al in rows}
-
-
 # --------------------------------------------------------------------------- graders (rbac API)
-
-
-async def grade_role_holders(session: AsyncSession, user_ids: list[uuid.UUID]) -> set[uuid.UUID]:
-    """Users with a live grant of a role holding ``assignment.grade`` (any scope): rbac's public API."""
-    from app.modules.rbac import public as rbac_public
-
-    return await rbac_public.user_ids_with_permission(session, "assignment.grade", user_ids)

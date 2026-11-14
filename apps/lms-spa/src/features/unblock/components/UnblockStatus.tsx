@@ -7,10 +7,10 @@ import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { FormAlert } from "@/features/auth/components/shared";
 import { problemFieldErrors, toFormError, type FormErrorInfo } from "@/features/auth/lib/errors";
-import { formatDateTime } from "@/features/auth/lib/format";
 import { cn } from "@/lib/ui/cn";
 import { APL_REF, CLOSURE_COPY, EXPLANATION_MAX, EXPLANATION_MIN, NO_SECRETS_HINT, STATE_BADGE, STEPPER, looksLikeSecret, stepIndex, type UnblockState } from "../lib/copy";
 import type { UnblockDetail, UnblockSla, UnblockTextBody } from "../lib/types";
+import { formatDateTime } from "@/lib/format";
 
 /**
  * Find an own request by its APL reference (GET security/unblock-requests/by-reference/{ref}).

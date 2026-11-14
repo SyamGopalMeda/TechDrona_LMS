@@ -6,12 +6,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, FormField, Input, LoadingBlock, PageHeader, Pagination, Select, Table, useToast, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import type { Body } from "@/lib/api-types";
-import { useResource } from "@/features/account/lib/use-resource";
 import { useSimpleAuth } from "@/components/shell/Integrations";
 import { ActionDialog, FilterBar, KeyValueList, StateBadge, TextArea, textLink } from "./console-ui";
-import { cleanQuery, formatDate, formatDateTime, humanize, shortRef, toOutcome, useCursorList, useVersioned } from "../lib/console";
+import { cleanQuery, humanize, shortRef, toOutcome, useCursorList, useVersioned } from "../lib/console";
 import { actionTypeLabel, type ApprovalRow } from "./ApprovalsQueue";
 import { restrictionText, roleLabel, scopeLabel } from "./Governance";
+import { useResource } from "@/lib/api/use-resource";
+import { formatDate, formatDateTime } from "@/lib/format";
 
 /** verified: app/modules/sessions/router.py REASON_CODES (required by staff session endpoints). */
 const SESSION_REASON_CODES = ["ticket", "unblock_request", "case", "incident", "user_request", "legal"] as const;

@@ -630,18 +630,20 @@ describe("Commerce approvals in the admin queue (ADM-25)", () => {
 
 describe("Phase 2 identity and copy helpers", () => {
   it("shortRef and personLabel never show a raw id", async () => {
-    const { shortRef, personLabel, formatCountdown } = await import("../lib/console");
+    const { shortRef, personLabel } = await import("../lib/console");
+    const { formatTimeUntil } = await import("@/lib/format");
     expect(shortRef("9b2f6c1e-4d3a-4c1b-9f3c-21ab9f3c21ab")).toBe("#9F3C21AB");
     expect(shortRef(null)).toBe("—");
     expect(personLabel({ full_name: "Asha Rao", email: "a@x.in", id: "u1" })).toBe("Asha Rao");
     expect(personLabel({ email: "a@x.in", id: "u1" })).toBe("a@x.in");
     expect(personLabel({ id: "9b2f6c1e-4d3a-4c1b-9f3c-21ab9f3c21ab" })).toBe("User #9F3C21AB");
-    expect(formatCountdown(new Date(Date.now() + 12 * 86_400_000).toISOString())).toBe("in 12 days");
+    expect(formatTimeUntil(new Date(Date.now() + 12 * 86_400_000).toISOString())).toBe("in 12 days");
   });
 
   it("policy labels and bounds read as words", async () => {
     const { settingLabel } = await import("../lib/policy-labels");
-    const { boundsText, istLocalToIso } = await import("./PolicySettings");
+    const { boundsText } = await import("./PolicySettings");
+    const { istLocalToIso } = await import("@/lib/time");
     expect(settingLabel("otp.ttl_seconds")).toBe("Code expiry (seconds)");
     expect(settingLabel("grace.some_new_key")).toBe("Some new key");
     expect(boundsText({ kind: "int", choices: null, min_value: 1, max_value: null })).toBe("At least 1");

@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Badge, Button, Dialog, ErrorState, FormField, Input, useToast, type BadgeTone } from "@/components/ui";
+import { Badge, type BadgeTone, Button, Dialog, ErrorState, FormField, Input, LoadingBlock, useToast } from "@/components/ui";
 import { ApiError } from "@/lib/api/errors";
-import { LoadingBlock, TextArea, safeExternalUrl, useFailToast } from "@/features/trainer/shared/ui";
+import { TextArea, safeExternalUrl, useFailToast } from "@/features/trainer/shared/ui";
 import { engineLabel, fmtMarks, itemTypeLabel, staffApi } from "./api";
 import { AnswerView, QuestionText } from "./AnswerView";
 import type { FinalizeIn, ReviewItem, ReviewOut } from "./types";
@@ -187,7 +187,7 @@ export function ReviewModal({ submissionId, onClose, onFinalized }: { submission
       {error ? (
         <ErrorState error={error} onRetry={() => void load()} />
       ) : !data ? (
-        <LoadingBlock rows={3} />
+        <LoadingBlock rows={3} label="Loading" size="row" />
       ) : (
         <div className="max-h-[65vh] space-y-6 overflow-y-auto pr-1">
           {data.sections.map((s) => (

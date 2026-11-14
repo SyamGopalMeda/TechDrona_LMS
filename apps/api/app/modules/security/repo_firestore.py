@@ -17,7 +17,6 @@ Invariants:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from typing import Any
 
 from app.core.firestore.ids import compose_id
@@ -278,10 +277,6 @@ def system_repo(job: str = "security.restrictions") -> SecurityRepo:
     from app.modules.identity.fs_journal import JournalingStore
 
     return SecurityRepo(JournalingStore.system(job))
-
-
-def is_after(a: datetime | None, b: datetime | None) -> bool:
-    return a is not None and b is not None and a > b
 
 
 class IncidentRepo(FirestoreRepository):

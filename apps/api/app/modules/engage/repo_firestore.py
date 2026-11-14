@@ -27,11 +27,11 @@ from typing import Any
 
 from app.core.firestore.errors import UniqueViolationError
 from app.core.firestore.repository import FirestoreRepository, platform_only
+from app.core.firestore.rows import doc_of, orm_of
 from app.core.firestore.store import Doc, ScopedStore, ScopedTransaction
 from app.core.ids import uuid7
 from app.core.time import utcnow
 from app.modules.engage import store_specs as ss
-from app.modules.engage.fs_rows import doc_of, orm_of
 from app.modules.engage.models import (
     EngageActivity,
     EngageParticipant,

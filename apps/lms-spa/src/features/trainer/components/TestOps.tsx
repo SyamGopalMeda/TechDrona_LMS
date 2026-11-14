@@ -35,10 +35,10 @@ import {
   KFloorNotice,
   StatusBadge,
   fieldErrorsOf,
-  formatDateTime,
   pct,
   useFailToast,
 } from "../shared/ui";
+import { formatDateTime } from "@/lib/format";
 
 /* ------------------------------------------------------------------ overrides */
 

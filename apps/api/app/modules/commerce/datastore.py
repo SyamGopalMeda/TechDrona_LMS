@@ -20,12 +20,8 @@ from app.modules.commerce.store_specs import ORDER_SEQ, STORE
 UOW_KEY = STORE.uow_key
 
 
-def on_firestore() -> bool:
-    return STORE.on_firestore()
-
-
-def is_commerce_obj(obj: Any) -> bool:
-    return STORE.owns(obj)
+# The shared store switch (``SqlStore.on_firestore`` -> ``core.firestore.backend.uses_firestore``).
+on_firestore = STORE.on_firestore
 
 
 def uow(session: Any) -> Any:

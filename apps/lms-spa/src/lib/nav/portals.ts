@@ -289,11 +289,6 @@ export const PORTALS: Record<PortalKey, PortalDef> = {
 
 export const PORTAL_PREFIXES: readonly string[] = Object.values(PORTALS).map((p) => p.prefix);
 
-/** True for any path that belongs to an authenticated portal. */
-export function isPortalPath(pathname: string): boolean {
-  return PORTAL_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-}
-
 /**
  * Only same-origin relative paths are allowed as post-login redirect targets. Delegates to the
  * hardened guard in features/auth (SEC-04: control characters, whitespace, backslashes, `/api`).

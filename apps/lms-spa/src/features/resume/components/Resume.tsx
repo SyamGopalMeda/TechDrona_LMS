@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { Button, Card, EmptyState, FormField, Input, Select, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { useApi, seg } from "@/features/trainer/shared/use-api";
-import { Boundary, TextArea, fieldErrorsOf, formatDateTime, useFailToast } from "@/features/trainer/shared/ui";
+import { Boundary, TextArea, fieldErrorsOf, useFailToast } from "@/features/trainer/shared/ui";
 import { send } from "../lib/api";
 import type { Certification, PdfUpload, Resume, ResumeContent, ResumeList, TemplateKey } from "../lib/types";
+import { formatDateTime } from "@/lib/format";
 
 const MAX_PDF = 5 * 1024 * 1024;
 

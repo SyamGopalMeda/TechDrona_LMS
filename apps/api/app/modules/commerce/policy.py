@@ -87,7 +87,3 @@ class CommerceSettings(BaseSettings):
 @lru_cache(maxsize=1)
 def commerce_settings() -> CommerceSettings:
     return CommerceSettings()
-
-
-def reset_commerce_settings() -> None:
-    commerce_settings.cache_clear()

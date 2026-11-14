@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useState } from "react";
 import { Badge, Button, Card, ErrorState, FormField, Input, LoadingBlock, Select, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
-import { useResource } from "@/features/account/lib/use-resource";
 import { ActionDialog, TextArea, textLink } from "@/features/admin/components/console-ui";
-import { formatCountdown, formatDateTime, toOutcome } from "@/features/admin/lib/console";
+import { toOutcome } from "@/features/admin/lib/console";
 import { staffRef } from "../lib/ids";
 import type { EngineState } from "../lib/types";
+import { useResource } from "@/lib/api/use-resource";
+import { formatDateTime, formatTimeUntil } from "@/lib/format";
 
 export function riskMode(s: EngineState | undefined): string | undefined {
   return s?.["risk.mode"];
@@ -43,7 +44,7 @@ export function RatificationBanner({ state }: { state: EngineState | undefined }
           <div key={p.approval_request_id}>
             <p className="font-semibold text-warning-fg">
               <span aria-hidden="true">⚠ </span>
-              Kill switch needs ratification {overdue ? "— overdue" : formatCountdown(dueAt)}
+              Kill switch needs ratification {overdue ? "— overdue" : formatTimeUntil(dueAt)}
             </p>
             <p className="text-fg-secondary">
               Flipped {p.created_at ? formatDateTime(p.created_at) : ""}

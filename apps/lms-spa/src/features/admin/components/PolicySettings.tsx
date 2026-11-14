@@ -5,12 +5,13 @@ import { useMemo, useState } from "react";
 import { Badge, Button, ErrorState, FormField, Input, LoadingBlock, PageHeader, Select, StatusBadge, Table, Tabs, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import type { Schema } from "@/lib/api-types";
-import { useResource } from "@/features/account/lib/use-resource";
 import { RatificationBanner, riskMode } from "@/features/security-admin/components/EngineControls";
 import type { EngineState } from "@/features/security-admin/lib/types";
 import { ActionDialog, TextArea, textLink } from "./console-ui";
 import { problemFieldErrors, toOutcome } from "../lib/console";
 import { settingLabel } from "../lib/policy-labels";
+import { useResource } from "@/lib/api/use-resource";
+import { istLocalToIso } from "@/lib/time";
 
 /**
  * verified: app/modules/admin/policy.py setting_out + router.py list_settings (GET admin/policy-settings
@@ -66,13 +67,6 @@ export function boundsText(s: Pick<PolicySetting, "choices" | "min_value" | "max
   if (lo !== null) return `At least ${lo}`;
   if (hi !== null) return `Up to ${hi}`;
   return "—";
-}
-
-/** A `datetime-local` value typed as India time ("2026-11-12T09:30") → ISO, whatever the browser's zone. */
-export function istLocalToIso(local: string): string | null {
-  if (!local) return null;
-  const d = new Date(`${local.length === 16 ? `${local}:00` : local}+05:30`);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 /** Client-side bounds check (the api re-checks: `out_of_bounds`). Returns an error or the parsed value. */

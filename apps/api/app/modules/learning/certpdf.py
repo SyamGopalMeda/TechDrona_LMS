@@ -24,7 +24,6 @@ import math
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from pathlib import Path
-from typing import Any
 
 FONT_DIR = Path(__file__).with_name("certfonts")
 TEMPLATE_VERSION = "cert-v2"  # v2 = this PDF design (v1 had no PDF)
@@ -521,13 +520,3 @@ def render_certificate_pdf(art: CertificateArt) -> bytes:
 
 def pdf_sha256(data: bytes) -> bytes:
     return hashlib.sha256(data).digest()
-
-
-def art_fields(art: CertificateArt) -> dict[str, Any]:
-    return {
-        "name": art.name,
-        "course_title": art.course_title,
-        "public_code": art.public_code,
-        "issued_on": art.issued_on.isoformat(),
-        "verify_url": art.verify_url,
-    }

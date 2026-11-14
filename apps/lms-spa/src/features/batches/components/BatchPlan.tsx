@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Badge, Button, Card, Checkbox, EmptyState, FormField, Input, Reveal, SectionHeader, Select, StatGrid, StatTile, TextArea, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { useApi, seg } from "@/features/trainer/shared/use-api";
-import { Boundary, fieldErrorsOf, formatDate, useFailToast } from "@/features/trainer/shared/ui";
+import { Boundary, fieldErrorsOf, useFailToast } from "@/features/trainer/shared/ui";
 import { archivedBatchGuard } from "../lib/api";
 import {
   ACTIVITY_KINDS,
@@ -19,6 +19,7 @@ import {
   type PlanWeek,
   type Schedule,
 } from "../lib/delivery";
+import { formatDate } from "@/lib/format";
 
 /** verified: admin/courses/overview (courses_overview.py), used for the LMS course picker. */
 interface CourseOption {

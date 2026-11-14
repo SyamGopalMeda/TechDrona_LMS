@@ -5,9 +5,10 @@ import { Card, ErrorState, LinkButton, LoadingBlock, StatusBadge, useToast } fro
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { cn } from "@/lib/ui/cn";
-import { useResource } from "@/features/account/lib/use-resource";
-import { formatDateTime, formatINR } from "@/features/admin/lib/console";
+import { formatINR } from "@/features/admin/lib/console";
 import { COURSE_STATUSES, COURSE_STATUS_LABEL, COURSE_STATUS_TONE, type CourseStatus, type CourseStatusRow } from "../lib/admissions";
+import { useResource } from "@/lib/api/use-resource";
+import { formatDateTime } from "@/lib/format";
 
 /**
  * Admin > Admissions > Courses: one switch per course (Open for registration / Coming soon /

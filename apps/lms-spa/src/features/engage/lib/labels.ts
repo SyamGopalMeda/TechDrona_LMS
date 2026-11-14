@@ -1,4 +1,3 @@
-import type { BadgeTone } from "@/components/ui";
 import type { ActivityType, QuestionKind, RunSettings, RunStatus } from "./types";
 
 export const TYPE_LABEL: Record<ActivityType, string> = {
@@ -35,13 +34,6 @@ export const STATUS_LABEL: Record<RunStatus, string> = {
   open: "Live",
   closed: "Closed",
   finalised: "Finalised",
-};
-
-export const STATUS_TONE: Record<RunStatus, BadgeTone> = {
-  scheduled: "info",
-  open: "success",
-  closed: "neutral",
-  finalised: "brand",
 };
 
 export function plural(n: number, word: string): string {

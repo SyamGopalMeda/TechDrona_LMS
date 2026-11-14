@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { StatusBadge, Card, EmptyState, buttonClasses } from "@/components/ui";
+import { Card, EmptyState, LoadingBlock, StatusBadge, buttonClasses } from "@/components/ui";
 import { LMS_COURSES_HREF } from "@/lib/site/website";
-import { formatDate, humanize } from "@/features/catalog/lib/format";
-import { ContentErrorState, LoadingBlock } from "@/features/learning/components/States";
-import { useResource } from "@/features/learning/lib/use-resource";
+import { humanize } from "@/features/catalog/lib/format";
+import { ContentErrorState } from "@/features/learning/components/States";
 import type { EntitlementDto, EntitlementsResponse } from "../lib/types";
-
+import { formatDate } from "@/lib/format";
+import { useResource } from "@/lib/api/use-resource";
 
 const SOURCE: Record<string, string> = {
   placement_package: "Placement package",
@@ -49,7 +49,7 @@ function Quotas({ quotas }: { quotas: EntitlementDto["quotas"] }) {
 export function AccessList() {
   const { data, error, loading, reload } = useResource<EntitlementsResponse>("me/entitlements");
   if (error) return <ContentErrorState error={error} onRetry={reload} />;
-  if (loading && !data) return <LoadingBlock label="Loading your access" />;
+  if (loading && !data) return <LoadingBlock label="Loading your access" size="card" />;
   const rows = data?.data ?? [];
   return (
     <div className="space-y-4">

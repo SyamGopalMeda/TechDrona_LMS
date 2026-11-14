@@ -62,7 +62,7 @@ from app.core.errors import ProblemError
 from app.core.firestore.codec import to_store
 from app.core.firestore.errors import UniqueViolationError
 from app.core.firestore.repository import FirestoreRepository, platform_only
-from app.core.firestore.store import MAX_TX_WRITES, Doc, Filter, ScopedStore, ScopedTransaction
+from app.core.firestore.store import MAX_TX_WRITES, Doc, Filter, ScopedStore, ScopedTransaction, chunks
 from app.core.ids import uuid7
 from app.core.principal import Principal
 from app.core.time import utcnow
@@ -84,7 +84,6 @@ WRITE_JOB = "catalog.write"
 READ_MARK = "course.preview"
 MEDIA_MARK = "media.upload"
 EDITABLE = ("draft", "in_review")
-IN_CHUNK = 30  # Firestore ``in`` filter limit
 CLONE_TX_LIMIT = MAX_TX_WRITES - 20
 _PAGE = 100
 
@@ -326,11 +325,6 @@ def _like_regex(like: str) -> re.Pattern[str]:
     return re.compile("".join(out), re.IGNORECASE | re.DOTALL)
 
 
-def _chunks(ids: Sequence[str], n: int = IN_CHUNK) -> Iterable[list[str]]:
-    for i in range(0, len(ids), n):
-        yield list(ids[i : i + n])
-
-
 def _not_found() -> ProblemError:
     return ProblemError("not_found")
 
@@ -360,7 +354,7 @@ class CatalogReadRepo(FirestoreRepository):
     async def _in(self, coll: str, fld: str, values: Iterable[str]) -> list[Doc]:
         vals = list(dict.fromkeys(str(v) for v in values))
         out: list[Doc] = []
-        for chunk in _chunks(vals):
+        for chunk in chunks(vals):
             out.extend(await self._all(coll, [(fld, "in", chunk)]))
         return out
 
@@ -881,7 +875,7 @@ class CatalogWriteRepo(FirestoreRepository):
 
     async def _assets_of(self, tx: ScopedTransaction, lesson_ids: Sequence[str]) -> list[Doc]:
         out: list[Doc] = []
-        for chunk in _chunks(list(lesson_ids)):
+        for chunk in chunks(list(lesson_ids)):
             out.extend(await tx.query(ASSETS, filters=[("lesson_id", "in", chunk)]))
         return out
 
@@ -1216,7 +1210,7 @@ class CatalogWriteRepo(FirestoreRepository):
             elif removed:
                 for a in await self._assets_of(tx, removed):  # lesson_assets ON DELETE CASCADE
                     w.del_assets[a.id] = dict(a.data)
-                for chunk in _chunks(removed):  # resources.lesson_id ON DELETE SET NULL
+                for chunk in chunks(removed):  # resources.lesson_id ON DELETE SET NULL
                     for r in await tx.query(RESOURCES, filters=[("lesson_id", "in", chunk)]):
                         w.put_resources[r.id] = {**r.data, "lesson_id": None}
             w.touch()

@@ -5,8 +5,9 @@ import { StatusBadge, Button, Card, FormField, Input, Table, useToast, type Colu
 import { api } from "@/lib/api/client";
 import { DownloadButton } from "@/features/commerce/components/DownloadButton";
 import { InlineProblem, TextArea } from "@/features/admin/components/console-ui";
-import { formatDate, formatDateTime, humanize, personLabel, useCursorList } from "@/features/admin/lib/console";
+import { humanize, personLabel, useCursorList } from "@/features/admin/lib/console";
 import { GST_EXPORT_APPROVAL_ROWS, GST_EXPORT_MAX_DAYS, type GstExport, type GstExportBody, type InvoiceRow } from "../lib/types";
+import { formatDate, formatDateTime } from "@/lib/format";
 
 /** Per-row invoice / credit-note PDF (fresh signed URL per click). */
 export function InvoicePdfButton({ invoice }: { invoice: Pick<InvoiceRow, "invoice_id" | "invoice_number"> }) {

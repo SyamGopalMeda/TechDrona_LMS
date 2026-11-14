@@ -6,7 +6,7 @@ import { csvSink } from "../lib/download";
 import { CaseDetail as CaseDetailPage } from "./CaseDetail";
 import { HistoryTab, NotesTab } from "./EvidenceTabs";
 import { EngineControls } from "./EngineControls";
-import { Incidents, istLocalToIso } from "./Incidents";
+import { Incidents } from "./Incidents";
 import { MyExports } from "./MyExports";
 import { ExportRequest, ReportView } from "./Reports";
 import { BulkLift, Restrictions } from "./Restrictions";
@@ -14,6 +14,7 @@ import { RuleVersions } from "./RuleVersions";
 import { SecurityDashboard } from "./SecurityDashboard";
 import { UserTimelinePage } from "./UserTimelinePage";
 import type { CaseDetail } from "../lib/types";
+import { istLocalToIso } from "@/lib/time";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 

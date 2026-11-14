@@ -8,12 +8,11 @@ import { ActionDialog, FilterBar, InlineProblem, JsonBlock, KeyValueList, StateB
 import type { Schema } from "@/lib/api-types";
 import { GstExports, InvoicePdfButton } from "./FinanceDocuments";
 import type { InvoiceRow } from "../lib/types";
-import { cellText, cleanQuery, formatDate, formatDateTime, formatINR, humanize, shortRef, toOutcome, useCursorList, useVersioned } from "@/features/admin/lib/console";
+import { cellText, cleanQuery, formatINR, humanize, shortRef, toOutcome, useCursorList, useVersioned } from "@/features/admin/lib/console";
+import { formatDate, formatDateTime } from "@/lib/format";
+import { istDayStart, todayIST } from "@/lib/time";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** Today as YYYY-MM-DD in IST: date pickers for past periods cannot go beyond it. */
-export const istToday = (now: number = Date.now()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(now));
 
 /** Readable order reference: the order number, else a short reference from the id (audit 1.11). */
 export const orderRef = (o: { order_number?: string | null; order_id: string }) => o.order_number || shortRef(o.order_id);
@@ -684,9 +683,6 @@ interface ReconRunRow {
   created_at?: string | null;
 }
 
-/** Start of a calendar day in IST as an ISO timestamp (ReconciliationIn takes datetimes). */
-const istDayStart = (d: string) => `${d}T00:00:00+05:30`;
-
 /** The calendar day after `d` (YYYY-MM-DD), computed in UTC so no local offset shifts it. */
 export const nextDay = (d: string) => new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
 
@@ -775,7 +771,7 @@ export function Reconciliation() {
         ) : null,
     },
   ];
-  const today = istToday();
+  const today = todayIST();
   return (
     <div>
       <PageHeader title="Reconciliation" description="Compare our payment records with the gateway's settlements and find payments that do not match." actions={<Button onClick={() => setRun(true)}>Run reconciliation</Button>} />

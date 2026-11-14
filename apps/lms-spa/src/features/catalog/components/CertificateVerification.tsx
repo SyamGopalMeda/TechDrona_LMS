@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { Badge, Card } from "@/components/ui";
-import { formatDate } from "../lib/format";
 import type { CertificateVerificationDto } from "../lib/types";
 import { PdfCheck } from "./PdfCheck";
+import { formatDate } from "@/lib/format";
 
 const DETAIL_LABELS: [string, string][] = [
   ["hours", "Hours"],

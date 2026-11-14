@@ -7,10 +7,11 @@ import { Button, Card, Checkbox, FormField, Input, LinkButton, LoadingBlock, Pag
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { InlineProblem, KeyValueList, TextArea, textLink } from "@/features/admin/components/console-ui";
-import { formatDateTime, problemFieldErrors, useCursorList, useVersioned } from "@/features/admin/lib/console";
+import { problemFieldErrors, useCursorList, useVersioned } from "@/features/admin/lib/console";
 import { CATEGORY_LABELS, SUPPORT_ATTACHMENT_MAX_BYTES, SUPPORT_ATTACHMENT_MAX_COUNT, SUPPORT_ATTACHMENT_TYPES, TICKET_CATEGORIES, UUID_RE, topicToCategory, type Ticket, type TicketCategory, type TicketMessage, type TicketThread } from "../lib/types";
 import { AttachmentList, MessageThread, TicketStatusBadge } from "./Thread";
 import { uploadSupportAttachments, type UploadedAttachment } from "../lib/attachments";
+import { formatDateTime } from "@/lib/format";
 
 /* ------------------------------------------------------------------- List */
 

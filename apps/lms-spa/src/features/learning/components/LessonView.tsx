@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Badge, Button, Card, ErrorState, PageHeader, useToast } from "@/components/ui";
+import { Badge, Button, Card, ErrorState, LoadingBlock, PageHeader, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import type { Body } from "@/lib/api-types";
 import { useScrollDepth } from "@/lib/analytics/scroll-depth";
@@ -12,9 +12,9 @@ import { LinkButton } from "@/features/catalog/components/LinkButton";
 import { VideoPlayer } from "@/features/player/components/VideoPlayer";
 import { lessonHref, useEnrolledCourse } from "../lib/use-course";
 import type { CourseOverviewDto, LessonDto, LessonResourceDto, SignedUrlDto } from "../lib/types";
-import { useResource } from "../lib/use-resource";
 import { LessonStatusIcon } from "./CourseOverview";
-import { ContentErrorState, LoadingBlock } from "./States";
+import { ContentErrorState } from "./States";
+import { useResource } from "@/lib/api/use-resource";
 
 export const LESSON_ROUTE = "/app/learn/[course_slug]/[lesson_id]";
 /** Article and PDF lessons complete via LRN-06 (verified: learning/service.py record_article_completion). */
@@ -368,7 +368,7 @@ export function LessonView({ slug, lessonId }: { slug: string; lessonId: string 
 
   const error = catalog.error ?? lesson.error;
   if (error) return <ContentErrorState error={error} onRetry={catalog.error ? catalog.reload : lesson.reload} />;
-  if (!l || !courseId) return <LoadingBlock label="Loading lesson" rows={4} />;
+  if (!l || !courseId) return <LoadingBlock label="Loading lesson" rows={4} size="card" />;
 
   const title = course.data?.title ?? catalog.data?.title ?? "";
   // LRN-05 has no prev/next or position: derive them from the LRN-04 outline.
@@ -429,7 +429,7 @@ export function LessonView({ slug, lessonId }: { slug: string; lessonId: string 
         </div>
         <aside className="hidden lg:sticky lg:top-20 lg:block lg:self-start">
           <div className="rounded-xl border border-line bg-surface p-3">
-            {course.data ? <Contents course={course.data} slug={slug} currentId={lessonId} /> : course.error ? <p className="text-sm text-fg-muted">Contents unavailable.</p> : <LoadingBlock label="Loading contents" rows={3} />}
+            {course.data ? <Contents course={course.data} slug={slug} currentId={lessonId} /> : course.error ? <p className="text-sm text-fg-muted">Contents unavailable.</p> : <LoadingBlock label="Loading contents" rows={3} size="card" />}
           </div>
         </aside>
       </div>

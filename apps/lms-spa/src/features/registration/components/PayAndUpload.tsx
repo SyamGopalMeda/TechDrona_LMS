@@ -4,8 +4,9 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { Button, FormField, Icon, Input } from "@/components/ui";
 import { ApiError } from "@/lib/api/errors";
 import { prepareProof, ProofFileError, PROOF_ACCEPT, type PreparedProof } from "../lib/proof-file";
-import { inr, refProblem, todayIST, type AmountOption, type ClaimPayload, type PaymentInfo, type ProofPayload } from "../lib/registration";
+import { inr, refProblem, type AmountOption, type ClaimPayload, type PaymentInfo, type ProofPayload } from "../lib/registration";
 import { PaymentPanel } from "./PaymentPanel";
+import { todayIST } from "@/lib/time";
 
 /** Fields this form owns (others in a 422 go to `onOtherErrors`). */
 const OWN_FIELDS = new Set(["amount_paise", "method", "utr", "paid_on", "proof", "claim"]);

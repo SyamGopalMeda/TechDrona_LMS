@@ -27,22 +27,6 @@ export interface LessonFunnelCourse {
   steps: { lesson_key: string; title: string; is_required: boolean; started: KCell; completed: KCell }[];
 }
 
-export interface CourseCompletionRate {
-  enrolments: KCell;
-  completed: KCell;
-  /** share 0–1 */
-  rate: KCell;
-}
-
-export interface TestParticipation {
-  period: { from: string; to: string };
-  learners_total: KCell;
-  learners_attempted: KCell;
-  /** share 0–1 */
-  share_attempted: KCell;
-  attempts_finished: KCell;
-}
-
 const BUCKET_LABEL: Record<string, string> = {
   not_started: "Not started",
   "1-25": "1–25%",
@@ -53,7 +37,6 @@ const BUCKET_LABEL: Record<string, string> = {
 };
 
 const n = (v: KCell | null | undefined) => (typeof v === "number" ? v.toLocaleString("en-IN") : "Too few to show");
-const share = (v: KCell | null | undefined) => (typeof v === "number" ? `${Math.round(v * 100)}%` : "Too few to show");
 
 /** Enrolments per course-progress bucket (6 buckets). */
 export function ProgressDistributionView({ data }: { data: ProgressDistribution | null | undefined }) {
@@ -98,32 +81,6 @@ export function LessonFunnelView({ data }: { data: LessonFunnelCourse[] | null |
           )}
         </div>
       ))}
-    </div>
-  );
-}
-
-export function CourseCompletionView({ data }: { data: CourseCompletionRate | null | undefined }) {
-  if (!data) return <p className="text-sm text-fg-muted">No enrolments yet.</p>;
-  if (typeof data.rate !== "number") return <KFloorNotice compact />;
-  return (
-    <p className="text-sm text-fg-secondary">
-      <span className="text-2xl font-semibold text-fg tabular-nums">{share(data.rate)}</span> of course enrolments completed ({n(data.completed)} of {n(data.enrolments)}).
-    </p>
-  );
-}
-
-export function TestParticipationView({ data }: { data: TestParticipation | null | undefined }) {
-  if (!data) return <p className="text-sm text-fg-muted">No test activity yet.</p>;
-  if (typeof data.share_attempted !== "number") return <KFloorNotice compact />;
-  return (
-    <div className="space-y-1 text-sm text-fg-secondary">
-      <p>
-        <span className="text-2xl font-semibold text-fg tabular-nums">{share(data.share_attempted)}</span> of students took at least one test ({n(data.learners_attempted)} of {n(data.learners_total)}).
-      </p>
-      <p>{n(data.attempts_finished)} attempts finished.</p>
-      <p className="text-xs text-fg-muted">
-        {data.period.from} to {data.period.to} (IST)
-      </p>
     </div>
   );
 }

@@ -28,7 +28,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from app.core.firestore.ids import compose_id
-from app.core.firestore.store import Doc, ScopedStore, ScopedTransaction
+from app.core.firestore.store import Doc, ScopedStore, ScopedTransaction, chunks
 from app.core.ids import uuid7
 from app.core.time import ist_date, utcnow
 from app.modules.admin.fs_rows import model_doc_id
@@ -51,7 +51,6 @@ from app.modules.analytics.store_specs import (
 HEARTBEAT_RETENTION = timedelta(days=35)
 JOB = "analytics.fs"
 _PAGE = 300
-_IN = 30
 
 
 INTERVALS = "engagement_intervals"
@@ -83,11 +82,6 @@ async def all_docs(coll: str, **kw: Any) -> list[Doc]:
         cursor = page.next_cursor
 
 
-def _chunks(vals: Sequence[Any], n: int = _IN) -> Iterable[list[Any]]:
-    for i in range(0, len(vals), n):
-        yield list(vals[i : i + n])
-
-
 def ist_days(lo: datetime, hi: datetime) -> list[str]:
     """IST dates (ISO) of every instant in ``[lo, hi)``."""
     d, last = ist_date(lo), ist_date(hi - timedelta(microseconds=1))
@@ -108,7 +102,7 @@ def _hex(v: Any) -> str:
 async def existing_event_ids(user_id: uuid.UUID, ids: Iterable[Any]) -> set[str]:
     want = sorted({_hex(i) for i in ids})
     found: set[str] = set()
-    for chunk in _chunks(want):
+    for chunk in chunks(want):
         for d in await all_docs(
             BATCHES, user_id=user_id, filters=[("event_ids", "array-contains-any", chunk)]
         ):
@@ -289,7 +283,7 @@ async def rows_for_page(user_id: uuid.UUID, page_id: uuid.UUID) -> tuple[list[An
 async def rows_for_window(user_id: uuid.UUID, lo: datetime, hi: datetime) -> tuple[list[Any], list[Any]]:
     """Rows of ``user_id`` with ``effective_at`` in ``[lo, hi)``."""
     docs: list[Doc] = []
-    for chunk in _chunks(ist_days(lo, hi)):
+    for chunk in chunks(ist_days(lo, hi)):
         docs += await all_docs(BATCHES, user_id=user_id, filters=[("days", "array-contains-any", chunk)])
     hbs, evs = _rows(docs)
     return (
@@ -302,7 +296,7 @@ async def rows_for_sessions(user_id: uuid.UUID, session_ids: Iterable[uuid.UUID]
     """Event rows of ``user_id`` on any of these auth sessions."""
     want = sorted({str(s) for s in session_ids})
     docs: list[Doc] = []
-    for chunk in _chunks(want):
+    for chunk in chunks(want):
         docs += await all_docs(
             BATCHES, user_id=user_id, filters=[("session_ids", "array-contains-any", chunk)]
         )
@@ -319,7 +313,7 @@ async def rows_received_after(since: datetime) -> tuple[list[Any], list[Any]]:
 async def rows_for_days(day_isos: Sequence[str]) -> tuple[list[Any], list[Any]]:
     """Every user's rows of batches touching these IST days."""
     docs: list[Doc] = []
-    for chunk in _chunks(list(day_isos)):
+    for chunk in chunks(list(day_isos)):
         docs += await all_docs(BATCHES, filters=[("days", "array-contains-any", chunk)])
     return _rows(docs)
 
@@ -358,7 +352,7 @@ async def replace_page_intervals(user_id: uuid.UUID, page_id: uuid.UUID, rows: l
     ops: list[tuple[str, str, dict[str, Any] | None]] = [
         ("del", _interval_id(o.__dict__), None) for o in old
     ] + [("put", i, d) for i, d in new_docs]
-    for chunk in _chunks(ops, 300):
+    for chunk in chunks(ops, 300):
 
         async def body(tx: ScopedTransaction, chunk: list[Any] = chunk) -> None:
             for op, did, data in chunk:
@@ -482,14 +476,6 @@ async def record_idle_run(job: str, result: dict[str, Any]) -> None:
     await doc.update(to_store({**changes, "updated_at": now}))
 
 
-def interval_doc_id(row: dict[str, Any]) -> str:
-    return _interval_id(row)
-
-
-def daily_doc_id(row: dict[str, Any]) -> str:
-    return _daily_id(row)
-
-
 __all__ = ["compose_id"]
 
 
@@ -557,7 +543,7 @@ async def upsert_mastery(
 async def delete_user_docs(coll: str, user_id: uuid.UUID) -> int:
     """Delete every document of ``coll`` owned by ``user_id`` (chunked transactions)."""
     docs = await all_docs(coll, user_id=user_id)
-    for chunk in _chunks([d.id for d in docs], 300):
+    for chunk in chunks([d.id for d in docs], 300):
 
         async def body(tx: ScopedTransaction, chunk: list[str] = chunk) -> None:
             for did in chunk:

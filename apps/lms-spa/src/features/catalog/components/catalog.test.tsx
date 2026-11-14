@@ -2,11 +2,12 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockApi, problem, renderWithProviders } from "@/features/auth/test/mock-api";
-import { formatDate, formatDateTime, formatMoney, languageName } from "../lib/format";
+import { formatMoney, languageName } from "../lib/format";
 import { accessOptionsForCourse } from "../lib/products";
 import type { ProductDto } from "../lib/types";
 import { CertificateVerification } from "./CertificateVerification";
 import { CourseAccess } from "./CourseAccess";
+import { formatDate, formatDateTime } from "@/lib/format";
 
 const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace: vi.fn() }) }));
@@ -25,7 +26,7 @@ describe("format", () => {
     expect(formatMoney(12345678)).toBe("₹1,23,456.78");
     expect(formatMoney(null)).toBe("—");
     expect(formatDate("2026-11-03T20:00:00.000Z")).toBe("4 Nov 2026");
-    expect(formatDateTime("2026-11-03T04:45:00.000Z")).toBe("3 Nov 2026, 10:15 IST");
+    expect(formatDateTime("2026-11-03T04:45:00.000Z", { year: true })).toBe("3 Nov 2026, 10:15 IST");
     expect(formatDate("2026-10-28")).toBe("28 Oct 2026");
   });
 });

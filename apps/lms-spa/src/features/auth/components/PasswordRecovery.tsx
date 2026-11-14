@@ -7,7 +7,6 @@ import { Button, FormField, Input, standaloneLinkClass } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import {
-  formatCountdown,
   problemFieldErrors,
   retryAfterSeconds,
   toFormError,
@@ -15,6 +14,7 @@ import {
 } from "../lib/errors";
 import { PASSWORD_MIN, PASSWORD_MIN_WITH_MFA, validatePassword } from "../lib/validation";
 import { ExpiredNotice, FormAlert, Notice, PasswordInput } from "./shared";
+import { formatCountdown } from "@/lib/format";
 
 /**
  * Reset tokens are 16–128 URL-safe characters (API `ResetIn.token`). A link that can't be one
@@ -59,7 +59,7 @@ export function ForgotPasswordForm() {
         setError({
           title: "Too many requests",
           detail: s
-            ? `Try again in ${formatCountdown(s)}.`
+            ? `Try again in ${formatCountdown(s, "short")}.`
             : "Please wait a little and try again.",
           requestId: err.requestId,
           code: err.code,

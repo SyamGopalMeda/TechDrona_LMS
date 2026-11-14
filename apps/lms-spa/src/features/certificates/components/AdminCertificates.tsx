@@ -26,11 +26,11 @@ import {
   type BadgeTone,
 } from "@/components/ui";
 import { api } from "@/lib/api/client";
-import { formatDate, formatDateTime } from "@/features/catalog/lib/format";
 import { useApi, seg } from "@/features/trainer/shared/use-api";
 import { useFailToast } from "@/features/trainer/shared/ui";
 import { outboxItem, type AdminCertificate, type ApproveResult, type CertSummary, type CursorPage, type DueRow, type IssueDueResult, type OutboxRow, type OutboxStatus } from "../lib/types";
 import { CreateTab, DocSettingsTab, RegisterTab, TemplatesTab } from "./AdminDocuments";
+import { formatDate, formatDateTime } from "@/lib/format";
 
 const EMAIL_TONE: Record<OutboxStatus, BadgeTone> = { awaiting: "warning", pending: "info", sent: "success", failed: "danger", cancelled: "neutral" };
 const EMAIL_LABEL: Record<OutboxStatus, string> = { awaiting: "Awaiting approval", pending: "Sending", sent: "Sent", failed: "Failed", cancelled: "Cancelled" };
@@ -555,7 +555,7 @@ function QueueTab({ courseId, onChanged }: { courseId: string; onChanged: () => 
             ),
           },
           { key: "code", header: "Number", cell: (r) => <span className="font-mono text-sm">{outboxItem(r)?.number}</span>, priority: "secondary" },
-          { key: "queued", header: "Queued", cell: (r) => formatDateTime(r.created_at), priority: "secondary" },
+          { key: "queued", header: "Queued", cell: (r) => formatDateTime(r.created_at, { year: true }), priority: "secondary" },
           {
             key: "status",
             header: "Status",
@@ -563,7 +563,7 @@ function QueueTab({ courseId, onChanged }: { courseId: string; onChanged: () => 
               <div>
                 <EmailBadge status={r.status} />
                 {r.last_error ? <p className="mt-1 text-xs text-danger-fg">{r.last_error}</p> : null}
-                {r.sent_at ? <p className="mt-1 text-xs text-fg-muted">{formatDateTime(r.sent_at)}</p> : null}
+                {r.sent_at ? <p className="mt-1 text-xs text-fg-muted">{formatDateTime(r.sent_at, { year: true })}</p> : null}
               </div>
             ),
           },

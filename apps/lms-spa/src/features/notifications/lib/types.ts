@@ -19,11 +19,6 @@ export interface InboxResponse {
   page: { next_cursor: string | null; has_more: boolean; limit: number };
 }
 
-export interface MarkReadResponse {
-  notification_id: string;
-  read_at: string;
-}
-
 export interface MarkAllReadResponse {
   marked: number;
 }

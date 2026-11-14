@@ -10,16 +10,20 @@ export interface Resource<T> {
   reload: () => Promise<void>;
 }
 
+/** Request options for a read; plain JSON values only (they are compared by value). */
+export type ResourceOptions = Omit<RequestOptions, "method" | "body" | "signal">;
+
 /**
- * GET through the BFF with L/X states. `path === null` waits (dependent requests).
- * Stale responses from an earlier path are dropped.
+ * GET through the BFF with L/X states and a reload function. `path === null` waits (dependent
+ * requests). A change of `path` or of the options' value (e.g. `query`) reloads; stale responses
+ * from an earlier request are dropped.
  */
-export function useResource<T>(path: string | null, query?: RequestOptions["query"]): Resource<T> {
+export function useResource<T>(path: string | null, options?: ResourceOptions): Resource<T> {
   const [data, setData] = useState<T | undefined>();
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(path !== null);
   const seq = useRef(0);
-  const queryKey = JSON.stringify(query ?? {});
+  const optionsKey = JSON.stringify(options ?? {});
 
   const reload = useCallback(async () => {
     if (path === null) return;
@@ -27,14 +31,14 @@ export function useResource<T>(path: string | null, query?: RequestOptions["quer
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get<T>(path, { query: JSON.parse(queryKey) as RequestOptions["query"] });
+      const res = await api.get<T>(path, JSON.parse(optionsKey) as ResourceOptions);
       if (id === seq.current) setData(res);
     } catch (err) {
       if (id === seq.current) setError(err);
     } finally {
       if (id === seq.current) setLoading(false);
     }
-  }, [path, queryKey]);
+  }, [path, optionsKey]);
 
   useEffect(() => {
     void reload();

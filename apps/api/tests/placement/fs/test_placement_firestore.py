@@ -92,7 +92,6 @@ async def test_taxonomy_paths_unique_and_subtree_move(fake_session: Any) -> None
     t, deps = await bank.patch_topic(s, subj.id, TopicPatch(slug="quant"))
     assert (t.path, deps) == ("quant", 0)
     assert (await bank.get_topic(s, sub.id)).path == "quant/numbers/primes"
-    assert sorted(await bank.subtree_ids(s, await bank.get_topic(s, top.id))) == sorted([top.id, sub.id])
     # the old path is free again, the new one is taken
     again = await bank.create_topic(s, TopicCreate(slug="aptitude", name="Aptitude again"))
     assert again.path == "aptitude"

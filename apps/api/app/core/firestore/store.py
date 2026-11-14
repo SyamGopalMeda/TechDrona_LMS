@@ -64,12 +64,20 @@ Op = Literal["==", "!=", "<", "<=", ">", ">=", "in", "not-in", "array-contains",
 _LIB_OPS = {"array-contains": "array_contains", "array-contains-any": "array_contains_any"}
 # Firestore's documented commit limit is 500 writes; stay well below it (MIGRATION-PLAN §2).
 MAX_TX_WRITES = 400
+# Firestore's ``in`` / ``array-contains-any`` filters take at most 30 values.
+IN_LIMIT = 30
 _BACKOFF_BASE_S = 0.02
 _BACKOFF_CAP_S = 1.0
 DOC_ID_FIELD = "__name__"
 _RESERVED_FIELDS = frozenset({"created_at", "schema_version"})
 
 _in_transaction: contextvars.ContextVar[bool] = contextvars.ContextVar("td_fs_in_tx", default=False)
+
+
+def chunks[V](vals: Sequence[V], n: int = IN_LIMIT) -> Iterable[list[V]]:
+    """Consecutive slices of ``vals`` (new lists) of at most ``n`` items: ``in`` filter batches."""
+    for i in range(0, len(vals), n):
+        yield list(vals[i : i + n])
 
 
 def in_transaction() -> bool:

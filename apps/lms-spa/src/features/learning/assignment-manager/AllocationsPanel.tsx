@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { Badge, Button, Card, Dialog, FormField, Input, Select, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
-import { formatDateTime } from "@/features/catalog/lib/format";
 import type { BatchMember } from "@/features/batches/lib/types";
 import { fieldErrorsOf, useFailToast, TextArea } from "@/features/trainer/shared/ui";
 import { allocationErrorText } from "./AllocateDialog";
-import { engineLabel, localInputToIso, staffApi } from "./api";
+import { engineLabel, staffApi } from "./api";
 import type { AllocationOut } from "./types";
+import { formatDateTime } from "@/lib/format";
+import { localInputToIso } from "@/lib/time";
 
 function ExtensionDialog({ allocation, onClose, onDone }: { allocation: AllocationOut | null; onClose: () => void; onDone: () => Promise<void> }) {
   const toast = useToast();
@@ -77,7 +78,7 @@ function ExtensionDialog({ allocation, onClose, onDone }: { allocation: Allocati
       onClose={onClose}
       dismissible={!busy}
       title="Grant extra time"
-      description={allocation ? `Current deadline: ${formatDateTime(allocation.due_at)}` : undefined}
+      description={allocation ? `Current deadline: ${formatDateTime(allocation.due_at, { year: true })}` : undefined}
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={busy}>
@@ -175,16 +176,16 @@ export function AllocationsPanel({
                   <div>
                     <dt className="inline text-fg-muted">Visible: </dt>
                     <dd className="inline">
-                      {a.visible_from ? formatDateTime(a.visible_from) : "now"} → {a.visible_until ? formatDateTime(a.visible_until) : "open-ended"}
+                      {a.visible_from ? formatDateTime(a.visible_from, { year: true }) : "now"} → {a.visible_until ? formatDateTime(a.visible_until, { year: true }) : "open-ended"}
                     </dd>
                   </div>
                   <div>
                     <dt className="inline text-fg-muted">Can start: </dt>
-                    <dd className="inline">{a.start_at ? formatDateTime(a.start_at) : "when visible"}</dd>
+                    <dd className="inline">{a.start_at ? formatDateTime(a.start_at, { year: true }) : "when visible"}</dd>
                   </div>
                   <div>
                     <dt className="inline text-fg-muted">Due: </dt>
-                    <dd className="inline">{formatDateTime(a.due_at)}</dd>
+                    <dd className="inline">{formatDateTime(a.due_at, { year: true })}</dd>
                   </div>
                   <div>
                     <dt className="inline text-fg-muted">Evaluators: </dt>

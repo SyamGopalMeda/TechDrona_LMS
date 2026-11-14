@@ -4,11 +4,12 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { Button, Checkbox, ErrorState, FormField, Skeleton } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import { formatCountdown, retryAfterSeconds, toFormError, type FormErrorInfo } from "../lib/errors";
+import { retryAfterSeconds, toFormError, type FormErrorInfo } from "../lib/errors";
 import { PURPOSE_LABELS } from "../lib/consents";
 import type { GuardianConsentView, GuardianDecisionBody, OtpSentResponse } from "../lib/types";
 import { FormAlert, Notice, OtpInput, useCountdown } from "./shared";
 import { ServiceNotIntegrated } from "@/components/shell/Integrations";
+import { formatCountdown } from "@/lib/format";
 
 export type { GuardianConsentView } from "../lib/types";
 
@@ -17,7 +18,6 @@ const GUARDIAN_ITEM_LABELS: Record<string, string> = {
   core_service: "Account and learning service",
   assessment_integrity: "Test integrity checks during timed tests",
 };
-
 
 /** PUB-015 · AUTH-25 view, AUTH-26 OTP to guardian's contact, AUTH-27 decision. */
 export function GuardianConsent({ token }: { token: string }) {
@@ -55,7 +55,7 @@ export function GuardianConsent({ token }: { token: string }) {
   const fail = (err: unknown) => {
     if (err instanceof ApiError && (err.code === "otp_send_limited" || err.code === "otp_attempts_exceeded")) {
       const s = retryAfterSeconds(err);
-      setError({ title: err.title, detail: s ? `Try again in ${formatCountdown(s)}.` : err.detail, requestId: err.requestId, code: err.code });
+      setError({ title: err.title, detail: s ? `Try again in ${formatCountdown(s, "short")}.` : err.detail, requestId: err.requestId, code: err.code });
     } else if (err instanceof ApiError && err.code === "otp_invalid") {
       setError({ title: "That code didn't work", detail: "Check the code and try again.", requestId: err.requestId, code: err.code });
     } else setError(toFormError(err));
@@ -166,7 +166,7 @@ export function GuardianConsent({ token }: { token: string }) {
         <FormAlert ref={alertRef} error={error} />
         <p className="text-sm text-fg-secondary">First, confirm it&apos;s you. We&apos;ll send a 6-digit code to {view?.contact_masked ?? "your phone or email"}.</p>
         <Button variant={sentTo ? "ghost" : "secondary"} loading={busy === "send"} disabled={resendIn > 0 || busy !== null} onClick={send}>
-          {sentTo ? (resendIn > 0 ? `Resend code in ${formatCountdown(resendIn)}` : "Resend code") : "Send code"}
+          {sentTo ? (resendIn > 0 ? `Resend code in ${formatCountdown(resendIn, "short")}` : "Resend code") : "Send code"}
         </Button>
         <ServiceNotIntegrated service="email" />
         {sentTo ? (

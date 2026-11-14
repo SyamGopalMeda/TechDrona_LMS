@@ -165,11 +165,6 @@ def enc_value(model: type, attr: str, v: Any) -> Any:
     return _enc(columns(model)[attr][1], v)
 
 
-def changes_doc(model: type, changes: Mapping[str, Any]) -> dict[str, Any]:
-    cols = columns(model)
-    return {k: _enc(cols[k][1], v) for k, v in changes.items()}
-
-
 def _default(col: Any, now: datetime) -> Any:
     sd = col.server_default
     if sd is None:

@@ -10,8 +10,9 @@ from typing import Any
 import pytest
 
 from app.core.ids import uuid7
+from app.modules.admin.public import PgInterval, subtract_interval
 from app.modules.security import models as m
-from app.modules.security.repo_fs_controls import disputed_cutoff, minus_years
+from app.modules.security.repo_fs_controls import disputed_cutoff
 from tests.security.fs.test_pass3_controls_reports_http import FS_MODULES, _case, _seed  # noqa: F401
 
 
@@ -33,7 +34,7 @@ def T(*a: int) -> datetime:
     ],
 )
 def test_minus_years_matches_postgres(now: datetime, expected: datetime) -> None:
-    assert minus_years(now, 3) == expected
+    assert subtract_interval(now, PgInterval(months=36)) == expected
 
 
 def test_greatest_ranks_on_30_day_months() -> None:

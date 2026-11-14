@@ -22,7 +22,6 @@
       "next/link": ["./src/spa/shims/link.tsx"],
       "next/navigation": ["./src/spa/shims/navigation.ts"],
       "next/dynamic": ["./src/spa/shims/dynamic.tsx"],
-      "next/headers": ["./src/spa/shims/headers.ts"],
       "server-only": ["./src/spa/shims/server-only.ts"]
     }
   },

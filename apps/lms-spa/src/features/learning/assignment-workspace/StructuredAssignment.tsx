@@ -2,18 +2,18 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Badge, Button, Card, Dialog, ErrorState, PageHeader, useToast } from "@/components/ui";
+import { Badge, Button, Card, Dialog, ErrorState, LoadingBlock, PageHeader, useToast } from "@/components/ui";
 import { ApiError } from "@/lib/api/errors";
-import { formatDateTime } from "@/features/catalog/lib/format";
 import { AITutorPanel } from "@/features/ai/components/AITutorPanel";
 import type { AITutorMode } from "@/features/ai/types";
-import { fmtMarks, formatCountdown, itemTypeLabel, learnerApi } from "../assignment-manager/api";
+import { fmtMarks, itemTypeLabel, learnerApi } from "../assignment-manager/api";
 import { QuestionText } from "../assignment-manager/AnswerView";
 import type { ItemResponse, WorkspaceItem, WorkspaceOut } from "../assignment-manager/types";
-import { ContentErrorState, LoadingBlock } from "../components/States";
+import { ContentErrorState } from "../components/States";
 import { ItemEditor } from "./ItemEditors";
 import { ResultsView } from "./ResultsView";
 import { useAutosave, type SaveState } from "./use-autosave";
+import { formatCountdown, formatDateTime } from "@/lib/format";
 
 const DONE = new Set(["submitted", "late", "graded", "returned", "released"]);
 
@@ -98,17 +98,17 @@ function BeforeStart({ ws, onStarted }: { ws: WorkspaceOut; onStarted: (w: Works
       <dl className="grid gap-2 text-sm sm:grid-cols-2">
         <div>
           <dt className="text-fg-muted">You can start</dt>
-          <dd className="font-medium text-fg">{s.start_at ? formatDateTime(s.start_at) : "Now"}</dd>
+          <dd className="font-medium text-fg">{s.start_at ? formatDateTime(s.start_at, { year: true }) : "Now"}</dd>
         </div>
         <div>
           <dt className="text-fg-muted">Submit by</dt>
-          <dd className="font-medium text-fg">{formatDateTime(s.due_at)}</dd>
+          <dd className="font-medium text-fg">{formatDateTime(s.due_at, { year: true })}</dd>
         </div>
       </dl>
       {ws.assignment.instructions_md ? <p className="mt-4 whitespace-pre-line text-sm text-fg-secondary">{ws.assignment.instructions_md}</p> : null}
       {!s.can_start ? (
         <p className="mt-4 text-sm text-fg-muted" role="status">
-          {s.start_at ? `Starting opens at ${formatDateTime(s.start_at)}.` : "This assignment can't be started right now."}
+          {s.start_at ? `Starting opens at ${formatDateTime(s.start_at, { year: true })}.` : "This assignment can't be started right now."}
         </p>
       ) : null}
       {error ? (
@@ -180,7 +180,7 @@ export function Workspace({ ws, onSubmitted }: { ws: WorkspaceOut; onSubmitted: 
               <span aria-hidden="true">⏱</span>
               <span>
                 <span className="sr-only">Time left: </span>
-                {formatCountdown(left)}
+                {formatCountdown(left, "compact")}
               </span>
             </p>
           ) : null}
@@ -307,7 +307,7 @@ export function StructuredAssignment({ assignmentId }: { assignmentId: string })
   }, [load]);
 
   if (error) return <ContentErrorState error={error} onRetry={() => void load()} />;
-  if (!ws) return <LoadingBlock label="Loading assignment" />;
+  if (!ws) return <LoadingBlock label="Loading assignment" size="card" />;
 
   const back = (
     <Link href="/app/assignments" className="text-sm font-medium text-fg-link hover:text-fg-link-hover">
@@ -330,7 +330,7 @@ export function StructuredAssignment({ assignmentId }: { assignmentId: string })
     return (
       <div className="space-y-4">
         {back}
-        <PageHeader title={ws.assignment.title} description={ws.schedule.due_at ? `Due ${formatDateTime(ws.schedule.due_at)}` : undefined} />
+        <PageHeader title={ws.assignment.title} description={ws.schedule.due_at ? `Due ${formatDateTime(ws.schedule.due_at, { year: true })}` : undefined} />
         <BeforeStart ws={ws} onStarted={setWs} />
       </div>
     );

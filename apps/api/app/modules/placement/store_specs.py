@@ -22,7 +22,7 @@ indexes. Physical names get the ``lms_`` prefix (``collections.physical_name``).
 * ``recommendations/{id}`` (owned); ``recommendations_active/{user:rule:target_type:target_id}``
   (``ux_rec_dedupe``, only active rows).
 
-Value mapping (``fsmap.row_doc``): UUID -> str, ``numeric`` -> canonical decimal string
+Value mapping (``core.firestore.rows.row_doc``): UUID -> str, ``numeric`` -> canonical decimal string
 (``"1.00"``, Firestore has no decimal), ``bytea`` (``content_hash``) -> base64, ``uuid[]`` -> list
 of str, JSONB and timestamps verbatim. ``orm_of`` is the exact inverse, so repositories return transient
 ORM instances and the existing serializers (``topic_out``, ``version_out``, ...) are shared.
@@ -36,7 +36,8 @@ from typing import Any
 from app.core.firestore.backfill import Row, TableMapping, register_mapping
 from app.core.firestore.collections import CollectionSpec, register_collection
 from app.core.firestore.ids import compose_id
-from app.modules.placement.fsmap import orm_doc, orm_of, row_doc
+from app.core.firestore.rows import orm_doc, row_doc
+from app.core.firestore.rows import orm_of_scaled as orm_of
 from app.modules.placement.models import (
     Company,
     PracticeResponse,

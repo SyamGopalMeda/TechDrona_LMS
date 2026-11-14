@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import and_, or_, select, update
@@ -497,7 +497,3 @@ def setting_out(k: PolicyKey, row: Any) -> dict[str, Any]:
         "plan_overridable": k.plan,
         "locked": k.locked,
     }
-
-
-def user_exception_max(expires_at: datetime) -> bool:
-    return expires_at <= clock.now() + timedelta(days=180)

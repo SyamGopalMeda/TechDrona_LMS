@@ -34,6 +34,7 @@ from typing import Any
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.firestore.store import chunks
 from app.modules.learning import fs_store as fss
 from app.modules.learning.models import (
     Assignment,
@@ -296,7 +297,7 @@ async def enrolments_of_users(
         return []
     if fss.fs():
         out = []
-        for chunk in _chunks(users):
+        for chunk in chunks(users):
             for e in await fss.find(None, Enrolment, filters=(("user_id", "in", chunk),)):
                 if e.status != "withdrawn":
                     out.append(
@@ -330,7 +331,7 @@ async def lesson_progress_counts(
         return {}
     if fss.fs():
         acc: dict[uuid.UUID, list[int]] = defaultdict(lambda: [0, 0])
-        for chunk in _chunks(enrolment_ids):
+        for chunk in chunks(enrolment_ids):
             for lp in await fss.find(None, LessonProgress, filters=(("enrolment_id", "in", chunk),)):
                 a = acc[lp.lesson_key]
                 a[0] += lp.first_opened_at is not None or lp.status != "not_started"
@@ -467,8 +468,3 @@ async def certificates_of_user(session: AsyncSession, user_id: uuid.UUID) -> lis
             )
         ).scalars()
     )
-
-
-def _chunks(ids: list[uuid.UUID], n: int = 30) -> Iterable[list[uuid.UUID]]:
-    for i in range(0, len(ids), n):
-        yield ids[i : i + n]

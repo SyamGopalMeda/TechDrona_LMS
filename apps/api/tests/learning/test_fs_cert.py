@@ -105,6 +105,7 @@ async def test_send_paths_and_sender_lease(fs: Any, fs_on: Any, monkeypatch: pyt
     from app.modules.learning import certificates as certs
     from app.modules.learning import fs_cert
     from app.modules.learning import fs_store as fss
+    from app.modules.learning.cert_models import CertificateOutbox
     from app.modules.learning.models import Certificate
 
     async def nobody(session: Any, user_id: Any) -> None:
@@ -128,8 +129,8 @@ async def test_send_paths_and_sender_lease(fs: Any, fs_on: Any, monkeypatch: pyt
     out = await certs.send_pending(_s())
     assert out == {"sent": 0, "failed": 1, "cancelled": 0, "retry": 0}  # no deliverable address
     s = _s()
-    rows = await fs_cert.outbox_rows(s, [r_live.id])
-    assert rows[0].status == "failed" and rows[0].last_error == "no deliverable email address"
+    row = await fss.get(s, CertificateOutbox, r_live.id)
+    assert row is not None and row.status == "failed" and row.last_error == "no deliverable email address"
 
     # revoked after queueing: the pending row is cancelled at send time
     s2 = _s()

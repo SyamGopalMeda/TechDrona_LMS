@@ -5,13 +5,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, Button, Card, ErrorState, FormField, Input, LinkButton, LoadingBlock, PageHeader, Select, Tabs, useToast, type Crumb } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ActionDialog, KeyValueList, ReasonGate, StateBadge, TextArea, textLink, type ReasonChoice } from "@/features/admin/components/console-ui";
-import { formatCountdown, formatDateTime, humanize, ifMatchFor, toOutcome, useVersioned } from "@/features/admin/lib/console";
+import { humanize, ifMatchFor, toOutcome, useVersioned } from "@/features/admin/lib/console";
 import { sourceLabel } from "../lib/catalogue";
 import { staffRef } from "../lib/ids";
 import type { CaseDetail as CaseDetailDto } from "../lib/types";
 import { DecidedPanel, DecisionPanel, PendingApprovalPanel } from "./DecisionPanel";
 import { ConcurrencyTab, DeviceGraphTab, ExplanationTab, HistoryTab, NotesTab, SubmissionTab, TimelineTab, type EvidenceContext } from "./EvidenceTabs";
 import { RiskBadge, STAFF_LEVEL_LABEL, toLevel } from "./RiskLevel";
+import { formatDateTime, formatTimeUntil } from "@/lib/format";
 
 const CASES_CRUMBS: Crumb[] = [
   { label: "Security", href: "/security" },
@@ -130,8 +131,8 @@ export function CaseView({ caseId, reason }: { caseId: string; reason: ReasonCho
             { label: "Ends", value: c.restriction?.ends_at ? formatDateTime(c.restriction.ends_at) : c.restriction ? "No end date" : "—" },
             ...(c.restriction?.deferred_until ? [{ label: "Deferred until", value: formatDateTime(c.restriction.deferred_until) }] : []),
             { label: "Applied by", value: sourceLabel(c.restriction?.source) },
-            { label: "First response due", value: c.sla_first_response_due ? `${formatDateTime(c.sla_first_response_due)} (${formatCountdown(c.sla_first_response_due)})` : "—" },
-            { label: "Decision due", value: c.sla_decision_due ? `${formatDateTime(c.sla_decision_due)} (${formatCountdown(c.sla_decision_due)})` : "—" },
+            { label: "First response due", value: c.sla_first_response_due ? `${formatDateTime(c.sla_first_response_due)} (${formatTimeUntil(c.sla_first_response_due)})` : "—" },
+            { label: "Decision due", value: c.sla_decision_due ? `${formatDateTime(c.sla_decision_due)} (${formatTimeUntil(c.sla_decision_due)})` : "—" },
             {
               label: "Linked request",
               value: c.unblock_request?.reference ? (

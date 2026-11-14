@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Badge, Button, Dialog, EmptyState, ErrorState, Input, Select } from "@/components/ui";
+import { Badge, Button, Dialog, EmptyState, ErrorState, Input, LoadingBlock, Select } from "@/components/ui";
 import { api } from "@/lib/api/client";
-import { LoadingBlock, useFailToast } from "@/features/trainer/shared/ui";
+import { useFailToast } from "@/features/trainer/shared/ui";
 import { seg, useApi } from "@/features/trainer/shared/use-api";
 import { useDebounced } from "./lib/hooks";
 import { Chip, TagChips } from "./components/parts";
@@ -234,7 +234,7 @@ export function QuestionBankPicker({
       {banks.error ? (
         <ErrorState error={banks.error} onRetry={() => void banks.reload()} />
       ) : banks.loading && !banks.data ? (
-        <LoadingBlock rows={4} label="Loading banks" />
+        <LoadingBlock rows={4} label="Loading banks" size="row" />
       ) : !grouped.length ? (
         <EmptyState title="No banks found" description={q ? "Try a different search." : "Create a question bank first under Question banks."} />
       ) : (
@@ -307,7 +307,7 @@ export function QuestionBankPicker({
       {questions.error ? (
         <ErrorState error={questions.error} onRetry={() => void questions.reload()} />
       ) : questions.loading && !questions.data ? (
-        <LoadingBlock rows={4} label="Loading questions" />
+        <LoadingBlock rows={4} label="Loading questions" size="row" />
       ) : !rows.length ? (
         <EmptyState title="No questions here" />
       ) : (

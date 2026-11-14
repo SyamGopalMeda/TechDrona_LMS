@@ -5,8 +5,9 @@ import { useRef, useState } from "react";
 import { Badge, Button, Dialog, ErrorState } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { isApiError } from "@/lib/api/errors";
-import { formatDateTime, formatMoney } from "@/features/catalog/lib/format";
+import { formatMoney } from "@/features/catalog/lib/format";
 import { isTestMode, providerFor, type PayableOrder } from "../lib/payment-provider";
+import { formatDateTime } from "@/lib/format";
 
 type Choice = "success" | "failure" | "dismiss";
 
@@ -84,7 +85,7 @@ export function PaymentStep({ order, onCancelled }: { order: PayableOrder; onCan
       {testMode ? <TestModeBadge /> : null}
       <p className="text-sm text-fg-secondary">
         Order <span className="font-mono">{order.order_number}</span>
-        {order.expires_at ? ` · complete payment by ${formatDateTime(order.expires_at)}` : ""}
+        {order.expires_at ? ` · complete payment by ${formatDateTime(order.expires_at, { year: true })}` : ""}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button size="lg" onClick={() => void pay()} loading={busy}>

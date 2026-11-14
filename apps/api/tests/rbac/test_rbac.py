@@ -21,9 +21,7 @@ from app.modules.rbac.catalogue import (
     ROLE_ORDER,
     ROLES,
     admin_roles,
-    cell_scope,
     role_permission_pairs,
-    successor_role,
 )
 from app.modules.rbac.models import ApprovalRequest, Permission, Role, RolePermission
 from app.modules.rbac.service import RbacPermissionChecker
@@ -60,9 +58,11 @@ async def test_seed_matches_role_matrix(db) -> None:
 
 def test_catalogue_helpers_for_other_modules() -> None:
     assert admin_roles() == frozenset({"super_admin"})
-    for old in REMOVED_ROLES:
-        assert successor_role(old) == "super_admin"
-    assert successor_role("trainer") == "trainer" and successor_role("nope") is None
+
+
+def cell_scope(role: str, cell: str) -> str:
+    """Scope kind a granting matrix cell implies (``P``/``B``/``C``, else the role default)."""
+    return {"P": "platform", "B": "batch", "C": "course"}.get(cell, ROLES[role].default_scope)
 
 
 async def _principal_for(db, role: str, cell: str) -> tuple[Principal, ScopeRef, ScopeRef]:

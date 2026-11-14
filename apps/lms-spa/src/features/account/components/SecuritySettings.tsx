@@ -7,12 +7,12 @@ import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { FormAlert, Notice, OtpInput } from "@/features/auth/components/shared";
 import { toFormError, type FormErrorInfo } from "@/features/auth/lib/errors";
-import { formatDate } from "@/features/auth/lib/format";
 import { useSimpleAuth } from "@/components/shell/Integrations";
 import type { MfaFactor, TotpEnrolment } from "../lib/types";
-import { useResource } from "../lib/use-resource";
 import { ChangePasswordForm } from "./ChangePasswordForm";
 import { LoginHistoryCard } from "./SecurityActivity";
+import { formatDate } from "@/lib/format";
+import { useResource } from "@/lib/api/use-resource";
 
 /**
  * STU-021 Security: password (AUTH-18), MFA factors (ME-07/08/09/12), recovery codes (ME-13).

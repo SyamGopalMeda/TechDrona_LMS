@@ -19,9 +19,8 @@ import {
 } from "@/components/ui";
 import { LMS_COURSES_HREF } from "@/lib/site/website";
 import { api } from "@/lib/api/client";
-import { formatDate, formatDateTime, formatMoney, formatPercent, humanize } from "@/features/catalog/lib/format";
+import { formatMoney, formatPercent, humanize } from "@/features/catalog/lib/format";
 import type { Paged, ProductDto } from "@/features/catalog/lib/types";
-import { useResource } from "@/features/learning/lib/use-resource";
 import type {
   CancelSubscriptionBody,
   CancelSubscriptionResult,
@@ -36,10 +35,12 @@ import type {
 import { ChangePlanDialog, recurringPrices } from "./ChangePlanDialog";
 import { DownloadButton } from "./DownloadButton";
 import { OrderStatusBadge } from "./OrderStatus";
+import { formatDate, formatDateTime } from "@/lib/format";
+import { useResource } from "@/lib/api/use-resource";
 
 function usePaged<T>(path: string) {
   const [stack, setStack] = useState<(string | undefined)[]>([undefined]);
-  const res = useResource<Paged<T>>(path, { cursor: stack[stack.length - 1], limit: 25 });
+  const res = useResource<Paged<T>>(path, { query: { cursor: stack[stack.length - 1], limit: 25 } });
   const pagination = (
     <Pagination
       hasMore={Boolean(res.data?.page?.has_more)}
@@ -285,7 +286,7 @@ function SubscriptionsTab() {
           {
             key: "next",
             header: "Next charge / access until",
-            cell: (r) => (r.cancel_at_period_end ? `Access until ${formatDate(r.current_period_end)}` : r.next_charge_at ? formatDateTime(r.next_charge_at) : formatDate(r.current_period_end)),
+            cell: (r) => (r.cancel_at_period_end ? `Access until ${formatDate(r.current_period_end)}` : r.next_charge_at ? formatDateTime(r.next_charge_at, { year: true }) : formatDate(r.current_period_end)),
           },
           {
             key: "actions",

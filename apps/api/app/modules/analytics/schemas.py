@@ -5,7 +5,6 @@ can never send identity fields (``user_id``, ``organization_id``, ``auth_session
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -245,37 +244,3 @@ def parse_payload(event_type: str, version: int, payload: dict[str, Any]) -> Bas
 
 
 # --------------------------------------------------------------------------- responses
-
-
-class EventResult(BaseModel):
-    event_id: str
-    status: Literal["accepted", "duplicate", "rejected"]
-    code: str | None = None
-
-
-class IngestOut(BaseModel):
-    accepted: int
-    duplicate: int
-    rejected: int
-    results: list[EventResult]
-    server_time: str
-    config_version: str
-
-
-class LearningTimePoint(BaseModel):
-    period_start: date
-    learning_s: int
-    active_s: int
-    video_s: int
-    assessment_s: int
-    active_days: int | None = None
-
-
-class LearningTimeOut(BaseModel):
-    grain: Literal["day", "week"]
-    measurement_version: str
-    points: list[LearningTimePoint]
-
-
-def parse_iso(value: str) -> datetime:
-    return datetime.fromisoformat(value)

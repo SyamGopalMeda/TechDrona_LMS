@@ -3,13 +3,13 @@
 import { useState, type FormEvent } from "react";
 import { Button, Checkbox, FormField, Input, Select, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
-import { ApiError } from "@/lib/api/errors";
 import { ActionDialog, InlineProblem, KeyValueList, TextArea } from "@/features/admin/components/console-ui";
-import { formatCountdown, formatDateTime, humanize, problemFieldErrors, toOutcome } from "@/features/admin/lib/console";
+import { humanize, problemFieldErrors, toOutcome } from "@/features/admin/lib/console";
 import { staffRef } from "../lib/ids";
 import { STAFF_LEVEL_LABEL, toLevel } from "./RiskLevel";
 import { DECISION_OUTCOMES, outcomesFor } from "../lib/catalogue";
 import type { CaseDetail, DecisionPayload, PendingCaseApproval } from "../lib/types";
+import { formatDateTime, formatTimeUntil } from "@/lib/format";
 
 const MIN_SUMMARY = 50;
 
@@ -222,7 +222,7 @@ export function PendingApprovalPanel({ detail, approval, ifMatch, onChanged }: {
       </h2>
       <p className="mt-1 text-sm text-fg-secondary">
         Proposed by {approval.requested_by ? staffRef(approval.requested_by, "Reviewer") : "a reviewer"}
-        {approval.requested_at ? ` ${formatDateTime(approval.requested_at)}` : ""} · {expired ? "expired — the proposer must re-propose" : `expires ${formatCountdown(approval.expires_at)}`}
+        {approval.requested_at ? ` ${formatDateTime(approval.requested_at)}` : ""} · {expired ? "expired — the proposer must re-propose" : `expires ${formatTimeUntil(approval.expires_at)}`}
       </p>
       {p ? (
         <KeyValueList
@@ -335,8 +335,4 @@ function levelWords(level: number): string {
 /** Decision outcome in the same words as the Outcome select. */
 export function outcomeLabel(outcome: string | null | undefined): string {
   return DECISION_OUTCOMES.find((o) => o.value === outcome)?.label ?? humanize(outcome);
-}
-
-export function isApiCode(err: unknown, code: string): boolean {
-  return err instanceof ApiError && err.code === code;
 }

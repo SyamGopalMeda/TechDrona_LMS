@@ -1,12 +1,12 @@
 "use client";
 
-import { Badge } from "@/components/ui";
-import { formatDate } from "@/features/catalog/lib/format";
+import { Badge, LoadingBlock } from "@/components/ui";
 import { LinkButton, ProgressBar } from "@/features/catalog/components/LinkButton";
 import type { EnrolmentDto } from "../lib/types";
-import { useAllPages } from "../lib/use-resource";
 import { NoCoursesEmptyState } from "./BrowseCoursesCta";
-import { ContentErrorState, LoadingBlock } from "./States";
+import { ContentErrorState } from "./States";
+import { formatDate } from "@/lib/format";
+import { useAllPages } from "@/lib/api/use-resource";
 
 /**
  * STU-004 My courses (LRN-02). Progress is the server value. LRN-02 is cursor-paginated
@@ -15,7 +15,7 @@ import { ContentErrorState, LoadingBlock } from "./States";
 export function MyCourses() {
   const { data, error, loading, reload } = useAllPages<EnrolmentDto>("me/enrolments");
 
-  if (loading && !data) return <LoadingBlock label="Loading your courses" />;
+  if (loading && !data) return <LoadingBlock label="Loading your courses" size="card" />;
   if (error) return <ContentErrorState error={error} onRetry={reload} />;
   const rows = data?.data ?? [];
   if (rows.length === 0) {

@@ -8,7 +8,6 @@ asserts it. Feedback/key fields live only in separate review/feedback models.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -70,18 +69,6 @@ class TopicPatch(_In):
     parent_id: uuid.UUID | None = None
     position: int | None = None
     is_active: bool | None = None
-
-
-class TopicOut(BaseModel):
-    id: uuid.UUID
-    parent_id: uuid.UUID | None
-    kind: str
-    slug: str
-    name: str
-    path: str
-    depth: int
-    position: int
-    is_active: bool
 
 
 # --------------------------------------------------------------------------- questions
@@ -165,13 +152,6 @@ class PracticeAnswer(_In):
 
 class RevealIn(_In):
     kind: Literal["hint", "solution"] = "solution"
-
-
-class ServedItem(BaseModel):
-    question: QuestionDelivery
-    served_at: datetime
-    answered: bool
-    feedback: dict[str, Any] | None = None
 
 
 # --------------------------------------------------------------------------- question banks

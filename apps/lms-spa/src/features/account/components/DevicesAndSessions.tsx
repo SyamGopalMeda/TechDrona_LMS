@@ -6,9 +6,9 @@ import { Badge, Button, Card, Dialog, EmptyState, ErrorState, FormField, Input, 
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { toFormError } from "@/features/auth/lib/errors";
-import { formatDate, formatDateTime, formatRelative } from "@/features/auth/lib/format";
 import { deviceName, type DeviceRenameBody, type DevicesResponse, type OwnDevice, type OwnSession, type SessionsResponse } from "../lib/types";
-import { useResource } from "../lib/use-resource";
+import { formatDate, formatDateTime, formatRelative } from "@/lib/format";
+import { useResource } from "@/lib/api/use-resource";
 
 const END_REASONS: Record<string, string> = {
   user_logout: "Signed out",

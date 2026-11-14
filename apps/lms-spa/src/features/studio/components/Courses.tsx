@@ -7,12 +7,13 @@ import { Badge, Button, Card, Dialog, FormField, Input, PageHeader, Select, Tabl
 import { api, type Page } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { useApi, seg, type SendBody } from "@/features/trainer/shared/use-api";
-import { Boundary, StatusBadge, TextArea, fieldErrorsOf, formatDate, formatDateTime, useFailToast } from "@/features/trainer/shared/ui";
+import { Boundary, StatusBadge, TextArea, fieldErrorsOf, useFailToast } from "@/features/trainer/shared/ui";
 import type { Body } from "@/lib/api-types";
 import type { CourseDetail, CourseSummary, CourseVersion, CourseVersionTree, Lesson } from "../lib/types";
 import { LessonEditor, REF_NOUN, useRefOptions } from "./LessonEditor";
 import { RefSelect, useTopics } from "./Pickers";
 import { EntityHeader } from "./EditorChrome";
+import { formatDate, formatDateTime } from "@/lib/format";
 
 /** Course status for display: the editable draft being in review wins over the course status. */
 export function courseStatus(c: Pick<CourseSummary, "status"> & { draft: { status: string } | null }): string {

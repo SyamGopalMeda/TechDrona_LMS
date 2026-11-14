@@ -5,7 +5,9 @@ import { Badge, Button, Checkbox, Dialog, FormField, Input, LoadingBlock, PageHe
 import { api } from "@/lib/api/client";
 import type { Schema } from "@/lib/api-types";
 import { ActionDialog, FilterBar, KeyValueList, StateBadge, TextArea } from "@/features/admin/components/console-ui";
-import { cleanQuery, formatDate, formatINR, humanize, personLabel, shortRef, toOutcome, useCursorList, type MutationOutcome } from "@/features/admin/lib/console";
+import { cleanQuery, formatINR, humanize, personLabel, shortRef, toOutcome, useCursorList, type MutationOutcome } from "@/features/admin/lib/console";
+import { formatDate } from "@/lib/format";
+import { istDayEnd, istDayStart } from "@/lib/time";
 
 /* ------------------------------------------------------------------ shared */
 
@@ -13,11 +15,6 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** ₹ text → integer paise (NaN when not a number). */
 export const toPaise = (rupees: string) => (rupees.trim() === "" ? Number.NaN : Math.round(Number(rupees) * 100));
-
-/** Start of a calendar day in IST (the api takes datetimes). */
-const istDayStart = (d: string) => `${d}T00:00:00+05:30`;
-/** End of a calendar day in IST, for "valid until" dates chosen by day. */
-const istDayEnd = (d: string) => `${d}T23:59:59+05:30`;
 
 /* ---------------------------------------------------------------- products */
 

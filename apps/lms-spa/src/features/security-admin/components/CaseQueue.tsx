@@ -6,11 +6,12 @@ import { Badge, Button, FormField, Input, LinkButton, PageHeader, Pagination, Se
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { FilterBar, StateBadge, textLink } from "@/features/admin/components/console-ui";
-import { cleanQuery, formatCountdown, ifMatchFor, useCursorList } from "@/features/admin/lib/console";
+import { cleanQuery, ifMatchFor, useCursorList } from "@/features/admin/lib/console";
 import { staffRef } from "../lib/ids";
 import { ASSIGNEE_OPTIONS, CASE_STATUS_OPTIONS, FAMILY_OPTIONS, LEVEL_OPTIONS, SLA_OPTIONS } from "../lib/catalogue";
 import type { CaseSummary } from "../lib/types";
 import { RiskBadge } from "./RiskLevel";
+import { formatTimeUntil } from "@/lib/format";
 
 /** Response-time (SLA) cell shared by the case and unblock queues: icon + word + due time, never colour alone. */
 export function SlaCell({ row }: { row: { sla_state: string; sla_decision_due?: string | null; sla_first_response_due?: string | null } }) {
@@ -23,7 +24,7 @@ export function SlaCell({ row }: { row: { sla_state: string; sla_decision_due?: 
     <span className={breached ? "font-semibold text-danger-fg" : atRisk ? "text-warning-fg" : "text-fg"}>
       <span aria-hidden="true">{breached ? "⚠ " : atRisk ? "◔ " : "✓ "}</span>
       {breached ? "Breached" : atRisk ? "At risk" : "On track"}
-      {due ? <span className="block text-xs text-fg-muted">due {formatCountdown(due)}</span> : null}
+      {due ? <span className="block text-xs text-fg-muted">due {formatTimeUntil(due)}</span> : null}
     </span>
   );
 }

@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { StatusBadge, Badge } from "@/components/ui";
 import { cn } from "@/lib/ui/cn";
-import { formatDateTime } from "@/features/admin/lib/console";
 import { STATUS_LABELS, type AttachmentMeta, type TicketMessage, type TicketStatus } from "../lib/types";
 import { attachmentDownloadUrl } from "../lib/attachments";
+import { formatDateTime } from "@/lib/format";
 
 const AUTHOR: Record<TicketMessage["author_kind"], string> = { requester: "Requester", agent: "Support", system: "System" };
 

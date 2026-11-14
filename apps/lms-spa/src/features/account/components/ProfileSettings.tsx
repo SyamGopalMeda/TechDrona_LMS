@@ -9,7 +9,7 @@ import { FormAlert } from "@/features/auth/components/shared";
 import { problemFieldErrors, toFormError, type FormErrorInfo } from "@/features/auth/lib/errors";
 import { useAccountScope } from "../lib/account-scope";
 import type { Me, ProfilePatchBody } from "../lib/types";
-import { useResource } from "../lib/use-resource";
+import { useResource } from "@/lib/api/use-resource";
 
 /**
  * STU-020 Profile · ME-01 read, ME-02 update, AUTH-03 resend verification. Shared by every

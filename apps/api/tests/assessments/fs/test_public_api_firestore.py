@@ -120,10 +120,8 @@ async def test_public_reads_on_firestore(
     # placement.public
     assert (await pp.get_question(s, q["id"])).id == q["id"]
     assert (await pp.get_version(s, qv["id"])).question_id == q["id"]
-    assert await pp.topic_names(s, [leaf["id"], uuid7()]) == {leaf["id"]: "Primes"}
     assert await pp.topic_roots(s, [leaf["id"], mid["id"]]) == {leaf["id"]: root["id"], mid["id"]: root["id"]}
     assert await pp.topic_with_root(s, mid["id"]) == (mid["id"], root["id"])
-    assert await pp.existing_company_ids(s, [co["id"], uuid7()]) == {co["id"]}
     # assessments.public
     assert (await ap.attempt_lifetime(s, a1["id"]))[:3] == (u, t0, t0 + timedelta(minutes=30))
     assert await ap.attempt_org_of_user(s, a1["id"], uuid7()) is None

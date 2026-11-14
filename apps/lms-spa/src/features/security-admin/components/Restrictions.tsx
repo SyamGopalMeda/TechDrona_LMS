@@ -5,11 +5,12 @@ import { useCallback, useEffect, useState } from "react";
 import { Button, Card, Checkbox, FormField, Input, PageHeader, Pagination, Select, Table, useToast, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ActionDialog, ApprovalPendingNotice, FilterBar, InlineProblem, KeyValueList, StateBadge, TextArea, textLink, ValueSummary } from "@/features/admin/components/console-ui";
-import { cleanQuery, formatDateTime, humanize, shortRef, toOutcome, useCursorList } from "@/features/admin/lib/console";
+import { cleanQuery, humanize, shortRef, toOutcome, useCursorList } from "@/features/admin/lib/console";
 import type { ApprovalPending } from "@/lib/api/client";
 import { FAMILY_OPTIONS, LEVEL_OPTIONS, SOURCE_OPTIONS, sourceLabel } from "../lib/catalogue";
 import type { BulkLiftStatus as BulkLiftStatusData, Restriction } from "../lib/types";
 import { RiskBadge } from "./RiskLevel";
+import { formatDateTime } from "@/lib/format";
 
 /** SEC-005 restrictions (H5, SEC-19) with manual L1/L2 apply/lift and the bulk false-positive lift. */
 export function Restrictions() {

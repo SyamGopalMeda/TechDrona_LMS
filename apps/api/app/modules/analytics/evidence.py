@@ -21,6 +21,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.firestore.store import chunks
 from app.modules.analytics.params import MEASUREMENT_VERSION
 
 
@@ -161,24 +162,6 @@ async def lesson_time_evidence(
     )
 
 
-async def watched_seconds_for_lesson(
-    session: AsyncSession, user_id: uuid.UUID, lesson_key: uuid.UUID
-) -> int | None:
-    """Adapter matching ``learning.service.register_video_coverage_lookup`` (``fn(session,
-    user_id, lesson_key) -> watched_seconds | None``). Not registered automatically: learning
-    decides when to switch its completion rule to the analytics coverage feed."""
-    if _fs():
-        got = await _fs_coverage(user_id, lesson_id=lesson_key)
-        return int(sum(float(r[2]) for r in got)) if got else None
-    row = (
-        await session.execute(
-            text("SELECT sum(covered_s) FROM video_watch_coverage WHERE user_id = :u AND lesson_id = :l"),
-            {"u": user_id, "l": lesson_key},
-        )
-    ).first()
-    return int(row[0]) if row and row[0] is not None else None
-
-
 async def coverage_groups(
     session: AsyncSession, user_id: uuid.UUID, lesson_ids: list[uuid.UUID]
 ) -> list[tuple[Any, Any, Any]]:
@@ -193,7 +176,7 @@ async def coverage_groups(
         # cost-media: filter by lesson in the query (30 ids per ``in``) instead of reading every
         # coverage document of the user (one per video ever watched) on each MED-05 heartbeat.
         docs: dict[str, Any] = {}
-        for chunk in fs_raw._chunks(sorted({str(x) for x in want})):
+        for chunk in chunks(sorted({str(x) for x in want})):
             for d in await fs_raw.all_docs(
                 "video_watch_coverage", user_id=user_id, filters=[("lesson_id", "in", chunk)]
             ):

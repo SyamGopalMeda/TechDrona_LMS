@@ -2,9 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Badge, Button, Checkbox, Dialog, EmptyState, ErrorState, Input, PageHeader, Select, useToast } from "@/components/ui";
+import { Badge, Button, Checkbox, Dialog, EmptyState, ErrorState, Input, LoadingBlock, PageHeader, Select, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
-import { LoadingBlock, StatusBadge, useFailToast } from "@/features/trainer/shared/ui";
+import { StatusBadge, useFailToast } from "@/features/trainer/shared/ui";
 import { seg, useApi } from "@/features/trainer/shared/use-api";
 import { QuestionBankPicker } from "../QuestionBankPicker";
 import { useDebounced } from "../lib/hooks";
@@ -92,7 +92,7 @@ export function BankDetail({ bankId }: { bankId: string }) {
     return (
       <div>
         <PageHeader title="Question bank" breadcrumbs={[...crumbs, { label: "Question bank" }]} />
-        <LoadingBlock rows={5} label="Loading bank" />
+        <LoadingBlock rows={5} label="Loading bank" size="row" />
       </div>
     );
 

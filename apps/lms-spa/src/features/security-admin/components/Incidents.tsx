@@ -3,21 +3,16 @@
 import { useState } from "react";
 import { Badge, Button, Checkbox, FormField, Input, PageHeader, Select, Table, useToast, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
-import { useResource } from "@/features/account/lib/use-resource";
 import { ActionDialog, StateBadge, TextArea } from "@/features/admin/components/console-ui";
-import { formatCountdown, formatDateTime, ifMatchFor, toOutcome } from "@/features/admin/lib/console";
+import { ifMatchFor, toOutcome } from "@/features/admin/lib/console";
 import type { SecurityIncident } from "../lib/types";
+import { useResource } from "@/lib/api/use-resource";
+import { formatDateTime, formatTimeUntil } from "@/lib/format";
+import { istLocalToIso } from "@/lib/time";
 
 /** verified: api_engine.py IncidentIn / IncidentPatch literals. */
 const SEVERITIES = ["low", "medium", "high", "critical"].map((s) => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }));
 const STATUSES = ["detected", "triaged", "contained", "notified", "remediated", "closed"].map((s) => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }));
-
-/** `<input type="datetime-local">` is read as IST (the platform's display timezone). */
-export function istLocalToIso(local: string): string | null {
-  if (!local) return null;
-  const d = new Date(`${local}:00+05:30`);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
-}
 
 function nowIstLocal(): string {
   return new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 16);
@@ -27,7 +22,7 @@ function DueCell({ due, done }: { due: string | null; done?: string | null }) {
   if (!due) return <span className="text-fg-muted">—</span>;
   if (done) return <Badge tone="success">Reported {formatDateTime(done)}</Badge>;
   const overdue = Date.parse(due) < Date.now();
-  return <Badge tone={overdue ? "danger" : "warning"}>{overdue ? `Overdue (${formatDateTime(due)})` : `Due ${formatCountdown(due)}`}</Badge>;
+  return <Badge tone={overdue ? "danger" : "warning"}>{overdue ? `Overdue (${formatDateTime(due)})` : `Due ${formatTimeUntil(due)}`}</Badge>;
 }
 
 /**

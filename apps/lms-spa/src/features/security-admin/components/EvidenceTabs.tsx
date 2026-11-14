@@ -4,11 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Card, EmptyState, ErrorState, FormField, Select, LoadingBlock, Table, type Column } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ActionDialog, ConfirmDialog, InlineProblem, KeyValueList, StateBadge, TextArea, ValueSummary } from "@/features/admin/components/console-ui";
-import { cellText, formatDateTime, humanize, ifMatchFor, toOutcome, useVersioned, type Query } from "@/features/admin/lib/console";
+import { cellText, humanize, ifMatchFor, toOutcome, useVersioned, type Query } from "@/features/admin/lib/console";
 import { INFO_TEMPLATES_FALLBACK } from "../lib/catalogue";
 import { staffRef } from "../lib/ids";
 import { outcomeLabel } from "./DecisionPanel";
 import type { CaseDetail, CaseExplanation, Concurrency, ContributingSignal, DeviceGraph, ReviewUnblockDetail, ReviewUnblockRow, Timeline, TimelineEvent } from "../lib/types";
+import { formatDateTime } from "@/lib/format";
 
 export interface EvidenceContext {
   reasonCode: string;

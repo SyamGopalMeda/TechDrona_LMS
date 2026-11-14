@@ -846,16 +846,6 @@ class ReviewIn(BaseModel):
     note: str = Field(min_length=5, max_length=2000)
 
 
-def add_business_days(start: datetime, days: int) -> datetime:
-    d = start
-    left = days
-    while left > 0:
-        d += timedelta(days=1)
-        if d.weekday() < 5:
-            left -= 1
-    return d
-
-
 def bg_out(b: BreakGlassSession) -> dict[str, Any]:
     now = clock.now()
     if b.status == "active":

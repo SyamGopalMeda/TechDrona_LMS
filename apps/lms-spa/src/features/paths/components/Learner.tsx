@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button, EmptyState, ErrorState, LinkButton, PageHeader } from "@/components/ui";
+import { Button, EmptyState, ErrorState, LinkButton, LoadingBlock, PageHeader } from "@/components/ui";
 import { isApiError } from "@/lib/api/errors";
-import { Boundary, LoadingBlock, useFailToast } from "@/features/trainer/shared/ui";
+import { Boundary, useFailToast } from "@/features/trainer/shared/ui";
 import { useApi } from "@/features/trainer/shared/use-api";
 import { pathsApi, seg } from "../lib/api";
 import { embeddableUrl, safeHttpsUrl } from "../lib/embed";
@@ -182,7 +182,7 @@ export function PathPlayer({ allocationId }: { allocationId: string }) {
     }
     return <ErrorState error={state.error} onRetry={() => void state.reload()} />;
   }
-  if (!state.data) return <LoadingBlock rows={6} label="Loading path" />;
+  if (!state.data) return <LoadingBlock rows={6} label="Loading path" size="row" />;
   return <PlayerBody key={state.data.allocation_id} initial={state.data} reload={state.reload} />;
 }
 
@@ -292,7 +292,7 @@ function NewTabLink({ href, embedded }: { href: string; embedded: boolean }) {
 function InlineArticle({ id }: { id: string }) {
   const state = useReaderArticle(id);
   if (state.error) return <ErrorState error={state.error} onRetry={() => void state.reload()} />;
-  if (!state.data) return <LoadingBlock rows={5} label="Loading article" />;
+  if (!state.data) return <LoadingBlock rows={5} label="Loading article" size="row" />;
   // Inside a step the step's h2 already names it: the article renders as a section (h3 title).
   return <ArticleView article={state.data} withToc={false} inline />;
 }

@@ -7,8 +7,6 @@ import type { Schema } from "@/lib/api-types";
 
 export type SignupBody = Schema<"SignupIn">;
 export type GuardianBody = Schema<"GuardianIn">;
-export type LoginBody = Schema<"LoginIn">;
-export type MfaVerifyBody = Schema<"MfaVerifyIn">;
 export type DeviceVerifyBody = Schema<"DeviceVerifyIn">;
 export type SessionChoiceBody = Schema<"SessionChoiceIn">;
 export type GuardianDecisionBody = Schema<"GuardianDecisionIn">;
@@ -96,10 +94,4 @@ export interface GuardianConsentView {
   items: { purpose: string; item: string; required: boolean }[];
   unavailable_for_minors: string[];
   contact_masked: string | null;
-}
-
-/** verified: app/modules/identity/router.py guardian_decision */
-export interface GuardianDecisionResponse {
-  status: "verified" | "rejected" | string;
-  child_status: string;
 }

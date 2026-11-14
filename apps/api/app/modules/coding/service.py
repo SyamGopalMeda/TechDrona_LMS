@@ -38,7 +38,7 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import and_, func, select, text, update
+from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.access import require_access
@@ -179,34 +179,6 @@ def normalize_source(language_key: str, source: str) -> str:
 
 def normalized_hash(language_key: str, source: str) -> bytes:
     return hashlib.sha256(normalize_source(language_key, source).encode("utf-8")).digest()
-
-
-async def similarity_candidates(session: AsyncSession, submission: CodeSubmission) -> list[uuid.UUID]:
-    """Placeholder for the similarity job: other users' submit-mode submissions on the same
-    problem with an identical normalized hash (caller provides a system/staff context)."""
-    if submission.normalized_sha256 is None:
-        return []
-    if _fs():
-        from app.modules.coding.fsmap import to_doc_value
-
-        h = to_doc_value(CodeSubmission.__table__.c.normalized_sha256, submission.normalized_sha256)
-        subs = await (await _repo(session)).all_submissions(
-            (
-                ("coding_problem_id", "==", str(submission.coding_problem_id)),
-                ("mode", "==", "submit"),
-                ("normalized_sha256", "==", h),
-            )
-        )
-        return [s.id for s in subs if s.user_id != submission.user_id]
-    rows = await session.execute(
-        select(CodeSubmission.id).where(
-            CodeSubmission.coding_problem_id == submission.coding_problem_id,
-            CodeSubmission.mode == "submit",
-            CodeSubmission.normalized_sha256 == submission.normalized_sha256,
-            CodeSubmission.user_id != submission.user_id,
-        )
-    )
-    return list(rows.scalars())
 
 
 # --------------------------------------------------------------------------- languages
@@ -1111,19 +1083,6 @@ async def get_attempt_judgement(session: AsyncSession, submission_id: uuid.UUID)
         return None
     return AttemptJudgement(
         sub.status, sub.verdict, sub.score, sub.max_score, sub.passed_cases, sub.total_cases
-    )
-
-
-async def mark_rejected(session: AsyncSession, submission_id: uuid.UUID) -> None:
-    if _fs():
-        await (await _repo(session)).update_submission(
-            submission_id, {"status": "rejected", "completed_at": utcnow()}, if_status="queued"
-        )
-        return
-    await session.execute(
-        update(CodeSubmission)
-        .where(CodeSubmission.id == submission_id, CodeSubmission.status == "queued")
-        .values(status="rejected", completed_at=func.now())
     )
 
 

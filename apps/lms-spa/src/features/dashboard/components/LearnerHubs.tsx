@@ -4,11 +4,11 @@ import Link from "next/link";
 import { useMemo } from "react";
 import type { ReactNode } from "react";
 import { Card, EmptyState, ErrorState, LinkButton, LoadingBlock, StatusBadge, type EmptyStateIcon } from "@/components/ui";
-import { formatDateTime } from "@/features/auth/lib/format";
-import { useResource } from "@/features/account/lib/use-resource";
 import type { MyTestsResponse, TestListItem } from "@/features/assessment/lib/types";
 import type { DashboardDto } from "@/features/learning/lib/types";
 import type { RecommendationsResponse, SubjectsResponse, TaxonomyNode } from "@/features/practice/lib/types";
+import { formatDateTime } from "@/lib/format";
+import { useResource } from "@/lib/api/use-resource";
 
 /*
  * STU-002/006/015 hubs and the dashboard's "Upcoming tests" (FE-05, FE-23). Built only on

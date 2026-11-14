@@ -3,10 +3,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Button, Checkbox, FormField } from "@/components/ui";
 import { deviceName, type DevicesResponse, type OwnDevice } from "@/features/account/lib/types";
-import { useResource } from "@/features/account/lib/use-resource";
 import { OtpInput, PasswordInput } from "@/features/auth/components/shared";
 import { api } from "@/lib/api/client";
 import { isApiError } from "@/lib/api/errors";
+import { useResource } from "@/lib/api/use-resource";
 
 interface SentTo {
   sent_to?: string;

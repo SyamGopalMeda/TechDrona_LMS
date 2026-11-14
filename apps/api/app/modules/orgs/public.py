@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.firestore.backend import uses_firestore
-from app.modules.orgs.models import Batch, BatchMember, BatchPlan, Organization, OrgMembership
+from app.modules.orgs.models import Batch, BatchMember, Organization, OrgMembership
 
 
 def _fs() -> bool:
@@ -37,16 +37,6 @@ async def get_org(session: AsyncSession, org_id: uuid.UUID) -> Organization | No
     if _fs():
         return await _repo().get_org(org_id)
     return await session.get(Organization, org_id)
-
-
-async def add_org(session: AsyncSession, org: Organization) -> Organization:
-    if _fs():
-        from app.modules.orgs.store_specs import ORGS
-
-        return await _repo()._upsert(ORGS, str(org.id), org)
-    session.add(org)
-    await session.flush()
-    return org
 
 
 # --------------------------------------------------------------------------- batches
@@ -151,12 +141,6 @@ async def add_batch(session: AsyncSession, batch: Batch) -> Batch:
     session.add(batch)
     await session.flush()
     return batch
-
-
-async def get_batch_plan(session: AsyncSession, batch_id: uuid.UUID) -> BatchPlan | None:
-    if _fs():
-        return await _repo().batch_plan(batch_id)
-    return await session.get(BatchPlan, batch_id)
 
 
 # --------------------------------------------------------------------------- batch members
@@ -293,29 +277,6 @@ async def org_memberships(
 async def active_org_ids(session: AsyncSession, user_id: uuid.UUID) -> list[uuid.UUID]:
     """Organizations of the user's active memberships, by id."""
     return sorted({m.organization_id for m in await org_memberships(session, user_ids=[user_id])}, key=str)
-
-
-async def end_memberships(session: AsyncSession, user_id: uuid.UUID, *, status: str = "left") -> int:
-    """End every active org and batch membership of a user (seeds / account deletion)."""
-    from app.modules.identity import clock
-
-    now = clock.now()
-    n = 0
-    for m in await batch_members(session, user_ids=[user_id]):
-        m.status, m.removed_at = "removed", now
-        await save_batch_member(session, m)
-        n += 1
-    for om in await org_memberships(session, user_ids=[user_id]):
-        if _fs():
-            from app.modules.orgs.store_specs import MEMBERSHIPS
-
-            await _repo().store.update(MEMBERSHIPS, str(om.id), {"status": status, "left_at": now})
-        else:
-            om.status, om.left_at = status, now
-        n += 1
-    if not _fs():
-        await session.flush()
-    return n
 
 
 async def attendance_certificate_block(

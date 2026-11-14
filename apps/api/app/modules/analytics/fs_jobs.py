@@ -14,7 +14,7 @@ from collections.abc import Iterable
 from datetime import date, datetime
 from typing import Any
 
-from app.core.firestore.store import ScopedTransaction
+from app.core.firestore.store import ScopedTransaction, chunks
 from app.core.time import utcnow
 from app.modules.admin.fs_rows import model_doc_id
 from app.modules.analytics import fs_raw
@@ -257,7 +257,7 @@ async def video_ended_durations(asset_ids: list[uuid.UUID]) -> dict[uuid.UUID, f
     """``max((payload->>'duration_s')::numeric)`` of ``video.ended`` events per asset."""
     want = {str(a) for a in asset_ids}
     docs: list[Any] = []
-    for chunk in fs_raw._chunks(sorted(want)):
+    for chunk in chunks(sorted(want)):
         docs += await fs_raw.all_docs(fs_raw.BATCHES, filters=[("asset_ids", "array-contains-any", chunk)])
     out: dict[uuid.UUID, float] = {}
     for e in fs_raw._rows(docs)[1]:

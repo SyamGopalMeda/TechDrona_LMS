@@ -4,11 +4,11 @@ import Link from "next/link";
 import { Badge, Card, ErrorState, Skeleton } from "@/components/ui";
 import { standaloneLinkClass } from "@/components/ui/touch";
 import { cn } from "@/lib/ui/cn";
-import { formatDate, formatDateTime } from "@/features/auth/lib/format";
 import { useAccountScope, type AccountScope } from "@/features/account/lib/account-scope";
-import { useResource } from "@/features/account/lib/use-resource";
 import type { MyCase, SecurityStatus } from "../lib/types";
 import { RestrictedStatus, STUDENT_HOME } from "./RestrictedStatus";
+import { formatDate, formatDateTime } from "@/lib/format";
+import { useResource } from "@/lib/api/use-resource";
 
 /** verified: security/restrictions.py end_restriction callers (+ unblock.py reverify reasons). */
 const END_REASON: Record<string, string> = {

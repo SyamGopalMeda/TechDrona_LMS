@@ -2,12 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Badge, Button, Card, Dialog, EmptyState, ErrorState, FormField, Input, LinkButton, Select, useToast } from "@/components/ui";
+import { Badge, Button, Card, Dialog, EmptyState, ErrorState, FormField, Input, LinkButton, LoadingBlock, Select, useToast } from "@/components/ui";
 import { isApiError } from "@/lib/api/errors";
 import { useTeachingQuery, useTrainerBatches } from "@/features/trainer/lib/batches";
 import { useMyGrants } from "@/features/trainer/shared/grants";
 import { useApi } from "@/features/trainer/shared/use-api";
-import { LoadingBlock, StatusBadge, fieldErrorsOf, useFailToast } from "@/features/trainer/shared/ui";
+import { StatusBadge, fieldErrorsOf, useFailToast } from "@/features/trainer/shared/ui";
 import { isStructured, staffApi } from "./api";
 import type { StaffAssignmentRow } from "./types";
 
@@ -155,7 +155,7 @@ export function AssignmentManagerList() {
           <ErrorState error={list.error} onRetry={() => void list.reload()} />
         )
       ) : list.loading && !list.data ? (
-        <LoadingBlock rows={3} />
+        <LoadingBlock rows={3} label="Loading" size="row" />
       ) : rows.length === 0 ? (
         <EmptyState
           title={search ? "No assignments match" : "No structured assignments yet"}

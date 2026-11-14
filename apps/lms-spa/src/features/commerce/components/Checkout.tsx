@@ -6,15 +6,16 @@ import { Button, Card, EmptyState, ErrorState, FormField, Input, PageHeader, Sel
 import { PLANS_HREF } from "@/lib/site/website";
 import { api } from "@/lib/api/client";
 import { isApiError } from "@/lib/api/errors";
-import { formatDate, formatMoney } from "@/features/catalog/lib/format";
+import { formatMoney } from "@/features/catalog/lib/format";
 import { NOTICE_VERSION } from "@/features/auth/lib/consents";
 import type { Paged, PlanDto, PriceDto, ProductDto } from "@/features/catalog/lib/types";
-import { useResource } from "@/features/learning/lib/use-resource";
 import type { PayableOrder } from "../lib/payment-provider";
 import { GST_STATES, GSTIN_PATTERN } from "../lib/states";
 import type { OrderBody, OrderDto, OwnershipNotice, QuoteBody, QuoteDto, SubscriptionBody, SubscriptionCheckoutDto } from "../lib/types";
 import { PaymentStep } from "./PaymentStep";
 import { SubscriptionPaymentStep } from "./SubscriptionPaymentStep";
+import { formatDate } from "@/lib/format";
+import { useResource } from "@/lib/api/use-resource";
 
 const COUPON_COPY: Record<string, string> = {
   applicable: "Coupon applied.",

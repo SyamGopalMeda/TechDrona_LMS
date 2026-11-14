@@ -27,9 +27,9 @@ import {
   StatusBadge,
   TextArea,
   fieldErrorsOf,
-  formatDateTime,
   useFailToast,
 } from "../shared/ui";
+import { formatDateTime } from "@/lib/format";
 
 const OUTCOMES: {
   value: IntegrityOutcome;

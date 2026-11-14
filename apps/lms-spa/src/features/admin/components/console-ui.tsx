@@ -3,7 +3,8 @@
 import { useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Button, Dialog, FormField, InlineProblem, KeyValueList, Select, StatusBadge } from "@/components/ui";
 import type { ApprovalPending } from "@/lib/api/client";
-import { cellText, formatCountdown, formatDateTime, humanize, type MutationOutcome } from "../lib/console";
+import { cellText, humanize, type MutationOutcome } from "../lib/console";
+import { formatDateTime, formatTimeUntil } from "@/lib/format";
 
 /* ------------------------------------------------------------ InlineProblem */
 
@@ -22,7 +23,7 @@ export function ApprovalPendingNotice({ approval, title = "Waiting for a second 
       </p>
       <p className="mt-0.5 text-fg-secondary">
         {approval.required_approver_role ? `Another ${humanize(approval.required_approver_role).toLowerCase()} must approve this. ` : "Another approver must approve this. "}
-        {approval.expires_at ? `Expires ${formatCountdown(approval.expires_at)} (${formatDateTime(approval.expires_at)}).` : "Requests expire after 72 h."}
+        {approval.expires_at ? `Expires ${formatTimeUntil(approval.expires_at)} (${formatDateTime(approval.expires_at)}).` : "Requests expire after 72 h."}
       </p>
       <p className="mt-1 text-xs text-fg-muted">
         Approval request <span className="select-all font-mono">{approval.approval_request_id}</span>

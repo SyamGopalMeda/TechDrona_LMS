@@ -5,10 +5,11 @@ import { Button, Dialog, FormField, Input, LoadingBlock, PageHeader, Pagination,
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { ActionDialog, ConfirmDialog, FilterBar, InlineProblem, StateBadge, TextArea, ValueSummary } from "@/features/admin/components/console-ui";
-import { cleanQuery, formatDateTime, humanize, toOutcome, useCursorList } from "@/features/admin/lib/console";
+import { cleanQuery, humanize, toOutcome, useCursorList } from "@/features/admin/lib/console";
 import { staffRef } from "../lib/ids";
 import type { RuleRow, RuleVersion } from "../lib/types";
-import { istLocalToIso } from "./Incidents";
+import { formatDateTime } from "@/lib/format";
+import { istLocalToIso } from "@/lib/time";
 
 const SHADOW_DAYS = 14;
 
@@ -17,7 +18,6 @@ function shadowDays(v: RuleVersion): number | null {
   const t = Date.parse(v.shadow_started_at);
   return Number.isNaN(t) ? null : Math.floor((Date.now() - t) / 86_400_000);
 }
-
 
 /** Rule catalogue (SEC-22) and versions (SEC-23..29): propose, simulate, shadow, activate (two-person approval). */
 export function RuleVersions() {

@@ -39,10 +39,6 @@ export function redirect(url: string, type?: RedirectType): never {
   throw new RedirectError(url, type !== RedirectType.push);
 }
 
-export function permanentRedirect(url: string, type?: RedirectType): never {
-  throw new RedirectError(url, type !== RedirectType.push);
-}
-
 export function notFound(): never {
   throw new NotFoundError();
 }
@@ -142,12 +138,4 @@ export function toNextParams(params: Record<string, string | undefined>, catchAl
     } else out[k] = v;
   }
   return out;
-}
-
-export function useSelectedLayoutSegment(): string | null {
-  return null;
-}
-
-export function useSelectedLayoutSegments(): string[] {
-  return [];
 }

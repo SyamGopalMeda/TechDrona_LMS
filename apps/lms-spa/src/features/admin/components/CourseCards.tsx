@@ -4,9 +4,10 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { buttonClasses } from "@/components/ui/Button";
 import { Badge, Card, EmptyState, ErrorState, Icon, LoadingBlock, PageHeader, ViewAllLink, type BadgeTone, type IconName } from "@/components/ui";
-import { useResource } from "@/features/account/lib/use-resource";
 import { cn } from "@/lib/ui/cn";
-import { formatDate } from "../lib/console";
+import { useResource } from "@/lib/api/use-resource";
+import { formatDate } from "@/lib/format";
+import { todayIST } from "@/lib/time";
 
 /* ------------------------------------------------------------------ API types */
 
@@ -56,11 +57,6 @@ export const COURSE_GROUPS: { key: CourseGroup; title: string; description: stri
   { key: "draft", title: "Draft", description: "Not published yet. Finish them in the content studio.", tone: "warning", label: "Draft" },
   { key: "completed", title: "Completed", description: "Every batch has finished, or the course is archived.", tone: "neutral", label: "Completed" },
 ];
-
-/** Today's date (YYYY-MM-DD) in India time, the zone batch dates are planned in. */
-export function todayIST(now: Date = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-}
 
 const ended = (b: OverviewBatch, today: string) => b.status === "completed" || b.status === "archived" || (!!b.ends_on && b.ends_on < today);
 const notStarted = (b: OverviewBatch, today: string) => !ended(b, today) && !!b.starts_on && b.starts_on > today;

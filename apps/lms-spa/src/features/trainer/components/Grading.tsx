@@ -3,22 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  Badge,
-  Button,
-  Card,
-  Checkbox,
-  Dialog,
-  EmptyState,
-  ErrorState,
-  FormField,
-  Input,
-  LinkButton,
-  PageHeader,
-  Select,
-  Table,
-  useToast,
-} from "@/components/ui";
+import { Badge, Button, Card, Checkbox, Dialog, EmptyState, ErrorState, FormField, Input, LinkButton, LoadingBlock, PageHeader, Select, Table, useToast } from "@/components/ui";
 import { api, type Page } from "@/lib/api/client";
 import { isApiError } from "@/lib/api/errors";
 import type { Body } from "@/lib/api-types";
@@ -28,14 +13,13 @@ import { useApi, seg, type SendBody } from "../shared/use-api";
 import { useGradingBase } from "../shared/portal-base";
 import { isStructured } from "@/features/learning/assignment-manager/api";
 import {
-  LoadingBlock,
   StatusBadge,
   fieldErrorsOf,
-  formatDateTime,
-  localInputToIso,
   safeExternalUrl,
   useFailToast,
 } from "../shared/ui";
+import { formatDateTime } from "@/lib/format";
+import { localInputToIso } from "@/lib/time";
 
 /** "Due 12 Nov 2026, 10:00" for the queue; "No due date" when unset. */
 function dueText(iso: string | null | undefined): string {
@@ -456,7 +440,7 @@ function CodeSubmissionPanel({ id }: { id: string }) {
       <ErrorState error={code.error} onRetry={() => void code.reload()} />
     );
   if (code.loading || !code.data)
-    return <LoadingBlock rows={2} label="Loading code" />;
+    return <LoadingBlock rows={2} label="Loading code" size="row" />;
   const c = code.data;
   return (
     <div className="space-y-2">
@@ -1065,7 +1049,7 @@ export function GradeSubmission({
     return (
       <>
         {header}
-        <LoadingBlock />
+        <LoadingBlock label="Loading" size="row" />
       </>
     );
   const sub = submission.data;

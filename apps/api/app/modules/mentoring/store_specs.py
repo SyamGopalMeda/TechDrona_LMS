@@ -21,7 +21,7 @@ from typing import Any
 from app.core.firestore.backfill import TableMapping, register_mapping
 from app.core.firestore.collections import CollectionSpec, register_collection
 from app.core.firestore.ids import compose_id
-from app.modules.mentoring.fs_rows import doc_mapper
+from app.core.firestore.rows import doc_mapper
 from app.modules.mentoring.models import Resume
 
 MODULE = "mentoring"

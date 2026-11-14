@@ -347,14 +347,6 @@ async def active_factors(session: AsyncSession, user_id: uuid.UUID) -> list[MfaF
     return await _af(session, user_id)
 
 
-async def add_factor(session: AsyncSession, f: MfaFactor) -> MfaFactor:
-    if _fs():
-        return await _repo().save_factor(f)
-    session.add(f)
-    await session.flush()
-    return f
-
-
 async def save_factor(session: AsyncSession, f: MfaFactor) -> MfaFactor:
     if _fs():
         return await _repo().save_factor(f)

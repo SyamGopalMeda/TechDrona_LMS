@@ -3,7 +3,7 @@
 **Data path only**: collections, mappers, backfill, verify and indexes. No repository or
 dispatch yet, so the switch must stay ``postgres``. The judge is untouched (fake/demo provider).
 
-One document per row (``coding.fsmap``), physical names ``lms_<table>``:
+One document per row (``core.firestore.rows`` "scaled" codec), physical names ``lms_<table>``:
 
 * TN: ``coding_problems``, ``coding_test_cases``, ``coding_test_case_blobs``,
   ``coding_reference_solutions/{problem_id:language_key}`` (``ux_crs_problem_lang``),
@@ -42,7 +42,8 @@ from typing import Any
 from app.core.firestore.backfill import Row, TableMapping, register_mapping
 from app.core.firestore.collections import CollectionSpec, register_collection
 from app.core.firestore.ids import compose_id
-from app.modules.coding.fsmap import orm_doc, orm_of, register_table, row_doc
+from app.core.firestore.rows import orm_doc, register_table, row_doc
+from app.core.firestore.rows import orm_of_scaled as orm_of
 from app.modules.coding.models import (
     CodeSubmission,
     CodingDraft,

@@ -15,10 +15,10 @@ from typing import Any
 from app.core.errors import ProblemError
 from app.core.firestore.errors import UniqueViolationError
 from app.core.firestore.repository import FirestoreRepository, platform_only
+from app.core.firestore.rows import doc_of, orm_of
 from app.core.firestore.store import Doc, ScopedStore, ScopedTransaction
 from app.core.time import utcnow
 from app.modules.mentoring import store_specs as ss
-from app.modules.mentoring.fs_rows import doc_of, orm_of
 from app.modules.mentoring.models import Resume
 
 # ``@platform_only`` marker for reads by id (the service checks ownership); the repository always

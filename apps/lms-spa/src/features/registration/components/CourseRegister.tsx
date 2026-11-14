@@ -6,7 +6,6 @@ import { Checkbox, EmptyState, ErrorState, FormField, Icon, Input, LoadingBlock,
 import { buttonClasses } from "@/components/ui/Button";
 import { api } from "@/lib/api/client";
 import { isApiError } from "@/lib/api/errors";
-import { useResource } from "@/features/account/lib/use-resource";
 import {
   CLAIM_PATH,
   MY_REGISTRATIONS_HREF,
@@ -33,6 +32,7 @@ import {
 import { PayAndUpload, RegistrationStep } from "./PayAndUpload";
 import { CopyButton, PaymentNotConfigured } from "./PaymentPanel";
 import { RegistrationStatus } from "./RegistrationStatus";
+import { useResource } from "@/lib/api/use-resource";
 
 /** "student": signed-in, /me/admissions/* (prefilled from the account). "public": no account, /public/admissions/*. */
 export type RegisterMode = "student" | "public";

@@ -2,16 +2,17 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Card, DashboardHero, EmptyState, ErrorState, PageHeader, QuickActions, Reveal, SectionHeader, StatGrid, StatTile, Table, ViewAllLink, type QuickAction } from "@/components/ui";
+import { Card, DashboardHero, EmptyState, ErrorState, LoadingBlock, PageHeader, type QuickAction, QuickActions, Reveal, SectionHeader, StatGrid, StatTile, Table, ViewAllLink } from "@/components/ui";
 import type { Page } from "@/lib/api/client";
 import type { AssignmentSummary } from "../lib/types";
 import type { Batch } from "@/features/batches/lib/types";
 import { useTeachingQuery, useTrainerBatches } from "../lib/batches";
 import { seg, useApi } from "../shared/use-api";
-import { LoadingBlock, StatusBadge, formatDate } from "../shared/ui";
+import { StatusBadge } from "../shared/ui";
 import { GradingBacklog, LiveTests } from "./Insights";
 import { useOpenFlagCount } from "./Integrity";
 import { TestsList } from "./TestsList";
+import { formatDate } from "@/lib/format";
 
 /** Advisory flags tile (ASM-19, status=open). Hidden counts when the trainer lacks integrity.flag.read. */
 function OpenFlags() {
@@ -92,7 +93,7 @@ export function TrainerDashboard() {
     return (
       <>
         <DashboardHero {...HERO} />
-        <LoadingBlock rows={4} label="Loading your batches" />
+        <LoadingBlock rows={4} label="Loading your batches" size="row" />
       </>
     );
   if (batches.length === 0)
@@ -195,7 +196,7 @@ export function TrainerTests() {
     return (
       <>
         {head()}
-        <LoadingBlock rows={4} />
+        <LoadingBlock rows={4} label="Loading" size="row" />
       </>
     );
   return (

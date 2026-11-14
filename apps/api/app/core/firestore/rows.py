@@ -3,14 +3,14 @@
 Two codec families exist in the migrated modules and they store values DIFFERENTLY, so both are
 kept verbatim (a module must keep the family its backfilled documents were written with):
 
-**Family "json"** -- copies: ``learning/fs_rows.py``, ``engage/fs_rows.py``, ``mentoring/fs_rows.py``.
+**Family "json"** -- used by learning, engage and mentoring.
 ``encode`` / ``decode`` / ``doc_mapper`` / ``doc_of`` / ``orm_of`` / ``as_dt`` / ``as_uuid``:
 
 * UUID -> str; ``ARRAY(uuid)`` -> list[str]; ``Numeric`` -> str (unscaled, ``Decimal(str)``)
 * ``LargeBinary`` -> **hex** str; ``Date`` -> ISO str; tz-aware ``DateTime`` -> UTC timestamp
 * JSONB as is, except a list directly inside a list is wrapped as ``{"$l": [...]}``.
 
-**Family "scaled"** -- copies: ``placement/fsmap.py``, ``coding/fsmap.py``.
+**Family "scaled"** -- used by placement, assessments and coding.
 ``to_doc_value`` / ``from_doc_value`` / ``row_doc`` / ``orm_doc`` / ``orm_of_scaled`` / ``pk_id`` /
 ``register_table`` (backfill ``TableMapping`` registration):
 
@@ -20,8 +20,9 @@ kept verbatim (a module must keep the family its backfilled documents were writt
 
 (``admin/fs_rows.py`` has its own ``FsRow`` class model and is not covered here.)
 
-The module copies are unchanged; owners switch to ``from app.core.firestore import rows`` later.
-``tests/platform/test_rows.py`` checks that every copy still encodes exactly like this module.
+The per-module copies (``{learning,engage,mentoring}/fs_rows.py``, ``{placement,coding}/fsmap.py``)
+were merged here on 2026-11-14; the stored document format is unchanged
+(``tests/platform/test_rows.py`` pins it).
 """
 
 from __future__ import annotations

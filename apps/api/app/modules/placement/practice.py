@@ -669,12 +669,6 @@ async def _topics(session: AsyncSession, ids: set[uuid.UUID]) -> list[Topic]:
     return list((await session.execute(select(Topic).where(Topic.id.in_(list(ids))))).scalars())
 
 
-async def _all_topics(session: AsyncSession) -> list[Topic]:
-    if _fs():
-        return await (await _repo(session)).all_topics()
-    return list((await session.execute(select(Topic))).scalars())
-
-
 # --------------------------------------------------------------------------- recommendations v1
 
 

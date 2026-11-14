@@ -1,15 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button, Card, Checkbox, Dialog, ErrorState, FormField, LinkButton, PageHeader, StatGrid, StatTile, StatusBadge, Table, useToast } from "@/components/ui";
-import { formatDateTime } from "@/features/catalog/lib/format";
+import { Badge, Button, Card, Checkbox, Dialog, ErrorState, FormField, LinkButton, LoadingBlock, PageHeader, StatGrid, StatTile, StatusBadge, Table, useToast } from "@/components/ui";
 import { useApi } from "@/features/trainer/shared/use-api";
 import { useGradingBase } from "@/features/trainer/shared/portal-base";
-import { LoadingBlock, TextArea, useFailToast } from "@/features/trainer/shared/ui";
+import { TextArea, useFailToast } from "@/features/trainer/shared/ui";
 import { fmtMarks, staffApi } from "./api";
 import { ReviewModal } from "./ReviewModal";
 import { AiNotIntegratedNotice } from "@/features/studio/components/NotIntegrated";
 import type { EvaluationOut, EvaluationRow, RegradeOut } from "./types";
+import { formatDateTime } from "@/lib/format";
 
 /** Flag badges for one learner row (late, extension, regrade, AI help). */
 export function rowFlags(r: EvaluationRow): string[] {
@@ -55,7 +55,7 @@ function RegradePanel({ assignmentId, onChanged }: { assignmentId: string; onCha
       {list.error ? (
         <ErrorState error={list.error} onRetry={() => void list.reload()} />
       ) : list.loading && !list.data ? (
-        <LoadingBlock rows={1} />
+        <LoadingBlock rows={1} label="Loading" size="row" />
       ) : rows.length === 0 ? (
         <p className="text-sm text-fg-muted">No open requests.</p>
       ) : (
@@ -63,7 +63,7 @@ function RegradePanel({ assignmentId, onChanged }: { assignmentId: string; onCha
           {rows.map((r) => (
             <li key={r.id} className="rounded-lg border border-line p-3">
               <p className="text-sm font-medium text-fg">
-                {r.learner_name ?? "Learner"} <span className="font-normal text-fg-muted">· {formatDateTime(r.created_at)}</span>
+                {r.learner_name ?? "Learner"} <span className="font-normal text-fg-muted">· {formatDateTime(r.created_at, { year: true })}</span>
               </p>
               <p className="mt-1 whitespace-pre-wrap text-sm text-fg-secondary">{r.reason}</p>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -152,7 +152,7 @@ export function EvaluationView({ assignmentId }: { assignmentId: string }) {
     return (
       <>
         <PageHeader title="Evaluate assignment" breadcrumbs={[...crumbs, { label: "Evaluate assignment" }]} />
-        <LoadingBlock rows={4} />
+        <LoadingBlock rows={4} label="Loading" size="row" />
       </>
     );
   const d = ev.data;
@@ -264,7 +264,7 @@ export function EvaluationView({ assignmentId }: { assignmentId: string }) {
                 </p>
                 <p className="text-xs text-fg-muted">
                   {r.finalized ? "Finalized" : "Not finalized"}
-                  {r.submitted_at ? ` · ${formatDateTime(r.submitted_at)}` : ""}
+                  {r.submitted_at ? ` · ${formatDateTime(r.submitted_at, { year: true })}` : ""}
                 </p>
               </div>
             ),

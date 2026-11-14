@@ -2,18 +2,19 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Button, Card, ErrorState, PageHeader, SectionHeader, StatusBadge, useToast } from "@/components/ui";
+import { Button, Card, ErrorState, LoadingBlock, PageHeader, SectionHeader, StatusBadge, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { isApiError } from "@/lib/api/errors";
 import { CourseAccess } from "@/features/catalog/components/CourseAccess";
 import { accessOptionsForCourse } from "@/features/catalog/lib/products";
 import type { CourseDetailDto, Paged, ProductDto } from "@/features/catalog/lib/types";
-import { formatDate, formatDuration, humanize } from "@/features/catalog/lib/format";
+import { formatDuration, humanize } from "@/features/catalog/lib/format";
 import { LinkButton, ProgressBar } from "@/features/catalog/components/LinkButton";
 import { lessonHref, useEnrolledCourse } from "../lib/use-course";
-import { useResource } from "../lib/use-resource";
 import type { CourseLessonRef } from "../lib/types";
-import { ContentErrorState, LoadingBlock } from "./States";
+import { ContentErrorState } from "./States";
+import { formatDate } from "@/lib/format";
+import { useResource } from "@/lib/api/use-resource";
 
 export function LessonStatusIcon({ lesson }: { lesson: Pick<CourseLessonRef, "status"> }) {
   if (lesson.status === "completed") return <span aria-label="Completed" className="text-success-fg">✓</span>;
@@ -35,7 +36,7 @@ export function CourseOverview({ slug }: { slug: string }) {
     return <NotEnrolledCourse course={catalog.data} onEnrolled={() => void course.reload()} />;
   if (course.error) return <ContentErrorState error={course.error} onRetry={course.reload} />;
   const c = course.data;
-  if (!c) return <LoadingBlock label="Loading course" rows={4} />;
+  if (!c) return <LoadingBlock label="Loading course" rows={4} size="card" />;
 
   const first = c.modules.flatMap((m) => m.lessons)[0];
   const next = c.next_lesson?.lesson_id ?? first?.id ?? null;
@@ -168,7 +169,7 @@ export function NotEnrolledCourse({ course, onEnrolled }: { course: CourseDetail
             {paid ? "You're not enrolled in this course yet. Choose an option below, or start it if your plan or batch already includes it." : "You're not enrolled yet. Enrol for free to start learning and track your progress."}
           </p>
           {paid && products.loading && !products.data ? (
-            <LoadingBlock label="Loading prices" rows={1} />
+            <LoadingBlock label="Loading prices" rows={1} size="card" />
           ) : (
             <CourseAccess course={{ ...course, refund_rule: refundRule, access_options: options }} signedIn onEnrolled={onEnrolled} />
           )}

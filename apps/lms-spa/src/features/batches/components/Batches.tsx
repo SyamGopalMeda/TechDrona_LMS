@@ -6,17 +6,16 @@ import { useMemo, useState } from "react";
 import { Button, Card, Dialog, FilterBar, FormField, Input, PageHeader, SectionHeader, Select, StatGrid, StatTile, Table, Tabs, useToast, type Crumb, type TabItem } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { useApi, seg, type ApiState } from "@/features/trainer/shared/use-api";
-import { Boundary, StatusBadge, fieldErrorsOf, formatDate, useFailToast } from "@/features/trainer/shared/ui";
+import { Boundary, StatusBadge, fieldErrorsOf, useFailToast } from "@/features/trainer/shared/ui";
 import { AddMemberDialog, BatchActions, BatchStaff, MemberActionDialog } from "./BatchManage";
 import { BatchPlan } from "./BatchPlan";
 import { ClassesAttendance } from "./ClassesAttendance";
 import { LessonFunnelView, ProgressDistributionView } from "@/features/trainer/shared/report-sections";
 import type { Batch, BatchCreateBody, BatchMember, BatchReport } from "../lib/types";
+import { formatDate } from "@/lib/format";
+import { todayIST } from "@/lib/time";
 
 const BATCH_STATUSES = ["planned", "active", "completed", "archived"];
-
-/** Today as YYYY-MM-DD in IST (batch dates are IST calendar days). */
-const istToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
 
 /**
  * Admin batch (cohort) list + create (single-company plan §3, ADM-013). Renders the page header so
@@ -190,7 +189,7 @@ function CreateBatchDialog({ open, onClose, onCreated }: { open: boolean; onClos
               value={f.status}
               onChange={set("status")}
               options={[
-                { value: "", label: f.starts_on && f.starts_on > istToday() ? "Automatic (planned — starts later)" : "Automatic (active)" },
+                { value: "", label: f.starts_on && f.starts_on > todayIST() ? "Automatic (planned — starts later)" : "Automatic (active)" },
                 { value: "planned", label: "Planned" },
                 { value: "active", label: "Active" },
               ]}

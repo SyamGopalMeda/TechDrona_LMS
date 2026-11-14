@@ -23,7 +23,6 @@ import json
 import re
 import secrets
 from dataclasses import dataclass, field
-from datetime import datetime
 from functools import lru_cache
 from typing import Any, Protocol
 
@@ -299,9 +298,3 @@ def get_scanner() -> MalwareScanner:
     if s.S3_KMS_KEY_ID == "local" and not s.is_production:
         return FakeMalwareScanner()
     return GuardDutyScanner()
-
-
-def otp_expiry(now: datetime, ttl_seconds: int) -> datetime:
-    from datetime import timedelta
-
-    return now + timedelta(seconds=ttl_seconds)

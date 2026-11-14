@@ -93,15 +93,6 @@ async def get_topic(session: AsyncSession, topic_id: uuid.UUID) -> Topic:
     return t
 
 
-async def subtree_ids(session: AsyncSession, topic: Topic) -> list[uuid.UUID]:
-    if _fs():
-        return [t.id for t in await (await _repo(session)).subtree(topic.path)]
-    rows = await session.execute(
-        select(Topic.id).where(or_(Topic.id == topic.id, Topic.path.like(topic.path + "/%")))
-    )
-    return list(rows.scalars())
-
-
 async def subject_tree(session: AsyncSession, *, include_inactive: bool = False) -> list[dict[str, Any]]:
     """PLC-01: active taxonomy with published-question counts (visible bank only).
 

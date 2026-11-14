@@ -5,10 +5,11 @@ import { useRef, useState, type FormEvent } from "react";
 import { Button, FormField } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import { formatCountdown, retryAfterSeconds, toFormError, type FormErrorInfo } from "../lib/errors";
+import { retryAfterSeconds, toFormError, type FormErrorInfo } from "../lib/errors";
 import type { OtpSentResponse } from "../lib/types";
 import { FormAlert, Notice, OtpInput, useCountdown } from "./shared";
 import { ServiceNotIntegrated } from "@/components/shell/Integrations";
+import { formatCountdown } from "@/lib/format";
 
 /**
  * PUB-014 · AUTH-02. The link token is consumed only after an explicit click, so mail
@@ -107,7 +108,7 @@ export function VerifyMobile() {
       setError({ title: "That code has expired", detail: "Send a new code and try again.", requestId: err.requestId, code: err.code });
     } else if (err instanceof ApiError && (err.code === "otp_send_limited" || err.code === "otp_attempts_exceeded")) {
       const s = retryAfterSeconds(err);
-      setError({ title: err.title, detail: s ? `Try again in ${formatCountdown(s)}.` : err.detail, requestId: err.requestId, code: err.code });
+      setError({ title: err.title, detail: s ? `Try again in ${formatCountdown(s, "short")}.` : err.detail, requestId: err.requestId, code: err.code });
     } else setError(toFormError(err));
     setTimeout(() => alertRef.current?.focus(), 0);
   };
@@ -168,7 +169,7 @@ export function VerifyMobile() {
         <p className="text-sm text-fg-secondary">We&apos;ll send a 6-digit code by SMS to the mobile number on your account.</p>
       )}
       <Button variant={sentTo ? "ghost" : "primary"} loading={busy === "send"} disabled={resendIn > 0 || busy !== null} onClick={send}>
-        {sentTo ? (resendIn > 0 ? `Resend code in ${formatCountdown(resendIn)}` : "Resend code") : "Send code"}
+        {sentTo ? (resendIn > 0 ? `Resend code in ${formatCountdown(resendIn, "short")}` : "Resend code") : "Send code"}
       </Button>
       {sentTo ? (
         <>

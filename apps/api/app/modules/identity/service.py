@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any, Literal
 
 from sqlalchemy import select, update
@@ -506,7 +506,3 @@ async def mfa_failures_recent(session: AsyncSession, user_id: uuid.UUID, minutes
         session, since=clock.now() - timedelta(minutes=minutes), user_id=user_id, outcomes=["mfa_failed"]
     )
     return len(rows)
-
-
-def utc_date(dt: datetime) -> date:
-    return dt.date()

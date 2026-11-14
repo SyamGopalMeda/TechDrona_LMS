@@ -27,9 +27,8 @@ import {
 } from "@/components/ui";
 import { api, apiRequestRaw } from "@/lib/api/client";
 import { cn } from "@/lib/ui/cn";
-import { useResource } from "@/features/account/lib/use-resource";
 import { ActionDialog, FilterBar, InlineProblem, textLink } from "@/features/admin/components/console-ui";
-import { cleanQuery, formatDate, formatDateTime, formatINR, humanize, toOutcome, useCursorList } from "@/features/admin/lib/console";
+import { cleanQuery, formatINR, humanize, toOutcome, useCursorList } from "@/features/admin/lib/console";
 import {
   CLAIM_LABEL,
   METHOD_LABEL,
@@ -58,6 +57,8 @@ import {
 import { useIntegrations } from "@/components/shell/Integrations";
 import { CourseStatusSection } from "./CourseStatus";
 import { LoginDetailsDialog, SendLoginEmailDialog, type LoginTarget } from "./LoginDetails";
+import { useResource } from "@/lib/api/use-resource";
+import { formatDate, formatDateTime } from "@/lib/format";
 
 /**
  * Admin > Admissions: registrations, instalment fees and manual UPI payment verification moved

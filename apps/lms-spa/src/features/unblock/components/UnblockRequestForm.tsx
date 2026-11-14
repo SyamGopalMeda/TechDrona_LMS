@@ -7,14 +7,14 @@ import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { uuid7 } from "@/lib/ids/uuid7";
 import { ErrorSummary, FormAlert, Notice, ReferenceChip } from "@/features/auth/components/shared";
-import { formatCountdown, problemFieldErrors, retryAfterSeconds, toFormError, type FormErrorInfo } from "@/features/auth/lib/errors";
-import { formatDate, formatRelative } from "@/features/auth/lib/format";
+import { problemFieldErrors, retryAfterSeconds, toFormError, type FormErrorInfo } from "@/features/auth/lib/errors";
 import { deviceName, type DevicesResponse, type Me } from "@/features/account/lib/types";
-import { useResource } from "@/features/account/lib/use-resource";
 import { DECLARATION, EXPLANATION_MAX, EXPLANATION_MIN, NO_SECRETS_HINT, SEC_REF, WHAT_HAPPENED, looksLikeSecret } from "../lib/copy";
 import { clearDraft, loadDraft, saveDraft } from "../lib/draft";
 import type { SecurityStatus, UnblockCreateBody, UnblockCreated } from "../lib/types";
 import { UnblockStatusCard } from "./UnblockStatus";
+import { formatCountdown, formatDate, formatRelative } from "@/lib/format";
+import { useResource } from "@/lib/api/use-resource";
 
 type Field = "what_happened" | "explanation" | "devices" | "preferred_contact" | "declaration";
 type Contact = "in_app" | "email" | "sms";
@@ -188,7 +188,7 @@ function RequestForm({ caseRef, devices, me }: { caseRef: string; devices: Devic
         setErrors({ explanation: NO_SECRETS_HINT });
       } else if (err instanceof ApiError && err.code === "unblock_rate_limited") {
         const s = retryAfterSeconds(err);
-        setError({ title: "You can send 3 requests in 30 days", detail: s ? `Next available in ${formatCountdown(s)}.` : err.detail, requestId: err.requestId, code: err.code });
+        setError({ title: "You can send 3 requests in 30 days", detail: s ? `Next available in ${formatCountdown(s, "short")}.` : err.detail, requestId: err.requestId, code: err.code });
       } else {
         const f = problemFieldErrors(err);
         const mapped: Partial<Record<Field, string>> = {};
@@ -325,7 +325,6 @@ function RequestForm({ caseRef, devices, me }: { caseRef: string; devices: Devic
         />
         {fieldError("devices")}
       </fieldset>
-
 
       <fieldset className="space-y-2" aria-describedby={[`${base}-contact-hint`, errorId("preferred_contact")].filter(Boolean).join(" ")}>
         <legend className="text-sm font-medium text-fg">

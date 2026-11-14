@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { EmptyState, ErrorState, LoadingBlock, PageHeader, SectionHeader, StatGrid, StatTile, statusLabel } from "@/components/ui";
 import { textLink } from "@/features/admin/components/console-ui";
-import { useResource } from "@/features/account/lib/use-resource";
 import { SECTION_H_REPORTS } from "../lib/catalogue";
 import type { SecurityDashboardData } from "../lib/types";
 import { EngineControls } from "./EngineControls";
 import { levelText, toLevel } from "./RiskLevel";
+import { useResource } from "@/lib/api/use-resource";
 
 const n = (v: number | undefined) => (typeof v === "number" ? v.toLocaleString("en-IN") : "0");
 

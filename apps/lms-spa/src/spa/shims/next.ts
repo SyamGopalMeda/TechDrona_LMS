@@ -23,10 +23,6 @@ export interface Viewport {
   [key: string]: unknown;
 }
 
-export interface ResolvingMetadata {
-  title?: MetadataTitle;
-}
-
 // eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace MetadataRoute {
   export interface Manifest {
@@ -39,10 +35,4 @@ export namespace MetadataRoute {
     icons?: { src: string; sizes?: string; type?: string; purpose?: string }[];
     [key: string]: unknown;
   }
-  export interface Robots {
-    rules: { userAgent?: string | string[]; allow?: string | string[]; disallow?: string | string[]; crawlDelay?: number }[] | { userAgent?: string | string[]; allow?: string | string[]; disallow?: string | string[] };
-    sitemap?: string | string[];
-    host?: string;
-  }
-  export type Sitemap = { url: string; lastModified?: string | Date; changeFrequency?: string; priority?: number }[];
 }

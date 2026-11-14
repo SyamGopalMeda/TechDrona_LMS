@@ -131,7 +131,6 @@ export const registerHref = (slug: string) => `/app/courses/${encodeURIComponent
 export const MY_REGISTRATIONS_HREF = "/app/registrations";
 
 /* Public (no account) registration. */
-export const COURSE_STATUS_PATH = "public/courses/status";
 export const publicPlanPath = (slug: string) => `public/admissions/plans/${encodeURIComponent(slug)}`;
 export const PUBLIC_REGISTER_PATH = "public/admissions/registrations";
 export const PUBLIC_STATUS_PATH = "public/admissions/status";
@@ -273,11 +272,6 @@ const REG_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I (api rule
 /** A registration number made in the browser so it can be the payment note before submitting. */
 export function newRegNo(rand: (n: number) => Uint8Array = (n) => crypto.getRandomValues(new Uint8Array(n))): string {
   return `TDR-${Array.from(rand(8), (b) => REG_ALPHABET[b % REG_ALPHABET.length]).join("")}`;
-}
-
-/** Today's date in India (YYYY-MM-DD), the default payment date. */
-export function todayIST(now: Date = new Date()): string {
-  return new Date(now.getTime() + 330 * 60_000).toISOString().slice(0, 10);
 }
 
 /** What is wrong with a UPI / bank reference (same rules as the api, rules.ref_problem). */

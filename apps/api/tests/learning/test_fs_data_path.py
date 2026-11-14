@@ -122,11 +122,11 @@ async def test_backfill_verify_every_collection(fs: Any, monkeypatch: pytest.Mon
 
 
 async def test_documents_round_trip_to_orm(fs: Any, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    from app.core.firestore.rows import orm_of
     from app.core.firestore.store import ScopedStore
     from app.modules.learning import models as m
     from app.modules.learning import store_specs as ss
     from app.modules.learning.doc_models import IssuedDocument
-    from app.modules.learning.fs_rows import orm_of
 
     w = world()
     await backfill_rows(monkeypatch, "learning", w, fs)

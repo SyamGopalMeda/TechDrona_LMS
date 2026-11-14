@@ -157,9 +157,6 @@ async def test_public_api_for_other_modules(http: Any) -> None:
         )
     )
     S: Any = None
-    assert await rbac_public.pending_approval_ids_by_target(
-        S, action_type="commerce.coupon.activate", target_type="coupon", target_ids=[coupon, uuid7()]
-    ) == {coupon: req.id}
     assert set(await rbac_public.get_approvals(S, [req.id])) == {req.id}
     perms = await rbac_public.role_permission_map(S)
     assert "approval.decide" in perms["super_admin"]

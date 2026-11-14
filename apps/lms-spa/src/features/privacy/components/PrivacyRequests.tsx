@@ -4,9 +4,9 @@ import { useState } from "react";
 import { StatusBadge, Button, Card, Checkbox, Dialog, EmptyState, ErrorState, LoadingBlock, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { toFormError } from "@/features/auth/lib/errors";
-import { formatDate } from "@/features/auth/lib/format";
-import { useResource } from "@/features/account/lib/use-resource";
 import { OPEN_STATES, type PrivacyCreateBody, type PrivacyListResponse, type PrivacyRequest } from "../lib/types";
+import { formatDate } from "@/lib/format";
+import { useResource } from "@/lib/api/use-resource";
 
 const TYPE_LABEL: Record<string, string> = {
   access_export: "Download my data",

@@ -2,7 +2,7 @@
 
 import { EmptyState, LinkButton } from "@/components/ui";
 import type { CourseCardDto, Paged } from "@/features/catalog/lib/types";
-import { useResource } from "../lib/use-resource";
+import { useResource } from "@/lib/api/use-resource";
 
 export interface CoursesCta {
   /** Empty-state description under "no courses yet". */
@@ -35,7 +35,7 @@ export function coursesCta(courses: CourseCardDto[] | undefined): CoursesCta {
 
 /** `coursesCta` over the live catalogue (one small request; errors fall back to the neutral copy). */
 export function useCoursesCta(): CoursesCta {
-  const { data } = useResource<Paged<CourseCardDto>>("catalog/courses", { limit: 50 });
+  const { data } = useResource<Paged<CourseCardDto>>("catalog/courses", { query: { limit: 50 } });
   return coursesCta(data?.data);
 }
 

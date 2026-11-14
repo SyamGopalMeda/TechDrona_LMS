@@ -7,11 +7,11 @@ import { Button, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { toFormError, type FormErrorInfo } from "../lib/errors";
-import { formatRelative } from "../lib/format";
 import { defaultCapChoice, routeForLoginResult } from "../lib/login-flow";
 import { clearPendingLogin, readPendingLogin } from "../lib/pending-login";
 import type { CapSession, LoginResponse, SessionChoiceBody } from "../lib/types";
 import { FormAlert, Notice } from "./shared";
+import { formatRelative } from "@/lib/format";
 
 /** PUB-012 session-cap chooser for a `pending_session_choice` session · AUTH-14 (copy DS §9.4). */
 export function SessionChoice() {

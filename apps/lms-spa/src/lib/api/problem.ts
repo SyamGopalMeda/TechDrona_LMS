@@ -42,44 +42,8 @@ export interface ProblemDetails {
   [extension: string]: unknown;
 }
 
-export const PROBLEM_CONTENT_TYPE = "application/problem+json";
-
-export function problemType(code: string): string {
-  return `https://techdrona.in/problems/${code.replace(/_/g, "-")}`;
-}
-
 export function isProblemDetails(value: unknown): value is ProblemDetails {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   return typeof v.code === "string" && typeof v.status === "number" && typeof v.title === "string";
-}
-
-/** Build a problem+json Response (used by the BFF for its own refusals). */
-export function problemResponse(
-  status: number,
-  code: string,
-  title: string,
-  detail: string,
-  requestId: string,
-  extensions: Record<string, unknown> = {},
-  headers: Record<string, string> = {},
-): Response {
-  const body: ProblemDetails = {
-    type: problemType(code),
-    title,
-    status,
-    detail,
-    code,
-    request_id: requestId,
-    ...extensions,
-  };
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "content-type": PROBLEM_CONTENT_TYPE,
-      "cache-control": "no-store",
-      "x-request-id": requestId,
-      ...headers,
-    },
-  });
 }

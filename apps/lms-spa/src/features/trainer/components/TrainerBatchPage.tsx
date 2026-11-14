@@ -7,7 +7,7 @@ import { BatchPlan } from "@/features/batches/components/BatchPlan";
 import { ClassesAttendance } from "@/features/batches/components/ClassesAttendance";
 import type { Batch } from "@/features/batches/lib/types";
 import { seg, useApi } from "../shared/use-api";
-import { formatDate } from "../shared/ui";
+import { formatDate } from "@/lib/format";
 
 /**
  * TRN-002 batch page: the batch name is the h1, and progress is shown once (BatchDetail's

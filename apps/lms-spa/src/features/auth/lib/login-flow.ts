@@ -4,9 +4,6 @@ import { clearPendingLogin, writePendingLogin } from "./pending-login";
 import type { CapSession, LoginResponse } from "./types";
 import { safeNextPath } from "./validation";
 
-/** Module launcher (app/modules/page.tsx). */
-export const MODULES_HUB = "/modules";
-
 /**
  * Where staff land after a sign-in without a deep link: /continue resumes the page this browser
  * last had open and falls back to the module hub (app/continue/page.tsx).

@@ -66,11 +66,6 @@ async def _has_table(session: AsyncSession) -> bool:
     return _table_exists
 
 
-def reset_policy_cache() -> None:
-    global _table_exists
-    _table_exists = None
-
-
 async def get_policy(
     session: AsyncSession,
     key: str,

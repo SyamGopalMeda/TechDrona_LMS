@@ -16,9 +16,8 @@ from typing import Any
 from app.core.firestore.sqlstore import Savepoint
 from app.modules.assessments.store_specs import STORE
 
-
-def on_firestore() -> bool:
-    return STORE.on_firestore()
+# The shared store switch (``SqlStore.on_firestore`` -> ``core.firestore.backend.uses_firestore``).
+on_firestore = STORE.on_firestore
 
 
 async def execute(session: Any, stmt: Any, params: Any = None) -> Any:

@@ -3,8 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockApi, problem, renderWithProviders } from "@/features/auth/test/mock-api";
 import { downloadSink } from "@/features/commerce/lib/download";
-import { FinanceHome, Invoices, MismatchList, Orders, Reconciliation, Refunds, RevenueSummary, istToday, orderRef, reconciliationRange } from "./Finance";
+import { FinanceHome, Invoices, MismatchList, Orders, Reconciliation, Refunds, RevenueSummary, orderRef, reconciliationRange } from "./Finance";
 import { inclusiveDays } from "./FinanceDocuments";
+import { todayIST } from "@/lib/time";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 
@@ -320,6 +321,6 @@ describe("Finance Phase 2 presentation (audit 1.11)", () => {
   });
 
   it("reconciliation: dates cannot be in the future (IST)", () => {
-    expect(istToday(Date.parse("2026-11-10T20:00:00Z"))).toBe("2026-11-11");
+    expect(todayIST(Date.parse("2026-11-10T20:00:00Z"))).toBe("2026-11-11");
   });
 });

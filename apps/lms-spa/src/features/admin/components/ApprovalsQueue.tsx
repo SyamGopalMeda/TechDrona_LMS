@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Badge, Button, Card, EmptyState, ErrorState, FormField, LoadingBlock, PageHeader, Pagination, Select, useToast } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorState, FormField, LoadingBlock, PageHeader, Pagination, Select, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import { useResource } from "@/features/account/lib/use-resource";
 import { ActionDialog, FilterBar, InlineProblem, JsonBlock, KeyValueList, StateBadge, TextArea, ValueSummary } from "./console-ui";
 import { UserRef } from "./Governance";
 import { useSimpleAuth } from "@/components/shell/Integrations";
-import { cleanQuery, formatCountdown, formatDateTime, formatINR, humanize, shortRef, toOutcome, useCursorList, useVersioned, type MutationOutcome } from "../lib/console";
+import { cleanQuery, formatINR, humanize, shortRef, toOutcome, useCursorList, useVersioned, type MutationOutcome } from "../lib/console";
+import { useResource } from "@/lib/api/use-resource";
+import { formatDateTime, formatTimeUntil } from "@/lib/format";
 
 /**
  * One approval request. verified: app/modules/admin/approvals.py approval_out (list rows from
@@ -258,7 +259,7 @@ export function ApprovalsQueue({ title = "Approvals", eyebrow, description, acti
                     items={[
                       { label: "Requested by", value: isRequester ? "You" : <UserRef id={r.requested_by} /> },
                       { label: "Requested", value: formatDateTime(r.created_at) },
-                      { label: "Expires", value: r.expires_at ? (expired ? "Expired — request again" : `${formatCountdown(r.expires_at)} (${formatDateTime(r.expires_at)})`) : "—" },
+                      { label: "Expires", value: r.expires_at ? (expired ? "Expired — request again" : `${formatTimeUntil(r.expires_at)} (${formatDateTime(r.expires_at)})`) : "—" },
                       { label: "Reason", value: r.request_reason ?? "—" },
                       ...(r.decision_note ? [{ label: "Decision note", value: r.decision_note }] : []),
                     ]}
@@ -352,9 +353,4 @@ export function ApprovalsQueue({ title = "Approvals", eyebrow, description, acti
       {body}
     </div>
   );
-}
-
-export function PendingCountBadge({ count }: { count: number | undefined }) {
-  if (!count) return null;
-  return <Badge tone="warning">{count} pending</Badge>;
 }

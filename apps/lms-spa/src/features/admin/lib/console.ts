@@ -184,34 +184,6 @@ export function problemFieldErrors(err: unknown): Record<string, string> {
 
 /* --------------------------------------------------------------- formatting */
 
-const TZ = "Asia/Kolkata";
-
-export function formatDateTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return `${new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: TZ }).format(d)} IST`;
-}
-
-export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: TZ }).format(d);
-}
-
-/** "in 52 h", "3 h ago", "in 12 days", relative to now. */
-export function formatCountdown(iso: string | null | undefined, now: number = Date.now()): string {
-  if (!iso) return "—";
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "—";
-  const diffH = (t - now) / 3_600_000;
-  const abs = Math.abs(diffH);
-  const days = Math.round(abs / 24);
-  const text = abs < 1 ? `${Math.max(1, Math.round(abs * 60))} min` : abs < 48 ? `${Math.round(abs)} h` : `${days} ${days === 1 ? "day" : "days"}`;
-  return diffH >= 0 ? `in ${text}` : `${text} ago`;
-}
-
 /** INR from paise with Indian digit grouping (₹18,42,300.00). */
 export function formatINR(paise: number | null | undefined): string {
   if (typeof paise !== "number" || Number.isNaN(paise)) return "—";

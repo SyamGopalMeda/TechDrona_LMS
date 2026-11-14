@@ -2,14 +2,15 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Button, ErrorState, FormField, Input, Pagination, SectionHeader, Select, Table, useToast } from "@/components/ui";
+import { Button, ErrorState, FormField, Input, LoadingBlock, Pagination, SectionHeader, Select, Table, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ActionDialog } from "@/features/admin/components/console-ui";
 import { cleanQuery, shortRef, toOutcome, useCursorList } from "@/features/admin/lib/console";
 import { useApi } from "@/features/trainer/shared/use-api";
-import { Boundary, LoadingBlock, TextArea, formatDate } from "@/features/trainer/shared/ui";
+import { Boundary, TextArea } from "@/features/trainer/shared/ui";
 import { BATCH_STAFF_ROLES, archivedBatchGuard } from "../lib/api";
 import type { Batch, BatchMember, BatchStaffGrant, UserHit } from "../lib/types";
+import { formatDate } from "@/lib/format";
 
 /**
  * Admin batch management (plan §3): edit, archive, add / move / remove members, and assign
@@ -141,7 +142,7 @@ export function UserPicker({ value, onChange, exclude, label = "Find a person" }
       {term.length < 2 ? null : list.error ? (
         <ErrorState error={list.error} onRetry={() => void list.reload()} />
       ) : list.loading && !list.rows ? (
-        <LoadingBlock rows={2} />
+        <LoadingBlock rows={2} label="Loading" size="row" />
       ) : hits.length ? (
         <ul className="divide-y divide-line rounded-md border border-line" aria-label="Matching people">
           {hits.map((u) => (

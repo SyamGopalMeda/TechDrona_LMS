@@ -328,21 +328,6 @@ async def run_job(name: str) -> dict[str, int]:
     return result
 
 
-def celery_beat_schedule() -> dict[str, dict[str, Any]]:
-    """Entries for a Celery beat config (``app.conf.beat_schedule.update(...)``)."""
-    from celery.schedules import crontab
-
-    out: dict[str, dict[str, Any]] = {}
-    for name, cron in SCHEDULE.items():
-        m, h, dom, mon, dow = cron.split()
-        out[name] = {
-            "task": "security.run_job",
-            "schedule": crontab(minute=m, hour=h, day_of_month=dom, month_of_year=mon, day_of_week=dow),
-            "args": (name,),
-        }
-    return out
-
-
 @shared_task(name="security.run_job", ignore_result=True)
 def run_job_task(name: str) -> dict[str, int]:
     return run_async(run_job(name))

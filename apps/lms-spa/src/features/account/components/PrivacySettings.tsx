@@ -6,10 +6,10 @@ import { api } from "@/lib/api/client";
 import { setAnalyticsConsent } from "@/lib/firebase/analytics";
 import { NOTICE_VERSION, PURPOSE_LABELS } from "@/features/auth/lib/consents";
 import { toFormError } from "@/features/auth/lib/errors";
-import { formatDate } from "@/features/auth/lib/format";
 import type { ConsentChangeBody, ConsentsResponse } from "../lib/types";
-import { useResource } from "../lib/use-resource";
 import { PrivacyRequests } from "@/features/privacy/components/PrivacyRequests";
+import { formatDate } from "@/lib/format";
+import { useResource } from "@/lib/api/use-resource";
 
 /** Purposes shown as toggles. `core_service` withdrawal is account closure (privacy flow), not a toggle. */
 const TOGGLABLE: ConsentChangeBody["purpose"][] = ["security_monitoring", "analytics_personalisation", "marketing_email", "marketing_sms", "analytics_product"];

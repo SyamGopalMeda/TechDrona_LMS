@@ -1083,11 +1083,6 @@ def sec_route(fn: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
-def wrap_session(session: Any) -> Any:
-    """For jobs and cross-module callers: the ``SecSession`` on Firestore, else ``session``."""
-    return SecSession(session) if fs() and not isinstance(session, SecSession) else session
-
-
 # --------------------------------------------------------------------------- rate counters
 # ``security_counters`` (Postgres: ``INSERT ... ON CONFLICT DO UPDATE count + 1`` per 1-minute
 # bucket; ``SUM(count)`` since a time). Firestore: one document per (key, bucket), incremented in a

@@ -5,12 +5,13 @@ import { Badge, Button, FormField, PageHeader, Pagination, Select, Table, useToa
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { FilterBar, StateBadge } from "@/features/admin/components/console-ui";
-import { formatDateTime, ifMatchFor, useCursorList } from "@/features/admin/lib/console";
+import { ifMatchFor, useCursorList } from "@/features/admin/lib/console";
 import { staffRef } from "../lib/ids";
 import { LEVEL_OPTIONS, SLA_OPTIONS, UNBLOCK_STATE_OPTIONS } from "../lib/catalogue";
 import type { ReviewUnblockRow } from "../lib/types";
 import { SlaCell } from "./CaseQueue";
 import { RiskBadge } from "./RiskLevel";
+import { formatDateTime } from "@/lib/format";
 
 /** Reviewer queue for unblock requests and appeals (UNB-10) with claim (UNB-12). */
 export function UnblockReviewQueue() {

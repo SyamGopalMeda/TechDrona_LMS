@@ -166,7 +166,6 @@ async def test_locked_after_first_submission_and_attempt_unique(fs: Any, fs_on: 
 
 
 async def test_allocation_visibility_sets(fs: Any, fs_on: Any) -> None:  # noqa: F811
-    from app.modules.learning import fs_assign as fsa
     from app.modules.learning import structured as st
 
     s = _session()
@@ -183,14 +182,7 @@ async def test_allocation_visibility_sets(fs: Any, fs_on: Any) -> None:  # noqa:
     al3 = await _allocate(
         s, a3, user_ids=[learner], visible_until=now - timedelta(hours=1), due_at=now - timedelta(hours=2)
     )
-    assert await fsa.learner_assignment_ids(_session(), learner, set(), now) == {a1.id}
-    assert await fsa.learner_assignment_ids(_session(), learner, {batch}, now) == {a1.id, a2.id}
-    assert await fsa.learner_assignment_ids(_session(), other, set(), now) == set()
-    # handed-in work stays reachable after "visible until"
     await _submission(_session(), a3, al3, learner, status="submitted")
-    assert await fsa.learner_assignment_ids(_session(), learner, set(), now) == {a1.id, a3.id}
-    assert await fsa.batch_assignment_ids(_session(), {batch}) == {a2.id}
-    assert await fsa.evaluator_assignment_ids(_session(), ev) == {a1.id}
     assert await st.is_named_evaluator(_session(), a1.id, ev)
     assert not await st.is_named_evaluator(_session(), a2.id, ev)
     assert await st.allocation_batches(_session(), a2.id) == [batch]

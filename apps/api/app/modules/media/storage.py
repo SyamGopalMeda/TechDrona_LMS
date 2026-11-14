@@ -50,10 +50,6 @@ def storage_settings() -> StorageSettings:
     return StorageSettings()
 
 
-def reset_storage_settings() -> None:
-    storage_settings.cache_clear()
-
-
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
 

@@ -4,8 +4,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { Badge, Icon } from "@/components/ui";
 import { buttonClasses } from "@/components/ui/Button";
-import { formatDate } from "@/features/catalog/lib/format";
 import { CLAIM_LABEL, inr, STATE_LABEL, type MyRegistration } from "../lib/registration";
+import { formatDate } from "@/lib/format";
 
 const CLAIM_TONE = { pending: "info", needs_info: "warning", verified: "success", rejected: "danger", reversed: "neutral" } as const;
 

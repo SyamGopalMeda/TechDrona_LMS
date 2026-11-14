@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ErrorState, Skeleton } from "@/components/ui";
 import { Notice } from "@/features/auth/components/shared";
 import type { Me } from "../lib/types";
-import { useResource } from "../lib/use-resource";
+import { useResource } from "@/lib/api/use-resource";
 
 /**
  * Target of the api's `minor_consent_pending` problem (`guardian_flow_url`). The guardian acts

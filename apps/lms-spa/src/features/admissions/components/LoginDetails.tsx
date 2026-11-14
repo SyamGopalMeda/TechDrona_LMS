@@ -5,8 +5,9 @@ import { Button, Checkbox, Dialog, buttonClasses, useToast } from "@/components/
 import { useIntegrations } from "@/components/shell/Integrations";
 import { api } from "@/lib/api/client";
 import { ActionDialog } from "@/features/admin/components/console-ui";
-import { formatDateTime, toOutcome } from "@/features/admin/lib/console";
+import { toOutcome } from "@/features/admin/lib/console";
 import { emailStatusText, loginMessage, whatsappLink, type LoginDetails, type LoginEmailResult } from "../lib/admissions";
+import { formatDateTime } from "@/lib/format";
 
 /**
  * The student's LMS login (username + temporary password) after "Verify & add to batch" or a

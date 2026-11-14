@@ -15,12 +15,12 @@ import { ApiError } from "@/lib/api/errors";
 import { useApi, seg } from "../shared/use-api";
 import {
   fieldErrorsOf,
-  formatDateTime,
-  localInputToIso,
   useFailToast,
 } from "../shared/ui";
 import type { Body } from "@/lib/api-types";
 import type { ReleaseMode, TestAssignment } from "../lib/types";
+import { formatDateTime } from "@/lib/format";
+import { localInputToIso } from "@/lib/time";
 
 const RELEASE: { value: ReleaseMode; label: string }[] = [
   { value: "after_window", label: "After the window closes" },

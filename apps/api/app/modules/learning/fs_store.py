@@ -19,7 +19,7 @@ On Postgres every helper is the SQLAlchemy call itself (the Postgres code paths 
 queries where ordering/locking/RLS matter; these helpers are for the Firestore branch and for
 simple shared spots). On Firestore:
 
-* rows come back as transient ORM instances (``fs_rows.orm_of``), **tracked** in
+* rows come back as transient ORM instances (``core.firestore.rows.orm_of``), **tracked** in
   ``session.info`` with a snapshot of their document;
 * ``flush`` writes, in order: pending creates (row + uniqueness key documents, one transaction
   per row), pending deletes (row + keys), then a field diff of every tracked row (key documents
@@ -50,11 +50,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import ProblemError
 from app.core.firestore.backend import uses_firestore
 from app.core.firestore.errors import UniqueViolationError
+from app.core.firestore.rows import as_dt, doc_of, orm_of
 from app.core.time import utcnow
 from app.modules.learning import store_specs as ss
 from app.modules.learning.cert_models import CertificateOutbox
 from app.modules.learning.doc_models import DocumentSettings, DocumentTemplate, IssuedDocument
-from app.modules.learning.fs_rows import as_dt, doc_of, orm_of
 from app.modules.learning.models import (
     Assignment,
     AssignmentAllocation,

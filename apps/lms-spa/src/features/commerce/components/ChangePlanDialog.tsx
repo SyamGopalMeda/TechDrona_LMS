@@ -4,9 +4,10 @@ import { useState, type FormEvent } from "react";
 import { Button, Dialog, ErrorState, FormField, Select, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import { formatDate, formatMoney } from "@/features/catalog/lib/format";
+import { formatMoney } from "@/features/catalog/lib/format";
 import type { PlanDto, ProductDto } from "@/features/catalog/lib/types";
 import { MANDATE_MAX_PAISE, type ChangePlanBody, type ChangePlanResultDto, type SubscriptionDto } from "../lib/types";
+import { formatDate } from "@/lib/format";
 
 /* ------------------------------------------------------- catalogue helpers */
 

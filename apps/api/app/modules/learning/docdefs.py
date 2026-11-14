@@ -1094,11 +1094,6 @@ def is_doc_ref(code: str) -> bool:
     return bool(REF_RE.match(normalise_ref(code)))
 
 
-def type_of_ref(ref: str) -> str | None:
-    m = REF_RE.match(normalise_ref(ref))
-    return TYPE_BY_PREFIX.get(m.group(1)) if m else None
-
-
 def types_catalogue() -> list[dict[str, Any]]:
     """The type picker + per-type form (admin UI)."""
     out = []

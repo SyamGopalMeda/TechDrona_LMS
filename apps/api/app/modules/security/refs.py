@@ -18,7 +18,3 @@ def make_ref(prefix: str) -> str:
     now = clock.now()
     body = "".join(secrets.choice(CROCKFORD) for _ in range(6))
     return f"{prefix}-{now:%y%m}-{body}"
-
-
-def valid_ref(ref: str, prefix: str) -> bool:
-    return bool(REF_RE.match(ref or "")) and ref.startswith(prefix + "-")

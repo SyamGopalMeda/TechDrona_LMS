@@ -7,12 +7,13 @@ import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, FormField, Input
 import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import type { Schema } from "@/lib/api-types";
-import { useResource } from "@/features/account/lib/use-resource";
 import { ActionDialog, ConfirmDialog, FilterBar, InlineProblem, KeyValueList, StateBadge, TextArea, textLink } from "@/features/admin/components/console-ui";
-import { cleanQuery, formatCountdown, formatDate, formatDateTime, formatINR, humanize, shortRef, toOutcome, useCursorList, useVersioned } from "@/features/admin/lib/console";
+import { cleanQuery, formatINR, humanize, shortRef, toOutcome, useCursorList, useVersioned } from "@/features/admin/lib/console";
 import { RiskBadge } from "@/features/security-admin/components/RiskLevel";
 import { STATUS_LABELS, TICKET_CATEGORIES, TICKET_PRIORITIES, TICKET_STATUSES, UUID_RE, type Macro, type SupportUserNote, type SupportUserSummary, type Ticket, type TicketMessage, type TicketThread } from "../lib/types";
 import { AttachmentList, MessageThread, TicketStatusBadge } from "./Thread";
+import { useResource } from "@/lib/api/use-resource";
+import { formatDate, formatDateTime, formatTimeUntil } from "@/lib/format";
 
 /* ------------------------------------------------------------------ Queue */
 
@@ -34,7 +35,7 @@ function SlaCell({ t }: { t: Ticket }) {
     <span className={breached ? "font-semibold text-danger-fg" : undefined}>
       {breached ? "⚠ Breached · " : ""}
       {t.first_responded_at ? "Resolve " : "Reply "}
-      {formatCountdown(due)}
+      {formatTimeUntil(due)}
     </span>
   );
 }
@@ -333,7 +334,7 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
                   ),
                 },
                 { label: "Assignee", value: d.assigned_to ? <span title={d.assigned_to}>{agentLabel(d.assigned_to)}</span> : "Unassigned" },
-                { label: "First reply", value: d.first_responded_at ? formatDateTime(d.first_responded_at) : `Due ${formatCountdown(d.first_response_due_at)}${d.sla.first_response_breached ? " · breached" : ""}` },
+                { label: "First reply", value: d.first_responded_at ? formatDateTime(d.first_responded_at) : `Due ${formatTimeUntil(d.first_response_due_at)}${d.sla.first_response_breached ? " · breached" : ""}` },
                 { label: "Resolution due", value: `${formatDateTime(d.resolution_due_at)}${d.sla.resolution_breached ? " · breached" : ""}` },
                 { label: "Escalated to", value: d.escalated_to ? humanize(d.escalated_to) : "—" },
                 { label: "Linked unblock request", value: d.related_unblock_request_id ? <span title={d.related_unblock_request_id}>Request {shortRef(d.related_unblock_request_id)}</span> : "—" },

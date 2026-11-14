@@ -37,13 +37,3 @@ export function retryAfterSeconds(err: unknown): number | null {
   }
   return null;
 }
-
-export function formatCountdown(totalSeconds: number): string {
-  const s = Math.max(0, Math.floor(totalSeconds));
-  const m = Math.floor(s / 60);
-  return `${m}:${String(s % 60).padStart(2, "0")}`;
-}
-
-export function apiCode(err: unknown): string | null {
-  return err instanceof ApiError ? err.code : null;
-}

@@ -17,7 +17,7 @@ attempts, users) go through their ``public.py`` instead of SQL.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from app.core.firestore.sqlstore import Savepoint, SqlModuleSpec, SqlStore
@@ -121,8 +121,8 @@ def journaled_executor(job: str) -> Any:
     return _je(STORE, job)
 
 
-def on_firestore() -> bool:
-    return STORE.on_firestore()
+# The shared store switch (``SqlStore.on_firestore`` -> ``core.firestore.backend.uses_firestore``).
+on_firestore = STORE.on_firestore
 
 
 async def execute(session: Any, stmt: Any, params: Any = None) -> Any:
@@ -185,14 +185,6 @@ def _three_years() -> Any:
     from app.modules.admin.public import PgInterval
 
     return PgInterval(months=12 * DISPUTED_AGE_YEARS)
-
-
-def minus_years(ts: datetime, years: int) -> datetime:
-    """``ts - interval 'N years'`` with Postgres semantics (``admin.public.subtract_interval``:
-    months first, the day clamped to the month end, e.g. ``2028-02-29 - 3 years = 2025-02-28``)."""
-    from app.modules.admin.public import PgInterval, subtract_interval
-
-    return subtract_interval(ts.astimezone(UTC), PgInterval(months=12 * years))
 
 
 def disputed_cutoff(now: datetime, interval: Any) -> datetime:

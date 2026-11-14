@@ -11,7 +11,6 @@ export const nextShimAliases = [
   { find: /^next\/link$/, replacement: src("spa/shims/link.tsx") },
   { find: /^next\/navigation$/, replacement: src("spa/shims/navigation.ts") },
   { find: /^next\/dynamic$/, replacement: src("spa/shims/dynamic.tsx") },
-  { find: /^next\/headers$/, replacement: src("spa/shims/headers.ts") },
   { find: /^server-only$/, replacement: src("spa/shims/server-only.ts") },
   { find: /^@\//, replacement: `${src("")}` },
 ];

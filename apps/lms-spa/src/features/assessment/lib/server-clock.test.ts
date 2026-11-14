@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { crossedMilestone, formatCountdown, sampleFrom, ServerClock, spokenDuration, timerTone } from "./server-clock";
+import { crossedMilestone, sampleFrom, ServerClock, spokenDuration, timerTone } from "./server-clock";
+import { formatCountdown } from "@/lib/format";
 
 function fakeMono(start = 1_000) {
   let t = start;
@@ -84,9 +85,12 @@ describe("ServerClock (server-authoritative timer)", () => {
 describe("timer display helpers", () => {
   it("formats MM:SS and HH:MM:SS, rounding up", () => {
     expect(formatCountdown(0)).toBe("00:00");
-    expect(formatCountdown(999)).toBe("00:01");
-    expect(formatCountdown(41 * 60_000 + 12_000)).toBe("41:12");
-    expect(formatCountdown(90 * 60_000)).toBe("01:30:00");
+    expect(formatCountdown(0.999)).toBe("00:01");
+    expect(formatCountdown(41 * 60 + 12)).toBe("41:12");
+    expect(formatCountdown(90 * 60)).toBe("01:30:00");
+    expect(formatCountdown(75, "short")).toBe("1:15");
+    expect(formatCountdown(4 * 3600 + 54 * 60, "compact")).toBe("4h 54m");
+    expect(formatCountdown(0, "compact")).toBe("Time's up");
   });
 
   it("speaks durations for screen readers", () => {

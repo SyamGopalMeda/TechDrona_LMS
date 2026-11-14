@@ -1,10 +1,8 @@
 /**
  * Display formatting (design-system §8): money `₹1,499` (Indian grouping, paise → rupees),
- * dates `3 Nov 2026` / `3 Nov 2026, 10:15 IST` in Asia/Kolkata. Pure functions; safe in
- * server and client components.
+ * durations, percentages. Pure functions; safe in server and client components. Dates:
+ * `@/lib/format`.
  */
-
-const TZ = "Asia/Kolkata";
 
 export function formatMoney(paise: number | null | undefined): string {
   if (paise === null || paise === undefined || !Number.isFinite(paise)) return "—";
@@ -15,26 +13,6 @@ export function formatMoney(paise: number | null | undefined): string {
     minimumFractionDigits: whole ? 0 : 2,
     maximumFractionDigits: whole ? 0 : 2,
   }).format(paise / 100);
-}
-
-function valid(iso: string | null | undefined): Date | null {
-  if (!iso) return null;
-  // `date` fields are IST calendar days (YYYY-MM-DD): anchor them at IST midnight.
-  const d = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T00:00:00+05:30`) : new Date(iso);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-export function formatDate(iso: string | null | undefined): string {
-  const d = valid(iso);
-  if (!d) return "—";
-  return new Intl.DateTimeFormat("en-GB", { timeZone: TZ, day: "numeric", month: "short", year: "numeric" }).format(d);
-}
-
-export function formatDateTime(iso: string | null | undefined): string {
-  const d = valid(iso);
-  if (!d) return "—";
-  const time = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
-  return `${formatDate(iso)}, ${time} IST`;
 }
 
 export function formatDuration(minutes: number | null | undefined): string | null {

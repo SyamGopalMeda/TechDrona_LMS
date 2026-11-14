@@ -1,5 +1,6 @@
 import { api } from "@/lib/api/client";
 import type { AnalyticsSummary, LearningTimeBucket, LearningTimeSeries, TimeMetricKey } from "./types";
+import { todayIST } from "@/lib/time";
 
 /**
  * The five time metrics (analytics-event-schema §3.11) with the honest labels required by
@@ -51,14 +52,9 @@ export function periodTotals(points: LearningTimeBucket[] | undefined): Record<T
   return { m1: null, m2: sum((b) => b.active_s), m3: sum((b) => b.video_s), m4: sum((b) => b.assessment_s), m5: sum((b) => b.learning_s) };
 }
 
-/** IST calendar date `YYYY-MM-DD` for `d`. */
-export function istDate(d: Date): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
-}
-
 export function rangeForDays(days: number, now: Date = new Date()): { from: string; to: string } {
-  const to = istDate(now);
-  const from = istDate(new Date(now.getTime() - (days - 1) * 86_400_000));
+  const to = todayIST(now);
+  const from = todayIST(new Date(now.getTime() - (days - 1) * 86_400_000));
   return { from, to };
 }
 

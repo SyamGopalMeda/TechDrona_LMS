@@ -8,10 +8,11 @@ import { api, type Page } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import type { Body } from "@/lib/api-types";
 import { useApi, seg, type SendBody } from "@/features/trainer/shared/use-api";
-import { Boundary, StatusBadge, TextArea, fieldErrorsOf, formatDate, useFailToast } from "@/features/trainer/shared/ui";
+import { Boundary, StatusBadge, TextArea, fieldErrorsOf, useFailToast } from "@/features/trainer/shared/ui";
 import type { CourseSummary, QuestionDetail, QuestionSummary, QuestionType, QuestionVersion } from "../lib/types";
 import { courseStatus } from "./Courses";
 import { TopicSelect, useTopics } from "./Pickers";
+import { formatDate } from "@/lib/format";
 
 /** PLC-04 `status` filters the question (not the version): draft | active | retired. */
 const STATUS_OPTIONS = [

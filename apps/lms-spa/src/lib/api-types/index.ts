@@ -34,17 +34,3 @@ export type Body<P extends ApiPath, M extends Method> =
 /** Query parameters of an operation. */
 export type Query<P extends ApiPath, M extends Method = "get"> =
   Op<P, M> extends { parameters: { query?: infer Q } } ? NonNullable<Q> : never;
-
-/** Successful (2xx) JSON response of an operation. */
-export type Ok<P extends ApiPath, M extends Method = "get"> =
-  Op<P, M> extends { responses: infer R }
-    ? R extends Record<number, unknown>
-      ? {
-          [S in keyof R]: S extends 200 | 201 | 202
-            ? R[S] extends { content: { "application/json": infer C } }
-              ? C
-              : never
-            : never;
-        }[keyof R]
-      : never
-    : never;

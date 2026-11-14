@@ -5,10 +5,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Badge, Button, Card, Chip, EmptyState, ErrorState, LinkButton, LoadingBlock, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { toFormError } from "@/features/auth/lib/errors";
-import { formatDateTime } from "@/features/auth/lib/format";
 import { cn } from "@/lib/ui/cn";
 import { renderNotification } from "../lib/templates";
 import type { InboxItem, InboxResponse, MarkAllReadResponse } from "../lib/types";
+import { formatDateTime } from "@/lib/format";
 
 const PAGE_SIZE = 20;
 

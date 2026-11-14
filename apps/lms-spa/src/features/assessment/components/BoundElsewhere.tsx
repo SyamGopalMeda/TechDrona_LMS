@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { Button, FormField, Input } from "@/components/ui";
 import { isApiError } from "@/lib/api/errors";
-import { formatCountdown } from "../lib/server-clock";
 import type { BoundElsewhere } from "../lib/types";
+import { formatCountdown } from "@/lib/format";
 
 export interface BoundElsewhereProps {
   testTitle: string | null;
@@ -26,7 +26,7 @@ export function BoundElsewhereView({ testTitle, info, remainingMs, onContinue, o
   const [otp, setOtp] = useState("");
   const [error, setError] = useState<string | null>(null);
   const canContinue = info.rebind_allowed !== false && !info.trainer_override_required && (info.rebinds_remaining ?? 1) > 0;
-  const remaining = remainingMs === null ? "—" : formatCountdown(remainingMs);
+  const remaining = remainingMs === null ? "—" : formatCountdown(remainingMs / 1000);
   const left = info.rebinds_remaining;
 
   const run = async (fn: () => Promise<void>) => {

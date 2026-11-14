@@ -26,10 +26,6 @@ export interface OrgAppsOut {
   apps: OrgApp[];
 }
 
-export interface OrgAppsPatch {
-  apps: Record<string, boolean>;
-}
-
 /** GET me/enabled-apps (platform-wide set). */
 export interface EnabledAppsOut {
   apps: Record<string, boolean>;

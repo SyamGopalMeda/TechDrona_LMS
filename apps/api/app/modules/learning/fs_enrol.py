@@ -16,6 +16,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.firestore.store import chunks
 from app.modules.learning import fs_store as fss
 from app.modules.learning import store_specs as lss
 from app.modules.learning.models import (
@@ -30,16 +31,11 @@ from app.modules.learning.models import (
 LIVE_ENROLMENT = ("active", "completed")
 
 
-def _chunks(ids: list[Any], n: int = 30) -> Iterable[list[Any]]:
-    for i in range(0, len(ids), n):
-        yield ids[i : i + n]
-
-
 async def _in(session: Any, model: Any, field: str, values: Iterable[Any], **kw: Any) -> list[Any]:
     vals = list(dict.fromkeys(v for v in values if v is not None))
     out: list[Any] = []
     extra = kw.pop("filters", ())
-    for part in _chunks(vals):
+    for part in chunks(vals):
         out += await fss.find(session, model, filters=((field, "in", part), *extra), **kw)
     return out
 

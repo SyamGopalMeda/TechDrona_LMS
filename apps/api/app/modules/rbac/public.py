@@ -135,24 +135,6 @@ async def get_grant(session: AsyncSession, grant_id: uuid.UUID) -> RoleGrant | N
     return await session.get(RoleGrant, grant_id)
 
 
-async def revoke_user_grants(
-    session: AsyncSession, user_id: uuid.UUID, revoked_by: uuid.UUID
-) -> list[uuid.UUID]:
-    """Revoke every live grant of a user (seeds / account deletion); returns the grant ids."""
-    now = utcnow()
-    ids = [g.id for g, _k in await live_grants(session, user_ids=[user_id], include_expired=True)]
-    if _fs():
-        for gid in ids:
-            await _repo().revoke_grant(gid, revoked_by, now)
-        return ids
-    for gid in ids:
-        g = await session.get(RoleGrant, gid)
-        if g is not None:
-            g.revoked_at, g.revoked_by = now, revoked_by
-    await session.flush()
-    return ids
-
-
 async def add_grant(session: AsyncSession, grant: RoleGrant, role_key: str) -> RoleGrant:
     """Insert a prepared grant without the service checks (seeds only; routes use
     ``rbac.service.create_grant``)."""
@@ -161,19 +143,6 @@ async def add_grant(session: AsyncSession, grant: RoleGrant, role_key: str) -> R
     session.add(grant)
     await session.flush()
     return grant
-
-
-async def permission_keys(session: AsyncSession) -> list[str]:
-    if _fs():
-        from app.modules.identity.textsort import text_key
-        from app.modules.rbac.store_specs import PERMISSIONS
-
-        return sorted((p.permission_key for p in await _repo()._objs(Permission, PERMISSIONS)), key=text_key)
-    return list(
-        (
-            await session.execute(select(Permission.permission_key).order_by(Permission.permission_key))
-        ).scalars()
-    )
 
 
 async def role_permission_pairs(session: AsyncSession) -> list[tuple[str, str]]:
@@ -312,20 +281,6 @@ async def get_approvals(
         return {uuid.UUID(k): doc_obj(ApprovalRequest, d.data) for k, d in docs.items()}
     rows = (await session.execute(select(ApprovalRequest).where(ApprovalRequest.id.in_(ids)))).scalars().all()
     return {r.id: r for r in rows}
-
-
-async def pending_approval_ids_by_target(
-    session: AsyncSession, *, action_type: str, target_type: str, target_ids: Iterable[uuid.UUID]
-) -> dict[uuid.UUID, uuid.UUID]:
-    """target_id -> id of its pending approval of ``action_type`` (commerce coupon activation)."""
-    rows = await find_approvals(
-        session, action_type=action_type, target_type=target_type, target_ids=target_ids, status="pending"
-    )
-    out: dict[uuid.UUID, uuid.UUID] = {}
-    for r in sorted(rows, key=lambda r: (r.created_at, str(r.id))):
-        if r.target_id is not None:
-            out[r.target_id] = r.id
-    return out
 
 
 # --------------------------------------------------------------------------- decisions (single execution)

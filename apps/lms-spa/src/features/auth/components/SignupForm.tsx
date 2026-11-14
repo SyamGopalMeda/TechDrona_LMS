@@ -7,11 +7,12 @@ import { api } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { trackEvent } from "@/lib/firebase/analytics";
 import { ADULT_ONLY, NOTICE_VERSION, REQUIRED_PURPOSES, SIGNUP_OPTIONAL, type Purpose } from "../lib/consents";
-import { formatCountdown, problemFieldErrors, retryAfterSeconds, toFormError, type FormErrorInfo } from "../lib/errors";
+import { problemFieldErrors, retryAfterSeconds, toFormError, type FormErrorInfo } from "../lib/errors";
 import type { GuardianBody, SignupBody, SignupResponse } from "../lib/types";
 import { PASSWORD_MIN, ageOn, isEmail, normaliseIndianMobile, validatePassword } from "../lib/validation";
 import { ErrorSummary, FormAlert, Notice, PasswordInput } from "./shared";
 import { ServiceNotIntegrated, useSimpleAuth } from "@/components/shell/Integrations";
+import { formatCountdown } from "@/lib/format";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -152,7 +153,7 @@ export function SignupForm({ next }: { next?: string | null }) {
       if (Object.keys(mapped).length) setErrors(mapped);
       if (err instanceof ApiError && err.code === "throttled") {
         const s = retryAfterSeconds(err);
-        setError({ title: "Too many attempts", detail: s ? `Try again in ${formatCountdown(s)}.` : "Please wait a little and try again.", requestId: err.requestId, code: err.code });
+        setError({ title: "Too many attempts", detail: s ? `Try again in ${formatCountdown(s, "short")}.` : "Please wait a little and try again.", requestId: err.requestId, code: err.code });
       } else if (!Object.keys(mapped).length) {
         setError(toFormError(err));
       }

@@ -7,6 +7,7 @@ Firestore)."""
 
 from __future__ import annotations
 
+import functools
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -103,8 +104,7 @@ async def next_ticket_number(session: AsyncSession) -> str:
     return ticket_number(int(n))
 
 
-def on_firestore() -> bool:
-    return uses_firestore("support")
+on_firestore = functools.partial(uses_firestore, "support")
 
 
 async def fs_repo(session: AsyncSession, job: str = "support.desk") -> Any:

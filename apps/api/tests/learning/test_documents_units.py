@@ -46,7 +46,6 @@ def test_ref_numbers_have_type_prefix_year_and_safe_alphabet() -> None:
         m = dd.REF_RE.match(r)
         assert m and m.group(1) == dd.DOC_TYPES[t]["prefix"] and m.group(2) == "2027"
         assert not set(m.group(3)) & set("IO01")
-        assert dd.type_of_ref(r) == t
     assert len({dd.new_ref_no("lor", 2026) for _ in range(200)}) > 195  # 32^6 space
 
 

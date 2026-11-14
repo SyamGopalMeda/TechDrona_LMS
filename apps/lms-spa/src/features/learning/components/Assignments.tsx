@@ -2,17 +2,17 @@
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
-import { StatusBadge, Badge, Button, Card, ErrorState, PageHeader, Table, Tabs, useToast } from "@/components/ui";
+import { Badge, Button, Card, ErrorState, LoadingBlock, PageHeader, StatusBadge, Table, Tabs, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
-import { formatDateTime, humanize } from "@/features/catalog/lib/format";
+import { humanize } from "@/features/catalog/lib/format";
 import type { Paged } from "@/features/catalog/lib/types";
 import type { AssignmentDetailDto, AssignmentDto, AssignmentListItemDto, SubmissionBody, SubmissionDto } from "../lib/types";
 import { MAX_ASSIGNMENT_FILE_MB, uploadAssignmentFile } from "../lib/upload";
 import { StructuredAssignment } from "../assignment-workspace/StructuredAssignment";
 import { isStructured } from "../assignment-manager/api";
-import { useResource } from "../lib/use-resource";
-import { ContentErrorState, LoadingBlock } from "./States";
-
+import { ContentErrorState } from "./States";
+import { formatDateTime } from "@/lib/format";
+import { useResource } from "@/lib/api/use-resource";
 
 const MAX_FILE_MB = MAX_ASSIGNMENT_FILE_MB;
 
@@ -69,7 +69,7 @@ function AssignmentTable({ filter }: { filter: (typeof FILTERS)[number] }) {
             </Link>
           ),
         },
-        { key: "due", header: "Due", cell: (r) => <span className="tabular-nums">{formatDateTime(r.due_at)}</span> },
+        { key: "due", header: "Due", cell: (r) => <span className="tabular-nums">{formatDateTime(r.due_at, { year: true })}</span> },
         { key: "status", header: "Status", cell: (r) => <AssignmentStatus status={displayStatus(r)} /> },
         { key: "grade", header: "Grade", align: "right", cell: (r) => (r.my_score !== null ? <span className="tabular-nums">{`${r.my_score} / ${r.max_score}`}</span> : "—") },
       ]}
@@ -182,7 +182,7 @@ function canSubmit(a: AssignmentDetailDto): boolean {
 export function AssignmentDetail({ assignmentId }: { assignmentId: string }) {
   const { data, error, loading, reload } = useResource<AssignmentDetailDto>(`me/assignments/${encodeURIComponent(assignmentId)}`);
   if (error) return <ContentErrorState error={error} onRetry={reload} />;
-  if (loading && !data) return <LoadingBlock label="Loading assignment" />;
+  if (loading && !data) return <LoadingBlock label="Loading assignment" size="card" />;
   if (!data) return null;
   if (isStructured(data as AssignmentDto & { structured?: boolean })) return <StructuredAssignment assignmentId={assignmentId} />;
   const subs = data.submissions;
@@ -194,7 +194,7 @@ export function AssignmentDetail({ assignmentId }: { assignmentId: string }) {
       <PageHeader
         breadcrumbs={[{ label: "Assignments", href: "/app/assignments" }, { label: data.title }]}
         title={data.title}
-        description={data.due_at ? `Due ${formatDateTime(data.due_at)}` : undefined}
+        description={data.due_at ? `Due ${formatDateTime(data.due_at, { year: true })}` : undefined}
         meta={<AssignmentStatus status={status} />}
       />
       {data.instructions_md ? (
@@ -202,7 +202,7 @@ export function AssignmentDetail({ assignmentId }: { assignmentId: string }) {
           <p className="whitespace-pre-line text-sm text-fg-secondary">{data.instructions_md}</p>
           {data.late_until ? (
             <p className="mt-3 text-xs text-fg-muted">
-              Late submissions accepted until {formatDateTime(data.late_until)}
+              Late submissions accepted until {formatDateTime(data.late_until, { year: true })}
               {data.late_penalty_pct ? ` with a ${data.late_penalty_pct}% penalty` : ""}.
             </p>
           ) : null}
@@ -224,7 +224,7 @@ export function AssignmentDetail({ assignmentId }: { assignmentId: string }) {
             {subs.map((s) => (
               <li key={s.id} className="rounded-md border border-line p-3 text-sm">
                 <p className="text-fg">
-                  {formatDateTime(s.submitted_at)} · {humanize(s.status === "graded" && !data.grades_released ? "submitted" : s.status)}
+                  {formatDateTime(s.submitted_at, { year: true })} · {humanize(s.status === "graded" && !data.grades_released ? "submitted" : s.status)}
                   {s.status === "late" ? <Badge tone="warning" className="ml-2">Late</Badge> : null}
                 </p>
                 {s.file_s3_keys.length ? <p className="text-xs text-fg-muted">{s.file_s3_keys.map((k) => k.split("/").pop()).join(", ")}</p> : null}

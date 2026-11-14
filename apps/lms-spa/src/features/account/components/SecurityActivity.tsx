@@ -1,10 +1,10 @@
 "use client";
 
 import { Badge, Card, EmptyState, ErrorState, Skeleton } from "@/components/ui";
-import { formatDateTime } from "@/features/auth/lib/format";
 import { useAccountScope } from "../lib/account-scope";
 import type { DevicePolicy, LoginHistory } from "../lib/types";
-import { useResource } from "../lib/use-resource";
+import { formatDateTime } from "@/lib/format";
+import { useResource } from "@/lib/api/use-resource";
 
 const METHOD: Record<string, string> = { password: "Password", totp: "Authenticator app", recovery_code: "Recovery code", otp_sms: "SMS code", otp_email: "Email code", passkey: "Passkey" };
 /** verified: identity/router.py record_login_attempt outcomes */

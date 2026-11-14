@@ -173,10 +173,6 @@ def tier_for(grants: list[GrantInfo]) -> str:
     return best
 
 
-def mfa_required_for(grants: list[GrantInfo]) -> bool:
-    return any(ROLES.get(g.role) is not None and ROLES[g.role].mfa_required for g in grants)
-
-
 def has_platform_staff_grant(grants: list[GrantInfo]) -> bool:
     return any(g.scope_type == "platform" and g.role != "student" for g in grants)
 

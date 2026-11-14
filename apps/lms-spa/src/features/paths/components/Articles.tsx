@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { Badge, Button, buttonClasses, Card, Checkbox, ConfirmDialog, Dialog, EmptyState, FormField, Input, PageHeader, Segmented, Select, StatusBadge, useToast } from "@/components/ui";
 import { StickyActionBar } from "@/features/studio/components/EditorChrome";
-import { Boundary, TextArea, fieldErrorsOf, formatDateTime, useFailToast } from "@/features/trainer/shared/ui";
+import { Boundary, TextArea, fieldErrorsOf, useFailToast } from "@/features/trainer/shared/ui";
 import { useApi } from "@/features/trainer/shared/use-api";
 import { pathsApi, seg } from "../lib/api";
 import type { ArticleDetail, ArticleSummary, Audience, Level, PathsContext } from "../lib/types";
@@ -13,6 +13,7 @@ import { ArticleRenderer, OnThisPage, useArticleToc } from "./ArticleRenderer";
 import { usePathsContext } from "./PathList";
 import { BatchMemberSearch } from "./BatchMemberSearch";
 import { usePathsBase } from "../lib/base";
+import { formatDateTime } from "@/lib/format";
 
 export const AUDIENCE_LABEL: Record<Audience, string> = {
   batches: "Chosen batches",

@@ -1,14 +1,12 @@
-"""app.core.firestore.rows encodes exactly like every module copy (guards drift until owners switch)."""
+"""app.core.firestore.rows: the stored document format of both codec families (must not drift)."""
 
 from __future__ import annotations
 
-import importlib
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
-import pytest
 from sqlalchemy import (
     ARRAY,
     JSON,
@@ -68,24 +66,40 @@ ROW: dict[str, Any] = {
 }
 
 
-@pytest.mark.parametrize("module", ["learning", "engage", "mentoring"])
-def test_json_family_matches_copies(module: str) -> None:
-    copy = importlib.import_module(f"app.modules.{module}.fs_rows")
-    assert copy.doc_mapper(Sample)(ROW) == rows.doc_mapper(Sample)(ROW)
+def _round_trip(obj: Any) -> dict[str, Any]:
+    cols = [c.key for c in Sample.__table__.columns]  # type: ignore[attr-defined]
+    return {k: getattr(obj, k) for k in cols}
+
+
+def test_json_family_document_format() -> None:
+    """learning / engage / mentoring documents: hex bytes, unscaled decimals, wrapped nested lists."""
     doc = rows.doc_mapper(Sample)(ROW)
-    a, b = copy.orm_of(Sample, doc), rows.orm_of(Sample, doc)
-    cols = [c.key for c in Sample.__table__.columns]  # type: ignore[attr-defined]
-    assert {k: getattr(a, k) for k in cols} == {k: getattr(b, k) for k in cols}
-    assert doc["meta"] == {"k": [{"$l": [1, 2]}, {"$l": [3]}], "u": "x"} and doc["blob"] == "00ff6162"
+    assert doc == {
+        "id": str(ROW["id"]),
+        "ids": [str(ROW["ids"][0])],
+        "tags": ["a", "b"],
+        "amount": "12.5",
+        "blob": "00ff6162",
+        "day": "2026-11-12",
+        "at": ROW["at"],
+        "ip": "10.0.0.1",
+        "meta": {"k": [{"$l": [1, 2]}, {"$l": [3]}], "u": "x"},
+        "n": 7,
+    }
+    s = Sample()
+    for k, v in ROW.items():
+        setattr(s, k, v)
+    assert rows.doc_of(s) == doc
+    back = _round_trip(rows.orm_of(Sample, doc))
+    assert back == {**ROW, "meta": {"k": [[1, 2], [3]], "u": "x"}}
 
 
-@pytest.mark.parametrize("module", ["placement", "coding"])
-def test_scaled_family_matches_copies(module: str) -> None:
-    copy = importlib.import_module(f"app.modules.{module}.fsmap")
-    assert copy.row_doc(Sample, ROW) == rows.row_doc(Sample, ROW)
+def test_scaled_family_document_format() -> None:
+    """placement / assessments / coding documents: base64 bytes, decimals quantized to the scale."""
     doc = rows.row_doc(Sample, ROW)
-    a, b = copy.orm_of(Sample, doc), rows.orm_of_scaled(Sample, doc)
-    cols = [c.key for c in Sample.__table__.columns]  # type: ignore[attr-defined]
-    assert {k: getattr(a, k) for k in cols} == {k: getattr(b, k) for k in cols}
     assert doc["amount"] == "12.50" and doc["blob"] == "AP9hYg=="
-    assert copy.pk_id(Sample)(ROW) == rows.pk_id(Sample)(ROW) == str(ROW["id"])
+    assert doc["id"] == str(ROW["id"]) and doc["ids"] == [str(ROW["ids"][0])] and doc["ip"] == "10.0.0.1"
+    assert doc["meta"] == ROW["meta"] and doc["day"] == ROW["day"] and doc["at"] == ROW["at"]
+    back = _round_trip(rows.orm_of_scaled(Sample, doc))
+    assert back == {**ROW, "amount": Decimal("12.50")}
+    assert rows.pk_id(Sample)(ROW) == str(ROW["id"])

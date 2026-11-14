@@ -24,7 +24,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import system_context
-from app.core.time import ist_date, to_rfc3339
+from app.core.time import to_rfc3339
 from app.modules.analytics import hooks
 from app.modules.analytics.jobs import _pct, week_start
 from app.modules.analytics.mastery import get_topic_mastery
@@ -639,7 +639,3 @@ def _ingest_health_out(rej: Any, ev: Any, gaps: Any, jobs: Any, now: datetime) -
         "measurement_version": MEASUREMENT_VERSION,
         "freeze_after_days": TM.freeze_after_days,
     }
-
-
-def ist_today(now: datetime) -> date:
-    return ist_date(now)

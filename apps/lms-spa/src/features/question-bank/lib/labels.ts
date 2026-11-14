@@ -58,9 +58,6 @@ export const KINDS: { value: ImportKind; label: string; icon: string; hint: stri
   { value: "word_cloud", label: "Words", icon: "☁", hint: "Word cloud" },
 ];
 
-/** Types that are scored (an explanation is required before review). */
-export const GRADED_TYPES = ["mcq_single", "mcq_multi", "coding", "essay", "numeric", "fill_blank"];
-
 /** Plain-text preview of sanitised question HTML. */
 export function plainText(html: string | null | undefined): string {
   return (html ?? "")

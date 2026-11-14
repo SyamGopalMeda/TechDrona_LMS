@@ -17,10 +17,6 @@ export function setRouter(r: Router): void {
   router = r;
 }
 
-export function getRouter(): Router | null {
-  return router;
-}
-
 export function bumpRefresh(): void {
   startTransition(() => {
     refreshVersion += 1;

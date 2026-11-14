@@ -18,6 +18,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.firestore.store import chunks
 from app.modules.learning import fs_store as fss
 from app.modules.learning import store_specs as ss
 from app.modules.learning.cert_models import CertificateOutbox
@@ -26,11 +27,6 @@ from app.modules.learning.models import Certificate, Enrolment
 
 SEND_LEASE = "learning.certificate_outbox_send"
 SEND_LEASE_TTL = timedelta(minutes=5)
-
-
-def _chunks(ids: list[Any], n: int = 30) -> Iterable[list[Any]]:
-    for i in range(0, len(ids), n):
-        yield ids[i : i + n]
 
 
 def _cert_order(c: Certificate) -> tuple[Any, str]:
@@ -135,17 +131,11 @@ async def outboxes_of_certificates(
     session: AsyncSession, cert_ids: list[uuid.UUID]
 ) -> dict[uuid.UUID, CertificateOutbox]:
     out: dict[uuid.UUID, CertificateOutbox] = {}
-    for part in _chunks(list(dict.fromkeys(cert_ids))):
+    for part in chunks(list(dict.fromkeys(cert_ids))):
         for o in await fss.find(session, CertificateOutbox, filters=(("certificate_id", "in", part),)):
             if o.certificate_id is not None:
                 out[o.certificate_id] = o
     return out
-
-
-async def outbox_rows(session: AsyncSession, ids: list[uuid.UUID]) -> list[CertificateOutbox]:
-    """Rows by id, ordered ``created_at, id`` (the approve/cancel ``SELECT ... FOR UPDATE``)."""
-    rows = list((await fss.get_many(session, CertificateOutbox, ids)).values())
-    return sorted(rows, key=_box_order)
 
 
 async def pending_rows(session: AsyncSession, limit: int) -> list[CertificateOutbox]:

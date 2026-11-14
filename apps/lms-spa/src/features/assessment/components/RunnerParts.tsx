@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "@/lib/ui/cn";
 import type { SaveStatus } from "../lib/autosave-queue";
 import { PALETTE_LABEL, paletteAriaLabel, type PaletteCounts, type PaletteState } from "../lib/palette";
-import { crossedMilestone, formatCountdown, spokenDuration, timerTone, type ServerClock } from "../lib/server-clock";
+import { crossedMilestone, spokenDuration, timerTone, type ServerClock } from "../lib/server-clock";
+import { formatCountdown } from "@/lib/format";
 
 /* ------------------------------------------------------------------ Timer */
 
@@ -49,7 +50,7 @@ export function Timer({ clock, deadlineAt, onExpire, suppressWarnings = false, t
   }, [clock, deadlineAt, suppressWarnings, tickMs]);
 
   const tone = suppressWarnings ? "default" : timerTone(remaining);
-  const text = remaining === null ? "--:--" : formatCountdown(remaining);
+  const text = remaining === null ? "--:--" : formatCountdown(remaining / 1000);
 
   return (
     <div className="flex items-center gap-2">

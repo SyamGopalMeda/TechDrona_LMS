@@ -1,9 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Badge, Breadcrumbs, EmptyState, ErrorState, LinkButton } from "@/components/ui";
+import { Badge, Breadcrumbs, EmptyState, ErrorState, LinkButton, LoadingBlock } from "@/components/ui";
 import { isApiError } from "@/lib/api/errors";
-import { LoadingBlock } from "@/features/trainer/shared/ui";
 import { useApi } from "@/features/trainer/shared/use-api";
 import { seg } from "../lib/api";
 import type { ReaderArticle } from "../lib/types";
@@ -84,7 +83,7 @@ export function ArticleReader({ id }: { id: string }) {
     }
     return <ErrorState error={state.error} onRetry={() => void state.reload()} />;
   }
-  if (!state.data) return <LoadingBlock rows={6} label="Loading article" />;
+  if (!state.data) return <LoadingBlock rows={6} label="Loading article" size="row" />;
   return (
     <div className="space-y-3">
       <Breadcrumbs

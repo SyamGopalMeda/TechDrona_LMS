@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useState } from "react";
 import { Badge, Button, ErrorState, Table } from "@/components/ui";
 import { api } from "@/lib/api/client";
-import { formatDate } from "@/features/catalog/lib/format";
 import type { CertificateDto, SignedUrlDto } from "../lib/types";
-import { useAllPages } from "../lib/use-resource";
+import { formatDate } from "@/lib/format";
+import { useAllPages } from "@/lib/api/use-resource";
 
 /** STU-012 certificates (LRN-11, every cursor page followed), PDF via short-lived signed URL (LRN-12). */
 export function Certificates() {

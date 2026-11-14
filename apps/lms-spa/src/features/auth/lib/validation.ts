@@ -27,10 +27,6 @@ export function normaliseIndianMobile(v: string): string | null {
   return /^[6-9]\d{9}$/.test(digits) ? `+91${digits}` : null;
 }
 
-export function isOtp(v: string, length = 6): boolean {
-  return new RegExp(`^\\d{${length}}$`).test(v);
-}
-
 /** Age in completed years on `on` (default today), or null for an invalid date. */
 export function ageOn(dobIso: string, on: Date = new Date()): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dobIso);
