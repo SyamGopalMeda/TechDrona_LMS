@@ -5,7 +5,9 @@
 * ``fake`` → ``FakeJudgeAdapter`` (never executes code; refused when APP_ENV is production);
 * ``judge0_cloud`` / ``judge0`` → ``Judge0Adapter`` (https, ``JUDGE0_BASE_URL``/``JUDGE0_URL``,
   ``JUDGE0_API_KEY``, ``JUDGE0_AUTH_HEADER``);
-* ``judge0_selfhosted`` → ``Judge0Adapter`` against the isolated phase-2 endpoint.
+* ``judge0_selfhosted`` → ``Judge0Adapter`` against the isolated phase-2 endpoint;
+* ``disabled`` → no judge: run/submit answer 503 "code checking is not available yet" and nothing
+  is queued (owner 2026-11-14: no fake verdicts until a real judge is connected).
 """
 
 from __future__ import annotations
@@ -38,13 +40,20 @@ def set_judge_adapter(adapter: JudgeAdapter | None) -> None:
     _override = adapter
 
 
+def judge_enabled(settings: Settings | None = None) -> bool:
+    """False when ``JUDGE_PROVIDER=disabled`` (and no test adapter is pinned)."""
+    if _override is not None:
+        return True
+    return (settings or get_settings()).JUDGE_PROVIDER.lower() != "disabled"
+
+
 def provider_name(settings: Settings | None = None) -> str:
     """Value for ``code_submissions.judge_provider`` (API side; no adapter construction)."""
     if _override is not None:
         return _override.provider
     p = (settings or get_settings()).JUDGE_PROVIDER.lower()
-    if p == "fake":
-        return "fake"
+    if p in ("fake", "disabled"):
+        return p
     if p == "judge0_selfhosted":
         return "judge0_selfhosted"
     return "judge0_cloud"
@@ -57,6 +66,8 @@ def get_judge_adapter(settings: Settings | None = None) -> JudgeAdapter:
         return _override
     s = settings or get_settings()
     p = s.JUDGE_PROVIDER.lower()
+    if p == "disabled":
+        raise JudgeConfigurationError("The judge is disabled (JUDGE_PROVIDER=disabled)")
     if p == "fake":
         if s.is_production:
             raise JudgeConfigurationError("FakeJudgeAdapter is refused when APP_ENV is production")
@@ -83,6 +94,7 @@ __all__ = [
     "JudgeTimeout",
     "JudgeUnavailable",
     "get_judge_adapter",
+    "judge_enabled",
     "provider_name",
     "run_jobs",
     "set_judge_adapter",

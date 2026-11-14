@@ -50,7 +50,7 @@ from app.core.ids import uuid7
 from app.core.principal import Principal
 from app.core.time import to_rfc3339, utcnow
 from app.modules.coding import blobstore, crypto
-from app.modules.coding.judge_gateway import provider_name
+from app.modules.coding.judge_gateway import judge_enabled, provider_name
 from app.modules.coding.models import (
     CodeSubmission,
     CodingProblem,
@@ -845,6 +845,12 @@ async def create_submission(
     attempt_id: uuid.UUID | None = None,
     practice_session_id: uuid.UUID | None = None,
 ) -> CodeSubmission:
+    if not judge_enabled():
+        raise ProblemError(
+            "service_unavailable",
+            detail="Code checking is not available yet. Your code was not submitted.",
+            reason="judge_disabled",
+        )
     queue = "judge_assessment" if attempt_id is not None else QUEUE_FOR_MODE[mode]
     sub = CodeSubmission(
         id=uuid7(),
