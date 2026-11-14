@@ -1,21 +1,12 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { PublicShell } from "@/components/shell/PublicShell";
-import { mockApi, renderWithProviders } from "@/features/auth/test/mock-api";
-import type { TaxonomyNode } from "@/features/practice/lib/types";
 import { HELP_ARTICLES, findHelpArticle } from "../content/help";
 import { LEGAL_DOCS } from "../content/legal";
-import { CompaniesIndex, CompanyHub } from "./CompanyHubs";
 import { ContentDocView } from "./ContentDoc";
-import { FreeResourceList } from "./FreeResources";
 import { HelpCentre } from "./HelpCentre";
 import { MyDeviceLimits } from "./MyDeviceLimits";
-import { PlacementHub, PlacementTopic, findTopic } from "./PlacementHub";
-import { ServiceStatus, coreStatusFrom } from "./ServiceStatus";
-
-let restore: (() => void) | undefined;
-afterEach(() => restore?.());
 
 describe("Legal pages (FE-01 / FE-02, PUB-018)", () => {
   it.each(Object.values(LEGAL_DOCS))("$title renders structured sections with the draft banner", (doc) => {
@@ -169,106 +160,5 @@ describe("PublicShell (website header/footer)", () => {
     const open = screen.getByRole("button", { name: "Hide Solutions menu" });
     expect(open).toHaveAttribute("aria-expanded", "true");
     expect(within(document.getElementById(open.getAttribute("aria-controls")!)!).getByRole("link", { name: /Applied AI/ })).toHaveAttribute("href", "https://35-244-50-26.sslip.io/solutions#ai");
-  });
-});
-
-describe("Status (PUB-020)", () => {
-  it("maps health/ready to operational / disruption and never claims judge, video or payments are up", () => {
-    const ok = coreStatusFrom({ ok: true, data: { status: "ok", checks: { database: "ok", redis_cache: "ok" }, release: "r1" } });
-    const { unmount } = render(<ServiceStatus core={ok} checkedAt="3 Nov 2026, 10:15 IST" />);
-    expect(screen.getByText("Operational")).toBeInTheDocument();
-    expect(screen.getByText("Database: OK")).toBeInTheDocument();
-    expect(screen.getByText(/not monitored on this page yet/)).toBeInTheDocument();
-    unmount();
-    render(<ServiceStatus core={coreStatusFrom({ ok: false, status: 503 })} checkedAt="now" />);
-    expect(screen.getByText("Disruption")).toBeInTheDocument();
-  });
-});
-
-const tree: TaxonomyNode[] = [
-  {
-    id: "s1",
-    parent_id: null,
-    kind: "subject",
-    slug: "quant",
-    name: "Quantitative aptitude",
-    path: "quant",
-    depth: 0,
-    position: 0,
-    is_active: true,
-    question_count: 12,
-    children: [
-      {
-        id: "t1",
-        parent_id: "s1",
-        kind: "topic",
-        slug: "percentages",
-        name: "Percentages",
-        path: "quant/percentages",
-        depth: 1,
-        position: 0,
-        is_active: true,
-        question_count: 7,
-        children: [{ id: "u1", parent_id: "t1", kind: "subtopic", slug: "successive", name: "Successive change", path: "quant/percentages/successive", depth: 2, position: 0, is_active: true, question_count: 3, children: [] }],
-      },
-    ],
-  },
-];
-
-describe("Placement hub and topic (PUB-004/005)", () => {
-  it("lists subjects with counts and links topics by slug", () => {
-    render(<PlacementHub subjects={tree} signedIn={false} />);
-    expect(screen.getByRole("heading", { name: "Quantitative aptitude" })).toBeInTheDocument();
-    expect(screen.getByText("12 questions")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Percentages" })).toHaveAttribute("href", "/placement/quant/percentages");
-    expect(screen.getByRole("link", { name: "Sign up to practise" })).toHaveAttribute("href", "/signup?next=%2Fapp%2Fpractice");
-  });
-
-  it("resolves nested topics and gates practice behind sign-in with next", () => {
-    expect(findTopic(tree, "quant", "successive")?.topic.name).toBe("Successive change");
-    expect(findTopic(tree, "quant", "nope")).toBeNull();
-    const found = findTopic(tree, "quant", "percentages")!;
-    render(<PlacementTopic subject={found.subject} topic={found.topic} signedIn={false} />);
-    expect(screen.getByRole("heading", { level: 1, name: "Percentages" })).toBeInTheDocument();
-    expect(screen.getByText(/Successive change/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Create a free account" })).toHaveAttribute("href", "/signup?next=%2Fapp%2Fpractice%2Fquant");
-  });
-});
-
-describe("Companies (PUB-006/007) — honest state, no invented data", () => {
-  it("explains hubs are not published and links to what exists", () => {
-    render(<CompaniesIndex />);
-    expect(screen.getByText("Company guides are coming soon")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 1, name: "Companies" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Placement topics" })).toHaveAttribute("href", "/placement");
-  });
-
-  it("sends a signed-in learner to the in-app company path", () => {
-    render(<CompanyHub slug="tcs-nqt" signedIn />);
-    expect(screen.getByRole("link", { name: "Open in the app" })).toHaveAttribute("href", "/app/companies/tcs-nqt");
-  });
-});
-
-describe("Free resources (PUB-009)", () => {
-  const resources = [
-    { id: "r1", title: "Aptitude cheat sheet", resource_type: "pdf", course_slug: null, download_url: "/api/v1/media/downloads", url: null },
-    { id: "r2", title: "External guide", resource_type: "link", course_slug: null, download_url: null, url: "https://example.org/guide" },
-  ];
-
-  it("gates file downloads behind sign-in for visitors", () => {
-    render(<FreeResourceList resources={resources} signedIn={false} />);
-    expect(screen.getByRole("link", { name: /Log in to download Aptitude cheat sheet/ })).toHaveAttribute("href", "/login?next=%2Ffree-resources");
-    expect(screen.getByRole("link", { name: /Open External guide/ })).toHaveAttribute("href", "https://example.org/guide");
-  });
-
-  it("downloads through media/downloads when signed in", async () => {
-    const api = mockApi({ "POST media/downloads": { body: { url: "https://cdn.example/x.pdf" } } });
-    restore = api.restore;
-    const open = vi.spyOn(window, "open").mockReturnValue(null);
-    renderWithProviders(<FreeResourceList resources={resources} signedIn />);
-    await userEvent.click(screen.getByRole("button", { name: "Download Aptitude cheat sheet" }));
-    await waitFor(() => expect(open).toHaveBeenCalledWith("https://cdn.example/x.pdf", "_blank", "noopener,noreferrer"));
-    expect(api.calls[0]!.body).toEqual({ resource_id: "r1" });
-    open.mockRestore();
   });
 });

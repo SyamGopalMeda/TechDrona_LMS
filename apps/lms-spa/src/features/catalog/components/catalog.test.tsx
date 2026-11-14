@@ -7,7 +7,6 @@ import { accessOptionsForCourse } from "../lib/products";
 import type { ProductDto } from "../lib/types";
 import { CertificateVerification } from "./CertificateVerification";
 import { CourseAccess } from "./CourseAccess";
-import { PricingPlans } from "./PricingPlans";
 
 const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace: vi.fn() }) }));
@@ -102,50 +101,6 @@ describe("languageName", () => {
     expect(languageName("hi")).toBe("Hindi");
     expect(languageName(null)).toBeNull();
     expect(languageName("not a code!")).toBe("not a code!");
-  });
-});
-
-describe("PricingPlans (PUB-008)", () => {
-  const products: ProductDto[] = [
-    { product_id: "f", sku: "FREE", name: "Free", product_kind: "free_course", plans: [] },
-    {
-      product_id: "a",
-      sku: "ALL",
-      name: "All-access",
-      product_kind: "subscription_plan",
-      refund_rule: "Full refund within 7 days if less than 20% used.",
-      unlocks: [{ item_type: "feature", ref_id: null, feature_key: "mock_tests", quantity: null }],
-      plans: [
-        { plan_id: "m", code: "monthly", billing_type: "recurring", interval_unit: "month", interval_count: 1, access_duration_days: null, prices: [price("pm", 49900)] },
-        { plan_id: "y", code: "annual", billing_type: "recurring", interval_unit: "year", interval_count: 1, access_duration_days: null, prices: [price("py", 399900)] },
-      ],
-    },
-  ];
-
-  it("shows annual prices by default and switches to monthly", async () => {
-    render(<PricingPlans products={products} signedIn />);
-    expect(screen.getByText("Mock tests")).toBeInTheDocument();
-    expect(screen.getByText("₹3,999")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Subscribe All-access" }).getAttribute("href")).toContain("price_id=py");
-    await userEvent.click(screen.getByRole("radio", { name: "Monthly" }));
-    expect(screen.getByText("₹499")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Subscribe All-access" }).getAttribute("href")).toContain("price_id=pm");
-    expect(screen.getByText(/Full refund within 7 days/)).toBeInTheDocument();
-  });
-
-  it("sends signed-out visitors to log in first", () => {
-    render(<PricingPlans products={products} signedIn={false} />);
-    expect(screen.getByRole("link", { name: "Subscribe All-access" }).getAttribute("href")).toMatch(/^\/login\?next=%2Fapp%2Fcheckout%2Fnew/);
-    expect(screen.getByRole("link", { name: "Start free" })).toHaveAttribute("href", "/signup");
-  });
-
-  it("keeps the visible CTA short and puts the product name in the accessible name", () => {
-    render(<PricingPlans products={products} signedIn />);
-    const cta = screen.getByRole("link", { name: "Subscribe All-access" });
-    expect(cta).toHaveTextContent(/^Subscribe$/);
-    // The renewal note sits above the button so CTAs line up across cards.
-    const note = screen.getByText(/Renews automatically/);
-    expect(note.compareDocumentPosition(cta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 

@@ -1,7 +1,6 @@
 import { api, type ApiResult } from "@/lib/api/client";
 import { uuid7 } from "@/lib/ids/uuid7";
 import type {
-  CompanyPath,
   Difficulty,
   MasteryResponse,
   PracticeAnswerBody,
@@ -58,7 +57,6 @@ export const practiceApi = {
   mastery: () => api.get<MasteryResponse>("me/mastery"),
   recommendations: () => api.get<RecommendationsResponse>("me/recommendations"),
   dismissRecommendation: async (id: string) => ok(await api.post<unknown>(`me/recommendations/${enc(id)}/dismiss`, {})),
-  companyPath: (slug: string) => api.get<CompanyPath>(`me/company-paths/${enc(slug)}`),
   /** PLC-33: the path id may be the question_version_id served in a practice session. */
   reportQuestion: async (questionId: string, body: QuestionReportBody, key: string = uuid7()) =>
     ok(await api.post<QuestionReportOut>(`questions/${enc(questionId)}/reports`, body, { idempotencyKey: key })),

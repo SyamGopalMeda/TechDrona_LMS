@@ -86,7 +86,7 @@ export interface PracticeItem {
 /** verified: app/modules/placement/practice.py state() (PLC-19 201 body and PLC-20) */
 export interface PracticeSession {
   session_id: string;
-  mode: "topic_set" | "company_step" | "revision" | (string & {});
+  mode: "topic_set" | "revision" | (string & {});
   topic_id: string | null;
   status: "active" | "completed" | (string & {});
   target_count: number;
@@ -164,48 +164,6 @@ export interface ReviewQuestion {
   topic_id: string;
   last_answered_at: string;
   attempts: number;
-}
-
-/** verified: app/modules/placement/bank.py path_out() steps[] */
-export interface CompanyPathStep {
-  id: string;
-  position: number;
-  step_type: "lesson" | "practice_set" | "test" | "coding_set" | (string & {});
-  title: string;
-  topic_id: string | null;
-  test_id: string | null;
-  lesson_key: string | null;
-  is_required: boolean;
-}
-
-/** verified: app/modules/placement/schemas.py PatternSection (stored JSON) */
-export interface CompanyPatternSection {
-  section: string;
-  topic_id: string;
-  weight: number | string;
-  minutes?: number | null;
-  question_count?: number | null;
-  negative_marking?: number | string | null;
-}
-
-/** verified: app/modules/placement/practice.py my_company_path() paths[] */
-export interface CompanyRolePath {
-  id: string;
-  company_id: string;
-  organization_id: string | null;
-  role_name: string;
-  version_no: number;
-  status: string;
-  pattern: CompanyPatternSection[];
-  published_at: string | null;
-  steps: CompanyPathStep[];
-  readiness: { score_pct: number | null; formula: string; method: string };
-}
-
-/** verified: app/modules/placement/practice.py my_company_path() (PLC-32) */
-export interface CompanyPath {
-  company: { id: string; slug: string; name: string; industry: string | null; hub_status: string; description_md: string | null };
-  paths: CompanyRolePath[];
 }
 
 /* ------------------------------------------------------------ question reports (PLC-33) */

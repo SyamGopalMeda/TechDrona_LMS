@@ -8,20 +8,3 @@ export interface DevicePolicyDto {
   streams: { max_concurrent: PolicyValue };
   attempts?: { max_rebinds_per_attempt: PolicyValue };
 }
-
-/** verified: app/modules/catalog/router.py `free_resources` (CAT-06 → {data:{resources, free_courses}}). */
-export interface FreeResourceDto {
-  id: string;
-  title: string;
-  resource_type: string | null;
-  course_slug: string | null;
-  download_url: string | null;
-  url: string | null;
-}
-
-/** verified: app/core/health.py `ready`. */
-export interface ReadyDto {
-  status: "ok" | "unavailable";
-  checks?: Record<string, "ok" | "fail">;
-  release?: string | null;
-}

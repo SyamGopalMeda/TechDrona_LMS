@@ -325,9 +325,9 @@ async def _db_error_handler(request: Request, exc: Exception) -> Response:
         return problem_response(problem, rid)
     state, _constraint = _pg_error(exc)
     if state and state.startswith("22"):
-        # SQLSTATE class 22 "data exception" (e.g. a NUL byte or untranslatable character in a search
+        # SQLSTATE class 22 "data exception" (e.g. a NUL byte or untranslatable character in a
         # string, numeric/date out of range): bad client input, not a server fault (security audit
-        # 2026-11-11: GET /catalog/search?q=abc%00def returned 500).
+        # 2026-11-11 found it on the search endpoint, which was removed 2026-11-14).
         rid = getattr(request.state, "request_id", None) or get_request_id()
         log.info("db_data_exception", sqlstate=state, path=request.url.path)
         return problem_response(

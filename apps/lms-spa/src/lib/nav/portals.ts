@@ -4,8 +4,9 @@
  * (every request is authorised server-side; a hidden link is not a control).
  *
  * Portal agents: add nav entries here and create pages under src/app/<prefix>/...
- * Screens that are not built yet (ADM-011 notification templates) are
- * kept out of the navigation until their APIs exist.
+ * Removed 2026-11-14 (docs/cleanup/feature-removal-plan.md): mentoring (the /mentor portal),
+ * company paths, corporate enquiries, the free diagnostic, admin question review and
+ * notifications, and the /security/policies duplicate.
  */
 
 import { safeNextPath as hardenedSafeNextPath } from "@/features/auth/lib/validation";
@@ -15,7 +16,6 @@ export type PortalKey =
   | "student"
   | "trainer"
   | "evaluator"
-  | "mentor"
   | "studio"
   | "support"
   | "finance"
@@ -48,10 +48,25 @@ export interface NavItem {
    * online-payment-gateway pages appear by themselves once Razorpay is configured. UX only.
    */
   requires?: "payments";
+  /**
+   * Extra words "Find a page" matches (synonyms the label doesn't say, e.g. "marks" for Grading).
+   * Never shown.
+   */
+  keywords?: string[];
+  /**
+   * Not listed in the sidebar or the phone menu, but still found by "Find a page" (and still the
+   * active item for its page). For pages reached from the header, e.g. the student account page.
+   */
+  searchOnly?: boolean;
 }
 
 /** The shared account page (profile, security, devices, privacy) every account uses. */
 export const ACCOUNT_SETTINGS_HREF = "/app/settings/profile";
+
+/** "Find a page" synonyms for the account page, for every role. */
+const ACCOUNT_KEYWORDS = ["settings", "profile", "account", "password", "devices", "sign-in", "privacy"];
+/** "Find a page" synonyms for grading pages. */
+const GRADING_KEYWORDS = ["marks", "mark", "grade", "grades", "evaluate", "evaluation", "score", "results"];
 
 /** What `visibleNav` needs to know about the session. */
 export interface NavVisibility {
@@ -83,7 +98,7 @@ export interface PortalDef {
   roles: string[];
   nav: NavItem[];
   /**
-   * Set for the finance / support / security / mentoring sections, which are part of the Admin
+   * Set for the finance / support / security sections, which are part of the Admin
    * portal since the single-company conversion (D2): they keep their URLs but share the Admin nav
    * and are not listed separately in the portal switcher.
    */
@@ -91,16 +106,16 @@ export interface PortalDef {
 }
 
 /**
- * Admin portal navigation (D2: Finance admin, Support agent, Security reviewer and Placement
- * mentor are folded into Admin). Shared by /admin, /finance, /desk, /security and /mentor.
+ * Admin portal navigation (D2: Finance admin, Support agent and Security reviewer are folded
+ * into Admin). Shared by /admin, /finance, /desk and /security.
  * Every item belongs to a section so the long list scans as groups (the sidebar collapses the
  * sections that don't hold the current page). One entry per page: the all-types Approvals queue
- * and the all-namespaces Policies page cover the security-filtered views (/security/approvals and
- * /security/policies stay reachable from the security pages that link to them).
+ * and the all-namespaces Policies page cover the security-filtered views (/security/approvals
+ * stays reachable from the security pages that link to it).
  *
  * Live audit 2026-11-14 (docs/qa/live-audit/admin.md M1–M13; changes in fixes-nav.md): 42 listed
- * items became 25. Online-gateway pages carry `requires: "payments"`; mentoring, the old enquiry
- * queue, duplicate queues, idle risk-engine tooling and engineering tools are `hidden` (their URLs
+ * items became 25. Online-gateway pages carry `requires: "payments"`; idle risk-engine tooling
+ * and engineering tools are `hidden` (their URLs
  * still work; Feature flags and Break-glass are linked from Settings › System status).
  */
 export const ADMIN_NAV: NavItem[] = [
@@ -116,15 +131,8 @@ export const ADMIN_NAV: NavItem[] = [
   // Company website back office (enquiries, website content and settings): one click from the LMS admin.
   { href: siteHref("/admin"), label: "Website Admin Panel", screen: "ADM-018", section: "Website", documentNav: true },
   { href: "/admin/courses", label: "Courses", screen: "ADM-016", section: "Learning" },
-  // M3: the same list as Studio "Review queue"; no question bank is in use yet.
-  { href: "/admin/question-review", label: "Question review", screen: "CMS-007", section: "Learning", hidden: true },
   { href: "/admin/batches", label: "Batches", screen: "ADM-013", section: "Learning" },
   { href: "/admin/certificates", label: "Certificates & documents", screen: "ADM-017", section: "Learning" },
-  // M4: a placement mentor's personal tools; mentoring is not part of the batch-training workflow.
-  { href: "/mentor", label: "Mentor sessions", screen: "MEN-001", section: "Mentoring", hidden: true },
-  { href: "/mentor/students", label: "Mentees", screen: "MEN-004", section: "Mentoring", hidden: true },
-  { href: "/mentor/slots", label: "Mentor availability", screen: "MEN-002", section: "Mentoring", hidden: true },
-  { href: "/mentor/resume-reviews", label: "Résumé reviews", screen: "MEN-005", section: "Mentoring", hidden: true },
   // Admissions: website course registrations, instalment fees, manual UPI payment verification.
   { href: "/finance/admissions", label: "Admissions", screen: "ADM-019", section: "Payments" },
   { href: "/finance/admissions/verify", label: "Verify payments", screen: "ADM-020", section: "Payments" },
@@ -141,8 +149,6 @@ export const ADMIN_NAV: NavItem[] = [
   { href: "/finance/reconciliation", label: "Reconciliation", screen: "FIN-009", section: "Payments", requires: "payments" },
   { href: "/desk", label: "Ticket queue", screen: "SUP-001", section: "Support" },
   { href: "/desk/unblock-requests", label: "Unblock requests", screen: "SUP-005", section: "Support" },
-  // M7: fed by the old LMS /enquiries form, which now redirects to the website contact page.
-  { href: "/desk/enquiries", label: "Corporate enquiries", screen: "SUP-006", section: "Support", hidden: true },
   { href: "/security", label: "Security overview", screen: "SEC-001", section: "Security" },
   { href: "/security/incidents", label: "Incidents", screen: "SEC-001", section: "Security" },
   { href: "/security/cases", label: "Cases", screen: "SEC-002", section: "Security" },
@@ -154,14 +160,14 @@ export const ADMIN_NAV: NavItem[] = [
   { href: "/security/reports", label: "Reports", screen: "SEC-001", section: "Security", hidden: true },
   { href: "/admin/audit", label: "Audit log", screen: "ADM-008", section: "Settings" },
   { href: "/admin/policies", label: "Policies", screen: "ADM-006", section: "Settings" },
-  { href: "/admin/ai", label: "AI & apps", screen: "ADM-003", section: "Settings" },
+  { href: "/admin/ai", label: "Apps", screen: "ADM-003", section: "Settings" },
   // M11: outside-service status (moved off the dashboard) and the advanced tools below.
   { href: "/admin/system", label: "System status", screen: "ADM-023", section: "Settings" },
   // M9: engineering / emergency tools, linked from System status.
   { href: "/admin/feature-flags", label: "Feature flags", screen: "ADM-007", section: "Settings", hidden: true },
   { href: "/admin/break-glass", label: "Break-glass", screen: "ADM-012", section: "Settings", hidden: true },
   // "Find a page" → "settings" (staff-portals F6): the shared account page.
-  { href: ACCOUNT_SETTINGS_HREF, label: "Account settings", screen: "STU-020", section: "Settings" },
+  { href: ACCOUNT_SETTINGS_HREF, label: "Account settings", screen: "STU-020", section: "Settings", keywords: ACCOUNT_KEYWORDS },
 ];
 
 export const PORTALS: Record<PortalKey, PortalDef> = {
@@ -185,19 +191,17 @@ export const PORTALS: Record<PortalKey, PortalDef> = {
       { href: "/app/engage", label: "Live activities", screen: "STU-030", section: "Learn", appKey: "engage" },
       { href: "/app/certificates", label: "Certificates", screen: "STU-012", section: "Learn" },
       { href: "/app/practice", label: "Practice", screen: "PRC-001", section: "Practice & tests" },
-      { href: "/app/tests", label: "Tests", screen: "STU-009", section: "Practice & tests" },
+      { href: "/app/tests", label: "Tests", screen: "STU-009", section: "Practice & tests", keywords: ["exams", "diagnostic", "mock"] },
       { href: "/app/coding", label: "Coding", screen: "COD-001", section: "Practice & tests" },
-      { href: "/app/progress", label: "Progress", screen: "STU-011", section: "Practice & tests" },
-      { href: "/app/diagnostic", label: "Free diagnostic", screen: "STU-010", section: "Practice & tests", hidden: true },
+      { href: "/app/progress", label: "Progress", screen: "STU-011", section: "Practice & tests", keywords: ["marks", "grades", "scores", "results", "analytics"] },
       { href: "/app/interview-prep", label: "Interview prep", screen: "STU-015", section: "Placement" },
-      { href: "/app/mentoring", label: "Mock interviews", screen: "STU-013", section: "Placement", hidden: true },
       { href: "/app/resume", label: "Résumé builder", screen: "STU-014", section: "Placement" },
-      { href: "/app/companies", label: "Company paths", screen: "PRC-005", section: "Placement", hidden: true },
       { href: "/app/notifications", label: "Notifications", screen: "STU-024", section: "Account", hidden: true },
       { href: "/app/billing", label: "Billing", screen: "STU-018", section: "Account", hidden: true },
       { href: "/app/access", label: "My access", screen: "STU-019", section: "Account", hidden: true },
       { href: "/app/support", label: "Support", screen: "STU-025", section: "Account" },
-      { href: ACCOUNT_SETTINGS_HREF, label: "Profile & settings", screen: "STU-020", section: "Account", hidden: true },
+      // Reached from the header account menu, so not in the sidebar; "Find a page" still finds it.
+      { href: ACCOUNT_SETTINGS_HREF, label: "Profile & settings", screen: "STU-020", section: "Account", searchOnly: true, keywords: ACCOUNT_KEYWORDS },
     ],
   },
   trainer: {
@@ -211,11 +215,11 @@ export const PORTALS: Record<PortalKey, PortalDef> = {
       { href: "/trainer/paths", label: "Learning paths", screen: "PTH-001", section: "Teach", appKey: "paths" },
       { href: "/trainer/paths/articles", label: "Articles", screen: "PTH-003", section: "Teach", appKey: "paths" },
       { href: "/trainer/engage", label: "Engage", screen: "TRN-020", section: "Teach", appKey: "engage" },
-      { href: "/trainer/grading", label: "Grading", screen: "TRN-008", section: "Assess" },
+      { href: "/trainer/grading", label: "Grading", screen: "TRN-008", section: "Assess", keywords: GRADING_KEYWORDS },
       { href: "/trainer/assignments", label: "Assignments", screen: "TRN-012", section: "Assess", appKey: "assignments" },
       { href: "/trainer/tests", label: "Tests", screen: "TRN-005", section: "Assess" },
       { href: "/trainer/integrity", label: "Integrity flags", screen: "TRN-010", section: "Assess" },
-      { href: ACCOUNT_SETTINGS_HREF, label: "Account settings", screen: "STU-020", section: "Account" },
+      { href: ACCOUNT_SETTINGS_HREF, label: "Account settings", screen: "STU-020", section: "Account", keywords: ACCOUNT_KEYWORDS },
     ],
   },
   evaluator: {
@@ -225,19 +229,11 @@ export const PORTALS: Record<PortalKey, PortalDef> = {
     roles: ["evaluator"],
     // Reuses the trainer grading screens with authoring hidden (plan §4.2, D3: grade + publish).
     nav: [
-      { href: "/evaluator", label: "Grading", screen: "TRN-008" },
+      { href: "/evaluator", label: "Grading", screen: "TRN-008", keywords: GRADING_KEYWORDS },
       { href: "/evaluator/tests", label: "Tests", screen: "TRN-005" },
       { href: "/evaluator/integrity", label: "Integrity flags", screen: "TRN-010" },
-      { href: ACCOUNT_SETTINGS_HREF, label: "Account settings", screen: "STU-020", section: "Account" },
+      { href: ACCOUNT_SETTINGS_HREF, label: "Account settings", screen: "STU-020", section: "Account", keywords: ACCOUNT_KEYWORDS },
     ],
-  },
-  mentor: {
-    key: "mentor",
-    prefix: "/mentor",
-    title: "Admin · Mentoring",
-    roles: ["super_admin"],
-    nav: ADMIN_NAV,
-    parent: "admin",
   },
   studio: {
     key: "studio",
@@ -251,12 +247,11 @@ export const PORTALS: Record<PortalKey, PortalDef> = {
       { href: "/studio/courses", label: "Courses", screen: "CMS-002", section: "Content" },
       { href: "/studio/media", label: "Media", screen: "CMS-012", section: "Content" },
       { href: "/studio/taxonomy", label: "Taxonomy", screen: "CMS-008", section: "Content" },
-      { href: "/studio/companies", label: "Companies", screen: "CMS-009", section: "Content" },
       { href: "/studio/questions", label: "All questions", screen: "CMS-004", section: "Questions & tests" },
       { href: "/studio/question-banks", label: "Question banks", screen: "CMS-004", section: "Questions & tests", appKey: "question_banks" },
       { href: "/studio/coding", label: "Coding problems", screen: "CMS-010", section: "Questions & tests" },
       { href: "/studio/tests", label: "Template mocks", screen: "CMS-011", section: "Questions & tests" },
-      { href: ACCOUNT_SETTINGS_HREF, label: "Account settings", screen: "STU-020", section: "Account" },
+      { href: ACCOUNT_SETTINGS_HREF, label: "Account settings", screen: "STU-020", section: "Account", keywords: ACCOUNT_KEYWORDS },
     ],
   },
   support: {

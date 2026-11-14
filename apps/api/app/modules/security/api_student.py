@@ -204,8 +204,14 @@ async def my_status(
         state = await rx.restriction_state(session, uid)
         policy = {
             "max_trusted_devices": await get_value(session, "devices.student.max_trusted", user_id=uid),
+            # The cap login enforces for this account's tier (sessions/login.py): staff have
+            # their own limit (live re-check 2026-11-14 N6: staff were shown the student 2).
             "max_concurrent_sessions": await get_value(
-                session, "sessions.student.max_concurrent", user_id=uid
+                session,
+                "sessions.student.max_concurrent"
+                if principal.tier == "student"
+                else "sessions.staff.max_concurrent",
+                user_id=uid,
             ),
             "max_concurrent_streams": await get_value(
                 session, "playback.max_concurrent_streams", user_id=uid

@@ -326,22 +326,6 @@ def _like_regex(like: str) -> re.Pattern[str]:
     return re.compile("".join(out), re.IGNORECASE | re.DOTALL)
 
 
-_WORD = re.compile(r"\w+", re.UNICODE)
-
-
-def search_matches(q: str, card: dict[str, Any]) -> bool:
-    """Approximation of the Postgres search (``websearch_to_tsquery('simple')`` over title,
-    summary and tags OR ``ILIKE %q%`` on title / tags): every word of ``q`` is a token of the
-    document, or ``q`` is a substring of the title or the tags."""
-    title, tags = card.get("title") or "", " ".join(card.get("tags") or [])
-    ql = q.lower()
-    if ql in title.lower() or ql in tags.lower():
-        return True
-    words = [w for w in _WORD.findall(ql) if w not in ("or",)]
-    tokens = set(_WORD.findall(" ".join([title, card.get("summary") or "", tags]).lower()))
-    return bool(words) and all(w in tokens for w in words)
-
-
 def _chunks(ids: Sequence[str], n: int = IN_CHUNK) -> Iterable[list[str]]:
     for i in range(0, len(ids), n):
         yield list(ids[i : i + n])
@@ -567,7 +551,6 @@ class CatalogReadRepo(FirestoreRepository):
         level: str | None,
         price_type: str | None,
         language: str | None,
-        q: str | None,
         is_free: bool | None,
         after_id: str | None,
         limit: int,
@@ -588,7 +571,7 @@ class CatalogReadRepo(FirestoreRepository):
                 return False
             if is_free is not None and bool(c.get("is_free")) != is_free:
                 return False
-            return not q or search_matches(q, card)
+            return True
 
         docs, more = await self._scan_desc(
             COURSES,

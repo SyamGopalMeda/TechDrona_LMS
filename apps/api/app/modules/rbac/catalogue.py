@@ -116,7 +116,6 @@ _MODULE_PREFIX = {
     "taxonomy": "placement",
     "question": "placement",
     "company_path": "placement",
-    "mentor": "placement",
     "test": "assessments",
     "attempt": "assessments",
     "integrity": "assessments",
@@ -148,7 +147,10 @@ _MODULE_PREFIX = {
     "path": "paths",
 }
 
-# Permissions deleted by the single-company conversion (migration rbac_0004 removes the rows).
+# Permissions deleted by the single-company conversion (migration rbac_0004 removes the rows),
+# and the mentoring permissions removed with the feature on 2026-11-14
+# (docs/cleanup/feature-removal-plan.md §3.1; the live Firestore rows stay until the owner
+# approves deleting them, and are no longer reseeded).
 REMOVED_PERMISSIONS = frozenset(
     {
         "org.create",
@@ -165,6 +167,9 @@ REMOVED_PERMISSIONS = frozenset(
         "seat.revoke",
         "audit.read.org",
         "security.network.verify",
+        "mentor.slot.manage",
+        "mentor.feedback.write",
+        "mentor.notes.read",
     }
 )
 
@@ -236,7 +241,7 @@ _ROWS: dict[str, tuple[str, str, str]] = {
     "grade.override_released": ("Change a released grade", "Up Sens", "- - B - -"),
     "certificate.issue_manual": ("Issue a certificate manually", "Sens", "- - - P P"),
     "certificate.revoke": ("Revoke a certificate", "Up Sens", "- - - P P"),
-    # 2.5 placement, assessments, coding, mentoring
+    # 2.5 placement, assessments, coding
     "taxonomy.manage": ("Subject/topic tree", "Sens", "- - - P -"),
     "question.create": ("Author questions", "Std", "- - C P -"),
     "question.edit": ("Edit questions", "Std", "- - C P -"),
@@ -262,9 +267,6 @@ _ROWS: dict[str, tuple[str, str, str]] = {
     "coding_test_case.hidden.read": ("Read/edit hidden test cases", "Sens", "- - C P -"),
     "submission.code.read": ("Read submitted code of others", "Sens", "S B B P P"),
     "similarity.run": ("Run similarity checks", "Std", "- B B - P"),
-    "mentor.slot.manage": ("Manage own mentor slots", "Std", "- - - - P"),
-    "mentor.feedback.write": ("Write mentor feedback", "Std", "- - - - P"),
-    "mentor.notes.read": ("Read mentor notes of assigned students", "Sens", "S - B - P"),
     # 2.6 commerce, entitlements (B2C only)
     "product.manage": ("Products and plans", "Up Sens", "- - - - P"),
     "price.manage": ("Prices", "Up Sens", "- - - - P"),

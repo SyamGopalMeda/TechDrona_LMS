@@ -3,7 +3,7 @@
 Tech Drona is a placement-preparation learning platform for Indian engineering and degree students. It is run by a single company, Tech Drona, which sells directly to individual learners and runs its own training batches (single-company mode, see [ADR-0015](docs/architecture-decisions/ADR-0015-single-company.md) and [`docs/single-company/REMOVAL-PLAN.md`](docs/single-company/REMOVAL-PLAN.md)); there is no college portal or B2B contract flow. Businesses can send a corporate enquiry at `/enquiries`. It covers four workloads in one product:
 
 - a structured LMS: courses, batches, DRM video, progress, assignments, certificates;
-- a placement-practice engine: aptitude, programming, DSA, CS fundamentals, company paths, interview prep;
+- a placement-practice engine: aptitude, programming, DSA, CS fundamentals, interview prep, a résumé builder;
 - a timed-assessment engine with a sandboxed coding judge;
 - an India-compliant commerce stack (Razorpay, UPI AutoPay, GST invoices) with one central entitlement system.
 

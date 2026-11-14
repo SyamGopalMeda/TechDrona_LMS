@@ -13,20 +13,19 @@ import { layoutIssues, watch } from "../lib/probe";
 const SITE = process.env.SITE_URL ?? "https://techdrona-website.web.app";
 const STUDENT_NAV = [
   "/app", "/app/learning", "/app/classes", "/app/courses", "/app/registrations", "/app/path/my", "/app/assignments",
-  "/app/engage", "/app/certificates", "/app/practice", "/app/tests", "/app/coding", "/app/progress", "/app/diagnostic",
-  "/app/interview-prep", "/app/mentoring", "/app/resume", "/app/companies", "/app/notifications", "/app/billing",
+  "/app/engage", "/app/certificates", "/app/practice", "/app/tests", "/app/coding", "/app/progress",
+  "/app/interview-prep", "/app/resume", "/app/notifications", "/app/billing",
   "/app/access", "/app/support", "/app/settings/profile",
   // not in the sidebar but reachable: account menu / dashboard
-  "/app/account-status", "/app/path", "/app/orders", "/app/bookmarks", "/app/analytics", "/app/onboarding",
+  "/app/account-status", "/app/path", "/app/orders", "/app/onboarding",
 ];
 
 const MATRIX: Record<string, string[]> = {
   "/app": ["/app", "/app/learning", "/app/billing"],
   "/admin": ["/admin", "/admin/users", "/admin/certificates"],
   "/finance": ["/finance", "/finance/orders", "/finance/admissions/registrations"],
-  "/desk": ["/desk", "/desk/unblock-requests", "/desk/enquiries"],
+  "/desk": ["/desk", "/desk/unblock-requests"],
   "/security": ["/security", "/security/cases", "/security/restrictions"],
-  "/mentor": ["/mentor", "/mentor/students", "/mentor/slots"],
   "/studio": ["/studio", "/studio/questions", "/studio/courses"],
   "/trainer": ["/trainer", "/trainer/grading", "/trainer/tests"],
   "/evaluator": ["/evaluator", "/evaluator/tests", "/evaluator/integrity"],
@@ -35,7 +34,7 @@ const MATRIX: Record<string, string[]> = {
 const API_PROBES = [
   "admin/users", "admin/certificates", "admin/dashboard", "admin/admissions/registrations", "admin/privacy-requests",
   "admin/feature-flags", "rbac/grants", "audit/events", "finance/orders", "finance/reports/revenue",
-  "studio/questions", "studio/courses", "security/cases", "support/queue", "mentor/students", "batches",
+  "studio/questions", "studio/courses", "security/cases", "support/queue", "batches",
 ];
 
 function save(name: string, data: unknown) {

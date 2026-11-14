@@ -175,7 +175,9 @@ async def _check_refs(session: AsyncSession, company_id: uuid.UUID | None, path_
             "validation_failed",
             errors=[{"field": "company_id", "code": "not_found", "message": "unknown company"}],
         )
-    if path_id is not None and await placement_public.get_company_path(session, path_id) is None:
+    if path_id is not None:
+        # Company preparation paths were removed (docs/cleanup/feature-removal-plan.md §3.2); the
+        # field stays in the schema only to avoid churn, and only null is accepted.
         raise ProblemError(
             "validation_failed",
             errors=[{"field": "company_path_id", "code": "not_found", "message": "unknown company path"}],

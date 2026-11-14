@@ -11,10 +11,10 @@ import type { DashboardDto } from "@/features/learning/lib/types";
 import type { RecommendationsResponse, SubjectsResponse, TaxonomyNode } from "@/features/practice/lib/types";
 
 /*
- * STU-002/003/006/015 hubs and the dashboard's "Upcoming tests" (FE-05, FE-23). Built only on
+ * STU-002/006/015 hubs and the dashboard's "Upcoming tests" (FE-05, FE-23). Built only on
  * existing endpoints: ASM-01 `me/tests`, PLC-01 `placement/subjects`, PLC-26 `me/recommendations`,
- * LRN-01 `me/dashboard`. Goal saving (PLC-28/29) and bookmarks are not in the api yet, so those
- * parts say so rather than pretend.
+ * LRN-01 `me/dashboard`. Goal saving (PLC-28/29) is not in the api yet, so that part says so
+ * rather than pretend. Diagnostic tests are listed on Tests (no separate launcher page).
  */
 
 const enc = encodeURIComponent;
@@ -171,36 +171,12 @@ export function GetStarted() {
   );
 }
 
-/** STU-003 diagnostic launcher → TST-001/TST-002. */
-export function DiagnosticLauncher() {
-  return (
-    <TestsCard
-      title="Diagnostic tests"
-      kinds={["diagnostic"]}
-      empty={{
-        title: "No diagnostic test is open right now",
-        description: "When one is published for you, it appears here. Meanwhile, practise by subject to see your mastery by topic.",
-        icon: "chart",
-        action: (
-          <LinkButton href="/app/practice" variant="secondary" size="sm">
-            Go to practice
-          </LinkButton>
-        ),
-      }}
-    />
-  );
-}
-
 /** STU-015 interview prep hub. */
 export function InterviewPrep() {
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-3">
-        {[
-          { href: "/app/mentoring", title: "Mock interviews", text: "Book a 1:1 session with a mentor and read their feedback." },
-          { href: "/app/resume", title: "Résumé", text: "Build an ATS-friendly résumé and ask for a review." },
-          { href: "/app/companies", title: "Company paths", text: "Practise for a specific company's pattern." },
-        ].map((c) => (
+      <div className="grid gap-4 sm:grid-cols-2">
+        {[{ href: "/app/resume", title: "Résumé", text: "Build an ATS-friendly résumé and download it." }].map((c) => (
           <Link
             key={c.href}
             href={c.href}

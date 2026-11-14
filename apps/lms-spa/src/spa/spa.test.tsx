@@ -29,10 +29,12 @@ async function mountAsync(routes: RouteObject[], url: string) {
 }
 
 describe("route tree", () => {
-  it("has every apps/web page", () => {
-    // 204 apps/web pages + 3 SPA-only pages (live audit): /app/orders index redirect, /admin/system, /college-portal/* "being moved"
-    // + /admin/system and the /college-portal "being moved" fallback (fixes-nav.md).
-    expect(PAGE_COUNT).toBe(207);
+  it("has every page under src/app", () => {
+    // 207 pages (204 from apps/web + 3 SPA-only: /app/orders index redirect, /admin/system, the
+    // /college-portal "being moved" fallback) − 28 removed 2026-11-14 (feature-removal-plan.md:
+    // mentoring 7, company paths 3, hosting-redirected public pages 9, enquiries 3, diagnostic,
+    // question review, admin notifications, bookmarks, analytics, security policies) = 179.
+    expect(PAGE_COUNT).toBe(179);
   });
 });
 

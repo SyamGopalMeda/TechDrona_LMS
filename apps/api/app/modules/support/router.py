@@ -1,5 +1,4 @@
-"""Support desk API (api-specification §22, SUP-01..15; the public corporate enquiry form
-lives in ``enquiries.py``).
+"""Support desk API (api-specification §22, SUP-01..15).
 
 Students (any signed-in user, including restricted ones: route tag ``account_status``) open
 tickets and talk to support; staff triage through ``/support/queue`` within their lane
@@ -1317,12 +1316,6 @@ async def macros(principal: Principal = Depends(require_active_principal)) -> di
 
 router = APIRouter()
 router.include_router(r)
-
-# D8: public corporate enquiry form + the Admin enquiry queue (no main.py change needed).
-from app.modules.support.enquiries import router as _enquiries_router  # noqa: E402
-
-router.include_router(_enquiries_router)
-
 
 # DB-01: register this module's erasure provider with admin privacy (import-time registration).
 from app.modules.support import privacy as _privacy  # noqa: E402

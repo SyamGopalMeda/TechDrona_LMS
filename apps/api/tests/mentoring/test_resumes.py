@@ -1,13 +1,13 @@
-"""Résumés and mentor résumé review (PLC-47..52)."""
+"""Résumés (PLC-47..49). Mentor résumé reviews were removed (feature-removal-plan §3.1)."""
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 from app.core.ids import uuid7
-from tests.mentoring.test_mentoring import API, grant_package, mentor
 from tests.placement.world import World
+
+API = "/api/v1"
 
 CONTENT: dict[str, Any] = {
     "headline": "Final-year CSE student",
@@ -25,7 +25,7 @@ async def test_resume_crud_and_validation(client, world: World) -> None:
     s = world.personas["student"]
     r = await client.get(f"{API}/me/resumes", headers=s.headers)
     assert r.status_code == 200 and r.json()["data"] == [], r.text
-    assert r.json()["quota"]["has_package"] is False and r.json()["suggested_certifications"] == []
+    assert "quota" not in r.json() and r.json()["suggested_certifications"] == []
 
     c = await client.post(
         f"{API}/me/resumes", json={"template_key": "ats_modern", "content": CONTENT}, headers=s.headers
@@ -100,63 +100,9 @@ async def test_resume_pdf_upload_metadata(client, world: World) -> None:
     assert dl.status_code == 200 and "X-Amz-Signature=" in dl.json()["url"]
 
 
-async def test_review_request_queue_and_feedback(client, db, world: World) -> None:
+async def test_review_routes_are_gone(client, world: World) -> None:
     s = world.personas["student"]
     res = (await client.post(f"{API}/me/resumes", json={"content": CONTENT}, headers=s.headers)).json()
-    url = f"{API}/me/resumes/{res['id']}/review-requests"
-    hdr = {**s.headers, "Idempotency-Key": f"rr-{uuid.uuid4().hex}"}
-
-    r = await client.post(url, json={"note": "Please check projects"}, headers=hdr)
-    assert r.status_code == 403 and r.json()["code"] == "entitlement_required", r.text
-    assert (await client.post(url, json={}, headers=s.headers)).status_code == 400  # Idempotency-Key required
-
-    await grant_package(db, s, reviews=1)
-    hdr = {**s.headers, "Idempotency-Key": f"rr-{uuid.uuid4().hex}"}
-    r = await client.post(url, json={"note": "Please check projects"}, headers=hdr)
-    assert r.status_code == 201, r.text
-    review = r.json()
-    assert review["status"] == "requested" and review["comments"] == []
-    dup = await client.post(url, json={}, headers={**s.headers, "Idempotency-Key": f"rr-{uuid.uuid4().hex}"})
-    assert dup.status_code == 409
-    q = (await client.get(f"{API}/me/resumes", headers=s.headers)).json()["quota"]
-    assert q["resume_reviews_remaining"] == 0
-
-    m = await mentor(world)
-    # Single company (D2): every Admin works the same review queue; trainers and students cannot.
-    mb = await mentor(world, "mentor_b")
-    queue = await client.get(f"{API}/mentor/resume-reviews", headers=m.headers)
-    assert queue.status_code == 200, queue.text
-    item = queue.json()["data"][0]
-    assert item["id"] == review["id"] and item["student_id"] == str(s.id)
-    assert (
-        item["resume"]["content"]["headline"] == CONTENT["headline"]
-        and item["note"] == "Please check projects"
-    )
-    assert [
-        x["id"] for x in (await client.get(f"{API}/mentor/resume-reviews", headers=mb.headers)).json()["data"]
-    ] == [review["id"]]
-    for who in (s, world.personas["trainer_a"]):
-        assert (await client.get(f"{API}/mentor/resume-reviews", headers=who.headers)).status_code == 403
-
-    fb_url = f"{API}/mentor/resume-reviews/{review['id']}/feedback"
-    payload = {"comments": [{"section": "projects", "comment": "Quantify impact"}], "summary": "Solid start"}
-    assert (
-        await client.post(fb_url, json={"comments": [], "summary": ""}, headers=m.headers)
-    ).status_code == 400
-    bad_section = {"comments": [{"section": "hobbies", "comment": "x"}], "summary": "y"}
-    assert (await client.post(fb_url, json=bad_section, headers=m.headers)).status_code == 400
-    done = await client.post(fb_url, json=payload, headers=m.headers)
-    assert done.status_code == 200, done.text
-    assert done.json()["status"] == "completed" and done.json()["reviewer_id"] == str(m.id)
-    assert (await client.post(fb_url, json=payload, headers=m.headers)).status_code == 409
-
-    mine = (await client.get(f"{API}/me/resumes", headers=s.headers)).json()["data"][0]["reviews"][0]
-    assert (
-        mine["status"] == "completed"
-        and mine["comments"] == payload["comments"]
-        and mine["summary"] == "Solid start"
-    )
-    completed = await client.get(
-        f"{API}/mentor/resume-reviews", params={"status": "completed"}, headers=m.headers
-    )
-    assert [x["id"] for x in completed.json()["data"]] == [review["id"]]
+    assert "reviews" not in res
+    r = await client.post(f"{API}/me/resumes/{res['id']}/review-requests", json={}, headers=s.headers)
+    assert r.status_code in (404, 405)

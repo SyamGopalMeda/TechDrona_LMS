@@ -39,7 +39,7 @@ export function PortalShell({ portal, children }: { portal: PortalKey; children:
   const grants = useStaffGrants();
   const adminInStudio = portal === "studio" && !!grants && studioAccess(grants.portals, grants.data?.map((g) => g.role_key)) === "admin";
   const nav = visibleNav(def.nav, { connected: integrations, only: adminInStudio ? ADMIN_STUDIO_PATHS : null });
-  // Admin sections (finance, desk, security, mentor) share the Admin nav: the logo goes to the Admin dashboard.
+  // Admin sections (finance, desk, security) share the Admin nav: the logo goes to the Admin dashboard.
   const home = def.parent ? PORTALS[def.parent].prefix : def.prefix;
   const homeTitle = def.parent ? PORTALS[def.parent].title : def.title;
   // The account pages (settings, account status) live under /app for every account; for staff they

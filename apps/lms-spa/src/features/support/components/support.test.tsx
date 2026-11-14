@@ -107,16 +107,6 @@ describe("Support ticket queue (SUP-001)", () => {
   });
 });
 
-describe("Desk categories (D8)", () => {
-  it("offers the corporate enquiry category in the desk filter", async () => {
-    const api = mockApi({ "GET support/queue": { body: { data: [], page, counts: {} } } });
-    cleanups.push(api.restore);
-    renderWithProviders(<TicketQueue />);
-    await userEvent.selectOptions(await screen.findByLabelText("Category"), "corporate_enquiry");
-    await waitFor(() => expect(api.calls.some((c) => c.url.includes("category=corporate_enquiry"))).toBe(true));
-  });
-});
-
 describe("Support ticket detail (SUP-002)", () => {
   it("shows internal notes, posts an internal note and assigns to me", async () => {
     const thread = {

@@ -50,7 +50,7 @@ export function areaOf(path: string): ContinueArea {
 /**
  * Whether a user whose RBAC grants open `portals` (GET /me/grants → `portals`) can open `path`.
  * Guards against resuming another account's page on a shared browser whose session expired
- * without a sign-out. The Admin sections (finance, desk, security, mentor) belong to /admin.
+ * without a sign-out. The Admin sections (finance, desk, security) belong to /admin.
  */
 export function allowedFor(path: string, portals: readonly string[]): boolean {
   const pathname = pathnameOf(path);

@@ -1,5 +1,7 @@
 # Data-content agent: catalog, entitlements, media, paths
 
+> **Removed 2026-11-14** ([cleanup/feature-removal-plan.md](../../cleanup/feature-removal-plan.md)): mentoring (slots, bookings, sessions, feedback, mentor notes, résumé reviews, the `/mentor` console; the Résumé builder stays), company paths (the `companies` entity stays), corporate enquiries, `GET /catalog/search`, the public SPA pages Hosting redirects to the website, and the `/app/diagnostic`, `/admin/question-review`, `/admin/notifications`, `/app/bookmarks`, `/app/analytics` and `/security/policies` pages. Mentions below of those features are historical.
+
 Rounds 1–2 (2026-11-12). **Every `TD_STORE_*` still defaults to `postgres`**; nothing was deployed.
 
 Test policy (owner, round 2): there is no Docker/Postgres. Tests run on the Firestore emulator
@@ -17,7 +19,7 @@ against the live VM.
 
 **Platform finding handled.** Every catalog, entitlements, media and paths route covered by the
 HTTP tests runs with the request session set to `NO_POSTGRES` (or `None`, see R10). Any Postgres
-access fails the test. `/catalog/courses`, `/catalog/courses/{slug}`, `/catalog/search` and the
+access fails the test. `/catalog/courses`, `/catalog/courses/{slug}` (`/catalog/search` removed 2026-11-14) and the
 studio routes pass.
 
 ## 2. Data models (Firestore, `lms_` prefix)

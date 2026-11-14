@@ -11,7 +11,9 @@ from app.modules.admin import flags
 from app.modules.admin import privacy as prv
 from tests.security.helpers import staff, staff_browser
 
-KEY = "risk.fingerprint_collection"
+# Any seeded, side-effect-free flag. Was ``risk.fingerprint_collection``, which no code reads
+# (removed by docs/cleanup/feature-removal-plan.md §3.12; its live doc awaits owner approval).
+KEY = "payments.cashfree_enabled"
 
 
 def test_evaluate_rule() -> None:

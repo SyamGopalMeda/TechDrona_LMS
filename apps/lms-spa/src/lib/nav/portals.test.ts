@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { searchNav } from "@/components/shell/PortalNav";
 import { ACCOUNT_SETTINGS_HREF, PORTALS, safeNextPath, signInNext, visibleNav } from "./portals";
 
 describe("portal registry (w3web)", () => {
@@ -29,6 +30,11 @@ describe("portal registry (w3web)", () => {
     expect(all).not.toContain("/app/analytics");
     expect(all).not.toContain("/admin/notifications");
     for (const gone of ["/college", "/college/shortlists", "/app/college", "/admin/organizations", "/finance/contracts", "/security/networks"]) expect(all).not.toContain(gone);
+    // Removed 2026-11-14 (docs/cleanup/feature-removal-plan.md): the pages no longer exist.
+    for (const gone of ["/mentor", "/mentor/students", "/mentor/slots", "/mentor/resume-reviews", "/app/mentoring", "/app/companies", "/studio/companies", "/app/diagnostic", "/desk/enquiries", "/admin/question-review", "/security/policies"]) {
+      expect(all, gone).not.toContain(gone);
+    }
+    expect(Object.keys(PORTALS)).not.toContain("mentor");
   });
 
   it("lists the learner and security pages", () => {
@@ -41,13 +47,14 @@ describe("portal registry (w3web)", () => {
     expect(security).toEqual(expect.arrayContaining(["/security/incidents", "/security/cases"]));
   });
 
-  it("D2: the Admin portal absorbs finance, support, security and mentoring", () => {
+  it("D2: the Admin portal absorbs finance, support and security", () => {
     expect(Object.keys(PORTALS)).not.toContain("college");
     const admin = PORTALS.admin.nav;
     expect(PORTALS.admin.title).toBe("Admin");
-    expect(admin.map((n) => n.href)).toEqual(expect.arrayContaining(["/admin/batches", "/admin/ai", "/finance", "/desk", "/security", "/mentor"]));
-    expect([...new Set(admin.map((n) => n.section))]).toEqual(["Overview", "People", "Colleges", "Website", "Learning", "Mentoring", "Payments", "Support", "Security", "Settings"]);
-    for (const key of ["finance", "support", "security", "mentor"] as const) {
+    expect(admin.map((n) => n.href)).toEqual(expect.arrayContaining(["/admin/batches", "/admin/ai", "/finance", "/desk", "/security"]));
+    expect([...new Set(admin.map((n) => n.section))]).toEqual(["Overview", "People", "Colleges", "Website", "Learning", "Payments", "Support", "Security", "Settings"]);
+    expect(admin.find((n) => n.href === "/admin/ai")?.label).toBe("Apps");
+    for (const key of ["finance", "support", "security"] as const) {
       expect(PORTALS[key].roles).toEqual(["super_admin"]);
       expect(PORTALS[key].parent).toBe("admin");
       expect(PORTALS[key].nav).toBe(PORTALS.admin.nav);
@@ -90,11 +97,11 @@ describe("visibleNav (live audit nav cleanup)", () => {
   const hrefs = (items: { href: string }[]) => items.map((i) => i.href);
   const GATEWAY = ["/finance", "/finance/orders", "/finance/refunds", "/finance/subscriptions", "/finance/invoices", "/finance/products", "/finance/coupons", "/finance/reconciliation"];
 
-  it("admin: about two dozen items, no gateway, mentoring, duplicates or engineering tools", () => {
+  it("admin: about two dozen items, no gateway, duplicates or engineering tools", () => {
     const shown = visibleNav(PORTALS.admin.nav, { connected: { payments: false } });
     expect(shown.length).toBeLessThanOrEqual(25);
     const h = hrefs(shown);
-    for (const gone of [...GATEWAY, "/mentor", "/mentor/students", "/mentor/slots", "/mentor/resume-reviews", "/desk/enquiries", "/security/unblock-requests", "/security/rules", "/security/reports", "/admin/question-review", "/admin/feature-flags", "/admin/break-glass"]) {
+    for (const gone of [...GATEWAY, "/security/unblock-requests", "/security/rules", "/security/reports", "/admin/feature-flags", "/admin/break-glass"]) {
       expect(h, gone).not.toContain(gone);
     }
     for (const kept of ["/admin", "/admin/approvals", "/admin/users", "/admin/roles", "/admin/courses", "/admin/batches", "/admin/certificates", "/finance/admissions", "/finance/admissions/verify", "/finance/admissions/registrations", "/finance/admissions/plans", "/desk", "/desk/unblock-requests", "/security", "/security/incidents", "/security/cases", "/security/restrictions", "/admin/audit", "/admin/policies", "/admin/system", "/college-portal/index.html", ACCOUNT_SETTINGS_HREF]) {
@@ -113,15 +120,16 @@ describe("visibleNav (live audit nav cleanup)", () => {
 
   it("keeps every hidden page in the registry (its route and title still exist)", () => {
     const all = hrefs(PORTALS.admin.nav);
-    for (const h of [...GATEWAY, "/mentor", "/admin/feature-flags", "/admin/break-glass", "/security/rules"]) expect(all).toContain(h);
+    for (const h of [...GATEWAY, "/admin/feature-flags", "/admin/break-glass", "/security/rules"]) expect(all).toContain(h);
   });
 
   it("student: 13–15 items, nothing empty or duplicated by the header; tab bar targets stay listed", () => {
-    const shown = visibleNav(PORTALS.student.nav, { connected: {} });
+    // The sidebar lists what visibleNav keeps minus the `searchOnly` items (PortalNav).
+    const shown = visibleNav(PORTALS.student.nav, { connected: {} }).filter((i) => !i.searchOnly);
     expect(shown.length).toBeGreaterThanOrEqual(13);
     expect(shown.length).toBeLessThanOrEqual(15);
     const h = hrefs(shown);
-    for (const gone of ["/app/companies", "/app/mentoring", "/app/billing", "/app/access", "/app/path/my", "/app/diagnostic", "/app/notifications", ACCOUNT_SETTINGS_HREF]) expect(h, gone).not.toContain(gone);
+    for (const gone of ["/app/billing", "/app/access", "/app/path/my", "/app/notifications", ACCOUNT_SETTINGS_HREF]) expect(h, gone).not.toContain(gone);
     for (const kept of ["/app", "/app/learning", "/app/practice", "/app/tests", "/app/courses", "/app/registrations", "/app/certificates", "/app/interview-prep", "/app/resume", "/app/support"]) expect(h, kept).toContain(kept);
   });
 
@@ -129,6 +137,16 @@ describe("visibleNav (live audit nav cleanup)", () => {
     for (const key of ["trainer", "evaluator", "studio", "admin"] as const) {
       expect(hrefs(visibleNav(PORTALS[key].nav)), key).toContain(ACCOUNT_SETTINGS_HREF);
     }
+  });
+
+  it("Find a page: settings and profile find the account page for every role; marks find grading", () => {
+    for (const key of ["student", "trainer", "evaluator", "studio", "admin"] as const) {
+      const items = visibleNav(PORTALS[key].nav, { connected: {} });
+      for (const q of ["settings", "profile", "password"]) expect(hrefs(searchNav(items, q)), `${key}: ${q}`).toContain(ACCOUNT_SETTINGS_HREF);
+    }
+    expect(hrefs(searchNav(visibleNav(PORTALS.trainer.nav), "marks"))[0]).toBe("/trainer/grading");
+    expect(hrefs(searchNav(visibleNav(PORTALS.evaluator.nav), "mark"))[0]).toBe("/evaluator");
+    expect(hrefs(searchNav(visibleNav(PORTALS.student.nav, { connected: {} }), "marks"))[0]).toBe("/app/progress");
   });
 
   it("`only` keeps the listed pages plus account settings", () => {

@@ -1,5 +1,7 @@
 # Tech Drona LMS: Postgres to Google Firebase migration plan
 
+> **Removed 2026-11-14** ([cleanup/feature-removal-plan.md](../cleanup/feature-removal-plan.md)): mentoring (slots, bookings, sessions, feedback, mentor notes, résumé reviews, the `/mentor` console; the Résumé builder stays), company paths (the `companies` entity stays), corporate enquiries, `GET /catalog/search`, the public SPA pages Hosting redirects to the website, and the `/app/diagnostic`, `/admin/question-review`, `/admin/notifications`, `/app/bookmarks`, `/app/analytics` and `/security/policies` pages. Mentions below of those features are historical.
+
 Status: **PLAN ONLY**. No code has been changed. Author: planning agent, 2026-11-08.
 Inputs: `docs/redesign/BRIEF.md`, `docs/single-company/REMOVAL-PLAN.md` §8 (D1–D10), and the
 owner decision of 2026-11-08 below. Code facts come from CodeGraph and from read-only greps of

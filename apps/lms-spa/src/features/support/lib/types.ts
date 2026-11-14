@@ -3,12 +3,6 @@
 export const TICKET_CATEGORIES = ["account_access", "device_reset", "billing", "refund", "content", "assessment", "technical", "grievance", "privacy_request", "certificate", "appeal", "other"] as const;
 export type TicketCategory = (typeof TICKET_CATEGORIES)[number];
 
-/**
- * Desk-only categories: `corporate_enquiry` tickets come from the public `/enquiries` form
- * (owner decision D8, backend WS5). Learners never pick it.
- */
-export const DESK_CATEGORIES = [...TICKET_CATEGORIES, "corporate_enquiry"] as const;
-
 export const TICKET_STATUSES = ["open", "pending_user", "pending_internal", "resolved", "closed"] as const;
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
 

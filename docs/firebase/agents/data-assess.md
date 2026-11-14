@@ -1,5 +1,7 @@
 # data-assess agent report: placement, assessments, coding
 
+> **Removed 2026-11-14** ([cleanup/feature-removal-plan.md](../../cleanup/feature-removal-plan.md)): mentoring (slots, bookings, sessions, feedback, mentor notes, résumé reviews, the `/mentor` console; the Résumé builder stays), company paths (the `companies` entity stays), corporate enquiries, `GET /catalog/search`, the public SPA pages Hosting redirects to the website, and the `/app/diagnostic`, `/admin/question-review`, `/admin/notifications`, `/app/bookmarks`, `/app/analytics` and `/security/policies` pages. Mentions below of those features are historical.
+
 Agent: DATA-ASSESS. Round 1: 2026-11-12. Round 2: 2026-11-12, under the owner's test policy (Firebase emulator only, no Postgres, `TD_TEST_NO_PG=1`). Scope: the Postgres → Firestore move of `placement`, `assessments` and `coding`, behind `TD_STORE_<MODULE>=firestore`.
 
 All three switches stay at their default, **`postgres`**. Nothing was deployed or flipped. Rules, secrets and the judge are unchanged; the judge stays the fake/demo provider.

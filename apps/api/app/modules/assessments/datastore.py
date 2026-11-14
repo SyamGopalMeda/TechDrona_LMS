@@ -65,14 +65,13 @@ async def _foreign_get(session: Any, model: type[Any], ident: Any) -> Any:
     """``session.get`` of another module's row: that module's public API (no Postgres)."""
     table = getattr(model, "__tablename__", "")
     name = f"{model.__name__} ({table})"
-    if table in {"questions", "question_versions", "companies", "company_paths", "topics"}:
+    if table in {"questions", "question_versions", "companies", "topics"}:
         from app.modules.placement import public as placement_public
 
         fn = {
             "Question": placement_public.get_question,
             "QuestionVersion": placement_public.get_version,
             "Company": placement_public.get_company,
-            "CompanyPath": placement_public.get_company_path,
             "Topic": placement_public.get_topic,
         }[model.__name__]
         return await fn(session, ident)

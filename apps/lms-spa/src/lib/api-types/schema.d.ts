@@ -144,6 +144,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/admissions/claims/{claim_id}/verify-and-enrol": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify And Enrol
+         * @description Verify the payment, find / create the LMS account, add to the batch, enrol, email the login
+         *     details. ``account.temporary_password`` is returned once (only when the account was created now).
+         */
+        post: operations["verify_and_enrol_api_v1_admin_admissions_claims__claim_id__verify_and_enrol_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/admissions/overview": {
         parameters: {
             query?: never;
@@ -275,6 +296,27 @@ export interface paths {
         put?: never;
         /** Set Fee */
         post: operations["set_fee_api_v1_admin_admissions_registrations__registration_id__fee_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/admissions/registrations/{registration_id}/login-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Login Email
+         * @description Send / resend the LMS login email. With ``reset_password`` a new temporary password is set
+         *     (returned once, also when email isn't connected) and the student is signed out everywhere.
+         */
+        post: operations["login_email_api_v1_admin_admissions_registrations__registration_id__login_email_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -719,6 +761,46 @@ export interface paths {
         /** Courses Overview */
         get: operations["courses_overview_api_v1_admin_courses_overview_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/courses/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Course Status
+         * @description Every website course known from status rows, fee plans and ``web-*`` batches.
+         */
+        get: operations["list_course_status_api_v1_admin_courses_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/courses/{slug}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Course Status
+         * @description Open for registration / Coming soon / Closed (audited ``admissions.course_status.changed``).
+         */
+        put: operations["put_course_status_api_v1_admin_courses__slug__status_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2517,6 +2599,7 @@ export interface paths {
          * @description ``mine=true``: only the batches the caller holds a batch grant on (trainer/evaluator),
          *     even for an Admin. The Teacher portal uses it so an Admin who made themselves the trainer of
          *     a batch sees the batches they teach there, not every batch (that is the Admin portal).
+         *     A batch grant counts when it gives batch read there (``BATCH_READ_PERMISSIONS``).
          */
         get: operations["list_batches_api_v1_batches_get"];
         put?: never;
@@ -2831,23 +2914,6 @@ export interface paths {
         };
         /** Free Resources */
         get: operations["cat_06_free_resources"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/catalog/search": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Search */
-        get: operations["cat_07_search"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4565,23 +4631,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/me/company-paths/{slug}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Plc 32 My Company Path */
-        get: operations["plc_32_my_company_path_api_v1_me_company_paths__slug__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/me/consents": {
         parameters: {
             query?: never;
@@ -4875,23 +4924,6 @@ export interface paths {
         };
         /** Plc 25 Mastery */
         get: operations["plc_25_mastery_api_v1_me_mastery_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/me/mentoring/bookings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Plc 40 My Bookings */
-        get: operations["plc_40_my_bookings_api_v1_me_mentoring_bookings_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5399,23 +5431,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/me/resumes/{resume_id}/review-requests": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Plc 50 Review Request */
-        post: operations["plc_50_review_request_api_v1_me_resumes__resume_id__review_requests_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/me/security/cases/{case_ref}": {
         parameters: {
             query?: never;
@@ -5743,271 +5758,6 @@ export interface paths {
         put?: never;
         /** Video Upload */
         post: operations["med_01_video_upload"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mentor/bookings/{booking_id}/feedback": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Plc 44 Feedback */
-        post: operations["plc_44_feedback_api_v1_mentor_bookings__booking_id__feedback_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mentor/bookings/{booking_id}/no-show": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Plc 45 No Show */
-        post: operations["plc_45_no_show_api_v1_mentor_bookings__booking_id__no_show_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mentor/resume-reviews": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Plc 51 Review Queue */
-        get: operations["plc_51_review_queue_api_v1_mentor_resume_reviews_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mentor/resume-reviews/{review_id}/feedback": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Plc 52 Review Feedback */
-        post: operations["plc_52_review_feedback_api_v1_mentor_resume_reviews__review_id__feedback_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mentor/sessions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Plc 43 Sessions */
-        get: operations["plc_43_sessions_api_v1_mentor_sessions_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mentor/sessions/{booking_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Mentor Session Detail */
-        get: operations["mentor_session_detail_api_v1_mentor_sessions__booking_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Mentor Session Link */
-        patch: operations["mentor_session_link_api_v1_mentor_sessions__booking_id__patch"];
-        trace?: never;
-    };
-    "/api/v1/mentor/slots": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Mentor Slots */
-        get: operations["mentor_slots_api_v1_mentor_slots_get"];
-        put?: never;
-        /** Plc 41 Publish Slots */
-        post: operations["plc_41_publish_slots_api_v1_mentor_slots_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mentor/slots/{slot_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Plc 42 Delete Slot */
-        delete: operations["plc_42_delete_slot_api_v1_mentor_slots__slot_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mentor/students": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Mentor Students
-         * @description Students assigned to the caller (batch grants with ``mentor.notes.read``).
-         */
-        get: operations["mentor_students_api_v1_mentor_students_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mentor/students/{user_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Mentor Student Detail
-         * @description PLC-46 readiness summary for an assigned student. Unassigned students are ``404``
-         *     (existence is not disclosed, SoD-11).
-         */
-        get: operations["mentor_student_detail_api_v1_mentor_students__user_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mentor/students/{user_id}/notes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Mentor Notes */
-        get: operations["mentor_notes_api_v1_mentor_students__user_id__notes_get"];
-        put?: never;
-        /** Mentor Add Note */
-        post: operations["mentor_add_note_api_v1_mentor_students__user_id__notes_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mentoring/bookings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Plc 37 Book */
-        post: operations["plc_37_book_api_v1_mentoring_bookings_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mentoring/bookings/{booking_id}/cancel": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Plc 39 Cancel */
-        post: operations["plc_39_cancel_api_v1_mentoring_bookings__booking_id__cancel_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mentoring/bookings/{booking_id}/reschedule": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Plc 38 Reschedule */
-        post: operations["plc_38_reschedule_api_v1_mentoring_bookings__booking_id__reschedule_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mentoring/slots": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Plc 36 Slots */
-        get: operations["plc_36_slots_api_v1_mentoring_slots_get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6479,17 +6229,20 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/public/enquiries": {
+    "/api/v1/public/courses/status": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Public Course Status
+         * @description ``{"data": {"<slug>": "open"|"coming_soon"|"closed"}, "updated_at": iso}`` — no personal data.
+         */
+        get: operations["adm_pub_course_status"];
         put?: never;
-        /** Create Enquiry */
-        post: operations["sup_16_corporate_enquiry"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7868,23 +7621,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/studio/company-paths/{company_path_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Plc 18 Put Company Path */
-        put: operations["plc_18_put_company_path_api_v1_studio_company_paths__company_path_id__put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/studio/courses": {
         parameters: {
             query?: never;
@@ -8637,41 +8373,6 @@ export interface paths {
         patch: operations["plc_03_patch_topic_api_v1_studio_topics__topic_id__patch"];
         trace?: never;
     };
-    "/api/v1/support/enquiries": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Enquiries */
-        get: operations["list_enquiries_api_v1_support_enquiries_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/support/enquiries/{enquiry_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Enquiry */
-        get: operations["get_enquiry_api_v1_support_enquiries__enquiry_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Patch Enquiry */
-        patch: operations["patch_enquiry_api_v1_support_enquiries__enquiry_id__patch"];
-        trace?: never;
-    };
     "/api/v1/support/macros": {
         parameters: {
             query?: never;
@@ -9401,6 +9102,19 @@ export interface components {
              */
             label: string;
         };
+        /** AdmissionLoginEmailIn */
+        AdmissionLoginEmailIn: {
+            /**
+             * Must Change Password
+             * @default true
+             */
+            must_change_password: boolean;
+            /**
+             * Reset Password
+             * @default true
+             */
+            reset_password: boolean;
+        };
         /** AdmissionLookupIn */
         AdmissionLookupIn: {
             /** Email */
@@ -9548,6 +9262,25 @@ export interface components {
              * @enum {string}
              */
             status: "rejected" | "cancelled" | "completed" | "reopen";
+        };
+        /** AdmissionVerifyEnrolIn */
+        AdmissionVerifyEnrolIn: {
+            /** Amount Paise */
+            amount_paise?: number | null;
+            /** Batch Id */
+            batch_id?: string | null;
+            /**
+             * Must Change Password
+             * @default true
+             */
+            must_change_password: boolean;
+            /** Note */
+            note?: string | null;
+            /**
+             * Send Email
+             * @default true
+             */
+            send_email: boolean;
         };
         /** AdmissionVerifyIn */
         AdmissionVerifyIn: {
@@ -10121,14 +9854,6 @@ export interface components {
             /** State Code */
             state_code?: string | null;
         };
-        /** BookIn */
-        BookIn: {
-            /**
-             * Slot Id
-             * Format: uuid
-             */
-            slot_id: string;
-        };
         /** BulkIn */
         BulkIn: {
             /**
@@ -10150,11 +9875,6 @@ export interface components {
             selector: {
                 [key: string]: unknown;
             };
-        };
-        /** CancelIn */
-        CancelIn: {
-            /** Reason */
-            reason?: string | null;
         };
         /** CancelSubIn */
         CancelSubIn: {
@@ -10337,31 +10057,6 @@ export interface components {
             /** Slug */
             slug: string;
         };
-        /** CompanyPathPut */
-        CompanyPathPut: {
-            /**
-             * Company Id
-             * Format: uuid
-             */
-            company_id: string;
-            /** Organization Id */
-            organization_id?: string | null;
-            /** Pattern */
-            pattern: components["schemas"]["PatternSection"][];
-            /** Role Name */
-            role_name: string;
-            /**
-             * Status
-             * @default draft
-             * @enum {string}
-             */
-            status: "draft" | "published" | "retired";
-            /**
-             * Steps
-             * @default []
-             */
-            steps: components["schemas"]["PathStepIn"][];
-        };
         /** CompleteIn */
         CompleteIn: {
             /** Response Summary */
@@ -10533,6 +10228,14 @@ export interface components {
              */
             visibility: "public" | "unlisted" | "private";
         };
+        /** CourseStatusIn */
+        CourseStatusIn: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "coming_soon" | "closed";
+        };
         /**
          * CreateUserIn
          * @description ADM-06 staff-created account. The admin sets a starting password and tells the person;
@@ -10550,6 +10253,11 @@ export interface components {
             full_name: string;
             /** Mobile */
             mobile?: string | null;
+            /**
+             * Must Change Password
+             * @default false
+             */
+            must_change_password: boolean;
             /** Password */
             password: string;
             /** Reason */
@@ -10665,32 +10373,6 @@ export interface components {
             /** To */
             to?: string | null;
         };
-        /** EnquiryIn */
-        EnquiryIn: {
-            /** Company */
-            company: string;
-            /** Consent */
-            consent: boolean;
-            /** Email */
-            email: string;
-            /** Message */
-            message: string;
-            /** Name */
-            name: string;
-            /** Phone */
-            phone?: string | null;
-            /** Website */
-            website?: string | null;
-        };
-        /** EnquiryPatch */
-        EnquiryPatch: {
-            /** Assign To Me */
-            assign_to_me?: boolean | null;
-            /** Staff Note */
-            staff_note?: string | null;
-            /** Status */
-            status?: ("new" | "in_progress" | "closed" | "spam") | null;
-        };
         /** EnrolIn */
         EnrolIn: {
             /**
@@ -10728,12 +10410,6 @@ export interface components {
              * Format: uuid
              */
             user_id: string;
-        };
-        /** FeedbackIn */
-        FeedbackIn: {
-            /** Comments */
-            comments?: string | null;
-            scores: components["schemas"]["Scores"];
         };
         /** FileUploadIn */
         FileUploadIn: {
@@ -11415,11 +11091,6 @@ export interface components {
             /** Size Bytes */
             size_bytes: number;
         };
-        /** MeetingLinkIn */
-        MeetingLinkIn: {
-            /** Meeting Url */
-            meeting_url: string | null;
-        };
         /** MergeIn */
         MergeIn: {
             /**
@@ -11498,16 +11169,10 @@ export interface components {
             /** Phone */
             phone: string;
             proof: components["schemas"]["AdmissionFileIn"];
+            /** Reg No */
+            reg_no?: string | null;
             /** Year */
             year: string;
-        };
-        /** NoShowIn */
-        NoShowIn: {
-            /**
-             * Party
-             * @enum {string}
-             */
-            party: "student" | "mentor";
         };
         /** OrderIn */
         OrderIn: {
@@ -11618,45 +11283,6 @@ export interface components {
             level?: ("beginner" | "intermediate" | "advanced") | null;
             /** Title */
             title?: string | null;
-        };
-        /** PathStepIn */
-        PathStepIn: {
-            /**
-             * Is Required
-             * @default true
-             */
-            is_required: boolean;
-            /** Lesson Key */
-            lesson_key?: string | null;
-            /**
-             * Step Type
-             * @enum {string}
-             */
-            step_type: "lesson" | "practice_set" | "test" | "coding_set";
-            /** Test Id */
-            test_id?: string | null;
-            /** Title */
-            title: string;
-            /** Topic Id */
-            topic_id?: string | null;
-        };
-        /** PatternSection */
-        PatternSection: {
-            /** Minutes */
-            minutes?: number | null;
-            /** Negative Marking */
-            negative_marking?: number | string | null;
-            /** Question Count */
-            question_count?: number | null;
-            /** Section */
-            section: string;
-            /**
-             * Topic Id
-             * Format: uuid
-             */
-            topic_id: string;
-            /** Weight */
-            weight: number | string;
         };
         /** PdfCompleteIn */
         PdfCompleteIn: {
@@ -11865,8 +11491,6 @@ export interface components {
         };
         /** PracticeStart */
         PracticeStart: {
-            /** Company Path Step Id */
-            company_path_step_id?: string | null;
             /**
              * Count
              * @default 10
@@ -11887,7 +11511,7 @@ export interface components {
              * @default topic_set
              * @enum {string}
              */
-            mode: "topic_set" | "company_step" | "revision";
+            mode: "topic_set" | "revision";
             /** Topic Id */
             topic_id?: string | null;
         };
@@ -12393,14 +12017,6 @@ export interface components {
             /** Question Version Id */
             question_version_id?: string | null;
         };
-        /** RescheduleIn */
-        RescheduleIn: {
-            /**
-             * Slot Id
-             * Format: uuid
-             */
-            slot_id: string;
-        };
         /** ResetIn */
         ResetIn: {
             /** New Password */
@@ -12493,23 +12109,6 @@ export interface components {
              */
             channel: "sms" | "email";
         };
-        /** ReviewComment */
-        ReviewComment: {
-            /** Comment */
-            comment: string;
-            /**
-             * Section
-             * @enum {string}
-             */
-            section: "general" | "headline" | "summary" | "education" | "skills" | "projects" | "internships" | "achievements" | "certifications";
-        };
-        /** ReviewFeedbackIn */
-        ReviewFeedbackIn: {
-            /** Comments */
-            comments?: components["schemas"]["ReviewComment"][];
-            /** Summary */
-            summary: string;
-        };
         /** ReviewPolicy */
         ReviewPolicy: {
             /**
@@ -12547,11 +12146,6 @@ export interface components {
             during: components["schemas"]["PhaseVisibility"];
             /** Release At */
             release_at?: string | null;
-        };
-        /** ReviewRequestIn */
-        ReviewRequestIn: {
-            /** Note */
-            note?: string | null;
         };
         /**
          * Rubric
@@ -12634,19 +12228,6 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
-        /** Scores */
-        Scores: {
-            /** Communication */
-            communication: number;
-            /** Confidence */
-            confidence: number;
-            /** Overall */
-            overall: number;
-            /** Problem Solving */
-            problem_solving: number;
-            /** Technical Depth */
-            technical_depth: number;
-        };
         /** SectionsPut */
         SectionsPut: {
             /** Sections */
@@ -12674,6 +12255,11 @@ export interface components {
         };
         /** SetPasswordIn */
         SetPasswordIn: {
+            /**
+             * Must Change Password
+             * @default false
+             */
+            must_change_password: boolean;
             /** Password */
             password: string;
             /** Reason */
@@ -12697,32 +12283,6 @@ export interface components {
             mobile?: string | null;
             /** Password */
             password: string;
-        };
-        /** SlotIn */
-        SlotIn: {
-            /** Company Id */
-            company_id?: string | null;
-            /**
-             * Duration Minutes
-             * @enum {integer}
-             */
-            duration_minutes: 30 | 45 | 60;
-            /**
-             * Session Kind
-             * @default mock_interview
-             * @enum {string}
-             */
-            session_kind: "mock_interview" | "resume_review" | "career_guidance";
-            /**
-             * Starts At
-             * Format: date-time
-             */
-            starts_at: string;
-        };
-        /** SlotsIn */
-        SlotsIn: {
-            /** Slots */
-            slots: components["schemas"]["SlotIn"][];
         };
         /** StepIn */
         StepIn: {
@@ -13497,13 +13057,6 @@ export interface components {
             /** Title */
             title: string;
         };
-        /** NoteIn */
-        app__modules__mentoring__schemas__NoteIn: {
-            /** Body */
-            body: string;
-            /** Booking Id */
-            booking_id?: string | null;
-        };
         /** PublishIn */
         app__modules__paths__router__PublishIn: {
             /**
@@ -14035,6 +13588,43 @@ export interface operations {
             };
         };
     };
+    verify_and_enrol_api_v1_admin_admissions_claims__claim_id__verify_and_enrol_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                claim_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdmissionVerifyEnrolIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     overview_api_v1_admin_admissions_overview_get: {
         parameters: {
             query?: never;
@@ -14301,6 +13891,43 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["AdmissionFeeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    login_email_api_v1_admin_admissions_registrations__registration_id__login_email_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdmissionLoginEmailIn"];
             };
         };
         responses: {
@@ -15262,6 +14889,65 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    list_course_status_api_v1_admin_courses_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    put_course_status_api_v1_admin_courses__slug__status_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CourseStatusIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -19713,41 +19399,6 @@ export interface operations {
             };
         };
     };
-    cat_07_search: {
-        parameters: {
-            query: {
-                q: string;
-                cursor?: string | null;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     lrn_20_issue_certificate: {
         parameters: {
             query?: never;
@@ -23220,39 +22871,6 @@ export interface operations {
             };
         };
     };
-    plc_32_my_company_path_api_v1_me_company_paths__slug__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                slug: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_consents_api_v1_me_consents_get: {
         parameters: {
             query?: never;
@@ -23807,40 +23425,6 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
-                };
-            };
-        };
-    };
-    plc_40_my_bookings_api_v1_me_mentoring_bookings_get: {
-        parameters: {
-            query?: {
-                cursor?: string | null;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -24812,41 +24396,6 @@ export interface operations {
             };
         };
     };
-    plc_50_review_request_api_v1_me_resumes__resume_id__review_requests_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                resume_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["ReviewRequestIn"] | null;
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     my_case_api_v1_me_security_cases__case_ref__get: {
         parameters: {
             query?: never;
@@ -25414,625 +24963,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    plc_44_feedback_api_v1_mentor_bookings__booking_id__feedback_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                booking_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FeedbackIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    plc_45_no_show_api_v1_mentor_bookings__booking_id__no_show_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                booking_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NoShowIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    plc_51_review_queue_api_v1_mentor_resume_reviews_get: {
-        parameters: {
-            query?: {
-                status?: "open" | "completed";
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    plc_52_review_feedback_api_v1_mentor_resume_reviews__review_id__feedback_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                review_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReviewFeedbackIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    plc_43_sessions_api_v1_mentor_sessions_get: {
-        parameters: {
-            query?: {
-                view?: "upcoming" | "pending_feedback" | "past" | "all";
-                cursor?: string | null;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    mentor_session_detail_api_v1_mentor_sessions__booking_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                booking_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    mentor_session_link_api_v1_mentor_sessions__booking_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                booking_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MeetingLinkIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    mentor_slots_api_v1_mentor_slots_get: {
-        parameters: {
-            query?: {
-                from?: string | null;
-                to?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    plc_41_publish_slots_api_v1_mentor_slots_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SlotsIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    plc_42_delete_slot_api_v1_mentor_slots__slot_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                slot_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    mentor_students_api_v1_mentor_students_get: {
-        parameters: {
-            query?: {
-                cursor?: string | null;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    mentor_student_detail_api_v1_mentor_students__user_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                user_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    mentor_notes_api_v1_mentor_students__user_id__notes_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                user_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    mentor_add_note_api_v1_mentor_students__user_id__notes_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                user_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["app__modules__mentoring__schemas__NoteIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    plc_37_book_api_v1_mentoring_bookings_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BookIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    plc_39_cancel_api_v1_mentoring_bookings__booking_id__cancel_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                booking_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["CancelIn"] | null;
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    plc_38_reschedule_api_v1_mentoring_bookings__booking_id__reschedule_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                booking_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RescheduleIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    plc_36_slots_api_v1_mentoring_slots_get: {
-        parameters: {
-            query?: {
-                session_kind?: ("mock_interview" | "resume_review" | "career_guidance") | null;
-                from?: string | null;
-                cursor?: string | null;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
                 };
             };
             /** @description Validation Error */
@@ -27134,35 +26064,24 @@ export interface operations {
             };
         };
     };
-    sup_16_corporate_enquiry: {
+    adm_pub_course_status: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EnquiryIn"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
-            202: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };
@@ -30068,43 +28987,6 @@ export interface operations {
             };
         };
     };
-    plc_18_put_company_path_api_v1_studio_company_paths__company_path_id__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                company_path_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CompanyPathPut"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     cat_08_studio_courses: {
         parameters: {
             query?: {
@@ -31871,111 +30753,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["TopicPatch"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_enquiries_api_v1_support_enquiries_get: {
-        parameters: {
-            query?: {
-                status?: ("new" | "in_progress" | "closed" | "spam") | null;
-                cursor?: string | null;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_enquiry_api_v1_support_enquiries__enquiry_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                enquiry_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    patch_enquiry_api_v1_support_enquiries__enquiry_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                enquiry_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EnquiryPatch"];
             };
         };
         responses: {

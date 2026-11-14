@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -17,11 +16,7 @@ from app.core.ids import uuid7
 from app.core.principal import Principal
 from app.modules.placement import bank, practice
 from app.modules.placement.schemas import (
-    CompanyCreate,
-    CompanyPathPut,
     OptionIn,
-    PathStepIn,
-    PatternSection,
     PracticeAnswer,
     PracticeStart,
     QuestionCreate,
@@ -154,27 +149,3 @@ async def test_recommendations_weak_topic(fake_session: Any) -> None:
     # dismissed recently: not re-created
     await practice.refresh_recommendations(s, me)
     assert (await practice.list_recommendations(s, me))["items"] == []
-
-
-async def test_company_step_practice_and_readiness(fake_session: Any) -> None:
-    s = fake_session
-    subj = await _bank(s)
-    co = await bank.create_company(s, CompanyCreate(slug="acme", name="Acme", hub_status="published"))
-    body = CompanyPathPut(
-        company_id=co.id,
-        role_name="SDE",
-        status="published",
-        pattern=[PatternSection(section="Quant", topic_id=subj.id, weight=Decimal("1"))],
-        steps=[PathStepIn(step_type="practice_set", title="Numbers", topic_id=subj.id)],
-    )
-    p = await bank.put_company_path(s, _p(), uuid7(), body)
-    step = (await bank.path_steps(s, p.id))[0]
-    me = _p()
-    ps = await practice.start(
-        s, me, PracticeStart(mode="company_step", company_path_step_id=step.id, count=2)
-    )
-    await practice.answer(s, me, ps, _answer((await practice.state(s, ps))["items"][0], 0))
-    view = await practice.my_company_path(s, me, "ACME")  # citext slug
-    assert view["company"]["slug"] == "acme" and view["paths"][0]["readiness"]["score_pct"] == 100.0
-    ready = await practice.practised_company_readiness(s, me.user_id)
-    assert [r["company_slug"] for r in ready] == ["acme"]

@@ -134,22 +134,8 @@ async def test_studio_taxonomy_questions_companies(fs_http: Any, make_principal:
 
     co = await client.post(f"{P}/studio/companies", json={"slug": "acme", "name": "Acme"}, headers=author)
     assert co.status_code == 201, co.text
-    path_id = str(uuid.uuid4())
-    put = await client.put(
-        f"{P}/studio/company-paths/{path_id}",
-        json={
-            "company_id": co.json()["id"],
-            "role_name": "SDE",
-            "status": "published",
-            "pattern": [{"section": "Quant", "topic_id": subj.json()["id"], "weight": "1"}],
-            "steps": [{"step_type": "practice_set", "title": "Numbers", "topic_id": top.json()["id"]}],
-        },
-        headers=author,
-    )
-    assert put.status_code == 200, put.text
-    assert put.json()["version_no"] == 1 and len(put.json()["steps"]) == 1
     companies = await client.get(f"{P}/studio/companies", headers=author)
-    assert companies.json()["items"][0]["paths"][0]["id"] == path_id
+    assert [c["slug"] for c in companies.json()["items"]] == ["acme"]
 
     retire = await client.post(f"{P}/studio/questions/{qid}/retire", json={"reason": "old"}, headers=reviewer)
     assert retire.status_code == 200 and retire.json()["status"] == "retired"

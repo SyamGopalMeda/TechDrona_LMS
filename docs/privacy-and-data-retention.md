@@ -1,5 +1,7 @@
 # Privacy & Data Retention — Tech Drona LMS
 
+> **Removed 2026-11-14** ([cleanup/feature-removal-plan.md](cleanup/feature-removal-plan.md)): mentoring (slots, bookings, sessions, feedback, mentor notes, résumé reviews, the `/mentor` console; the Résumé builder stays), company paths (the `companies` entity stays), corporate enquiries, `GET /catalog/search`, the public SPA pages Hosting redirects to the website, and the `/app/diagnostic`, `/admin/question-review`, `/admin/notifications`, `/app/bookmarks`, `/app/analytics` and `/security/policies` pages. Mentions below of those features are historical.
+
 > **Single-company note (2026-11-06).** Tech Drona now runs as a single company ([ADR-0015](architecture-decisions/ADR-0015-single-company.md)); the college/B2B features described in this document (college portal and coordinators, institution contracts and seats, invitations and roster import, per-organization settings, trusted networks and lab devices, the "For colleges" page) are removed. Roles are Admin (`super_admin`), Trainer, Evaluator, Content manager and Student; finance, support, security and mentor duties belong to Admin. Batches are Tech Drona cohorts managed by Admin at `/admin/batches`; businesses use the corporate enquiry form at `/enquiries`. College data sharing, college DPAs and coordinator visibility are removed. Historic contract invoices are kept as legal records (exported to `backups/archived-contract-invoices/`). The optional learner profile field is labelled "Institution (optional)". Where this document conflicts, ADR-0015 and [`single-company/REMOVAL-PLAN.md`](single-company/REMOVAL-PLAN.md) §8 win.
 
 | | |
@@ -256,7 +258,7 @@ Verified against the code on 2026-11-03. Everything not listed here is still Pla
   - **coding:** deletes drafts. It clears submission source, custom input, compiler output, normalised hash and per-case stdout. Verdicts are kept.
   - **placement:** deletes practice sessions, responses and recommendations, and clears question-report messages.
   - **support:** minimal form under the 3-year hold. The ticket subject, body, context and CSAT comment are replaced, user-authored messages are redacted and attachments dropped. Append-only staff notes are kept.
-  - **mentoring:** deletes résumés and reviews, and clears feedback comments, mentor-note bodies and meeting URLs.
+  - **mentoring:** deletes résumés and résumé versions (mentoring itself was removed 2026-11-14; the module now holds only the Résumé builder).
   - **notifications:** deletes the user's inbox rows.
   - **analytics:** `analytics.jobs.erase_user`.
 - **`erasure_ledger` (migration `admin_0003`).** Append-only, platform-only RLS. It stores the request id, `subject_hash`, `scope` (modules run and sessions revoked) and `pending_modules`, never the user id. **Deviation:** `subject_hash` is an unkeyed `SHA-256("erasure:<user_id>")`, not the keyed HMAC(k_erasure, …) that CCP-P1 and database-schema §13.1 specify. Re-applying the ledger after a backup restore (§7 Backups) is not built.

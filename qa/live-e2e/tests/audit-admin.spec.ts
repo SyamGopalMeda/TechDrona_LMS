@@ -18,19 +18,18 @@ const PAGES: string[] = [
   // ADMIN_NAV (apps/lms-spa/src/lib/nav/portals.ts)
   "/admin", "/admin/approvals", "/admin/users", "/admin/roles", "/admin/privacy-requests",
   "/college-portal/index.html",
-  "/admin/courses", "/admin/question-review", "/admin/batches", "/admin/certificates",
-  "/mentor", "/mentor/students", "/mentor/slots", "/mentor/resume-reviews",
+  "/admin/courses", "/admin/batches", "/admin/certificates",
   "/finance", "/finance/admissions", "/finance/admissions/verify", "/finance/admissions/registrations", "/finance/admissions/plans",
   "/finance/orders", "/finance/refunds", "/finance/subscriptions", "/finance/invoices", "/finance/products", "/finance/coupons", "/finance/reconciliation",
-  "/desk", "/desk/unblock-requests", "/desk/enquiries",
+  "/desk", "/desk/unblock-requests",
   "/security", "/security/cases", "/security/incidents", "/security/restrictions", "/security/unblock-requests", "/security/rules", "/security/reports",
   "/admin/audit", "/admin/policies", "/admin/ai", "/admin/system", "/admin/feature-flags", "/admin/break-glass",
   // Routes outside the nav but reachable / linked from admin pages
-  "/admin/notifications", "/admin/college-data", "/security/approvals", "/security/policies",
+  "/admin/college-data", "/security/approvals",
   "/modules", "/app/settings/profile", "/app/account-status",
   // Cross-portal targets linked from the admin dashboard / courses page
   "/studio", "/studio/courses", "/studio/review", "/studio/taxonomy", "/studio/questions", "/studio/reports/errors", "/studio/coding",
-  "/studio/media", "/studio/companies", "/studio/question-banks", "/studio/tests",
+  "/studio/media", "/studio/question-banks", "/studio/tests",
   "/trainer", "/app", "/app/learning",
 ];
 
@@ -39,11 +38,9 @@ const DETAIL_FROM: Record<string, RegExp> = {
   "/admin/users": /^\/admin\/users\/[^/?]+$/,
   "/admin/batches": /^\/admin\/batches\/[^/?]+$/,
   "/desk": /^\/desk\/tickets\/[^/?]+$/,
-  "/desk/enquiries": /^\/desk\/enquiries\/[^/?]+$/,
   "/security/cases": /^\/security\/cases\/[^/?]+$/,
   "/security/reports": /^\/security\/reports\/[^/?]+$/,
   "/finance/admissions/registrations": /^\/finance\/admissions\/registrations\/[^/?]+$/,
-  "/mentor/students": /^\/mentor\/students\/[^/?]+$/,
 };
 
 const PROBLEM_RX = /permission|forbidden|not allowed|something went wrong|could not load|couldn['’]t load|failed to load|error|not integrated|not available|coming soon|page not found|404/i;
@@ -200,7 +197,7 @@ test.describe("admin audit", () => {
       await page.keyboard.press("Control+K");
       out.ctrlKFocuses = await page.evaluate(() => document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName ?? null);
       const finds: Record<string, string[]> = {};
-      for (const q of ["learn", "my", "practice", "student", "course", "test", "question", "approval", "unblock", "polic", "mentor", "certificate", "admission", "enquir", "setting"]) {
+      for (const q of ["learn", "my", "practice", "student", "course", "test", "question", "approval", "unblock", "polic", "certificate", "admission", "setting", "profile"]) {
         await box.first().fill(q);
         await page.waitForTimeout(250);
         finds[q] = await page.evaluate(() => Array.from(document.querySelectorAll("ul[aria-label='Matching pages'] a")).filter((a) => (a as HTMLElement).offsetParent !== null).map((a) => `${(a.textContent ?? "").trim()} -> ${a.getAttribute("href")}`));

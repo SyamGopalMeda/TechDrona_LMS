@@ -1,5 +1,7 @@
 # 00 — Requirements traceability / master feature inventory (area `inventory`)
 
+> **Removed 2026-11-14** ([cleanup/feature-removal-plan.md](../cleanup/feature-removal-plan.md)): mentoring (slots, bookings, sessions, feedback, mentor notes, résumé reviews, the `/mentor` console; the Résumé builder stays), company paths (the `companies` entity stays), corporate enquiries, `GET /catalog/search`, the public SPA pages Hosting redirects to the website, and the `/app/diagnostic`, `/admin/question-review`, `/admin/notifications`, `/app/bookmarks`, `/app/analytics` and `/security/policies` pages. Mentions below of those features are historical.
+
 Auditor: inventory agent · Phase A (audit only) · 2026-11-03 · Brief: `docs/audit/AUDIT-BRIEF.md`
 
 ## 0. Method (what was actually run)

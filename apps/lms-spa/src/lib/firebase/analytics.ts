@@ -12,7 +12,7 @@
  *   scrubbed path: ids and tokens replaced, never a query string).
  * - No PII: event parameters are limited to an allow-list of non-identifying keys.
  * - Never on exam/attempt pages, guardian-consent, password-reset/verification links, or the
- *   staff consoles (admin, finance, security, studio, trainer, evaluator, mentor, desk).
+ *   staff consoles (admin, finance, security, studio, trainer, evaluator, desk).
  * - The LMS's first-party analytics pipeline (src/lib/analytics) stays the source for learning
  *   reports; GA4 is for product and marketing funnels only.
  */
@@ -60,7 +60,7 @@ export function setAnalyticsConsent(granted: boolean): void {
   }
 }
 
-const BLOCKED_PREFIXES = ["/admin", "/finance", "/security", "/studio", "/trainer", "/evaluator", "/mentor", "/desk", "/guardian-consent", "/reset-password", "/change-password", "/accept-terms", "/verify", "/unblock-request", "/account", "/api"];
+const BLOCKED_PREFIXES = ["/admin", "/finance", "/security", "/studio", "/trainer", "/evaluator", "/desk", "/guardian-consent", "/reset-password", "/change-password", "/accept-terms", "/verify", "/unblock-request", "/account", "/api"];
 
 /** Whether GA may run on this path (even with consent). */
 export function analyticsAllowedPath(pathname: string): boolean {

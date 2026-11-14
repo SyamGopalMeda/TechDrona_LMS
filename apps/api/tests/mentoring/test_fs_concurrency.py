@@ -1,5 +1,5 @@
-"""Row-lock parity on Firestore (mentoring résumé PDF). Booking, rescheduling, feedback, résumé
-versions and reviews are covered in ``test_fs_repo.py`` (all transactional). Emulator only."""
+"""Row-lock parity on Firestore (résumé PDF). Résumé versions are covered in ``test_fs_repo.py``
+(transactional). Emulator only."""
 
 from __future__ import annotations
 

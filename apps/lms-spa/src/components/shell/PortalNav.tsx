@@ -109,7 +109,7 @@ const allWordsMatch = (text: string[], query: string[]) => query.length > 0 && q
  * 0 label starts with the query · 1 every query word starts (or shares a stem with) a label word ·
  * 2 label contains the query · 3 keywords match · 4 section name matches.
  */
-export function navMatchRank(item: NavItem & { keywords?: readonly string[] }, query: string): number | null {
+export function navMatchRank(item: NavItem, query: string): number | null {
   const q = norm(query.trim());
   if (!q) return null;
   const qWords = words(q);
@@ -164,9 +164,11 @@ export function PortalNav({
   const pathname = usePathname() ?? "";
   const visible = useNavApps(items);
   const current = activeHref(visible, pathname, rootsFor(root));
-  const groups = groupItems(visible);
-  const activeSection = visible.find((i) => i.href === current)?.section ?? null;
-  const big = visible.length > COLLAPSE_THRESHOLD;
+  // `searchOnly` items (the student account page) are found by "Find a page" but not listed.
+  const listed = visible.filter((i) => !i.searchOnly);
+  const groups = groupItems(listed);
+  const activeSection = listed.find((i) => i.href === current)?.section ?? null;
+  const big = listed.length > COLLAPSE_THRESHOLD;
   const idBase = useId();
   const [toggled, setToggled] = useSectionMemory(`td.nav.sections:${label}`);
   const [query, setQuery] = useState("");

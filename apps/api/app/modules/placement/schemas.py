@@ -145,46 +145,12 @@ class CompanyCreate(_In):
     hub_status: Literal["draft", "published", "archived"] = "draft"
 
 
-class PatternSection(_In):
-    section: str = Field(min_length=1, max_length=120)
-    topic_id: uuid.UUID
-    weight: Decimal = Field(gt=0, le=100)
-    minutes: int | None = Field(default=None, gt=0, le=600)
-    question_count: int | None = Field(default=None, gt=0, le=500)
-    negative_marking: Decimal | None = Field(default=None, ge=0, le=10)
-
-
-class PathStepIn(_In):
-    step_type: Literal["lesson", "practice_set", "test", "coding_set"]
-    title: str = Field(min_length=1, max_length=200)
-    topic_id: uuid.UUID | None = None
-    test_id: uuid.UUID | None = None
-    lesson_key: uuid.UUID | None = None
-    is_required: bool = True
-
-    @model_validator(mode="after")
-    def _one_ref(self) -> PathStepIn:
-        if sum(x is not None for x in (self.topic_id, self.test_id, self.lesson_key)) != 1:
-            raise ValueError("exactly one of topic_id, test_id, lesson_key is required")
-        return self
-
-
-class CompanyPathPut(_In):
-    company_id: uuid.UUID
-    organization_id: uuid.UUID | None = None
-    role_name: str = Field(min_length=1, max_length=120)
-    status: Literal["draft", "published", "retired"] = "draft"
-    pattern: list[PatternSection] = Field(min_length=1, max_length=20)
-    steps: list[PathStepIn] = Field(default=[], max_length=200)
-
-
 # --------------------------------------------------------------------------- practice
 
 
 class PracticeStart(_In):
-    mode: Literal["topic_set", "company_step", "revision"] = "topic_set"
+    mode: Literal["topic_set", "revision"] = "topic_set"
     topic_id: uuid.UUID | None = None
-    company_path_step_id: uuid.UUID | None = None
     difficulty_min: int = Field(default=1, ge=1, le=5)
     difficulty_max: int = Field(default=5, ge=1, le=5)
     count: int = Field(default=10, ge=1, le=20)

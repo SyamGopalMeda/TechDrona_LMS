@@ -21,10 +21,7 @@ from app.modules.placement import bank
 from app.modules.placement.models import PracticeResponse, PracticeSession, QuestionOption, QuestionVersion
 from app.modules.placement.schemas import (
     CompanyCreate,
-    CompanyPathPut,
     OptionIn,
-    PathStepIn,
-    PatternSection,
     QuestionContent,
     QuestionCreate,
     TagIn,
@@ -240,33 +237,14 @@ async def test_tn_visibility_hides_other_org_questions(fake_session: Any) -> Non
     assert e.value.code == "permission_denied"
 
 
-async def test_companies_and_paths(fake_session: Any) -> None:
+async def test_companies(fake_session: Any) -> None:
     s = fake_session
-    subj, top, _sub = await _tree(s)
-    co = await bank.create_company(s, CompanyCreate(slug="acme", name="Acme"))
+    await _tree(s)
+    await bank.create_company(s, CompanyCreate(slug="acme", name="Acme"))
     with pytest.raises(ProblemError):
         await bank.create_company(s, CompanyCreate(slug="acme", name="Acme 2"))
-    body = CompanyPathPut(
-        company_id=co.id,
-        role_name="SDE",
-        pattern=[PatternSection(section="Quant", topic_id=subj.id, weight=Decimal("1"))],
-        steps=[PathStepIn(step_type="practice_set", title="Numbers", topic_id=top.id)],
-    )
-    pid = uuid7()
-    p = await bank.put_company_path(s, _p(), pid, body)
-    assert (p.version_no, p.status) == (1, "draft")
-    p = await bank.put_company_path(
-        s, _p(), pid, body.model_copy(update={"status": "published", "steps": body.steps * 2})
-    )
-    assert p.version_no == 2 and p.published_at is not None
-    assert [x.position for x in await bank.path_steps(s, pid)] == [1, 2]
-    # a second path for the same company+role gets the next version_no
-    p2 = await bank.put_company_path(s, _p(), uuid7(), body)
-    assert p2.version_no == 3  # max(version_no) + 1, as Postgres
     listed = await bank.list_companies(s)
-    assert listed[0]["slug"] == "acme" and len(listed[0]["paths"]) == 2
-    with pytest.raises(ProblemError):
-        await bank.put_company_path(s, _p(), pid, body.model_copy(update={"role_name": "Other"}))
+    assert [c["slug"] for c in listed] == ["acme"] and "paths" not in listed[0]
 
 
 async def test_practice_answer_is_atomic_and_idempotent(fake_session: Any) -> None:
@@ -387,7 +365,6 @@ def test_index_fragment_covers_queries() -> None:
     for need in [
         ("lms_question_versions", ("question_id", "created_at")),
         ("lms_question_tags", ("question_id", "created_at")),
-        ("lms_company_path_steps", ("company_path_id", "position")),
         ("lms_practice_responses", ("user_id", "practice_session_id", "created_at")),
     ]:
         assert any(g == need[0] and f[: len(need[1])] == need[1] for g, f in groups), need

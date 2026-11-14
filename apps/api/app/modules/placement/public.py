@@ -16,7 +16,6 @@ evaluated by ``repo_firestore.visibility`` on Firestore.
 | ``topic_roots`` | the recursive ``topics`` CTE in ``analytics/jobs.py`` ``_category_of`` |
 | ``topic_with_root`` | the ``topics`` joins in ``wiring.coding_problem_parents`` |
 | ``existing_company_ids`` | ``select(Company.id)`` in ``mentoring/service*.py`` |
-| ``company_paths_with_test`` | ``company_path_steps`` SQL in ``wiring.test_parents`` |
 """
 
 from __future__ import annotations
@@ -135,28 +134,10 @@ async def existing_company_ids(session: AsyncSession, company_ids: Iterable[uuid
     return set((await session.execute(select(Company.id).where(Company.id.in_(ids)))).scalars())
 
 
-async def company_paths_with_test(session: AsyncSession, test_id: uuid.UUID) -> list[uuid.UUID]:
-    """Company paths that contain the test as a step (``DISTINCT company_path_id``)."""
-    if _fs():
-        return await (await _repo(session)).path_ids_with_test(test_id)
-    rows = await session.execute(
-        text("SELECT DISTINCT company_path_id FROM company_path_steps WHERE test_id = :i"), {"i": test_id}
-    )
-    return [r[0] for r in rows.all()]
-
-
 async def get_company(session: AsyncSession, company_id: uuid.UUID) -> Company | None:
     if _fs():
         return await (await _repo(session)).get_company(company_id)
     return await session.get(Company, company_id)
-
-
-async def get_company_path(session: AsyncSession, path_id: uuid.UUID) -> Any:
-    from app.modules.placement.models import CompanyPath
-
-    if _fs():
-        return await (await _repo(session)).get_path(path_id)
-    return await session.get(CompanyPath, path_id)
 
 
 async def get_topic(session: AsyncSession, topic_id: uuid.UUID) -> Topic | None:
@@ -285,11 +266,9 @@ __all__ = [
     "can_in_org",
     "coding_pool",
     "coding_question_for_problem",
-    "company_paths_with_test",
     "delivery",
     "existing_company_ids",
     "get_company",
-    "get_company_path",
     "get_question",
     "get_topic",
     "get_version",

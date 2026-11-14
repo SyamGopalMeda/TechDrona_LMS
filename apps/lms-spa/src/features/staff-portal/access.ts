@@ -11,7 +11,7 @@ export interface MyGrantsPortals {
  * ADM-12: may the caller enter this staff portal? `portals` comes from the api
  * (sessions/login.py PORTALS: role → prefix). A super admin also gets the read views of the
  * other portals (role-permission-matrix §9). Since the single-company conversion (D2) the finance,
- * support, security and mentoring portals are Admin sections, so `/admin` opens them all.
+ * support and security portals are Admin sections, so `/admin` opens them all.
  * UX only — every request is still authorised by the api.
  */
 export function canEnterPortal(portals: readonly string[] | undefined, portal: PortalKey, roleKeys?: readonly string[]): boolean {
@@ -25,7 +25,7 @@ export function canEnterPortal(portals: readonly string[] | undefined, portal: P
 }
 
 /** The portals the caller can open, in registry order (a portal-switcher list).
- * Admin sections (finance, support, security, mentoring) are reached through the Admin portal. */
+ * Admin sections (finance, support, security) are reached through the Admin portal. */
 export function reachablePortals(portals: readonly string[] | undefined): { href: string; title: string }[] {
   const set = new Set(portals ?? []);
   return Object.values(PORTALS)
@@ -38,7 +38,7 @@ export function reachablePortals(portals: readonly string[] | undefined): { href
  * admin.md F2). The role matrix (apps/api/app/modules/rbac/catalogue.py) gives `super_admin` only
  * `course.archive`, `question.review` and `question.publish` among the studio permissions, so the
  * course list/detail and the review queue answer 200, while taxonomy, all questions, question banks,
- * reported errors, coding problems, media, companies, template mocks and the studio dashboard
+ * reported errors, coding problems, media, template mocks and the studio dashboard
  * widgets answer 403. RBAC is unchanged; the gate and nav follow it.
  */
 export const ADMIN_STUDIO_PATHS: readonly string[] = ["/studio/courses", "/studio/review"];
@@ -66,7 +66,7 @@ export function adminStudioRedirect(pathname: string): string | null {
  * - a portal listed in `portals`, or one whose role the caller holds (any scope);
  * - for an Admin, the Content studio too (its course list and review queue work for Admin);
  * - not the Teacher or Evaluator portal just because the caller is an Admin: only with that grant.
- * Admin sections (finance, support, security, mentoring) are reached through the Admin portal.
+ * Admin sections (finance, support, security) are reached through the Admin portal.
  */
 export function switcherPortals(portals: readonly string[] | undefined, roleKeys?: readonly string[]): { href: string; title: string }[] {
   const set = new Set(portals ?? []);

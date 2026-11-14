@@ -1,5 +1,5 @@
 """Support on Firestore (P2b, docs/firebase/p2.md): backfill/verify (including the number
-sequences), gap-free ticket and enquiry numbers under concurrency, the RLS predicate of each
+sequences), gap-free ticket numbers under concurrency, the RLS predicate of each
 table (requester-or-platform; platform-only notes), the optimistic lock that replaces
 ``SELECT ... FOR UPDATE``, the repository scope lint and the index declarations.
 
@@ -86,7 +86,6 @@ async def test_backfill_from_postgres_verifies_clean_with_sequences(
             "support_tickets",
             "support_ticket_messages",
             "support_user_notes",
-            "corporate_enquiries",
             "support_counters",
         }
         for r in reports.values():
@@ -102,8 +101,7 @@ async def test_backfill_from_postgres_verifies_clean_with_sequences(
         await restore()
 
 
-async def test_ticket_and_enquiry_numbers_are_gap_free_under_concurrency(db: Any, fs: None) -> None:
-    from app.modules.support.repo_firestore import EnquiryRow
+async def test_ticket_numbers_are_gap_free_under_concurrency(db: Any, fs: None) -> None:
     from app.modules.support.service import ticket_number
 
     u = await adult(db)
@@ -111,24 +109,6 @@ async def test_ticket_and_enquiry_numbers_are_gap_free_under_concurrency(db: Any
     rows = await asyncio.gather(*(repo.insert_ticket(u.id, _ticket(u.id), ticket_number) for _ in range(5)))
     nums = sorted(int(r.ticket_number.rsplit("-", 1)[1]) for r in rows)
     assert nums == list(range(nums[0], nums[0] + 5))
-
-    def enquiry() -> EnquiryRow:
-        now = clock.now()
-        return EnquiryRow(
-            id=uuid7(),
-            reference="",
-            name="Asha",
-            company="Example Co",
-            email="asha@example.com",
-            message="Training for twenty engineers.",
-            consent_at=now,
-            notice_version="v1",
-            created_at=now,
-        )
-
-    refs = await asyncio.gather(*(repo.insert_enquiry(enquiry(), lambda n: f"E-{n}") for _ in range(4)))
-    ns = sorted(int(e.reference.split("-")[1]) for e in refs)
-    assert ns == list(range(ns[0], ns[0] + 4)) and await repo.count_enquiries("new") >= 4
 
 
 async def test_requester_or_platform_predicate_and_platform_only_notes(db: Any, fs: None) -> None:
@@ -202,6 +182,5 @@ def test_composite_indexes_are_declared() -> None:
         ("support_ticket_messages", ("support_ticket_id", "visibility")),  # thread, counts
         ("support_ticket_messages", ("author_id", "created_at")),  # hourly cap
         ("support_user_notes", ("user_id", "created_at")),
-        ("corporate_enquiries", ("status", "created_at")),
     ):
         assert want in declared, want

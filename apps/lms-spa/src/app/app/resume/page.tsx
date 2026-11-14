@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/ui";
-import { StudentResume } from "@/features/mentor/student/Resume";
+import { StudentResume } from "@/features/resume/components/Resume";
 
 export const metadata: Metadata = { title: "Résumé builder" };
 
@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Résumé builder" };
 export default function Page() {
   return (
     <div>
-      <PageHeader title="Résumé builder" description="Build an ATS-friendly résumé, check its score and ask a mentor to review it." />
+      <PageHeader title="Résumé builder" description="Build an ATS-friendly résumé, check its score and keep a PDF of it." />
       <StudentResume />
     </div>
   );

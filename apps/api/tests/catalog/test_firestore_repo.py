@@ -285,7 +285,7 @@ def test_composite_indexes_for_p2b_catalog_queries_are_declared() -> None:
         for i in spec["indexes"]
     }
     for want in (
-        ("courses", ("status", "visibility", "organization_id", "id")),  # public list / search
+        ("courses", ("status", "visibility", "organization_id", "id")),  # public list
         ("resources", ("access_level", "organization_id", "id")),  # free resources
         ("resources", ("course_id", "id")),  # studio resources of a course / lesson
         ("resources", ("company_id", "id")),  # studio resources of a company hub

@@ -129,7 +129,10 @@ export function ProfileSettings() {
       </Card>
 
       <Card title="Profile">
-        <form onSubmit={submit} noValidate className="max-w-md space-y-4">
+        {/* N4 (live re-check 2026-11-14): bottom padding equal to the sticky Save bar (py-2 + a 44px
+            button = 3.75rem), and the same scroll margin on every field, so a focused or scrolled-to
+            field stops above the bar instead of under it. */}
+        <form onSubmit={submit} noValidate className="max-w-md space-y-4 pb-[3.75rem] lg:pb-0 [&_input]:scroll-mb-[calc(3.75rem+4.5rem+env(safe-area-inset-bottom))] lg:[&_input]:scroll-mb-[4.75rem]">
           <FormAlert ref={alertRef} error={error} />
           <FormField label="Full name" hint={locked ? "Your name is locked because it appears on a certificate. Contact support to correct it." : undefined} error={fe.full_name} required>
             {(f) => <Input {...f} name="full_name" autoComplete="name" value={name} disabled={locked} onChange={(e) => setName(e.target.value)} />}

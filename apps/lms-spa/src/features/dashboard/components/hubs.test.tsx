@@ -1,7 +1,7 @@
 import { screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockApi, renderWithProviders } from "@/features/auth/test/mock-api";
-import { DiagnosticLauncher, GetStarted, LearningPath, subjectOf } from "./LearnerHubs";
+import { GetStarted, InterviewPrep, LearningPath, subjectOf } from "./LearnerHubs";
 import { StudentDashboard, dueSoonItems } from "./StudentDashboard";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/app", useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
@@ -40,11 +40,14 @@ const node = (id: string, parent: string | null, slug: string, name: string, chi
 const emptyDash = { continue_learning: [], assigned_work: [], tests: [], expiring: [], certificates: [], banners: [] };
 
 describe("Learner hubs (FE-05)", () => {
-  it("diagnostic launcher lists only diagnostic tests from me/tests", async () => {
+  it("interview prep links only to the résumé builder (mentoring and company paths were removed)", async () => {
     restore = mockApi({ "GET me/tests": { body: tests } }).restore;
-    renderWithProviders(<DiagnosticLauncher />);
-    expect(await screen.findByRole("link", { name: "Test a" })).toHaveAttribute("href", "/app/tests/a");
-    expect(screen.queryByText("Test b")).not.toBeInTheDocument();
+    renderWithProviders(<InterviewPrep />);
+    expect(screen.getByRole("link", { name: /Résumé/ })).toHaveAttribute("href", "/app/resume");
+    expect(screen.queryByText("Mock interviews")).not.toBeInTheDocument();
+    expect(screen.queryByText("Company paths")).not.toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Test b" })).toHaveAttribute("href", "/app/tests/b");
+    expect(screen.queryByText("Test a")).not.toBeInTheDocument();
   });
 
   it("learning path links a topic recommendation to its subject", async () => {
@@ -96,6 +99,14 @@ describe("Dashboard layout (UI audit: description, stat tiles, Due soon)", () =>
     const due = await screen.findByRole("list", { name: "Due soon" });
     expect(within(due).getByRole("link", { name: "Work a1" })).toBeInTheDocument();
     expect(await within(due).findByRole("link", { name: "Test a" })).toBeInTheDocument();
+  });
+
+  it("quick actions skip removed pages; the access card links to My access until payments are connected", async () => {
+    restore = mockApi({ "GET me/dashboard": { body: emptyDash }, "GET me/tests": { body: tests } }).restore;
+    renderWithProviders(<StudentDashboard />);
+    expect(await screen.findByRole("link", { name: /Diagnostic and mock tests/ })).toHaveAttribute("href", "/app/tests");
+    for (const gone of ["/app/diagnostic", "/app/mentoring", "/app/billing"]) expect(document.querySelector(`a[href="${gone}"]`), gone).toBeNull();
+    expect(screen.getByRole("link", { name: "My access" })).toHaveAttribute("href", "/app/access");
   });
 });
 

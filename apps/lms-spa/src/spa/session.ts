@@ -74,8 +74,8 @@ export function onPathChange(prev: string | null, next: string): void {
 
 /**
  * The LMS host's `/` (Caddy on the VM, by session cookie): signed out → `/login`, signed in →
- * `/modules`. Only for a document load of `/`; client-side links to `/` keep showing the home
- * page, as they did behind Caddy. Returns the target, or null to stay.
+ * `/modules`. Used for a document load of `/` (src/spa/main.tsx) and by the `/` page itself
+ * (app/(public)/page.tsx) for client-side links to `/`. Returns the target, or null to stay.
  */
 export function homeRedirect(pathname: string, state: SessionState): string | null {
   if (pathname !== "/") return null;

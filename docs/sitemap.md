@@ -2,7 +2,9 @@
 
 Owner: UX/UI Designer. Status: **Planned**, with implemented routes recorded in §13 (Stage 10 sync, 2026-11-03). Routes and screen IDs are exactly those of `docs/product-requirements.md` §6 (PRD v0.3). Entries marked **(proposed)** are UX additions not yet in the PRD; they are listed in §12 for the Product Analyst to accept or reject. Portal access follows `docs/role-permission-matrix.md` §9.
 
-> **Single-company mode (2026-11-06, [ADR-0015](architecture-decisions/ADR-0015-single-company.md)).** Tech Drona is the only organization. The college coordinator portal, invitations, the "For colleges" page, organization admin pages and institution contracts are removed. Roles are Admin (`super_admin`), Trainer, Evaluator, Content manager and Student; the mentor, support desk, finance and security consoles keep their URLs but belong to the Admin portal and need `super_admin`. Batches are managed by Admin at `/admin/batches`. Corporate and bulk enquiries use the public form at `/enquiries`.
+> **Single-company mode (2026-11-06, [ADR-0015](architecture-decisions/ADR-0015-single-company.md)).** Tech Drona is the only organization. The college coordinator portal, invitations, the "For colleges" page, organization admin pages and institution contracts are removed. Roles are Admin (`super_admin`), Trainer, Evaluator, Content manager and Student; the support desk, finance and security consoles keep their URLs but belong to the Admin portal and need `super_admin`. Batches are managed by Admin at `/admin/batches`. Corporate and bulk enquiries go to the website contact page (the LMS `/enquiries` URL redirects there).
+
+> **Removed 2026-11-14 ([feature-removal-plan.md](cleanup/feature-removal-plan.md)).** Mentoring (`/mentor/**`, `/app/mentoring`; the Résumé builder `/app/resume` stays), company paths (`/app/companies/**`, `/studio/companies`), corporate enquiries (`/enquiries`, `/desk/enquiries/**`), the public pages Hosting redirects to the website (`/courses/**`, `/pricing`, `/placement/**`, `/companies/**`, `/free-resources`, `/status`), `/app/diagnostic`, `/admin/question-review`, `/admin/notifications`, `/app/bookmarks`, `/app/analytics` and `/security/policies`. `/` now only redirects (`/modules` or `/login`). The SPA has 179 pages.
 
 Legend: `[ID]` screen ID · `(modal)` / `(drawer)` = not a route · `→` redirect/flow · 🔒 needs sign-in · ⬆ step-up MFA on entry or action · ⇄ second-person approval involved.
 
@@ -23,7 +25,6 @@ techdrona.in
 ├── Evaluator (/evaluator)                evaluator @ batch/platform  🔒
 ├── Content studio (/studio)              content_manager             🔒
 └── Admin (/admin)                        super_admin                 🔒 ⬆
-    ├── Placement mentor (/mentor)        super_admin (part of Admin portal)
     ├── Support desk (/desk)              super_admin (part of Admin portal)
     ├── Finance (/finance)                super_admin (part of Admin portal)  ⬆
     └── Security (/security)              super_admin (part of Admin portal)  ⬆
@@ -36,16 +37,7 @@ Users with several grants switch portals from the avatar menu (FR-RBAC-002); onl
 ## 2. Public site
 
 ```
-/                                   [PUB-001] Home
-├── /courses                        [PUB-002] Catalog
-│   └── /courses/[slug]             [PUB-003] Course detail
-├── /placement                      [PUB-004] Placement hub
-│   └── /placement/[subject]/[topic][PUB-005] Topic page (10 free questions → sign-in gate)
-├── /companies                      [PUB-006] Company hubs
-│   └── /companies/[slug]           [PUB-007] Company hub (pattern, syllabus, free mock CTA)
-├── /pricing                        [PUB-008] Pricing
-├── /free-resources                 [PUB-009] Free resources
-├── /enquiries                      [PUB-010] Corporate enquiry form (name, company, email, phone, message, consent; no account)
+/                                   [PUB-001] Redirect only → /modules (signed in) or /login
 ├── /signup                         [PUB-011] Sign up (DOB age gate, consents, OTP)
 │   └── → under 18 → guardian step (in-flow) → /guardian-consent/[token] (guardian side)
 ├── /login                          [PUB-012] Sign in (password / passkey / Google; MFA; new-device OTP;
@@ -63,11 +55,10 @@ Users with several grants switch portals from the avatar menu (FR-RBAC-002); onl
 ├── /help                           [PUB-019] Help centre, contact, grievance officer
 │   └── /help/[article]             [PUB-019]
 │       └── /help/how-we-measure-time  (proposed article; analytics §3.12 disclosure)
-├── /status                         [PUB-020] Service status
 └── /account/restricted             [PUB-021] Status-only page (L4): case, appeal form, status, billing view/cancel, privacy
 ```
 
-Footer (every public page): Courses · Placement · Companies · Pricing · Corporate enquiries · Help · Status · Terms · Privacy · Refund policy · Device policy · Grievance officer · Certificate verification.
+Footer (every public page): Help · Terms · Privacy · Refund policy · Device policy · Grievance officer · Certificate verification.
 
 ---
 
@@ -78,7 +69,6 @@ Sidebar (desktop) / bottom tabs (mobile: Home · Learn · Practice · Tests · M
 ```
 /app                                [STU-001] Dashboard
 ├── /app/onboarding                 [STU-002] Goal picker
-├── /app/diagnostic                 [STU-003] Free diagnostic launcher → TST-001/TST-002
 ├── /app/path                       [STU-006] Learning path & recommendations
 │
 ├── Learn
@@ -89,15 +79,13 @@ Sidebar (desktop) / bottom tabs (mobile: Home · Learn · Practice · Tests · M
 │   │   └── (modal)                 [PLY-005] Playback conflict
 │   ├── /app/assignments            [STU-007] Assignments
 │   │   └── /app/assignments/[id]   [STU-008] Assignment detail & submission
-│   ├── /app/certificates           [STU-012] Certificates
-│   └── /app/bookmarks              [STU-028] Bookmarks & notes
+│   └── /app/certificates           [STU-012] Certificates
 │
 ├── Practice
 │   ├── /app/practice               [PRC-001] Practice hub
 │   ├── /app/practice/[subject]     [PRC-002] Topics & mastery
 │   ├── /app/practice/sessions/[session_id]           [PRC-003] Practice session
-│   ├── /app/practice/review        [PRC-004] Review incorrect & bookmarked
-│   └── /app/companies/[slug]       [PRC-005] Company path (enrolled)
+│   └── /app/practice/review        [PRC-004] Review incorrect & bookmarked
 │
 ├── Tests
 │   ├── /app/tests                  [STU-009] Tests list
@@ -116,8 +104,6 @@ Sidebar (desktop) / bottom tabs (mobile: Home · Learn · Practice · Tests · M
 │   └── (embedded in TST-002)       [COD-004] Coding question in a test
 │
 ├── Career
-│   ├── /app/analytics              [STU-011] Skill analytics (method disclosure)
-│   ├── /app/mentoring              [STU-013] Mock interviews
 │   ├── /app/resume                 [STU-014] Resume builder
 │   └── /app/interview-prep         [STU-015] Interview prep
 │
@@ -176,15 +162,9 @@ Reuses the trainer grading screens with authoring hidden. Evaluators grade and p
 └── /evaluator/integrity                        Integrity flags review (TRN-010)
 ```
 
-## 6. Placement mentor section (`/mentor`, Admin portal)
+## 6. Placement mentor section (removed 2026-11-14)
 
-```
-/mentor                             [MEN-001] Dashboard
-├── /mentor/slots                   [MEN-002] Availability
-├── /mentor/sessions/[session_id]   [MEN-003] Session & rubric feedback
-├── /mentor/students/[user_id]      [MEN-004] Student notes
-└── /mentor/resume-reviews          [MEN-005] Resume review queue
-```
+Mentoring was removed; see the note at the top. The Résumé builder stays at `/app/resume`.
 
 ## 7. Content studio (`/studio`)
 
@@ -197,7 +177,6 @@ Reuses the trainer grading screens with authoring hidden. Evaluators grade and p
 │   └── /studio/questions/import    [CMS-006] Bulk import
 ├── /studio/review                  [CMS-007] Review queue
 ├── /studio/taxonomy                [CMS-008] Taxonomy
-├── /studio/companies               [CMS-009] Companies & paths
 ├── /studio/coding/[problem_id]     [CMS-010] Coding problem editor
 ├── /studio/tests                   [CMS-011] Template mocks
 ├── /studio/media                   [CMS-012] Media
@@ -211,9 +190,7 @@ Reuses the trainer grading screens with authoring hidden. Evaluators grade and p
 ├── /desk/tickets/[ticket_id]       [SUP-002] Ticket
 ├── /desk/users/[user_id]           [SUP-003] User lookup (M0 + M2)
 │   └── (drawer)                    [SUP-004] Device reset / session revoke  ⬆
-├── /desk/unblock-requests          [SUP-005] Unblock triage (L1/L2 lift; forward L3/L4)
-├── /desk/enquiries                 [SUP-006] Corporate enquiry queue (D8; status filter, new count)
-└── /desk/enquiries/[enquiry_id]    [SUP-007] Enquiry detail (assign to me, close / spam / reopen, staff note; view audited)
+└── /desk/unblock-requests          [SUP-005] Unblock triage (L1/L2 lift; forward L3/L4)
 ```
 
 ## 9. Finance console (`/finance`, Admin portal)
@@ -255,7 +232,7 @@ Reuses the trainer grading screens with authoring hidden. Evaluators grade and p
 /admin                              [ADM-001] Platform dashboard
 ├── /admin/batches                  Batches (list, create)
 │   └── /admin/batches/[batch_id]   Batch detail: members add/remove, assign trainer/evaluator
-├── /admin/ai                       AI and app settings (platform-wide)
+├── /admin/ai                       Apps (authorized apps; AI settings only when a provider is configured)
 ├── /admin/users                    [ADM-004] User search (no evidence)
 ├── /admin/roles                    [ADM-005] Role grants  ⬆ ⇄ (privileged roles)
 ├── /admin/policies                 [ADM-006] Policy settings  ⬆ ⇄
@@ -263,9 +240,8 @@ Reuses the trainer grading screens with authoring hidden. Evaluators grade and p
 ├── /admin/audit                    [ADM-008] Audit log + chain verification
 ├── /admin/privacy-requests         [ADM-009] Privacy requests (DPDP timers)
 ├── /admin/approvals                [ADM-010] Dual-control approvals queue
-├── /admin/notifications            [ADM-011] Notification templates
 ├── /admin/break-glass              [ADM-012] Break-glass  ⬆ (passkey only)
-└── Sections: Mentor (/mentor), Support desk (/desk), Finance (/finance), Security (/security), Enquiries (support queue, category corporate_enquiry)
+└── Sections: Support desk (/desk), Finance (/finance), Security (/security)
 ```
 
 ---
@@ -301,22 +277,21 @@ Source: `apps/web/src/app/**/page.tsx` (156 page routes; `(public)` is a route g
 |---|---|---|
 | `/login/mfa`, `/login/session-choice`, `/login/verify-device` | Public | Login continuation steps (PUB-012 states promoted to routes; API tag `login_continuation`). |
 | `/unblock-request` | Public route, signed-in account holder (restricted or status-only scope) | Unblock request form and status lookup by `APL-` reference (UNB-01, UNB-05/06, UNB-19/20). The reference is never an authenticator. |
-| `/placement/[subject]/[topic]` | Public | Topic landing page under PUB-005. |
-| `/app/courses`, `/app/companies` | Student | In-portal catalog and company-path lists. |
+| `/app/courses` | Student | In-portal catalog. |
 | `/app/checkout/new` | Student | Creates the order, then redirects to `/app/checkout/[order_id]`. |
 | `/app/progress` | Student | Progress analytics (recharts; lazy-load pending, backlog D). |
 | `/app/settings/security/not-me/[event_ref]` | Student | "This wasn't me" link target from security notices. |
 | `/trainer/tests/[test_id]/attempts` | Trainer | Attempt list per test. |
-| `/mentor/students` | Mentor | Student list (backend endpoint not yet implemented). |
 | `/studio/coding`, `/studio/tests/[test_id]` | Studio | Coding problem list and test editor. |
-| `/security/approvals`, `/security/policies`, `/security/reports` | Security | Approvals queue, policy proposals, report index (UX-SM-02 adopted with `/security/reports/[report_key]`). |
+| `/security/approvals`, `/security/reports` | Security | Approvals queue, report index (UX-SM-02 adopted with `/security/reports/[report_key]`). |
 | `/admin/users/[user_id]` | Admin | User detail. |
 
 **Proposed routes not implemented:** `/help/how-we-measure-time` (UX-SM-01), `/app/settings/appearance` (UX-SM-03, folded into STU-020), `/signup/guardian` (UX-SM-04; guardian step remains a state inside `/signup`).
 
-**Pages whose backend does not exist yet:** `/app/support*` and `/desk/tickets/*` (support module not built), `/mentor/*` and `/app/mentoring` (mentoring endpoints Planned), `/app/resume`, `/mentor/resume-reviews`. They render against assumed contracts; see `docs/implementation-status.md`.
+**Pages whose backend does not exist yet:** `/app/support*` and `/desk/tickets/*` (support module not built), `/app/resume`. They render against assumed contracts; see `docs/implementation-status.md`.
 
 ### Changelog
 
+- 2026-11-14 (feature removal, [plan](cleanup/feature-removal-plan.md)): removed the 28 pages listed in the note at the top; `/` became a redirect; "AI & apps" renamed "Apps".
 - 2026-11-06 (single-company conversion, WS6): removed `/college/**`, `/app/college`, `/invite/[token]`, `/colleges`, `/admin/organizations/**`, `/finance/contracts`, `/college/networks`; added `/enquiries`, `/admin/batches`, `/admin/batches/[batch_id]`, `/admin/ai`, the Evaluator portal; mentor/desk/finance/security grouped under the Admin portal.
 - 2026-11-03 (Stage 10 integration sync): §13 added; route prefixes `/security`, `/desk`, `/verify/[certificate_id]` confirmed canonical with aliases; implemented-only routes recorded; UX-SM-02 marked adopted.

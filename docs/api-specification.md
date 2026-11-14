@@ -1263,6 +1263,8 @@ Public reads are cacheable (`Cache-Control: public, max-age=300`) and never incl
 
 ### 10.1 Catalogue (CAT)
 
+> **Removed 2026-11-14:** CAT-07 `GET /catalog/search` (its only caller, the public catalogue page, was removed; Hosting redirects `/courses` to the website).
+
 | ID | Method | Path | Summary | Permission @ scope | Step-up | Idem | Tag | Status |
 |---|---|---|---|---|---|---|---|---|
 | CAT-01 | GET | `/catalog/courses` | Catalog with filters (category, level, price type, language) | public | — | — | PUB | **Implemented** |
@@ -1271,7 +1273,6 @@ Public reads are cacheable (`Cache-Control: public, max-age=300`) and never incl
 | CAT-04 | GET | `/catalog/companies/{slug}` | Company hub: pattern, syllabus, interview experiences, sample mock CTA, path pricing | public | — | — | PUB | Planned |
 | CAT-05 | GET | `/catalog/subjects/{subject_slug}/topics/{topic_slug}` | Indexable topic page with concept notes and 10 free sample questions **with explanations** | public | — | — | PUB | Planned |
 | CAT-06 | GET | `/catalog/free-resources` | Free PDFs, cheat sheets, free courses | public | — | — | PUB | **Implemented** |
-| CAT-07 | GET | `/catalog/search` | Full-text search on title/summary/tags (`?q=`) | public | — | — | PUB | **Implemented** |
 | CAT-08 | GET | `/studio/courses` | Courses in scope (platform or org-private). `?status=draft\|published\|archived`, cursor. **(audit fix, ADM-41)** A batch-scoped trainer gets the courses of their course-scoped grants **plus the organization-owned (O-private) courses of their batches' organizations** (mirrors `rbac.service.ORG_PRIVATE_VIA_BATCH`); never platform courses or other orgs. A batch-scoped studio user with no such course gets an empty list, not `403` | `course.create`/`course.edit`/`course.preview` @P/@C/@O/@B | — | — | — | **Implemented** |
 | CAT-09 | POST | `/studio/courses` | Create course + draft version | `course.create` @P / @O (O-private) | — | opt | — | **Implemented** |
 | CAT-10 | GET | `/studio/courses/{course_id}` | Course with draft and published versions | `course.edit` @C | — | — | — | **Implemented** |
@@ -1422,6 +1423,8 @@ Practice delivery DTOs never contain `is_correct`, `answer_key` or explanations 
 
 ### 13.1 Catalogue (PLC)
 
+> **Removed 2026-11-14** ([feature-removal-plan.md](cleanup/feature-removal-plan.md) §3.1–3.2): company paths (PLC-18 `PUT /studio/company-paths/{id}`, PLC-32 `GET /me/company-paths/{slug}`), mentoring (PLC-36..46: `/mentoring/*`, `/me/mentoring/bookings`, `/mentor/*`) and résumé reviews (PLC-50..52). The résumé builder (`/me/resumes*`, PLC-47..49) and `GET`/`POST /studio/companies` stay.
+
 | ID | Method | Path | Summary | Permission @ scope | Step-up | Idem | Tag | Status |
 |---|---|---|---|---|---|---|---|---|
 | PLC-01 | GET | `/placement/subjects` | Taxonomy tree (subject → topic → subtopic) with question counts | public | — | — | PUB | **Implemented** |
@@ -1442,7 +1445,6 @@ Practice delivery DTOs never contain `is_correct`, `answer_key` or explanations 
 | PLC-15 | GET | `/studio/questions/{question_id}/stats` | Item statistics (p-value n ≥ 30, point-biserial n ≥ 50, review flags; k ≥ 10, no learner identities) | `question.edit` @P / `analytics.read` @C | — | — | — | Planned |
 | PLC-16 | GET | `/studio/companies` | Companies and company paths | `company_path.manage` @P | — | — | — | **Implemented** |
 | PLC-17 | POST | `/studio/companies` | Create company | `company_path.manage` @P | — | opt | — | **Implemented** |
-| PLC-18 | PUT | `/studio/company-paths/{company_path_id}` | Replace path definition (pattern, syllabus mapping, ordered steps) | `company_path.manage` @P | — | — | — | **Implemented** |
 | PLC-19 | POST | `/practice/sessions` | Start a practice set (subject/topic/difficulty or path step; 10 questions; adaptive next set P1) | S + entitlement | — | **Req** | — | **Implemented** |
 | PLC-20 | GET | `/practice/sessions/{session_id}` | Session state (served questions without keys; answered ones with feedback) | S | — | — | — | **Implemented** |
 | PLC-21 | POST | `/practice/sessions/{session_id}/answers` | Answer one question → immediate correctness + explanation | S + entitlement | — | **Req** | — | **Implemented** |
@@ -1456,27 +1458,12 @@ Practice delivery DTOs never contain `is_correct`, `answer_key` or explanations 
 | PLC-29 | PUT | `/me/goals` | Target companies (≤ 5), role, drive date, year | S | — | — | — | Planned |
 | PLC-30 | GET | `/me/learning-path` | Generated path (courses, sets, mocks) | S | — | — | — | Planned |
 | PLC-31 | PATCH | `/me/learning-path` | Reorder/skip steps | S | — | — | — | Planned |
-| PLC-32 | GET | `/me/company-paths/{slug}` | Enrolled company path: ordered sets, mocks, readiness | S + entitlement | — | — | — | **Implemented** |
 | PLC-33 | POST | `/questions/{question_id}/reports` | Report an error in a question (creates content review ticket) | S | — | opt | — | Planned |
 | PLC-34 | GET | `/studio/question-reports` | Reported-error queue | `question.edit` @P | — | — | — | Planned |
 | PLC-35 | POST | `/studio/question-reports/{report_id}/resolve` | Resolve (reporter notified) | `question.edit` @P | — | opt | — | Planned |
-| PLC-36 | GET | `/mentoring/slots` | Available mentor slots | S + entitlement (`placement_package`) | — | — | — | Planned |
-| PLC-37 | POST | `/mentoring/bookings` | Book a slot (consumes `mentor_sessions_remaining` from the entitlement ending soonest) | S + entitlement | — | **Req** | — | Planned |
-| PLC-38 | POST | `/mentoring/bookings/{booking_id}/reschedule` | Reschedule (≥ 12 h before keeps the credit) | S | — | opt | — | Planned |
-| PLC-39 | POST | `/mentoring/bookings/{booking_id}/cancel` | Cancel (credit rules per FR-PLC-010) | S | — | opt | — | Planned |
-| PLC-40 | GET | `/me/mentoring/bookings` | Bookings and feedback history | S | — | — | — | Planned |
-| PLC-41 | POST | `/mentor/slots` | Publish slots (30/45/60 min; overlap check) | `mentor.slot.manage` S | — | opt | — | Planned |
-| PLC-42 | DELETE | `/mentor/slots/{slot_id}` | Delete unbooked slot (booked → cancel with student credit) | `mentor.slot.manage` S | — | — | — | Planned |
-| PLC-43 | GET | `/mentor/sessions` | Upcoming sessions, pending feedback | `mentor.slot.manage` S | — | — | — | Planned |
-| PLC-44 | POST | `/mentor/bookings/{booking_id}/feedback` | Rubric feedback (5 criteria 1–5 + comments; due ≤ 48 h) | `mentor.feedback.write` S/@B | — | opt | — | Planned |
-| PLC-45 | POST | `/mentor/bookings/{booking_id}/no-show` | Mark student/mentor no-show (mentor no-show credits back automatically) | `mentor.feedback.write` | — | opt | — | Planned |
-| PLC-46 | GET | `/mentor/students/{user_id}` | Readiness summary + feedback history (assigned students only, SoD-11) | `mentor.notes.read` @B / assigned | — | — | — | Planned |
 | PLC-47 | GET | `/me/resumes` | Résumés | S | — | — | — | Planned |
 | PLC-48 | PUT | `/me/resumes/{resume_id}` | Save résumé (sections; certificates auto-filled) | S | — | — | — | Planned |
 | PLC-49 | POST | `/me/resumes/{resume_id}/export` | Render PDF (async; signed URL) | S | — | opt | — | Planned |
-| PLC-50 | POST | `/me/resumes/{resume_id}/review-requests` | Request mentor review (consumes `resume_reviews_remaining`) | S + entitlement | — | **Req** | — | Planned |
-| PLC-51 | GET | `/mentor/resume-reviews` | Review queue | `mentor.feedback.write` | — | — | — | Planned |
-| PLC-52 | POST | `/mentor/resume-reviews/{review_id}/feedback` | Inline comments + summary | `mentor.feedback.write` | — | opt | — | Planned |
 
 #### PLC-21 · POST `/practice/sessions/{session_id}/answers` (representative)
 
@@ -2211,6 +2198,8 @@ Request `{"report_key": "coordinator.batch_progress", "scope": {"type": "batch",
 
 ### 22.1 Catalogue (SUP)
 
+> **Removed 2026-11-14:** corporate enquiries (`POST /public/enquiries`, `GET /support/enquiries`, `GET`/`PATCH /support/enquiries/{id}`; the `corporate_enquiry` category). Enquiries go to the website contact page.
+
 | ID | Method | Path | Summary | Permission @ scope | Step-up | Idem | Tag | Rate limit | Status |
 |---|---|---|---|---|---|---|---|---|---|
 | SUP-01 | POST | `/support/tickets` | Create ticket (category, subject, body, attachments; context auto-attached and disclosed: browser/OS, route, last `request_id`). Body `{category, subject (3–200), body (10–5000), attachments?, organization_id?, related_order_id?, related_unblock_request_id?, related_attempt_id?, context?}`; unknown fields rejected. **(audit fix)** `attachments`: ≤ 5 `{s3_key, filename, content_type, size_bytes ≤ 10 MB}` uploaded first with MED-02 `support_attachment` (only the requester's own keys). `related_attempt_id`: must be the requester's own `test_attempts` row, else `422` on `related_attempt_id`; stored in the ticket context and returned as `related_attempt_id` by every ticket view (appeal prefill) | `ticket.read` S (own) | — | opt | AS | 10/day | **Implemented** |
@@ -2549,7 +2538,6 @@ Not catalogued (operational, hidden): `GET /api/v1/webhooks/{provider}/health`.
 |---|---|---|
 | `GET /assignments` (trainer list) | none — LRN-14 is `POST /assignments` only; students use `GET /me/assignments` | **Gap** — add a trainer list (`assignment.manage` @B/@C) or switch the page to an existing route |
 | `GET /studio/coding/problems` (list) | none — only `POST` (COD-13) and detail (COD-23) were catalogued | **Exists in code (2026-11-03 re-check):** `studio_list_problems` (`?status=&q=&cursor=&limit=`, `coding_problem.manage`; response `{data, meta}`) — not yet given a catalogue ID |
-| `/mentor/sessions/{booking_id}`, `/mentor/students`, `/mentor/students/{id}/notes`, `/mentor/slots`, `/mentor/resume-reviews` | PLC-41..52 (mentor slots, bookings, resume reviews) | Planned; `/mentor/students` and student notes are **not in the spec** — spec them under §13 when the mentoring API is built |
 
 ### 28.4 Behavioural deviations recorded
 

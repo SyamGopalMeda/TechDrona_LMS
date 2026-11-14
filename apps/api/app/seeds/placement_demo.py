@@ -1,4 +1,4 @@
-"""DEV / DEMO DATA ONLY — a small, ORIGINAL sample question bank, one demo company path and one
+"""DEV / DEMO DATA ONLY — a small, ORIGINAL sample question bank, one demo company and one
 free demo mock for local development and demos. Never run against production: the script
 refuses when ``APP_ENV`` is ``prod``/``production``.
 
@@ -39,10 +39,7 @@ from app.modules.placement import bank
 from app.modules.placement.models import Company, Question, Topic
 from app.modules.placement.schemas import (
     CompanyCreate,
-    CompanyPathPut,
     OptionIn,
-    PathStepIn,
-    PatternSection,
     QuestionCreate,
     TagIn,
 )
@@ -275,40 +272,6 @@ async def seed(session: AsyncSession) -> dict[str, int]:
                 industry="IT services",
                 hub_status="published",
                 description_md="Sample company hub for demos. Pattern-aligned practice only.",
-            ),
-        )
-        await bank.put_company_path(
-            session,
-            author,
-            uuid7(),
-            CompanyPathPut(
-                company_id=company.id,
-                role_name="Graduate Engineer Trainee (demo)",
-                status="published",
-                pattern=[
-                    PatternSection(
-                        section="Aptitude", topic_id=topics["quant"], weight=Decimal(40), minutes=25
-                    ),
-                    PatternSection(
-                        section="Reasoning", topic_id=topics["logical"], weight=Decimal(30), minutes=20
-                    ),
-                    PatternSection(
-                        section="Technical", topic_id=topics["dsa"], weight=Decimal(30), minutes=20
-                    ),
-                ],
-                steps=[
-                    PathStepIn(
-                        step_type="practice_set",
-                        title="Percentages warm-up",
-                        topic_id=topics["quant/percentages"],
-                    ),
-                    PathStepIn(
-                        step_type="practice_set", title="Number series", topic_id=topics["logical/series"]
-                    ),
-                    PathStepIn(
-                        step_type="practice_set", title="Searching basics", topic_id=topics["dsa/searching"]
-                    ),
-                ],
             ),
         )
 

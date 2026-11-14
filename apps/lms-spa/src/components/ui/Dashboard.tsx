@@ -87,7 +87,11 @@ export interface QuickAction {
   documentNav?: boolean;
 }
 
-/** Grid of shortcut tiles: icon, label, one-line hint, arrow. `columns` = 2 inside a half-width card, 3 for a full-width card. */
+/**
+ * Grid of shortcut tiles: icon, label, one-line hint, arrow. `columns` = 2 inside a half-width card, 3 for a full-width card.
+ * `columns` = 1 sits in a one-third column: between lg and xl (tablet landscape, sidebar open) that column is
+ * narrow, so the icon tile is dropped there and long words wrap instead of overflowing (live re-check N5).
+ */
 export function QuickActions({ items, columns = 2 }: { items: QuickAction[]; columns?: 1 | 2 | 3 }) {
   return (
     <ul className={cn("grid grid-cols-1 gap-2.5", columns === 1 ? "sm:grid-cols-2 lg:grid-cols-1" : cn("sm:grid-cols-2", columns === 3 ? "xl:grid-cols-3" : "lg:grid-cols-1 2xl:grid-cols-2"))}>
@@ -97,11 +101,11 @@ export function QuickActions({ items, columns = 2 }: { items: QuickAction[]; col
         const inner = (
           <>
             {a.icon ? (
-              <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-brand-subtle text-brand transition-colors duration-base group-hover:bg-brand group-hover:text-brand-on [&_svg]:h-[1.125rem] [&_svg]:w-[1.125rem]">
+              <span aria-hidden="true" className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-brand-subtle text-brand transition-colors duration-base group-hover:bg-brand group-hover:text-brand-on [&_svg]:h-[1.125rem] [&_svg]:w-[1.125rem]", columns === 1 && "lg:max-xl:hidden")}>
                 {isIconName(a.icon) ? <Icon name={a.icon} /> : a.icon}
               </span>
             ) : null}
-            <span className="min-w-0 flex-1">
+            <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
               <span className="block font-semibold text-fg-heading">{a.label}</span>
               {a.hint ? <span className="block text-sm text-fg-muted">{a.hint}</span> : null}
             </span>

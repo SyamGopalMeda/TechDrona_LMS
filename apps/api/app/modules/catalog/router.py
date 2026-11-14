@@ -24,7 +24,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, or_, select
 
 from app.core.audit import audit
 from app.core.auth import (
@@ -120,19 +120,7 @@ async def list_courses(
     limit: int = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = PUBLIC_CACHE
-    return await _public_list(session, cursor, limit, category, level, price_type, language, None)
-
-
-@pub.get("/search", operation_id="cat_07_search")
-async def search(
-    response: Response,
-    session: DbSession,
-    q: str = Query(min_length=2, max_length=100),
-    cursor: str | None = None,
-    limit: int = DEFAULT_LIMIT,
-) -> dict[str, Any]:
-    response.headers["Cache-Control"] = PUBLIC_CACHE
-    return await _public_list(session, cursor, limit, None, None, None, None, q)
+    return await _public_list(session, cursor, limit, category, level, price_type, language)
 
 
 async def _public_list(
@@ -143,11 +131,10 @@ async def _public_list(
     level: str | None,
     price_type: str | None,
     language: str | None,
-    q: str | None,
 ) -> dict[str, Any]:
     limit = _limit(limit)
     if _fs():
-        return await _public_list_firestore(session, cursor, limit, category, level, price_type, language, q)
+        return await _public_list_firestore(session, cursor, limit, category, level, price_type, language)
     conds = [*svc.public_course_filter(), Course.visibility == "public"]
     if category:
         conds.append(CourseVersion.category == category)
@@ -157,21 +144,6 @@ async def _public_list(
         conds.append(CourseVersion.language == language)
     if price_type:
         conds.append(Course.is_free.is_(price_type == "free"))
-    if q:
-        doc = func.to_tsvector(
-            "simple",
-            func.concat_ws(
-                " ", CourseVersion.title, CourseVersion.summary, func.array_to_string(CourseVersion.tags, " ")
-            ),
-        )
-        like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-        conds.append(
-            or_(
-                doc.op("@@")(func.websearch_to_tsquery("simple", q)),
-                CourseVersion.title.ilike(like),
-                func.array_to_string(CourseVersion.tags, " ").ilike(like),
-            )
-        )
     if cursor:
         pos = decode_cursor(cursor)
         try:
@@ -203,7 +175,6 @@ async def _public_list_firestore(
     level: str | None,
     price_type: str | None,
     language: str | None,
-    q: str | None,
 ) -> dict[str, Any]:
     from app.modules.catalog.repo_firestore import card_counts, card_version, course_of, reader
 
@@ -212,7 +183,6 @@ async def _public_list_firestore(
         level=level,
         price_type=price_type,
         language=language,
-        q=q,
         is_free=None,
         after_id=_cursor_id(cursor),
         limit=limit,
@@ -272,8 +242,7 @@ async def free_resources(
             level=None,
             price_type=None,
             language=None,
-            q=None,
-            is_free=True,
+                is_free=True,
             after_id=None,
             limit=limit,
         )

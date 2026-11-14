@@ -19,8 +19,7 @@ Creates in the company org (``COMPANY_ORG_ID``), idempotent by the stable keys b
   evaluator can publish results — D3);
 * structured assignment ``[DEMO] DBMS short answers`` for ``DEMO-CSE-27``, allocated with
   ``evaluator@`` as named evaluator (``pure_manual`` engine) and one submitted answer from
-  ``asha.student@`` waiting to be graded;
-* corporate enquiry ``TD-E-DEMO-000001`` (status ``new``) for the Admin support queue (D8).
+  ``asha.student@`` waiting to be graded.
 
 Services are not called where they need an HTTP request / permission checker (path create and
 allocate, engage create, test assign, assignment allocate); the rows are written exactly as those
@@ -64,7 +63,6 @@ from app.modules.paths.models import LearningPath, PathAllocation, PathArticle
 from app.modules.placement import banks
 from app.modules.placement.models import Question, QuestionBank
 from app.modules.placement.schemas import BankCreate
-from app.modules.support.models import CorporateEnquiry
 from app.seeds import dev_users, e2e_demo, placement_demo, seeds_allowed
 from app.seeds.sync import sync_touched
 
@@ -83,7 +81,6 @@ ARTICLE_TITLE = "[DEMO] Welcome to CSE 2027"
 PATH_TITLE = "[DEMO] Placement foundations"
 ACTIVITY_TITLE = "[DEMO] Monday warm-up quiz"
 ASSIGNMENT_TITLE = "[DEMO] DBMS short answers"
-ENQUIRY_REF = "TD-E-DEMO-000001"
 # D9: only these embed forms render inline (paths.service.embeddable).
 VIDEO_URL = "https://www.youtube-nocookie.com/embed/8hly31xKli0"
 READING_URL = "https://docs.google.com/document/d/1DemoTechDronaReadingNotes/preview"
@@ -495,30 +492,6 @@ async def _structured_assignment(
     return made
 
 
-async def _enquiry(session: AsyncSession) -> int:
-    if (
-        await session.execute(select(CorporateEnquiry.id).where(CorporateEnquiry.reference == ENQUIRY_REF))
-    ).first():
-        return 0
-    now = utcnow()
-    session.add(
-        CorporateEnquiry(
-            id=uuid7(),
-            reference=ENQUIRY_REF,
-            name="Demo Enquirer",
-            company="Example Corp (demo)",
-            email="enquiries@example.com",
-            phone=None,
-            message="We would like a placement-readiness programme for 40 graduate hires. (Synthetic demo.)",
-            consent_at=now,
-            notice_version="corporate-enquiry-2026-11",
-            status="new",
-        )
-    )
-    await session.flush()
-    return 1
-
-
 async def seed(session: AsyncSession) -> dict[str, int]:
     guard()
     await system_context(session, "seed.company_demo")
@@ -532,7 +505,6 @@ async def seed(session: AsyncSession) -> dict[str, int]:
     made["engage_activities"] = await _engage(session, trainer, batch)
     made["test_assignments"] = await _test_assignment(session, trainer, batch)
     made["structured_assignments"] = await _structured_assignment(session, trainer, evaluator, batch)
-    made["enquiries"] = await _enquiry(session)
     await session.flush()
     return made
 
@@ -552,7 +524,6 @@ async def main() -> int:
                 "engage",
                 "paths",
                 "placement",
-                "support",
             )
     finally:
         await engine.dispose()

@@ -1,4 +1,4 @@
-"""Placement: taxonomy, question bank workflow, practice engine, recommendations, company paths."""
+"""Placement: taxonomy, question bank workflow, practice engine, recommendations, companies."""
 
 from __future__ import annotations
 
@@ -409,8 +409,8 @@ async def test_weak_topic_recommendation_needs_consent(client, world: World, db,
 # --------------------------------------------------------------------------- companies
 
 
-async def test_company_paths_and_student_readiness(client, world: World, db, allow_access) -> None:
-    t, qs = await _practice_bank(db, world, 2)
+async def test_companies_and_removed_company_paths(client, world: World) -> None:
+    """Companies stay (PLC-16/17); company preparation paths were removed (feature-removal-plan §3.2)."""
     author, student = world.personas["author"], world.personas["student"]
     r = await client.post(
         f"{API}/studio/companies",
@@ -418,37 +418,17 @@ async def test_company_paths_and_student_readiness(client, world: World, db, all
         headers=author.headers,
     )
     assert r.status_code == 201, r.text
-    cid = r.json()["id"]
-    path_id = str(uuid.uuid4())
-    body = {
-        "company_id": cid,
-        "role_name": "Graduate Engineer",
-        "status": "published",
-        "pattern": [
-            {"section": "Quant", "topic_id": str(t), "weight": 1, "minutes": 30, "question_count": 20}
-        ],
-        "steps": [{"step_type": "practice_set", "title": "Percentages set", "topic_id": str(t)}],
-    }
-    r = await client.put(f"{API}/studio/company-paths/{path_id}", json=body, headers=author.headers)
-    assert r.status_code == 200 and r.json()["version_no"] == 1
-    r = await client.put(f"{API}/studio/company-paths/{path_id}", json=body, headers=author.headers)
-    assert r.json()["version_no"] == 2 and len(r.json()["steps"]) == 1
-    r = await client.put(f"{API}/studio/company-paths/{path_id}", json=body, headers=student.headers)
-    assert r.status_code == 403
-    assert (await client.get(f"{API}/studio/companies", headers=author.headers)).json()["items"][0]["paths"]
-
-    await _answer_all(client, student, t, qs, correct=True, n_sets=1)
-    r = await client.get(f"{API}/me/company-paths/acme-tech", headers=student.headers)
-    assert r.status_code == 200, r.text
-    assert r.json()["paths"][0]["readiness"]["score_pct"] == 100.0
-    # practise a company path step
-    step_id = r.json()["paths"][0]["steps"][0]["id"]
+    items = (await client.get(f"{API}/studio/companies", headers=author.headers)).json()["items"]
+    assert [c["slug"] for c in items] == ["acme-tech"] and "paths" not in items[0]
+    r = await client.put(f"{API}/studio/company-paths/{uuid.uuid4()}", json={}, headers=author.headers)
+    assert r.status_code in (404, 405)
+    assert (await client.get(f"{API}/me/company-paths/acme-tech", headers=student.headers)).status_code == 404
     r = await client.post(
         f"{API}/practice/sessions",
-        json={"mode": "company_step", "company_path_step_id": step_id},
+        json={"mode": "company_step", "company_path_step_id": str(uuid.uuid4())},
         headers={**student.headers, **idem()},
     )
-    assert r.status_code == 201 and ("company_path", uuid.UUID(path_id)) in allow_access.calls
+    assert r.status_code == 400 and r.json()["code"] == "validation_failed"
 
 
 async def test_admin_reviews_a_content_managers_question(client, world: World, db) -> None:

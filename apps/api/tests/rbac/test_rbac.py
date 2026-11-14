@@ -133,7 +133,6 @@ async def test_permission_matrix_per_role(db, role) -> None:
         ("super_admin", "security.case.decide", True),
         ("super_admin", "refund.decide", True),
         ("super_admin", "session.revoke", True),
-        ("super_admin", "mentor.slot.manage", True),
         ("super_admin", "test.assign", True),
         ("super_admin", "test.results.release", True),
         ("super_admin", "test.override.grant", True),

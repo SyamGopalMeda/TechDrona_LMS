@@ -140,7 +140,7 @@ async def _published_test(
 
 async def test_author_attempt_grade_result(fs_http: Any, allow_access: Any, make_principal: Any) -> None:
     # allow_access after fs_http: app creation (wiring) registers the real entitlement checker, whose
-    # test->company-path resolver (wiring.test_parents) still runs Postgres SQL (request in the report)
+    # test->course resolver (wiring.test_parents) is not under test here
     client, _rec, auth = fs_http
     author, reviewer = _staff(make_principal, auth), _staff(make_principal, auth)
     test_id, _mcq, _essay = await _published_test(client, author, reviewer)

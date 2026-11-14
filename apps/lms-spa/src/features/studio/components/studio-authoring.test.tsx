@@ -2,7 +2,6 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockApi, problem, renderWithProviders } from "@/features/auth/test/mock-api";
-import { CompaniesManager, pathBody, validatePath } from "./Companies";
 import { CourseEditor, CourseList, moveLesson, moveModule, outlineOf } from "./Courses";
 import { docToText, textToDoc } from "./LessonEditor";
 import { LessonMediaPanel, MediaLibrary } from "./Media";
@@ -530,51 +529,5 @@ describe("TaxonomyManager (CMS-008)", () => {
     restore = api.restore;
     renderWithProviders(<TaxonomyManager />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong");
-  });
-});
-
-describe("CompaniesManager (CMS-009)", () => {
-  it("validates and builds the PLC-18 body", () => {
-    const form = { id: null, company_id: "co1", role_name: "", status: "draft" as const, pattern: [{ section: "", topic_id: "", weight: "0", minutes: "", question_count: "" }], steps: [] };
-    expect(Object.keys(validatePath(form)).sort()).toEqual(["pattern.0.section", "pattern.0.topic_id", "pattern.0.weight", "role_name"]);
-    const ok = {
-      ...form,
-      role_name: "GET",
-      pattern: [{ section: "Quant", topic_id: "t1", weight: "40", minutes: "30", question_count: "" }],
-      steps: [
-        { step_type: "test" as const, title: "Mock", topic_id: "", test_id: "t9", is_required: true },
-        { step_type: "lesson" as const, title: "Watch", topic_id: "", test_id: "", lesson_key: "lk1", is_required: false },
-      ],
-    };
-    expect(validatePath(ok)).toEqual({});
-    expect(pathBody(ok)).toEqual({
-      company_id: "co1",
-      organization_id: null,
-      role_name: "GET",
-      status: "draft",
-      pattern: [{ section: "Quant", topic_id: "t1", weight: "40", minutes: 30 }],
-      steps: [
-        { step_type: "test", title: "Mock", is_required: true, test_id: "t9" },
-        { step_type: "lesson", title: "Watch", is_required: false, lesson_key: "lk1" },
-      ],
-    });
-  });
-
-  it("creates a company (PLC-17)", async () => {
-    const api = mockApi({
-      "GET studio/companies": { body: { items: [] } },
-      "GET placement/subjects": { body: subjects },
-      "GET studio/tests": { body: { items: [] } },
-      "POST studio/companies": { status: 201, body: {} },
-    });
-    restore = api.restore;
-    renderWithProviders(<CompaniesManager />);
-    expect(await screen.findByText("No companies yet")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "New company" }));
-    const dialog = await screen.findByRole("dialog", { name: "New company" });
-    await fill(within(dialog).getByLabelText(/^Name/), "Acme Systems");
-    await userEvent.click(within(dialog).getByRole("button", { name: "Add company" }));
-    await waitFor(() => expect(api.calls.some((c) => c.method === "POST")).toBe(true));
-    expect(api.calls.find((c) => c.method === "POST")?.body).toEqual({ name: "Acme Systems", slug: "acme-systems", industry: null, hub_status: "draft", description_md: null });
   });
 });

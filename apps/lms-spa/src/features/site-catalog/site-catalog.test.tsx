@@ -268,6 +268,14 @@ describe("site catalogue: cards after the live audit (F-4, CORS fallback)", () =
     expect(label.parentElement!.className).not.toMatch(/0\.68rem/);
   });
 
+  it("the fact labels are at least 0.75rem (live re-check: 10.88px)", () => {
+    const c = sample().courses.find((x) => x.facts.some((f) => f.label === "Program length"))!;
+    render(<SiteCourseCard course={c} />);
+    const label = screen.getByText("Program length");
+    expect(label.className).toMatch(/(^|\s)text-xs(\s|$)/);
+    expect(label.className).not.toMatch(/0\.68rem/);
+  });
+
   it("cards built without catalog.json (CORS-blocked) still say where the details are", () => {
     const cat = buildSiteCatalog({ courses: [], live: parseCoursePublic(FIRESTORE_JSON), siteUrl: SITE, today: TODAY, source: { catalog: "unavailable", live: "ok" } });
     const c = cat.courses.find((x) => x.slug === "generative-ai")!;

@@ -181,7 +181,7 @@ export function SiteCourseCard({
           {!compact && c.theme.labels?.length ? (
             <span className="flex min-w-0 flex-wrap gap-1.5 pb-0.5">
               {c.theme.labels.slice(0, 3).map((l) => (
-                <span key={l} className="rounded-md bg-white/85 px-2 py-0.5 text-[0.68rem] font-semibold text-fg-secondary shadow-xs">
+                <span key={l} className="rounded-md bg-white/85 px-2 py-0.5 text-xs font-semibold text-fg-secondary shadow-xs">
                   {l}
                 </span>
               ))}
@@ -210,7 +210,7 @@ export function SiteCourseCard({
           <ul className={cn("grid gap-2", compact ? "grid-cols-2" : "grid-cols-3")}>
             {facts.map((f) => (
               <li key={f.label} className="min-w-0 rounded-lg bg-surface-sunken px-2.5 py-2">
-                <small className="flex items-center gap-1 truncate text-[0.68rem] font-semibold uppercase tracking-wide text-fg-muted">
+                <small className="flex min-w-0 items-center gap-1 text-xs font-semibold uppercase leading-tight tracking-wide text-fg-muted [overflow-wrap:anywhere]">
                   <Icon name={siteIcon(f.icon, "clock")} className="h-3.5 w-3.5 shrink-0" />
                   {f.label}
                 </small>

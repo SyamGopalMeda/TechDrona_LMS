@@ -1,5 +1,5 @@
 """Catalog authoring (draft -> review -> published versions, SoD-04), outline with stable
-lesson keys, public catalogue/search, permission denials, cross-tenant 404 and RLS."""
+lesson keys, public catalogue, permission denials, cross-tenant 404 and RLS."""
 
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ async def test_authoring_publish_flow_sod_and_public_catalog(browser, db, audite
     assert r.json()["course"]["status"] == "published" and r.json()["version"]["status"] == "published"
     replay = await publisher.post(f"/studio/courses/{cid}/publish", {"change_type": "major"}, headers=key)
     assert replay.status_code == 200 and replay.headers.get("Idempotency-Replayed") == "true"
-    # public catalogue / detail / search (no session at all)
+    # public catalogue / detail (no session at all)
     anon = browser.fork()
     listed = await anon.get("/catalog/courses", params={"price_type": "free", "category": "dsa"})
     assert listed.status_code == 200 and listed.headers["Cache-Control"].startswith("public")
@@ -101,13 +101,11 @@ async def test_authoring_publish_flow_sod_and_public_catalog(browser, db, audite
     d = await anon.get("/catalog/courses/dsa-placements")
     assert d.status_code == 200 and [m["title"] for m in d.json()["syllabus"]] == ["Start here", "Arrays"]
     assert "article_body" not in d.json()["syllabus"][1]["lessons"][0]
-    assert cid in [
-        c["id"] for c in (await anon.get("/catalog/search", params={"q": "arrays"})).json()["data"]
-    ]
     # a draft-only course never appears publicly
     await _create(browser, slug="secret-draft", title="Secret Draft Course")
     assert (await anon.get("/catalog/courses/secret-draft")).status_code == 404
-    assert (await anon.get("/catalog/search", params={"q": "Secret"})).json()["data"] == []
+    public_slugs = [c["slug"] for c in (await anon.get("/catalog/courses")).json()["data"]]
+    assert "secret-draft" not in public_slugs
     # editing a published course creates draft v2 that keeps lesson keys; published lessons immutable
     r = await browser.patch(f"/studio/courses/{cid}/draft", {"title": "DSA for Placements 2027"})
     assert r.status_code == 200 and r.json()["version_no"] == 2

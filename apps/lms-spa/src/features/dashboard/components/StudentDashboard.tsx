@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Button, Card, DashboardHero, EmptyState, LinkButton, ProgressBar, QuickActions, Reveal, StatTile, StatusBadge, ViewAllLink } from "@/components/ui";
+import { useIntegrations } from "@/components/shell/Integrations";
 import { useActivityTracker } from "@/lib/analytics/use-activity-tracker";
 import { formatDate, formatDateTime } from "@/features/catalog/lib/format";
 import type { MyTestsResponse, TestListItem } from "@/features/assessment/lib/types";
@@ -128,6 +129,8 @@ export function StudentDashboard({ courses, myCourses }: { courses?: ReactNode; 
   const { data, error, loading, reload } = useResource<DashboardDto>("me/dashboard");
   const tests = useResource<MyTestsResponse>("me/tests");
   useActivityTracker({ route: "/app", surface: "dashboard", enabled: Boolean(data) });
+  // Billing exists only once an online gateway is connected; until then the card shows access only.
+  const payments = useIntegrations()?.payments === true;
 
   if (error) return <ContentErrorState error={error} onRetry={reload} />;
   if (loading && !data) return <LoadingBlock label="Loading your dashboard" rows={4} />;
@@ -184,8 +187,7 @@ export function StudentDashboard({ courses, myCourses }: { courses?: ReactNode; 
           <QuickActions
             items={[
               { href: "/app/practice", label: "Practice", hint: "Topic-wise questions", icon: "pen" },
-              { href: "/app/diagnostic", label: "Free diagnostic", hint: "Find your strong and weak topics", icon: "bolt" },
-              { href: "/app/mentoring", label: "Mock interviews", hint: "Book a session with a mentor", icon: "mic" },
+              { href: "/app/tests", label: "Tests", hint: "Diagnostic and mock tests", icon: "bolt" },
               { href: "/app/resume", label: "Résumé builder", hint: "Build and download your résumé", icon: "document" },
               { href: "/app/notifications", label: "Notifications", hint: "Announcements and updates", icon: "bell" },
               { href: "/app/support", label: "Get help", hint: "Raise or follow a support ticket", icon: "chat" },
@@ -193,7 +195,7 @@ export function StudentDashboard({ courses, myCourses }: { courses?: ReactNode; 
           />
         </Card>
 
-        <Card title="Access & billing" icon="card" actions={<ViewAllLink href="/app/billing">Manage</ViewAllLink>}>
+        <Card title={payments ? "Access & billing" : "Access"} icon="card" actions={<ViewAllLink href={payments ? "/app/billing" : "/app/access"}>{payments ? "Manage" : "My access"}</ViewAllLink>}>
           {expiring.length === 0 ? (
             <p className="text-sm text-fg-secondary">
               Nothing is expiring soon.{" "}

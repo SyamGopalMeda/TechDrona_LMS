@@ -59,7 +59,7 @@ describe("ADM-12 staff portal role gate", () => {
     expect(canEnterPortal(["/trainer"], "evaluator", ["trainer"])).toBe(false);
     expect(canEnterPortal(["/admin"], "finance")).toBe(true);
     expect(canEnterPortal(["/admin"], "evaluator")).toBe(true);
-    // D2: finance / support / security / mentoring are Admin sections, not separate portals.
+    // D2: finance / support / security are Admin sections, not separate portals.
     expect(reachablePortals(["/app", "/desk", "/evaluator", "/admin"])).toEqual([
       { href: "/app", title: "Student" },
       { href: "/evaluator", title: "Evaluator" },
@@ -266,7 +266,7 @@ describe("Admin in the Content studio (admin.md F2)", () => {
 
   it("keeps the course pages and the review queue, and sends every other studio page to the course list", () => {
     for (const ok of ["/studio/courses", "/studio/courses/c1", "/studio/courses/c1/edit?x=1", "/studio/review", "/studio/review/q1"]) expect(adminStudioRedirect(ok), ok).toBeNull();
-    for (const no of ["/studio", "/studio/taxonomy", "/studio/questions", "/studio/question-banks", "/studio/reports/errors", "/studio/coding", "/studio/media", "/studio/companies", "/studio/tests", "/studio/coursesx"]) {
+    for (const no of ["/studio", "/studio/taxonomy", "/studio/questions", "/studio/question-banks", "/studio/reports/errors", "/studio/coding", "/studio/media", "/studio/tests", "/studio/coursesx"]) {
       expect(adminStudioRedirect(no), no).toBe("/studio/courses");
     }
   });

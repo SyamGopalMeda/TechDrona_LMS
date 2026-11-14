@@ -1,5 +1,6 @@
-"""Practice engine (PLC-19..24), interim mastery view (PLC-25), recommendations v1 (PLC-26/27)
-and the student company-path view (PLC-32).
+"""Practice engine (PLC-19..24), interim mastery view (PLC-25) and recommendations v1 (PLC-26/27).
+The student company-path view (PLC-32) and company-step practice were removed
+(docs/cleanup/feature-removal-plan.md §3.2).
 
 * Keys/explanations are returned only for questions the student has answered (or explicitly
   revealed, which is recorded and excludes the answer from mastery inputs).
@@ -21,18 +22,14 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.access import check_access, require_access
+from app.core.access import require_access
 from app.core.errors import ProblemError
-from app.core.firestore.collation import sort_key
 from app.core.ids import uuid7
 from app.core.outbox import emit_event
 from app.core.principal import Principal
 from app.core.time import to_rfc3339, utcnow
 from app.modules.placement import bank, grading
 from app.modules.placement.models import (
-    Company,
-    CompanyPath,
-    CompanyPathStep,
     PracticeResponse,
     PracticeSession,
     Recommendation,
@@ -90,36 +87,9 @@ async def get_owned_session(
     return ps
 
 
-async def _published_step(session: AsyncSession, step_id: uuid.UUID) -> CompanyPathStep:
-    """A practice step of a PUBLISHED company path (audit BE-27: draft/archived paths -> 404)."""
-    if _fs():
-        r = await _repo(session)
-        fstep = await r.get_step(step_id)
-        fpath = await r.get_path(fstep.company_path_id) if fstep else None
-        if fstep is None or fpath is None or fpath.status != "published":
-            raise ProblemError("not_found")
-        if fstep.step_type != "practice_set" or fstep.topic_id is None:
-            raise ProblemError("not_found")
-        return fstep
-    row = (
-        await session.execute(
-            select(CompanyPathStep)
-            .join(CompanyPath, CompanyPath.id == CompanyPathStep.company_path_id)
-            .where(CompanyPathStep.id == step_id, CompanyPath.status == "published")
-        )
-    ).scalar_one_or_none()
-    if row is None or row.step_type != "practice_set" or row.topic_id is None:
-        raise ProblemError("not_found")
-    return row
-
-
 async def require_session_access(session: AsyncSession, principal: Principal, ps: PracticeSession) -> None:
     """Re-check the entitlement that admitted the set (PLC-21/22 "S + entitlement", audit BE-14):
     a set started while entitled must not keep serving keys after the entitlement ends."""
-    if ps.company_path_step_id is not None:
-        step = await _published_step(session, ps.company_path_step_id)
-        await require_access(session, principal, "company_path", step.company_path_id)
-        return
     if ps.topic_id is None:
         raise ProblemError("not_found")
     topic = await bank.get_topic(session, ps.topic_id)
@@ -132,24 +102,12 @@ async def start(session: AsyncSession, principal: Principal, body: PracticeStart
             "validation_failed",
             errors=[{"field": "difficulty_min", "code": "invalid", "message": "must be <= difficulty_max"}],
         )
-    step: CompanyPathStep | None = None
-    if body.mode == "company_step":
-        if body.company_path_step_id is None:
-            raise ProblemError(
-                "validation_failed",
-                errors=[{"field": "company_path_step_id", "code": "required", "message": "required"}],
-            )
-        step = await _published_step(session, body.company_path_step_id)
-        assert step.topic_id is not None
-        await require_access(session, principal, "company_path", step.company_path_id)
-        topic = await bank.get_topic(session, step.topic_id)
-    else:
-        if body.topic_id is None:
-            raise ProblemError(
-                "validation_failed", errors=[{"field": "topic_id", "code": "required", "message": "required"}]
-            )
-        topic = await bank.get_topic(session, body.topic_id)
-        await require_access(session, principal, "question_set", await _root_topic_id(session, topic))
+    if body.topic_id is None:
+        raise ProblemError(
+            "validation_failed", errors=[{"field": "topic_id", "code": "required", "message": "required"}]
+        )
+    topic = await bank.get_topic(session, body.topic_id)
+    await require_access(session, principal, "question_set", await _root_topic_id(session, topic))
 
     pool = await bank.published_pool(
         session, topic_id=topic.id, difficulty_min=body.difficulty_min, difficulty_max=body.difficulty_max
@@ -205,7 +163,7 @@ async def start(session: AsyncSession, principal: Principal, body: PracticeStart
         organization_id=None,
         mode=body.mode,
         topic_id=topic.id,
-        company_path_step_id=step.id if step else None,
+        company_path_step_id=None,
         status="active",
         target_count=len(chosen),
         served=[
@@ -978,137 +936,3 @@ async def dismiss_recommendation(session: AsyncSession, principal: Principal, re
     if r.status == "active":
         r.status = "dismissed"
         await session.flush()
-
-
-# --------------------------------------------------------------------------- company path (student)
-
-
-async def my_company_path(session: AsyncSession, principal: Principal, slug: str) -> dict[str, Any]:
-    if _fs():
-        r = await _repo(session)
-        company = await r.company_by_slug(slug)
-        if company is None or company.hub_status != "published":
-            raise ProblemError("not_found")
-        paths = sorted(
-            (x for x in await r.paths() if x.company_id == company.id and x.status == "published"),
-            key=lambda x: (sort_key(x.role_name), -x.version_no),  # ORDER BY role_name, version_no DESC
-        )
-    else:
-        company = (await session.execute(select(Company).where(Company.slug == slug))).scalar_one_or_none()
-        if company is None or company.hub_status != "published":
-            raise ProblemError("not_found")
-        paths = list(
-            (
-                await session.execute(
-                    select(CompanyPath)
-                    .where(CompanyPath.company_id == company.id, CompanyPath.status == "published")
-                    .order_by(CompanyPath.role_name, CompanyPath.version_no.desc())
-                )
-            ).scalars()
-        )
-    if not paths:
-        raise ProblemError("not_found")
-    stats = await topic_stats(session, principal.user_id)
-    all_topics = await _all_topics(session)
-    # Only paths the learner is entitled to are listed (audit BE-15 note: one unentitled path
-    # must not 403 the whole page); with none entitled the first denial is raised as before.
-    entitled: list[CompanyPath] = []
-    for p in paths:
-        if (await check_access(session, principal, "company_path", p.id)).allowed:
-            entitled.append(p)
-    if not entitled:
-        await require_access(session, principal, "company_path", paths[0].id)
-    out_paths = []
-    for p in entitled:
-        out_paths.append(
-            {
-                **bank.path_out(p, await bank.path_steps(session, p.id)),
-                "readiness": path_readiness(p, stats, all_topics),
-            }
-        )
-    return {"company": bank.company_out(company), "paths": out_paths}
-
-
-READINESS_FORMULA = "sum(weight x practice accuracy in section topic) / sum(weight)"
-
-
-def path_readiness(
-    p: CompanyPath, stats: dict[uuid.UUID, dict[str, Any]], all_topics: list[Topic]
-) -> dict[str, Any]:
-    """Company-path readiness from the learner's practice accuracy per pattern section."""
-    weights = 0.0
-    acc = 0.0
-    for sec in p.pattern:
-        w = float(sec.get("weight", 0))
-        root = next((t for t in all_topics if str(t.id) == str(sec.get("topic_id"))), None)
-        if root is None or w <= 0:
-            continue
-        sub = [t.id for t in all_topics if t.id == root.id or t.path.startswith(root.path + "/")]
-        ans = sum(stats[t]["answered"] for t in sub if t in stats)
-        cor = sum(stats[t]["correct"] for t in sub if t in stats)
-        weights += w
-        acc += w * (cor / ans if ans else 0.0)
-    return {
-        "score_pct": round(100 * acc / weights, 1) if weights else None,
-        "formula": READINESS_FORMULA,
-        "method": MASTERY_METHOD,
-    }
-
-
-async def practised_company_readiness(session: AsyncSession, user_id: uuid.UUID) -> list[dict[str, Any]]:
-    """Readiness for every published company path the learner has practised (company-step
-    practice sets). Used by the mentor console (MEN-004 / PLC-46) until the goals model
-    (PLC-28..31, target companies) exists. Caller sets the DB context (RLS U on sessions)."""
-    if _fs():
-        return await _fs_practised_company_readiness(session, user_id)
-    rows = (
-        await session.execute(
-            select(CompanyPath, Company)
-            .join(CompanyPathStep, CompanyPathStep.company_path_id == CompanyPath.id)
-            .join(PracticeSession, PracticeSession.company_path_step_id == CompanyPathStep.id)
-            .join(Company, Company.id == CompanyPath.company_id)
-            .where(PracticeSession.user_id == user_id, CompanyPath.status == "published")
-            .distinct()
-        )
-    ).all()
-    if not rows:
-        return []
-    stats = await topic_stats(session, user_id)
-    all_topics = list((await session.execute(select(Topic))).scalars())
-    out = [
-        {
-            "company_id": str(c.id),
-            "company_slug": c.slug,
-            "company_name": c.name,
-            "company_path_id": str(p.id),
-            "role_name": p.role_name,
-            **path_readiness(p, stats, all_topics),
-        }
-        for p, c in rows
-    ]
-    return sorted(out, key=lambda r: (r["company_name"], r["role_name"]))
-
-
-async def _fs_practised_company_readiness(session: AsyncSession, user_id: uuid.UUID) -> list[dict[str, Any]]:
-    r = await _repo(session)
-    step_ids = {x.company_path_step_id for x in await r.sessions_of(user_id) if x.company_path_step_id}
-    path_ids = {st.company_path_id for sid in step_ids if (st := await r.get_step(sid)) is not None}
-    paths = [x for x in await r.paths() if x.id in path_ids and x.status == "published"]
-    if not paths:
-        return []
-    companies = {c.id: c for c in await r.companies()}
-    stats = await topic_stats(session, user_id)
-    all_topics = await _all_topics(session)
-    out = [
-        {
-            "company_id": str(c.id),
-            "company_slug": c.slug,
-            "company_name": c.name,
-            "company_path_id": str(p.id),
-            "role_name": p.role_name,
-            **path_readiness(p, stats, all_topics),
-        }
-        for p in paths
-        if (c := companies.get(p.company_id)) is not None
-    ]
-    return sorted(out, key=lambda x: (x["company_name"], x["role_name"]))

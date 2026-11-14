@@ -8,7 +8,7 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: "*",
         allow: "/",
-        disallow: ["/api/", "/app", "/trainer", "/evaluator", "/mentor", "/studio", "/desk", "/finance", "/security", "/admin", "/account/", "/guardian-consent/", "/reset-password/", "/verify/email/", "/login", "/signup", "/unblock-request", "/college-portal"],
+        disallow: ["/api/", "/app", "/trainer", "/evaluator", "/studio", "/desk", "/finance", "/security", "/admin", "/account/", "/guardian-consent/", "/reset-password/", "/verify/email/", "/login", "/signup", "/unblock-request", "/college-portal"],
       },
     ],
     sitemap: `${siteUrl()}/sitemap.xml`,

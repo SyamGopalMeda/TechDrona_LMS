@@ -1,7 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { SafeMarkdown } from "./SafeMarkdown";
-import { PricingPlans } from "./PricingPlans";
 import { VerifyCodeForm } from "./VerifyCodeForm";
 
 describe("SafeMarkdown (FE-21)", () => {
@@ -18,11 +17,6 @@ describe("SafeMarkdown (FE-21)", () => {
     const { container } = render(<SafeMarkdown source={'<img src=x onerror="alert(1)"> hi'} />);
     expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).toContain("<img");
-  });
-
-  it("is used by the pricing cards", () => {
-    render(<PricingPlans signedIn={false} products={[{ product_id: "p", sku: "S", name: "Pro", product_kind: "subscription", description_md: "- **All** mocks", plans: [] }]} />);
-    expect(screen.getByText("All").tagName).toBe("STRONG");
   });
 });
 

@@ -22,15 +22,8 @@ describe("public pages", () => {
   it("covers the sitemap routes that used to be placeholders", () => {
     const rel = files.map((f) => path.relative(PUBLIC_DIR, f).replace(/\\/g, "/"));
     for (const r of [
-      "enquiries/page.tsx",
-      "companies/page.tsx",
-      "companies/[slug]/page.tsx",
-      "free-resources/page.tsx",
       "help/page.tsx",
       "help/[article]/page.tsx",
-      "status/page.tsx",
-      "placement/page.tsx",
-      "placement/[subject]/[topic]/page.tsx",
       "legal/terms/page.tsx",
       "legal/privacy/page.tsx",
       "legal/refund-policy/page.tsx",
@@ -38,6 +31,13 @@ describe("public pages", () => {
       "verify/page.tsx",
     ]) {
       expect(rel).toContain(r);
+    }
+  });
+
+  it("has no page for the marketing routes Firebase Hosting redirects to the website", () => {
+    const rel = files.map((f) => path.relative(PUBLIC_DIR, f).replace(/\\/g, "/"));
+    for (const gone of ["courses", "pricing", "placement", "companies", "free-resources", "status", "enquiries"]) {
+      expect(rel.filter((r) => r === `${gone}/page.tsx` || r.startsWith(`${gone}/`))).toEqual([]);
     }
   });
 

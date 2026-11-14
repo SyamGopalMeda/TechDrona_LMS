@@ -47,8 +47,6 @@ from app.core.ids import uuid7
 from app.core.time import utcnow
 from app.modules.placement.models import (
     Company,
-    CompanyPath,
-    CompanyPathStep,
     PracticeResponse,
     PracticeSession,
     Question,
@@ -68,7 +66,6 @@ from app.modules.placement.store_specs import (
     COMPANIES,
     COMPANIES_BY_SLUG,
     MEDIA,
-    PATHS,
     QUESTIONS,
     RECS,
     RECS_ACTIVE,
@@ -76,7 +73,6 @@ from app.modules.placement.store_specs import (
     REPORTS_OPEN,
     RESPONSES,
     SESSIONS,
-    STEPS,
     TAGS,
     TOPICS,
     TOPICS_BY_PATH,
@@ -97,7 +93,7 @@ ERASED_TEXT = "[erased]"  # same marker as privacy.ERASED_TEXT
 WRITE_JOB = "placement.write"
 BANK_PERM = "question.edit"
 TAXONOMY_PERM = "taxonomy.manage"
-PATH_PERM = "company_path.manage"
+COMPANY_PERM = "company_path.manage"  # the write permission of ``companies``
 _PAGE = 300
 FROZEN = ("published", "retired")
 # Columns the Postgres trigger freezes once a version is published/retired (placement_0005).
@@ -550,19 +546,19 @@ class PlacementRepo(FirestoreRepository):
         docs = self._visible(await self._all(QUESTIONS, (("status", "==", "active"),)))
         return Counter(uuid.UUID(d["primary_topic_id"]) for d in docs if d.get("deleted_at") is None)
 
-    # ------------------------------------------------------------------ companies & paths (global / TN)
+    # ------------------------------------------------------------------ companies (global)
 
-    @platform_only(PATH_PERM)
+    @platform_only(COMPANY_PERM)
     async def get_company(self, company_id: Any) -> Company | None:
         d = await self.store.get(COMPANIES, str(company_id))
         return orm_of(Company, d.data) if d else None
 
-    @platform_only(PATH_PERM)
+    @platform_only(COMPANY_PERM)
     async def companies(self) -> list[Company]:
         rows = [orm_of(Company, d.data) for d in await self._all(COMPANIES)]
         return sorted(rows, key=lambda c: sort_key(c.name))  # ORDER BY companies.name
 
-    @platform_only(PATH_PERM)
+    @platform_only(COMPANY_PERM)
     async def create_company(self, c: Company) -> Company:
         key = str(c.slug).lower()
 
@@ -581,74 +577,6 @@ class PlacementRepo(FirestoreRepository):
                 "invalid_state_transition", detail="A company with this slug already exists."
             ) from e
         return c
-
-    @platform_only(PATH_PERM)
-    async def paths(self) -> list[CompanyPath]:
-        docs = self._visible(await self._all(PATHS))
-        return sorted((orm_of(CompanyPath, d.data) for d in docs), key=lambda p: sort_key(p.role_name))
-
-    @platform_only(PATH_PERM)
-    async def get_path(self, path_id: Any) -> CompanyPath | None:
-        d = await self.store.get(PATHS, str(path_id))
-        if d is None or not self.vis.sees(d.get("organization_id")):
-            return None
-        return orm_of(CompanyPath, d.data)
-
-    @platform_only(PATH_PERM)
-    async def path_steps(self, path_ids: Iterable[Any]) -> dict[uuid.UUID, list[CompanyPathStep]]:
-        ids = [str(i) for i in dict.fromkeys(path_ids)]
-        out: dict[uuid.UUID, list[CompanyPathStep]] = {uuid.UUID(i): [] for i in ids}
-        for i in range(0, len(ids), 30):
-            docs = await self._all(STEPS, (("company_path_id", "in", ids[i : i + 30]),), order="position")
-            for d in self._visible(docs):
-                s = orm_of(CompanyPathStep, d.data)
-                out[s.company_path_id].append(s)
-        for v in out.values():
-            v.sort(key=lambda s: s.position)
-        return out
-
-    @platform_only(PATH_PERM)
-    async def path_ids_with_test(self, test_id: Any) -> list[uuid.UUID]:
-        docs = self._visible(await self._all(STEPS, (("test_id", "==", str(test_id)),), order="position"))
-        return list(dict.fromkeys(uuid.UUID(d["company_path_id"]) for d in docs))
-
-    @platform_only(PATH_PERM)
-    async def get_step(self, step_id: Any) -> CompanyPathStep | None:
-        d = await self.store.get(STEPS, str(step_id))
-        if d is None or not self.vis.sees(d.get("organization_id")):
-            return None
-        return orm_of(CompanyPathStep, d.data)
-
-    @platform_only(PATH_PERM)
-    async def put_path(self, p: CompanyPath, steps: Sequence[CompanyPathStep], *, new: bool) -> CompanyPath:
-        """Insert (``version_no`` = max + 1 for company/role, ``UNIQUE (company_id, role_name,
-        version_no)``) or rewrite a path and replace its steps, in one transaction."""
-        if not self.vis.may_write(p.organization_id):
-            raise _forbid()
-
-        async def fn(tx: ScopedTransaction) -> CompanyPath:
-            cur = await tx.get(PATHS, str(p.id))
-            old_steps = await tx.query(STEPS, filters=(("company_path_id", "==", str(p.id)),))
-            if new:
-                if cur is not None:
-                    raise UniqueViolationError(PATHS, str(p.id))
-                same = await tx.query(
-                    PATHS, filters=(("company_id", "==", str(p.company_id)), ("role_name", "==", p.role_name))
-                )
-                p.version_no = max([int(d["version_no"]) for d in same] or [0]) + 1
-            elif cur is None:
-                raise ProblemError("not_found")
-            for old in old_steps:
-                await tx.delete_read(STEPS, old.id, old.data)
-            doc = orm_doc(p)
-            if cur is not None:
-                doc["created_at"] = cur.get("created_at")
-            await tx.put(PATHS, str(p.id), doc)
-            for s in steps:
-                await tx.put(STEPS, str(s.id), orm_doc(s))
-            return p
-
-        return await self.store.run_transaction(fn)
 
     # ------------------------------------------------------------------ practice (owned, US)
 
@@ -832,16 +760,6 @@ class PlacementRepo(FirestoreRepository):
                         tx.raw_delete(RECS_ACTIVE, k)
 
             await self.store.run_transaction(fn)
-
-    # ------------------------------------------------------------------ company lookups (student)
-
-    @platform_only(PATH_PERM)
-    async def company_by_slug(self, slug: str) -> Company | None:
-        d = await self.store.get(COMPANIES_BY_SLUG, slug.lower())
-        if d is None:
-            return None
-        c = await self.store.get(COMPANIES, d["company_id"])
-        return orm_of(Company, c.data) if c else None  # citext: case-insensitive like Postgres
 
     # ------------------------------------------------------------------ media (TN)
 

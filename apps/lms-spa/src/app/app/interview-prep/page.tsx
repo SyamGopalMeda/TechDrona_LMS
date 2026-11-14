@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Interview prep" };
 export default function Page() {
   return (
     <div className="max-w-4xl">
-      <PageHeader title="Interview prep" description="Mock interviews, résumé, company paths and mock tests." />
+      <PageHeader title="Interview prep" description="Résumé and mock tests." />
       <InterviewPrep />
     </div>
   );

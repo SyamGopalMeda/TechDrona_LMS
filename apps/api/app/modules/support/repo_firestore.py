@@ -1,15 +1,14 @@
 """Firestore repository for the support desk (``TD_STORE_SUPPORT=firestore``).
 
-``service.py`` / ``router.py`` / ``enquiries.py`` / ``privacy.py`` dispatch here when the switch is
-on; the HTTP contract is unchanged. Rows come back as ``TicketRow`` / ``MessageRow`` / ``NoteRow``
-/ ``EnquiryRow`` with the attribute names and Python types of the ORM models, so the route code
-and serializers are shared.
+``service.py`` / ``router.py`` / ``privacy.py`` dispatch here when the switch is on; the HTTP
+contract is unchanged. Rows come back as ``TicketRow`` / ``MessageRow`` / ``NoteRow`` with the
+attribute names and Python types of the ORM models, so the route code and serializers are shared.
 
 **Authorization (replacing RLS).** The repository is built from the caller's Postgres
 transaction scope (``app.core.db.rls_scope``: ``app.user_id`` / ``app.is_platform``) and applies
 the Postgres policy of each table to it: tickets and messages are visible when
 ``requester_id = app.user_id() OR app.is_platform()`` (others answer ``None``, no existence
-oracle); notes and enquiries are platform-only. Reads and writes then go through a named system
+oracle); notes are platform-only. Reads and writes then go through a named system
 job. Every route permission and lane check stays in the router (``ticket.*``, ``user.read``).
 
 **Unit of work (replacing ``SELECT ... FOR UPDATE``).** A loaded ticket keeps the document it was
@@ -34,8 +33,6 @@ from app.core.firestore.store import Doc, Order, ScopedStore, ScopedTransaction
 from app.core.ids import uuid7
 from app.modules.support.store_specs import (
     COUNTERS,
-    ENQUIRIES,
-    ENQUIRY_SEQ,
     MESSAGES,
     NOTES,
     TICKET_SEQ,
@@ -170,42 +167,6 @@ class NoteRow:
             support_ticket_id=_uuid(d.get("support_ticket_id")),
             created_at=d.get("created_at"),
         )
-
-
-@dataclass
-class EnquiryRow:
-    id: uuid.UUID
-    reference: str
-    name: str
-    company: str
-    email: str
-    message: str
-    consent_at: datetime
-    notice_version: str
-    phone: str | None = None
-    status: str = "new"
-    assigned_to: uuid.UUID | None = None
-    staff_note: str | None = None
-    closed_at: datetime | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
-    _loaded: dict[str, Any] | None = field(default=None, repr=False, compare=False)
-
-    @classmethod
-    def of(cls, d: dict[str, Any]) -> EnquiryRow:
-        kw: dict[str, Any] = {f.name: d.get(f.name) for f in fields(cls) if not f.name.startswith("_")}
-        kw["id"] = uuid.UUID(d["id"])
-        kw["assigned_to"] = _uuid(d.get("assigned_to"))
-        row = cls(**kw)
-        row._loaded = dict(d)
-        return row
-
-    def doc(self) -> dict[str, Any]:
-        return {
-            f.name: _store_value(getattr(self, f.name))
-            for f in fields(self)
-            if not f.name.startswith("_") and f.name != "updated_at"
-        } | {"id": str(self.id)}
 
 
 # --------------------------------------------------------------------------- repository
@@ -468,58 +429,6 @@ class SupportRepo(FirestoreRepository):
     @platform_only(PLATFORM)
     async def open_tickets(self, statuses: Iterable[str]) -> list[TicketRow]:
         return await self.lane_tickets(statuses)
-
-    # ------------------------------------------------------------------ corporate enquiries
-
-    @platform_only(PLATFORM)
-    async def insert_enquiry(self, e: EnquiryRow, reference: Any) -> EnquiryRow:
-        self._require_platform()
-
-        async def fn(tx: ScopedTransaction) -> Doc:
-            n = await tx.next_sequence(ENQUIRY_SEQ, collection=COUNTERS)
-            e.reference = reference(n)
-            return await tx.create(ENQUIRIES, e.doc(), doc_id=str(e.id))
-
-        d = await self.store.run_transaction(fn)
-        return EnquiryRow.of(d.data)
-
-    @platform_only(PLATFORM)
-    async def get_enquiry(self, enquiry_id: uuid.UUID) -> EnquiryRow | None:
-        self._require_platform()
-        d = await self.store.get(ENQUIRIES, str(enquiry_id))
-        return EnquiryRow.of(d.data) if d else None
-
-    @platform_only(PLATFORM)
-    async def enquiries(
-        self, status: str | None, cursor: str | None, limit: int
-    ) -> tuple[list[EnquiryRow], str | None]:
-        self._require_platform()
-        filters: list[Any] = [("status", "==", status)] if status else []
-        page = await self.store.query(
-            ENQUIRIES, filters=filters, order_by=(("created_at", "desc"),), limit=limit, cursor=cursor
-        )
-        return [EnquiryRow.of(d.data) for d in page.items], page.next_cursor
-
-    @platform_only(PLATFORM)
-    async def count_enquiries(self, status: str | None = None) -> int:
-        self._require_platform()
-        return await self.store.count(ENQUIRIES, filters=[("status", "==", status)] if status else [])
-
-    @platform_only(PLATFORM)
-    async def save_enquiry(self, e: EnquiryRow) -> EnquiryRow:
-        self._require_platform()
-        old = e._loaded or {}
-
-        async def fn(tx: ScopedTransaction) -> Doc:
-            cur = await tx.get(ENQUIRIES, str(e.id))
-            if cur is None:
-                raise ProblemError("not_found")
-            if cur.get("updated_at") != old.get("updated_at"):
-                raise ProblemError("conflict")
-            ch = {k: v for k, v in e.doc().items() if k not in ("id", "created_at") and old.get(k) != v}
-            return await tx.update_read(ENQUIRIES, cur, ch) if ch else cur
-
-        return EnquiryRow.of((await self.store.run_transaction(fn)).data)
 
 
 def _refresh(t: TicketRow, saved: TicketRow) -> None:

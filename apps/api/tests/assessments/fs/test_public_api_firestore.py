@@ -45,16 +45,12 @@ async def test_public_reads_on_firestore(
         pm.Topic, parent_id=mid["id"], path="apt/num/pr", slug="pr", name="Primes", kind="subtopic", depth=2
     )
     co = sample_row(pm.Company, slug="acme")
-    path = sample_row(pm.CompanyPath, company_id=co["id"], organization_id=None)
     test = sample_row(
         am.Test,
         organization_id=None,
         status="published",
         title="Aptitude Mock",
         pass_percentage=Decimal("40.00"),
-    )
-    step = sample_row(
-        pm.CompanyPathStep, company_path_id=path["id"], organization_id=None, test_id=test["id"]
     )
     q = sample_row(pm.Question, organization_id=None, primary_topic_id=leaf["id"])
     qv = sample_row(pm.QuestionVersion, question_id=q["id"], organization_id=None)
@@ -106,8 +102,6 @@ async def test_public_reads_on_firestore(
         {
             "topics": [root, mid, leaf],
             "companies": [co],
-            "company_paths": [path],
-            "company_path_steps": [step],
             "questions": [q],
             "question_versions": [qv],
             "tests": [test],
@@ -130,7 +124,6 @@ async def test_public_reads_on_firestore(
     assert await pp.topic_roots(s, [leaf["id"], mid["id"]]) == {leaf["id"]: root["id"], mid["id"]: root["id"]}
     assert await pp.topic_with_root(s, mid["id"]) == (mid["id"], root["id"])
     assert await pp.existing_company_ids(s, [co["id"], uuid7()]) == {co["id"]}
-    assert await pp.company_paths_with_test(s, test["id"]) == [path["id"]]
     # assessments.public
     assert (await ap.attempt_lifetime(s, a1["id"]))[:3] == (u, t0, t0 + timedelta(minutes=30))
     assert await ap.attempt_org_of_user(s, a1["id"], uuid7()) is None

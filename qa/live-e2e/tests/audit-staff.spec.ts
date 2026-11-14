@@ -11,15 +11,14 @@ import { layoutIssues, watch, shot } from "../lib/probe";
 const NAV: Record<string, string[]> = {
   trainer: ["/trainer", "/trainer/courses", "/trainer/paths", "/trainer/paths/articles", "/trainer/engage", "/trainer/engage/new", "/trainer/grading", "/trainer/assignments", "/trainer/tests", "/trainer/integrity"],
   evaluator: ["/evaluator", "/evaluator/tests", "/evaluator/integrity"],
-  content: ["/studio", "/studio/review", "/studio/reports/errors", "/studio/courses", "/studio/media", "/studio/taxonomy", "/studio/companies", "/studio/questions", "/studio/questions/import", "/studio/question-banks", "/studio/coding", "/studio/tests"],
+  content: ["/studio", "/studio/review", "/studio/reports/errors", "/studio/courses", "/studio/media", "/studio/taxonomy", "/studio/questions", "/studio/questions/import", "/studio/question-banks", "/studio/coding", "/studio/tests"],
 };
 
 const FOREIGN: Record<string, string[]> = {
   "/admin": ["/admin", "/admin/users", "/admin/audit"],
   "/finance": ["/finance", "/finance/orders", "/finance/admissions/verify"],
-  "/desk": ["/desk", "/desk/enquiries", "/desk/unblock-requests"],
+  "/desk": ["/desk", "/desk/unblock-requests"],
   "/security": ["/security", "/security/cases", "/security/rules"],
-  "/mentor": ["/mentor", "/mentor/students", "/mentor/slots"],
   "/studio": ["/studio", "/studio/questions", "/studio/review"],
   "/trainer": ["/trainer", "/trainer/tests", "/trainer/courses"],
   "/evaluator": ["/evaluator", "/evaluator/tests", "/evaluator/integrity"],
@@ -30,7 +29,7 @@ const FOREIGN_API = [
   "admin/approvals", "admin/feature-flags", "admin/privacy-requests", "admin/ai-settings", "admin/apps",
   "reports/platform", "reports/revenue", "orders", "refunds", "reconciliation", "invoices", "subscriptions",
   "coupons", "support/queue", "roles", "grants", "security/cases", "audit", "users", "admin/users",
-  "mentoring/slots", "resume-reviews", "studio/coding/problems", "questions", "studio/tests", "batches",
+  "studio/coding/problems", "questions", "studio/tests", "batches",
 ];
 
 type Visit = {

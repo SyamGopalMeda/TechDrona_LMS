@@ -12,6 +12,8 @@ import { areaOf, continueHref } from "@/features/hub/last-page";
  * the modules the user may open (GET /me/modules). Shown only when there is more than one. Each
  * module authorises every request itself; this is navigation only. The Company Website Admin opens
  * through /sso/website (single sign-on), so switching never asks for a password again.
+ * Below `sm` the menu is pinned under the header across the screen (inset 1rem each side), so it
+ * never opens off the left edge of a 320px phone (live re-check 2026-11-14, verification.md).
  */
 export function ModuleSwitcher({ current: initial }: { current: "lms" | "colleges" }) {
   const [modules, setModules] = useState<HubModule[]>([]);
@@ -42,10 +44,12 @@ export function ModuleSwitcher({ current: initial }: { current: "lms" | "college
   if (modules.length < 2) return null;
   return (
     <details className="relative">
-      <summary className="flex min-h-touch cursor-pointer list-none items-center gap-1.5 rounded-xl px-2.5 font-display text-sm font-semibold text-brand transition-colors duration-fast hover:bg-[#f4f7fd] focus-visible:shadow-focus focus-visible:outline-none md:min-h-10 md:border md:border-[#e6eaf2] md:bg-surface md:px-3.5 md:hover:border-[#c9d4ea] [&::-webkit-details-marker]:hidden">
+      <summary className="flex min-h-touch cursor-pointer whitespace-nowrap list-none items-center gap-1.5 rounded-xl px-2.5 font-display text-sm font-semibold text-brand transition-colors duration-fast hover:bg-[#f4f7fd] focus-visible:shadow-focus focus-visible:outline-none md:min-h-10 md:border md:border-[#e6eaf2] md:bg-surface md:px-3.5 md:hover:border-[#c9d4ea] [&::-webkit-details-marker]:hidden">
         Modules
       </summary>
-      <ul aria-label="Tech Drona modules" className="absolute right-0 z-dropdown mt-1 min-w-[15rem] rounded-2xl border border-line bg-surface p-1.5 shadow-[0_30px_60px_-24px_rgba(5,11,36,0.35)]">
+      <ul
+        aria-label="Tech Drona modules"
+        className="fixed inset-x-4 top-[calc(theme(spacing.topbar)+0.25rem)] z-dropdown rounded-2xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-1 sm:min-w-[15rem] border border-line bg-surface p-1.5 shadow-[0_30px_60px_-24px_rgba(5,11,36,0.35)]">
         {modules.map((m) => (
           <li key={m.key}>
             {m.external ? (

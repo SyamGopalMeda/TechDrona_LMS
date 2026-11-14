@@ -28,8 +28,6 @@ from app.core.time import to_rfc3339, utcnow
 from app.modules.placement import grading
 from app.modules.placement.models import (
     Company,
-    CompanyPath,
-    CompanyPathStep,
     Question,
     QuestionBank,
     QuestionBankItem,
@@ -41,7 +39,6 @@ from app.modules.placement.models import (
 from app.modules.placement.richtext import html_of, rich
 from app.modules.placement.schemas import (
     CompanyCreate,
-    CompanyPathPut,
     ImageRef,
     OptionDelivery,
     QuestionContent,
@@ -1422,194 +1419,9 @@ async def create_company(session: AsyncSession, body: CompanyCreate) -> Company:
     return c
 
 
-async def path_steps(session: AsyncSession, path_id: uuid.UUID) -> list[CompanyPathStep]:
-    if _fs():
-        return (await (await _repo(session)).path_steps([path_id]))[path_id]
-    return list(
-        (
-            await session.execute(
-                select(CompanyPathStep)
-                .where(CompanyPathStep.company_path_id == path_id)
-                .order_by(CompanyPathStep.position)
-            )
-        ).scalars()
-    )
-
-
-def path_out(p: CompanyPath, steps: list[CompanyPathStep]) -> dict[str, Any]:
-    return {
-        "id": str(p.id),
-        "company_id": str(p.company_id),
-        "organization_id": str(p.organization_id) if p.organization_id else None,
-        "role_name": p.role_name,
-        "version_no": p.version_no,
-        "status": p.status,
-        "pattern": p.pattern,
-        "published_at": to_rfc3339(p.published_at) if p.published_at else None,
-        "steps": [
-            {
-                "id": str(s.id),
-                "position": s.position,
-                "step_type": s.step_type,
-                "title": s.title,
-                "topic_id": str(s.topic_id) if s.topic_id else None,
-                "test_id": str(s.test_id) if s.test_id else None,
-                "lesson_key": str(s.lesson_key) if s.lesson_key else None,
-                "is_required": s.is_required,
-            }
-            for s in steps
-        ],
-    }
-
-
 async def list_companies(session: AsyncSession) -> list[dict[str, Any]]:
+    """PLC-16: companies (question tags and the public hubs use them). Company preparation paths
+    were removed (docs/cleanup/feature-removal-plan.md §3.2)."""
     if _fs():
-        r = await _repo(session)
-        fps = await r.paths()
-        steps = await r.path_steps([p.id for p in fps])
-        grouped: dict[uuid.UUID, list[dict[str, Any]]] = defaultdict(list)
-        for p in fps:
-            grouped[p.company_id].append(path_out(p, steps.get(p.id, [])))
-        return [{**company_out(c), "paths": grouped.get(c.id, [])} for c in await r.companies()]
-    companies = list((await session.execute(select(Company).order_by(Company.name))).scalars())
-    paths = list((await session.execute(select(CompanyPath).order_by(CompanyPath.role_name))).scalars())
-    by_company: dict[uuid.UUID, list[dict[str, Any]]] = defaultdict(list)
-    for p in paths:
-        by_company[p.company_id].append(path_out(p, await path_steps(session, p.id)))
-    return [{**company_out(c), "paths": by_company.get(c.id, [])} for c in companies]
-
-
-async def put_company_path(
-    session: AsyncSession, principal: Principal, path_id: uuid.UUID, body: CompanyPathPut
-) -> CompanyPath:
-    if not await _company_exists(session, body.company_id):
-        raise ProblemError(
-            "validation_failed",
-            errors=[{"field": "company_id", "code": "not_found", "message": "unknown company"}],
-        )
-    for i, sec in enumerate(body.pattern):
-        await _validate_topic(session, sec.topic_id, f"pattern.{i}.topic_id")
-    for i, st in enumerate(body.steps):
-        if st.topic_id is not None:
-            await _validate_topic(session, st.topic_id, f"steps.{i}.topic_id")
-        if st.test_id is not None and not await _test_exists(session, st.test_id):
-            raise ProblemError(
-                "validation_failed",
-                errors=[{"field": f"steps.{i}.test_id", "code": "not_found", "message": "unknown test"}],
-            )
-    pattern = [s.model_dump(mode="json") for s in body.pattern]
-    if _fs():
-        return await _fs_put_company_path(session, principal, path_id, body, pattern)
-    p = await session.get(CompanyPath, path_id)
-    now = utcnow()
-    if p is None:
-        taken = (
-            await session.execute(
-                select(func.max(CompanyPath.version_no)).where(
-                    CompanyPath.company_id == body.company_id, CompanyPath.role_name == body.role_name
-                )
-            )
-        ).scalar_one()
-        p = CompanyPath(
-            id=path_id,
-            company_id=body.company_id,
-            organization_id=body.organization_id,
-            role_name=body.role_name,
-            version_no=(taken or 0) + 1,
-            pattern=pattern,
-            status=body.status,
-            published_at=now if body.status == "published" else None,
-            created_by=principal.user_id,
-        )
-        session.add(p)
-        await session.flush()
-    else:
-        if p.organization_id != body.organization_id or p.company_id != body.company_id:
-            raise ProblemError(
-                "invalid_state_transition", detail="Owner and company of a path cannot change."
-            )
-        if p.role_name != body.role_name:
-            raise ProblemError("invalid_state_transition", detail="Create a new path for a different role.")
-        p.version_no += 1
-        p.pattern = pattern
-        if body.status == "published" and p.status != "published":
-            p.published_at = now
-        p.status = body.status
-        for s in await path_steps(session, p.id):
-            await session.delete(s)
-        await session.flush()
-    for i, st in enumerate(body.steps):
-        session.add(
-            CompanyPathStep(
-                id=uuid7(),
-                company_path_id=p.id,
-                organization_id=p.organization_id,
-                position=i + 1,
-                step_type=st.step_type,
-                lesson_key=st.lesson_key,
-                test_id=st.test_id,
-                topic_id=st.topic_id,
-                title=st.title,
-                is_required=st.is_required,
-            )
-        )
-    await session.flush()
-    return p
-
-
-async def _test_exists(session: AsyncSession, test_id: uuid.UUID) -> bool:
-    from app.modules.assessments import public as assessments_public
-
-    return await assessments_public.test_exists(session, test_id)
-
-
-async def _fs_put_company_path(
-    session: AsyncSession, principal: Principal, path_id: uuid.UUID, body: CompanyPathPut, pattern: list[Any]
-) -> CompanyPath:
-    r = await _repo(session)
-    p = await r.get_path(path_id)
-    now = utcnow()
-    new = p is None
-    if p is None:
-        p = CompanyPath(
-            id=path_id,
-            company_id=body.company_id,
-            organization_id=body.organization_id,
-            role_name=body.role_name,
-            version_no=1,  # max + 1 inside the repository transaction
-            pattern=pattern,
-            status=body.status,
-            published_at=now if body.status == "published" else None,
-            created_by=principal.user_id,
-            created_at=now,
-            updated_at=now,
-        )
-    else:
-        if p.organization_id != body.organization_id or p.company_id != body.company_id:
-            raise ProblemError(
-                "invalid_state_transition", detail="Owner and company of a path cannot change."
-            )
-        if p.role_name != body.role_name:
-            raise ProblemError("invalid_state_transition", detail="Create a new path for a different role.")
-        p.version_no += 1
-        p.pattern = pattern
-        if body.status == "published" and p.status != "published":
-            p.published_at = now
-        p.status = body.status
-        p.updated_at = now
-    steps = [
-        CompanyPathStep(
-            id=uuid7(),
-            company_path_id=p.id,
-            organization_id=p.organization_id,
-            position=i + 1,
-            step_type=st.step_type,
-            lesson_key=st.lesson_key,
-            test_id=st.test_id,
-            topic_id=st.topic_id,
-            title=st.title,
-            is_required=st.is_required,
-        )
-        for i, st in enumerate(body.steps)
-    ]
-    return await r.put_path(p, steps, new=new)
+        return [company_out(c) for c in await (await _repo(session)).companies()]
+    return [company_out(c) for c in (await session.execute(select(Company).order_by(Company.name))).scalars()]

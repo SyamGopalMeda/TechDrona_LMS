@@ -1,7 +1,7 @@
 """Catalog over HTTP on Firestore (``TD_STORE_CATALOG=firestore``), no Postgres.
 
 Studio authoring (create, draft patch, lessons, outline, submit, SoD-04, publish with an
-idempotency key, archive) and the public catalogue (list, detail, search) through the real
+idempotency key, archive) and the public catalogue (list, detail) through the real
 FastAPI app. Request sessions are ``NO_POSTGRES``: any Postgres use fails the test, which proves
 ``/catalog/courses`` and the studio routes no longer read the RLS settings from the session (the
 TN view is bound from the principal per request). Idempotency runs on Firestore
@@ -129,8 +129,6 @@ async def test_authoring_publish_and_public_catalogue(web: Any, make_principal: 
     assert [x["id"] for x in listed.json()["data"]] == [cid]
     d = (await c.get(f"{API}/catalog/courses/DSA-Placements", headers=anon)).json()
     assert d["title"] == "DSA for Placements"
-    found = (await c.get(f"{API}/catalog/search", params={"q": "graphs"}, headers=anon)).json()["data"]
-    assert cid in [x["id"] for x in found]
 
     studio = (await c.get(f"{API}/studio/courses", headers=ah)).json()["data"]
     assert [x["id"] for x in studio] == [cid]

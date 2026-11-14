@@ -58,7 +58,6 @@ STAFF_PREFIXES: tuple[tuple[str | None, str], ...] = (
     (None, "/audit/"),
     (None, "/finance/"),
     (None, "/studio/"),
-    (None, "/mentor/"),
     (None, "/security/cases"),
     (None, "/security/review/"),
     (None, "/security/rule"),

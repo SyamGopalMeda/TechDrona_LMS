@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { Badge, Card, ErrorState, Skeleton } from "@/components/ui";
+import { standaloneLinkClass } from "@/components/ui/touch";
+import { cn } from "@/lib/ui/cn";
 import { formatDate, formatDateTime } from "@/features/auth/lib/format";
 import { useAccountScope, type AccountScope } from "@/features/account/lib/account-scope";
 import { useResource } from "@/features/account/lib/use-resource";
@@ -91,11 +93,11 @@ function Details(s: SecurityStatus, scope: AccountScope) {
           ))}
         </dl>
         <p className="mt-3 text-sm">
-          <Link href="/legal/device-policy" className="text-fg-link underline">
+          <Link href="/legal/device-policy" className={cn(standaloneLinkClass, "text-fg-link underline")}>
             Device policy
           </Link>{" "}
           ·{" "}
-          <Link href="/app/settings/devices" className="text-fg-link underline">
+          <Link href="/app/settings/devices" className={cn(standaloneLinkClass, "text-fg-link underline")}>
             Manage devices
           </Link>
         </p>
@@ -122,19 +124,19 @@ function Details(s: SecurityStatus, scope: AccountScope) {
             to their home portal (live audit staff-portals.md F4), so staff get their home instead. */}
         {scope.student ? (
           <>
-            <Link href="/unblock-request#status" className="text-fg-link underline">
+            <Link href="/unblock-request#status" className={cn(standaloneLinkClass, "text-fg-link underline")}>
               Check a review request
             </Link>
-            <Link href="/app/support/new" className="text-fg-link underline">
+            <Link href="/app/support/new" className={cn(standaloneLinkClass, "text-fg-link underline")}>
               Contact support
             </Link>
           </>
         ) : (
-          <Link href={scope.home} className="text-fg-link underline">
+          <Link href={scope.home} className={cn(standaloneLinkClass, "text-fg-link underline")}>
             Back to {scope.homeTitle}
           </Link>
         )}
-        <Link href="/app/settings/privacy" className="text-fg-link underline">
+        <Link href="/app/settings/privacy" className={cn(standaloneLinkClass, "text-fg-link underline")}>
           Privacy requests
         </Link>
       </nav>

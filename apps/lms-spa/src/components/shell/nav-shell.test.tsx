@@ -122,6 +122,14 @@ describe("Find a page ranking (audit staff-portals F6)", () => {
     expect(within(screen.getByRole("list", { name: "Matching pages" })).getAllByRole("link")[0]).toHaveAttribute("href", "/x/tests");
   });
 
+  it("finds a searchOnly item (student account page) without listing it in the sidebar", async () => {
+    nav.pathname = "/app/learning";
+    render(<PortalNav items={PORTALS.student.nav.filter((i) => !i.hidden)} label="Student navigation" root="/app" searchable />);
+    expect(screen.queryByRole("link", { name: "Profile & settings" })).not.toBeInTheDocument();
+    await userEvent.type(screen.getByRole("searchbox", { name: "Find a page" }), "settings");
+    expect(within(screen.getByRole("list", { name: "Matching pages" })).getAllByRole("link")[0]).toHaveAttribute("href", "/app/settings/profile");
+  });
+
   it("keeps the Ctrl K hint at 11px or larger", () => {
     render(<PortalNav items={items} label="Test navigation" root="/x" searchable />);
     const kbd = document.querySelector("kbd");

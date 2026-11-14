@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Badge, Button, Card, EmptyState, FormField, Input, Select, useToast } from "@/components/ui";
+import { Button, Card, EmptyState, FormField, Input, Select, useToast } from "@/components/ui";
 import { api } from "@/lib/api/client";
 import { useApi, seg } from "@/features/trainer/shared/use-api";
 import { Boundary, TextArea, fieldErrorsOf, formatDateTime, useFailToast } from "@/features/trainer/shared/ui";
-import { isCode, send } from "../lib/api";
-import type { Certification, PdfUpload, Resume, ResumeContent, ResumeList, ResumeReview, TemplateKey } from "../lib/types";
+import { send } from "../lib/api";
+import type { Certification, PdfUpload, Resume, ResumeContent, ResumeList, TemplateKey } from "../lib/types";
 
 const MAX_PDF = 5 * 1024 * 1024;
 
@@ -257,72 +257,7 @@ function PdfPanel({ resume, onUploaded }: { resume: Resume; onUploaded: (r: Resu
   );
 }
 
-const REVIEW_LABEL: Record<ResumeReview["status"], string> = { requested: "Pending", in_review: "In review", completed: "Returned", cancelled: "Cancelled" };
-
-export function ReviewPanel({ resume, remaining, onRequested }: { resume: Resume; remaining: number; onRequested: (r: ResumeReview) => void }) {
-  const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
-  const fail = useFailToast();
-  const toast = useToast();
-  const open = resume.reviews.some((r) => r.status === "requested" || r.status === "in_review");
-
-  async function request() {
-    setBusy(true);
-    try {
-      const r = await send<ResumeReview>("post", `me/resumes/${seg(resume.id)}/review-requests`, note.trim() ? { note: note.trim() } : {}, { idempotencyKey: true });
-      toast.show({ tone: "success", title: "Review requested", description: "A mentor will comment on your résumé." });
-      setNote("");
-      onRequested(r);
-    } catch (err) {
-      if (isCode(err, "entitlement_required")) toast.show({ tone: "warning", title: "Mentor reviews need a placement package", description: "Or your review credits are used up." });
-      else fail(err, "Couldn't request a review");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="space-y-4 text-sm">
-      <p className="text-fg-muted">Reviews left: {remaining}</p>
-      {open ? (
-        <p>A review is pending — you&apos;ll see the mentor&apos;s comments here.</p>
-      ) : (
-        <div className="space-y-2">
-          <FormField label="Note for the mentor (optional)">
-            {(c) => <Input {...c} value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} />}
-          </FormField>
-          <Button loading={busy} disabled={remaining <= 0} onClick={() => void request()}>
-            Request mentor review
-          </Button>
-        </div>
-      )}
-      {resume.reviews.length ? (
-        <ul className="space-y-3">
-          {resume.reviews.map((r) => (
-            <li key={r.id} className="rounded-md border border-line p-3">
-              <p className="flex items-center gap-2">
-                <Badge tone={r.status === "completed" ? "success" : "info"}>{REVIEW_LABEL[r.status]}</Badge>
-                <span className="text-fg-muted">Requested {formatDateTime(r.requested_at)}</span>
-              </p>
-              {r.summary ? <p className="mt-2 text-fg">{r.summary}</p> : null}
-              {r.comments.length ? (
-                <ul className="mt-2 list-inside list-disc">
-                  {r.comments.map((c, i) => (
-                    <li key={i}>
-                      <span className="font-medium">{c.section}:</span> {c.comment}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
-
-/** STU-014 résumé builder: sections, checklist score, PDF, mentor review. */
+/** STU-014 résumé builder: sections, checklist score, PDF. */
 export function StudentResume() {
   const state = useApi<ResumeList>("me/resumes");
   const [current, setCurrent] = useState<Resume | null | undefined>(undefined);
@@ -363,13 +298,6 @@ export function StudentResume() {
                   </Card>
                   <Card title="PDF">
                     <PdfPanel resume={r} onUploaded={(x) => setCurrent(x)} />
-                  </Card>
-                  <Card title="Mentor review">
-                    <ReviewPanel
-                      resume={r}
-                      remaining={d.quota.has_package ? d.quota.resume_reviews_remaining : 0}
-                      onRequested={(rev) => setCurrent({ ...r, reviews: [rev, ...r.reviews] })}
-                    />
                   </Card>
                 </>
               ) : null}

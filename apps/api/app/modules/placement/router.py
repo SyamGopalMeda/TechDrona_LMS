@@ -1,8 +1,8 @@
 """Placement preparation API (api-specification §13, PLC-01..11, 16..27, 32, 33..35 in ``reports.py``).
 
-Mentor-facing reads (PLC-46, assigned-students list) are in ``mentoring.py``; mentoring
-bookings/slots/feedback (PLC-36..45) and résumés (PLC-47..52) are served by the
-``app.modules.mentoring`` module.
+Résumés (PLC-47..49) are served by the ``app.modules.mentoring`` module. The mentor console
+(PLC-46) and company preparation paths (PLC-18, PLC-32) were removed
+(docs/cleanup/feature-removal-plan.md §3.1, §3.2); companies themselves (PLC-16/17) stay.
 
 Not implemented in this stage (no tables/owner decision yet): question imports (PLC-12..14),
 item stats (PLC-15), goals/learning path (PLC-28..31).
@@ -25,7 +25,6 @@ from app.core.idempotency import IdemResult, idempotent
 from app.core.principal import Principal
 from app.core.routing import authenticated_router, public_router
 from app.modules.placement import bank, practice
-from app.modules.placement.mentoring import mentor
 from app.modules.placement.policies import (
     batch_org,
     can_in_org,
@@ -38,7 +37,6 @@ from app.modules.placement.reports import reports
 from app.modules.placement.rls import bind_principal
 from app.modules.placement.schemas import (
     CompanyCreate,
-    CompanyPathPut,
     PracticeAnswer,
     PracticeStart,
     QuestionContent,
@@ -437,30 +435,6 @@ async def plc_17_create_company(
     return await _idem(request, session, principal, fn, required=False, status=201)
 
 
-@studio.put("/company-paths/{company_path_id}")
-async def plc_18_put_company_path(
-    request: Request,
-    company_path_id: uuid.UUID,
-    body: CompanyPathPut,
-    session: PrincipalDbSession,
-    principal: Principal = Depends(require_active_principal),
-) -> dict[str, Any]:
-    body.organization_id = await resolve_owner(
-        request, session, principal, "company_path.manage", body.organization_id
-    )
-    p = await bank.put_company_path(session, principal, company_path_id, body)
-    await audit(
-        session,
-        principal,
-        "company_path.replaced",
-        "company_path",
-        p.id,
-        organization_id=p.organization_id,
-        after={"version_no": p.version_no, "status": p.status},
-    )
-    return bank.path_out(p, await bank.path_steps(session, p.id))
-
-
 # --------------------------------------------------------------------------- practice
 
 
@@ -569,15 +543,8 @@ async def plc_27_dismiss(
     return await _idem(request, session, principal, fn, required=False)
 
 
-@dflt.get("/me/company-paths/{slug}")
-async def plc_32_my_company_path(
-    slug: str, session: PrincipalDbSession, principal: Principal = Depends(require_active_principal)
-) -> dict[str, Any]:
-    return await practice.my_company_path(session, principal, slug)
-
-
 router = APIRouter()
-for _r in (pub, studio, dflt, l3r, mentor, reports, qbank_studio, qbank_media):
+for _r in (pub, studio, dflt, l3r, reports, qbank_studio, qbank_media):
     router.include_router(_r)
 
 

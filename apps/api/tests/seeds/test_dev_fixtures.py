@@ -370,7 +370,6 @@ async def test_demo_content_for_every_feature(db) -> None:
     from app.modules.paths import service as paths
     from app.modules.paths.models import LearningPath, LearningPathVersionStep, PathAllocation, PathArticle
     from app.modules.placement.models import QuestionBank, QuestionBankItem
-    from app.modules.support.models import CorporateEnquiry
 
     await _run_all(db)
     batch = (await db.execute(select(Batch).where(Batch.code == dev_users.BATCH_CODE))).scalar_one()
@@ -425,12 +424,6 @@ async def test_demo_content_for_every_feature(db) -> None:
     ).scalar_one()
     assert sub.status == "submitted" and sub.graded_at is None
 
-    enq = (
-        await db.execute(
-            select(CorporateEnquiry).where(CorporateEnquiry.reference == company_demo.ENQUIRY_REF)
-        )
-    ).scalar_one()
-    assert enq.status == "new"
     problems = select(func.count()).select_from(CodingProblem).where(CodingProblem.slug.like("demo-%"))
     assert (await db.execute(problems)).scalar_one() == len(coding_demo.PROBLEMS)
 

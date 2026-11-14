@@ -393,20 +393,6 @@
       ]
     },
     {
-      "collectionGroup": "lms_corporate_enquiries",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "status",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "created_at",
-          "order": "DESCENDING"
-        }
-      ]
-    },
-    {
       "collectionGroup": "lms_privacy_requests",
       "queryScope": "COLLECTION",
       "fields": [
@@ -1371,48 +1357,6 @@
       ]
     },
     {
-      "collectionGroup": "lms_mentor_slots",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "mentor_id",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "starts_at",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "lms_mentor_slots",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "status",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "starts_at",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "lms_mentor_bookings",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "user_id",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "created_at",
-          "order": "DESCENDING"
-        }
-      ]
-    },
-    {
       "collectionGroup": "lms_resumes",
       "queryScope": "COLLECTION",
       "fields": [
@@ -1608,20 +1552,6 @@
         },
         {
           "fieldPath": "added_at",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "lms_company_path_steps",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "company_path_id",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "position",
           "order": "ASCENDING"
         }
       ]
@@ -2215,20 +2145,6 @@
       ]
     },
     {
-      "collectionGroup": "lms_company_path_steps",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "test_id",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "position",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
       "collectionGroup": "lms_question_media",
       "queryScope": "COLLECTION",
       "fields": [
@@ -2458,11 +2374,6 @@
     {
       "collectionGroup": "lms_support_ticket_messages",
       "fieldPath": "attachments",
-      "indexes": []
-    },
-    {
-      "collectionGroup": "lms_corporate_enquiries",
-      "fieldPath": "message",
       "indexes": []
     },
     {
@@ -2709,11 +2620,6 @@
     {
       "collectionGroup": "lms_practice_sessions",
       "fieldPath": "served",
-      "indexes": []
-    },
-    {
-      "collectionGroup": "lms_company_paths",
-      "fieldPath": "pattern",
       "indexes": []
     },
     {

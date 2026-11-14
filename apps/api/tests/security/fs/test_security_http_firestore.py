@@ -48,3 +48,29 @@ async def test_my_security_status(fs_http: Any, make_principal: Any) -> None:
     assert body["level"] == 2 and body["family"] == "sharing" and body["scope"] == "learning_access"
     assert [x["end_reason"] for x in body["history"]] == ["superseded"]
     assert body["available_actions"] == ["manage_devices", "contact_support"]
+
+
+async def test_status_shows_the_session_cap_of_the_callers_tier(fs_http: Any, make_principal: Any) -> None:
+    """Live re-check 2026-11-14 (N6): staff were shown the student cap (2); staff log in under
+    ``sessions.staff.max_concurrent`` (3)."""
+    client, _rec, auth = fs_http
+    now = clock.now()
+    caps = {}
+    for tier in ("student", "staff"):
+        p = make_principal(is_minor=False, tier=tier)
+        await idp.create_user(
+            NO_POSTGRES,
+            User(
+                id=p.user_id,
+                email=f"{tier}@example.com",
+                email_verified_at=now,
+                status="active",
+                is_minor=False,
+                age_verified_at=now,
+                age_verification_method="self_declared",
+            ),
+        )
+        r = await client.get("/api/v1/me/security/status", headers=auth.login(p))
+        assert r.status_code == 200, r.text
+        caps[tier] = r.json()["policy"]["max_concurrent_sessions"]
+    assert caps == {"student": 2, "staff": 3}

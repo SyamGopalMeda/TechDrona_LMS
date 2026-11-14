@@ -1,14 +1,9 @@
-/** Public, indexable routes (sitemap §2). Token, account and portal routes are excluded. */
+/**
+ * Public, indexable routes (sitemap §2). Token, account and portal routes are excluded, and so are
+ * the marketing pages Firebase Hosting redirects to the website (courses, pricing, …) and `/`.
+ */
 export const PUBLIC_SITEMAP_PATHS = [
-  "/",
-  "/courses",
-  "/placement",
-  "/companies",
-  "/pricing",
-  "/free-resources",
-  "/enquiries",
   "/help",
-  "/status",
   "/verify",
   "/legal/terms",
   "/legal/privacy",

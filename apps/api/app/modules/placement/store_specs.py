@@ -7,7 +7,6 @@ indexes. Physical names get the ``lms_`` prefix (``collections.physical_name``).
 * ``topics/{id}``; ``topics_by_path/{path_key(path)}`` = ``{topic_id}`` (``topics.path`` UNIQUE; also covers
   ``UNIQUE (parent_id, slug)`` and ``ux_topics_root_slug`` because path = parent path + slug).
 * ``companies/{id}``; ``companies_by_slug/{slug}`` = ``{company_id}`` (``companies.slug`` UNIQUE).
-* ``company_paths/{id}``, ``company_path_steps/{id}`` (one document per row).
 * ``questions/{id}``.
 * ``question_versions/{id}`` with ``options`` = ``{option_id: option}`` embedded
   (``question_options``). A published or retired version and its options are immutable (Postgres
@@ -40,8 +39,6 @@ from app.core.firestore.ids import compose_id
 from app.modules.placement.fsmap import orm_doc, orm_of, row_doc
 from app.modules.placement.models import (
     Company,
-    CompanyPath,
-    CompanyPathStep,
     PracticeResponse,
     PracticeSession,
     Question,
@@ -62,8 +59,6 @@ TOPICS = "topics"
 TOPICS_BY_PATH = "topics_by_path"
 COMPANIES = "companies"
 COMPANIES_BY_SLUG = "companies_by_slug"
-PATHS = "company_paths"
-STEPS = "company_path_steps"
 QUESTIONS = "questions"
 VERSIONS = "question_versions"
 TAGS = "question_tags"
@@ -84,8 +79,6 @@ for _name, _write in (
     (TOPICS_BY_PATH, "taxonomy.manage"),
     (COMPANIES, "company_path.manage"),
     (COMPANIES_BY_SLUG, "company_path.manage"),
-    (PATHS, "company_path.manage"),
-    (STEPS, "company_path.manage"),
     (QUESTIONS, "question.edit"),
     (VERSIONS, "question.edit"),
     (TAGS, "question.edit"),
@@ -177,8 +170,6 @@ register_mapping(
         lambda r: {"company_id": str(r["id"])},
     )
 )
-_m("company_paths", PATHS, CompanyPath)
-_m("company_path_steps", STEPS, CompanyPathStep)
 _m("questions", QUESTIONS, Question)
 _m("question_versions", VERSIONS, QuestionVersion)
 register_mapping(

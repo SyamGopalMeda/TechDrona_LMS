@@ -11,7 +11,7 @@ import { useResource } from "@/features/account/lib/use-resource";
 import { ActionDialog, ConfirmDialog, FilterBar, InlineProblem, KeyValueList, StateBadge, TextArea, textLink } from "@/features/admin/components/console-ui";
 import { cleanQuery, formatCountdown, formatDate, formatDateTime, formatINR, humanize, shortRef, toOutcome, useCursorList, useVersioned } from "@/features/admin/lib/console";
 import { RiskBadge } from "@/features/security-admin/components/RiskLevel";
-import { DESK_CATEGORIES, STATUS_LABELS, TICKET_PRIORITIES, TICKET_STATUSES, UUID_RE, type Macro, type SupportUserNote, type SupportUserSummary, type Ticket, type TicketMessage, type TicketThread } from "../lib/types";
+import { STATUS_LABELS, TICKET_CATEGORIES, TICKET_PRIORITIES, TICKET_STATUSES, UUID_RE, type Macro, type SupportUserNote, type SupportUserSummary, type Ticket, type TicketMessage, type TicketThread } from "../lib/types";
 import { AttachmentList, MessageThread, TicketStatusBadge } from "./Thread";
 
 /* ------------------------------------------------------------------ Queue */
@@ -115,7 +115,7 @@ export function TicketQueue() {
         <FormField label="Search" hint="Ticket number or words in the subject.">{(f) => <Input {...f} type="search" value={q} onChange={(e) => setQ(e.target.value)} />}</FormField>
         <FormField label="Status">{(f) => <Select {...f} value={status} onChange={(e) => setStatus(e.target.value)} options={anyOptions(TICKET_STATUSES, "All open tickets")} />}</FormField>
         <FormField label="Priority">{(f) => <Select {...f} value={priority} onChange={(e) => setPriority(e.target.value)} options={anyOptions(TICKET_PRIORITIES)} />}</FormField>
-        <FormField label="Category">{(f) => <Select {...f} value={category} onChange={(e) => setCategory(e.target.value)} options={anyOptions(DESK_CATEGORIES)} />}</FormField>
+        <FormField label="Category">{(f) => <Select {...f} value={category} onChange={(e) => setCategory(e.target.value)} options={anyOptions(TICKET_CATEGORIES)} />}</FormField>
         <FormField label="Assigned">
           {(f) => (
             <Select

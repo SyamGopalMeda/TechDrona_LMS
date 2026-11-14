@@ -7,11 +7,10 @@
   delete path (td_app has no DELETE); erasure redacts in place.
 * ``support_user_notes/{id}`` — ``system`` + append-only (Postgres: platform-only RLS, no UPDATE
   or DELETE for td_app). Read and written only by named jobs after the route checks.
-* ``corporate_enquiries/{id}`` — ``system`` (Postgres: ``app.is_platform()`` only; no DELETE).
-* ``support_counters/{support_ticket|corporate_enquiry}`` — ``{value}``: the gap-free number
-  sequences (``tx.next_sequence(..., collection=support_counters)``), seeded by the backfill from
-  ``support_ticket_number_seq`` / ``corporate_enquiry_number_seq``. Ticket numbers and enquiry
-  references are allocated in the same transaction as the row they name.
+* ``support_counters/support_ticket`` — ``{value}``: the gap-free ticket number sequence
+  (``tx.next_sequence(..., collection=support_counters)``), seeded by the backfill from
+  ``support_ticket_number_seq``. Ticket numbers are allocated in the same transaction as the
+  ticket they name.
 """
 
 from __future__ import annotations
@@ -24,15 +23,12 @@ from app.core.firestore.collections import CollectionSpec, register_collection
 TICKETS = "support_tickets"
 MESSAGES = "support_ticket_messages"
 NOTES = "support_user_notes"
-ENQUIRIES = "corporate_enquiries"
 COUNTERS = "support_counters"
 TICKET_SEQ = "support_ticket"
-ENQUIRY_SEQ = "corporate_enquiry"
 
 register_collection(CollectionSpec(TICKETS, "owned", owner_field="requester_id"))
 register_collection(CollectionSpec(MESSAGES, "owned", owner_field="requester_id"))
 register_collection(CollectionSpec(NOTES, "system", append_only=True))
-register_collection(CollectionSpec(ENQUIRIES, "system"))
 register_collection(CollectionSpec(COUNTERS, "system"))
 
 TICKET_UUIDS = (
@@ -109,27 +105,6 @@ def note_doc(r: Row) -> dict[str, Any]:
     }
 
 
-ENQUIRY_FIELDS = (
-    "reference",
-    "name",
-    "company",
-    "email",
-    "phone",
-    "message",
-    "consent_at",
-    "notice_version",
-    "status",
-    "staff_note",
-    "closed_at",
-    "created_at",
-    "updated_at",
-)
-
-
-def enquiry_doc(r: Row) -> dict[str, Any]:
-    return {"id": str(r["id"]), "assigned_to": _opt(r["assigned_to"])} | {k: r[k] for k in ENQUIRY_FIELDS}
-
-
 def counter_doc(r: Row) -> dict[str, Any]:
     return {"value": int(r["value"])}
 
@@ -147,15 +122,10 @@ register_mapping(
 )
 register_mapping(TableMapping("support", "support_user_notes", NOTES, lambda r: str(r["id"]), note_doc))
 register_mapping(
-    TableMapping("support", "corporate_enquiries", ENQUIRIES, lambda r: str(r["id"]), enquiry_doc)
-)
-register_mapping(
     TableMapping(
         "support",
         "(SELECT 'support_ticket' AS name, CASE WHEN is_called THEN last_value ELSE 0 END AS value "
-        "FROM support_ticket_number_seq UNION ALL "
-        "SELECT 'corporate_enquiry', CASE WHEN is_called THEN last_value ELSE 0 END "
-        "FROM corporate_enquiry_number_seq) AS c",
+        "FROM support_ticket_number_seq) AS c",
         COUNTERS,
         lambda r: r["name"],
         counter_doc,

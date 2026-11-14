@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockApi, problem, renderWithProviders } from "@/features/auth/test/mock-api";
 import { ApiError } from "@/lib/api/errors";
-import { AIAdmin, AISettingsSection, AIUsageSection, AuthorizedAppsSection, parseCap } from "./admin/AIAdmin";
+import { AIAdmin, AuthorizedAppsSection } from "./admin/AIAdmin";
 import { AI_ADMIN_BASE } from "./admin/endpoints";
 import { AIErrorState, aiProblemCode } from "./components/AIErrorState";
 import { AITutorPanel } from "./components/AITutorPanel";
@@ -146,98 +146,6 @@ describe("useEnabledApps", () => {
 
 /* ------------------------------------------------------------- admin pages */
 
-const settingsOut = {
-  ai: {
-    enabled: false,
-    model: "claude-sonnet",
-    monthly_token_cap: 50_000_000,
-    monthly_call_cap: 1000,
-    per_activity_default_cap: 20,
-    tutor_per_minute: 10,
-    tutor_per_day: 200,
-    generate_per_hour: 30,
-    generate_per_day: 100,
-    updated_at: null,
-  },
-  provider: { name: "anthropic", configured: false },
-  allowed_models: ["claude-sonnet", "claude-haiku"],
-};
-
-describe("AI settings form", () => {
-  it("parses caps", () => {
-    expect(parseCap("").error).toBeTruthy();
-    expect(parseCap(" 42 ")).toEqual({ value: 42 });
-    expect(parseCap("0", 1).error).toBeTruthy();
-    expect(parseCap("11", 0, 10).error).toBeTruthy();
-    expect(parseCap("-1").error).toBeTruthy();
-    expect(parseCap("1.5").error).toBeTruthy();
-  });
-
-  it("renders current settings and submits the PATCH body", async () => {
-    const api = mockApi({
-      [`GET ${AI_ADMIN_BASE}/ai-settings`]: { body: settingsOut },
-      [`PATCH ${AI_ADMIN_BASE}/ai-settings`]: (c) => ({ body: { ...settingsOut, ai: { ...settingsOut.ai, ...(c.body as object) } } }),
-    });
-    cleanups.push(api.restore);
-    renderWithProviders(<AISettingsSection />);
-    const toggle = await screen.findByLabelText("AI features — question drafting, grading suggestions and the learning tutor");
-    expect(toggle).not.toBeChecked();
-    expect(screen.getByText("Not configured")).toBeInTheDocument();
-    expect(screen.getByLabelText(/^Monthly call cap/)).toHaveValue("1000");
-    await userEvent.click(toggle);
-    await userEvent.selectOptions(screen.getByLabelText("Model"), "claude-haiku");
-    await userEvent.clear(screen.getByLabelText(/^Monthly token cap/));
-    await userEvent.type(screen.getByLabelText(/^Monthly token cap/), "500000");
-    await userEvent.clear(screen.getByLabelText(/^Tutor messages per activity \(default\)/));
-    await userEvent.type(screen.getByLabelText(/^Tutor messages per activity \(default\)/), "3");
-    await userEvent.click(screen.getByRole("button", { name: "Save AI settings" }));
-    await waitFor(() => expect(api.calls.some((c) => c.method === "PATCH")).toBe(true));
-    const patch = api.calls.find((c) => c.method === "PATCH")!;
-    expect(patch.body).toEqual({
-      enabled: true,
-      model: "claude-haiku",
-      monthly_call_cap: 1000,
-      monthly_token_cap: 500000,
-      per_activity_default_cap: 3,
-      tutor_per_minute: 10,
-      tutor_per_day: 200,
-      generate_per_hour: 30,
-      generate_per_day: 100,
-    });
-    expect(patch.headers["x-csrf-token"]).toBe("test-csrf-token");
-    expect(await screen.findByText("AI settings saved.")).toBeInTheDocument();
-  });
-
-  it("blocks invalid caps client-side and shows server validation errors", async () => {
-    const api = mockApi({
-      [`GET ${AI_ADMIN_BASE}/ai-settings`]: { body: settingsOut },
-      [`PATCH ${AI_ADMIN_BASE}/ai-settings`]: problem(400, "validation_failed", "Invalid", { errors: [{ field: "model", code: "invalid", message: "Model not allowed." }] }),
-    });
-    cleanups.push(api.restore);
-    renderWithProviders(<AISettingsSection />);
-    const cap = await screen.findByLabelText(/^Monthly call cap/);
-    await userEvent.clear(cap);
-    await userEvent.type(cap, "abc");
-    await userEvent.click(screen.getByRole("button", { name: "Save AI settings" }));
-    expect(screen.getByText("Enter a whole number.")).toBeInTheDocument();
-    expect(api.calls.some((c) => c.method === "PATCH")).toBe(false);
-    await userEvent.clear(cap);
-    await userEvent.click(screen.getByRole("button", { name: "Save AI settings" }));
-    expect(screen.getByText("Enter a value.")).toBeInTheDocument();
-    expect(api.calls.some((c) => c.method === "PATCH")).toBe(false);
-    await userEvent.type(cap, "1000");
-    await userEvent.click(screen.getByRole("button", { name: "Save AI settings" }));
-    expect(await screen.findByText("Model not allowed.")).toBeInTheDocument();
-  });
-
-  it("shows an error state when settings fail to load", async () => {
-    const api = mockApi({ [`GET ${AI_ADMIN_BASE}/ai-settings`]: problem(403, "permission_denied", "You don't have access", { detail: "Ask a super admin." }) });
-    cleanups.push(api.restore);
-    renderWithProviders(<AISettingsSection />);
-    expect(await screen.findByText("Ask a super admin.")).toBeInTheDocument();
-  });
-});
-
 describe("Authorized apps", () => {
   it("groups apps by category and PATCHes the map", async () => {
     const apps = [
@@ -254,39 +162,38 @@ describe("Authorized apps", () => {
     await waitFor(() => expect(api.calls.some((c) => c.method === "PATCH")).toBe(true));
     expect(api.calls.find((c) => c.method === "PATCH")!.body).toEqual({ apps: { assignments: true, engage: false, ai_tutor: true } });
   });
-});
 
-describe("AI usage", () => {
-  it("renders totals vs caps and breakdowns", async () => {
+  it("hides the AI toggles while no AI provider is connected, but still saves their values", async () => {
+    const apps = [
+      { app_key: "assignments", label: "Assignments", category: "learning", enabled: true },
+      { app_key: "ai_tutor", label: "AI tutor", category: "ai", enabled: false },
+    ];
     const api = mockApi({
-      [`GET ${AI_ADMIN_BASE}/ai-usage`]: {
-        body: {
-          period_start: "2026-11-01",
-          period_end: "2026-11-30",
-          totals: { calls: 250, tokens_in: 1000, tokens_out: 500, cost_estimate: "1.2500" },
-          caps: { monthly_token_cap: 50_000_000, monthly_call_cap: 1000 },
-          by_feature: [{ feature: "tutor", calls: 250, tokens_in: 1000, tokens_out: 500, cost_estimate: "1.25" }],
-          by_day: [{ date: "2026-11-02", calls: 250, tokens: 1500 }],
-        },
-      },
+      [`GET ${AI_ADMIN_BASE}/apps`]: { body: { apps } },
+      [`GET ${AI_ADMIN_BASE}/ai-settings`]: { body: { provider: { name: "disabled", configured: false } } },
+      [`PATCH ${AI_ADMIN_BASE}/apps`]: { body: { apps } },
     });
     cleanups.push(api.restore);
-    renderWithProviders(<AIUsageSection />);
-    expect(await screen.findByRole("progressbar", { name: "Calls used" })).toHaveAttribute("aria-valuenow", "250");
-    expect(api.calls[0]!.url).toMatch(/ai-usage\?month=\d{4}-\d{2}$/);
-    expect(screen.getByText("Learning tutor")).toBeInTheDocument();
-    expect(screen.getByText("2026-11-02")).toBeInTheDocument();
-    expect(screen.getAllByText("$1.25").length).toBeGreaterThan(0);
+    renderWithProviders(<AuthorizedAppsSection />);
+    expect(await screen.findByText("AI apps are hidden because no AI provider is connected.")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "AI apps" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText("Assignments"));
+    await userEvent.click(screen.getByRole("button", { name: "Save apps" }));
+    await waitFor(() => expect(api.calls.some((c) => c.method === "PATCH")).toBe(true));
+    expect(api.calls.find((c) => c.method === "PATCH")!.body).toEqual({ apps: { assignments: false, ai_tutor: false } });
   });
 });
 
-describe("AIAdmin page (/admin/ai)", () => {
-  it("shows the three platform sections without an organization picker", async () => {
-    const api = mockApi({ [`GET ${AI_ADMIN_BASE}/ai-settings`]: { body: settingsOut } });
+describe("AIAdmin page (/admin/ai), now \"Apps\"", () => {
+  it("shows only the authorized apps, without the AI settings and Usage tabs", async () => {
+    const apps = [{ app_key: "assignments", label: "Assignments", category: "learning", enabled: true }];
+    const api = mockApi({ [`GET ${AI_ADMIN_BASE}/apps`]: { body: { apps } } });
     cleanups.push(api.restore);
     renderWithProviders(<AIAdmin />);
-    expect(screen.getByRole("heading", { name: "AI & apps" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Organization/ })).not.toBeInTheDocument();
-    for (const t of ["AI settings", "Authorized apps", "Usage"]) expect(screen.getByRole("tab", { name: t })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Apps" })).toBeInTheDocument();
+    expect(await screen.findByLabelText("Assignments")).toBeInTheDocument();
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    expect(screen.queryByText("AI settings")).not.toBeInTheDocument();
+    expect(api.calls.some((c) => c.url.includes("ai-usage"))).toBe(false);
   });
 });

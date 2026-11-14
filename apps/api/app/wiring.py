@@ -10,8 +10,7 @@ next ``create_app``).
 Hooks (provider -> consumer):
 
 * ``entitlements.register_resource_parent_resolver`` — catalog (lesson, resource -> course),
-  coding (problem -> topic practice set / course), placement + catalog (test -> company path /
-  course).
+  coding (problem -> topic practice set / course), catalog (test -> course).
 * ``entitlements.register_usage_provider`` — learning + assessments -> commerce refund rule.
 * ``learning.register_video_coverage_lookup`` — analytics ``video_watch_coverage`` -> lesson
   completion evidence.
@@ -88,13 +87,11 @@ async def coding_problem_parents(session: AsyncSession, problem_id: uuid.UUID) -
 
 
 async def test_parents(session: AsyncSession, test_id: uuid.UUID) -> list[tuple[str, uuid.UUID]]:
-    """test -> company paths that contain it as a step, and courses that embed it."""
+    """test -> courses that embed it (company paths were removed: feature-removal-plan §3.2)."""
     from app.modules.catalog import api as catalog_api
-    from app.modules.placement import public as placement
 
-    paths = await placement.company_paths_with_test(session, test_id)
     courses = await catalog_api.course_ids_for_lessons(session, test_id=test_id)
-    return [("company_path", p) for p in paths] + [("course", c) for c in courses]
+    return [("course", c) for c in courses]
 
 
 # --------------------------------------------------------------------------- usage provider

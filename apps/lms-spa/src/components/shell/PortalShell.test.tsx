@@ -100,7 +100,7 @@ describe("PortalShell nav visibility (live audit)", () => {
     const nav = (await screen.findByTestId("nav")).textContent!.split("|");
     expect(nav).toContain("Admissions");
     expect(nav).toContain("System status");
-    for (const gone of ["Revenue", "Orders", "Coupons", "Mentor sessions", "Feature flags", "Break-glass", "Corporate enquiries", "Risk rules"]) expect(nav).not.toContain(gone);
+    for (const gone of ["Revenue", "Orders", "Coupons", "Feature flags", "Break-glass", "Risk rules"]) expect(nav).not.toContain(gone);
   });
 
   it("admin: gateway pages appear once payments are connected", async () => {

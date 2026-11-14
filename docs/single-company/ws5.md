@@ -1,5 +1,7 @@
 # WS5: Assessment, practice and operations
 
+> **Removed 2026-11-14** ([cleanup/feature-removal-plan.md](../cleanup/feature-removal-plan.md)): mentoring (slots, bookings, sessions, feedback, mentor notes, résumé reviews, the `/mentor` console; the Résumé builder stays), company paths (the `companies` entity stays), corporate enquiries, `GET /catalog/search`, the public SPA pages Hosting redirects to the website, and the `/app/diagnostic`, `/admin/question-review`, `/admin/notifications`, `/app/bookmarks`, `/app/analytics` and `/security/policies` pages. Mentions below of those features are historical.
+
 | | |
 |---|---|
 | Status | Done. Ready for WS6 phase 2 and for WS1's `orgs_0003` merge. |

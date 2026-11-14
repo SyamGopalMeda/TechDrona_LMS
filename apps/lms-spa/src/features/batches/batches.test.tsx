@@ -130,7 +130,7 @@ describe("Admin batch detail (ADM-014)", () => {
 describe("shared navigation helpers", () => {
   it("highlights the most specific admin nav item and keeps portal roots exact", () => {
     const nav = PORTALS.admin.nav;
-    const roots = ["/admin", "/finance", "/desk", "/security", "/mentor"];
+    const roots = ["/admin", "/finance", "/desk", "/security"];
     expect(activeHref(nav, "/finance/orders/42", roots)).toBe("/finance/orders");
     expect(activeHref(nav, "/finance", roots)).toBe("/finance");
     expect(activeHref(nav, "/admin/batches/b1", roots)).toBe("/admin/batches");

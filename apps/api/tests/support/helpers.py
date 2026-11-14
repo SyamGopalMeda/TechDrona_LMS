@@ -6,10 +6,10 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 
 from app.modules.support import service as sv
-from app.modules.support.models import CorporateEnquiry, SupportTicket, SupportTicketMessage
+from app.modules.support.models import SupportTicket, SupportTicketMessage
 
 
 def _fs() -> Any:
@@ -58,17 +58,3 @@ async def thread(db: Any, tid: Any) -> list[Any]:
         .execution_options(populate_existing=True)
     )
     return list((await db.execute(q)).scalars())
-
-
-async def enquiry_count(db: Any) -> int:
-    if sv.on_firestore():
-        return int(await _fs().count_enquiries())
-    return int((await db.execute(select(func.count()).select_from(CorporateEnquiry))).scalar_one())
-
-
-async def latest_enquiry(db: Any) -> Any:
-    if sv.on_firestore():
-        rows, _ = await _fs().enquiries(None, None, 1)
-        return rows[0] if rows else None
-    q = select(CorporateEnquiry).order_by(CorporateEnquiry.created_at.desc()).limit(1)
-    return (await db.execute(q)).scalar_one_or_none()

@@ -1,5 +1,7 @@
 # Firebase migration: data-learning agent (learning, engage, mentoring)
 
+> **Removed 2026-11-14** ([cleanup/feature-removal-plan.md](../../cleanup/feature-removal-plan.md)): mentoring (slots, bookings, sessions, feedback, mentor notes, résumé reviews, the `/mentor` console; the Résumé builder stays), company paths (the `companies` entity stays), corporate enquiries, `GET /catalog/search`, the public SPA pages Hosting redirects to the website, and the `/app/diagnostic`, `/admin/question-review`, `/admin/notifications`, `/app/bookmarks`, `/app/analytics` and `/security/policies` pages. Mentions below of those features are historical.
+
 Agent: data-learning. Rounds 1, 2 and 3 all ran on 2026-11-12. This report covers the state
 after round 7. Round 3 replaced last-writer-wins with transactions at every former `FOR UPDATE`
 site and made every in-memory register match the SQL (section 7). Round 4 closed the last two race differences (section 8). Round 5 routed all cross-module access through public.py (section 9).

@@ -89,34 +89,6 @@
       ]
     },
     {
-      "collectionGroup": "lms_company_path_steps",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "company_path_id",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "position",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "lms_company_path_steps",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "test_id",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "position",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
       "collectionGroup": "lms_question_media",
       "queryScope": "COLLECTION",
       "fields": [
@@ -261,11 +233,6 @@
     {
       "collectionGroup": "lms_practice_sessions",
       "fieldPath": "served",
-      "indexes": []
-    },
-    {
-      "collectionGroup": "lms_company_paths",
-      "fieldPath": "pattern",
       "indexes": []
     }
   ]
