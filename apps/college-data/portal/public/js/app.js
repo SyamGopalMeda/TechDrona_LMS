@@ -322,6 +322,18 @@ function topNavigate(url) {
   location.href = url;
 }
 
+/**
+ * Leave the portal for an LMS page after closing a menu or dialog. Menus and dialogs add a history entry while open
+ * (Back closes them) and remove it with history.back() just after they close; that back() would cancel a page
+ * navigation started in the same click, so navigate once it has finished (or after 400 ms if there was none).
+ */
+function leaveTo(url) {
+  let done = false;
+  const leave = () => { if (done) return; done = true; removeEventListener('popstate', leave); topNavigate(url); };
+  addEventListener('popstate', leave);
+  setTimeout(leave, 400);
+}
+
 /** Fill the Modules menu from the LMS (SSO mode only). Silent on failure: the button simply stays hidden. */
 async function loadModules() {
   if (!isSso()) return;
@@ -334,8 +346,8 @@ async function loadModules() {
   const hrefFor = (m) => (m.key === 'lms' ? `/continue?area=lms&fallback=${encodeURIComponent(m.href || '/modules')}` : m.href);
   const items = mods.filter((m) => m && m.href).map((m) => (m.key === 'colleges'
     ? { label: `${m.title} (you are here)`, icon: 'check', onClick: () => {} }
-    : { label: m.title, icon: m.external ? 'external' : null, onClick: () => topNavigate(hrefFor(m)) }));
-  items.push({ label: 'All modules', icon: 'home', onClick: () => topNavigate('/modules') });
+    : { label: m.title, icon: m.external ? 'external' : null, onClick: () => leaveTo(hrefFor(m)) }));
+  items.push({ label: 'All modules', icon: 'home', onClick: () => leaveTo('/modules') });
   $.modItems.splice(0, $.modItems.length, ...items);
   $.modulesBtn.hidden = false;
 }
@@ -351,7 +363,7 @@ function userMenu() {
         h('div', null, h('strong', null, s.user || api.user || '—'), h('div', { class: 'td-muted' }, ROLE_LABEL[s.role] || 'Signed in'))),
       h('p', { class: 'td-muted' }, 'Signed in through Tech Drona LMS'),
       s.role === 'viewer' ? h('p', { class: 'td-muted' }, 'You can look at everything but cannot make changes. Ask an LMS super admin for edit access.') : null,
-      h('div', { class: 'td-acct__actions' }, ui.button({ label: 'Back to LMS admin', icon: 'chevron-left', tone: 'secondary', onClick: () => { m.close(); topNavigate('/admin'); } })));
+      h('div', { class: 'td-acct__actions' }, ui.button({ label: 'Back to LMS admin', icon: 'chevron-left', tone: 'secondary', onClick: () => { m.close(); leaveTo('/admin'); } })));
     const m = ui.modal({ title: 'Your account', body });
     return;
   }
