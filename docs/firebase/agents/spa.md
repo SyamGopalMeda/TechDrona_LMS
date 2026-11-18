@@ -28,6 +28,7 @@ Commands, run inside `apps/lms-spa`:
 - `npm run gen:routes`: regenerate `src/spa/routes.gen.tsx` after adding or removing a page. (`npm run sync` was retired on 2026-11-14: src is the source of truth.)
 - `npm run build`: copy Monaco, generate routes and static files, then `vite build` → `dist/`.
 - `npm run dev`: set `TD_DEV_API_PROXY=http://localhost:8000` to proxy `/api` to a local API.
+- `npm run dev:live`: the SPA locally with `/api` proxied to the live LMS API (`https://lms.35-244-50-26.sslip.io`; override with `TD_DEV_API_PROXY`). Remote targets get their own Host/Origin/Referer (vite.config.ts `devProxy`).
 - `npm test` / `npm run typecheck`.
 
 ## 2. Route count

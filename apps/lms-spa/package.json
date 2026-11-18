@@ -11,6 +11,8 @@
     "gen:routes": "node scripts/gen-routes.mjs",
     "predev": "node scripts/copy-monaco.mjs",
     "dev": "vite",
+    "predev:live": "node scripts/copy-monaco.mjs",
+    "dev:live": "node scripts/dev-live.mjs",
     "prebuild": "node scripts/copy-monaco.mjs && node scripts/gen-routes.mjs && node scripts/gen-static.mjs",
     "build": "vite build",
     "preview": "vite preview",

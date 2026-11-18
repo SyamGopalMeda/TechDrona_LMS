@@ -16,4 +16,12 @@ if (!g.__TD_ENV__) {
   };
 }
 
+// `vite dev` does not rewrite `process.env` in the source: its client sets the global
+// `process.env` from the `define` expression before this module runs (so it is undefined).
+// Point it at the values filled above. Builds replace `process.env` statically; this is a no-op there.
+if (import.meta.env.DEV) {
+  const p = ((globalThis as { process?: { env?: unknown } }).process ??= {});
+  p.env = g.__TD_ENV__;
+}
+
 export {};
