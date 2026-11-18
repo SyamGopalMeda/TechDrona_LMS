@@ -31,6 +31,7 @@ import { useFailToast } from "@/features/trainer/shared/ui";
 import { outboxItem, type AdminCertificate, type ApproveResult, type CertSummary, type CursorPage, type DueRow, type IssueDueResult, type OutboxRow, type OutboxStatus } from "../lib/types";
 import { CreateTab, DocSettingsTab, RegisterTab, TemplatesTab } from "./AdminDocuments";
 import { pdfUrlFromBase64 } from "../lib/docs";
+import { OfferLettersTab } from "./OfferLetters";
 import { formatDate, formatDateTime } from "@/lib/format";
 
 const EMAIL_TONE: Record<OutboxStatus, BadgeTone> = { awaiting: "warning", pending: "info", sent: "success", failed: "danger", cancelled: "neutral" };
@@ -118,6 +119,7 @@ export function AdminCertificates({ initialCourse = "" }: { initialCourse?: stri
           { id: "issued", label: "Issued", content: <IssuedTab courseId={courseId} onCourse={setCourseId} onChanged={refresh} /> },
           { id: "due", label: s ? `Due (${s.due_eligible})` : "Due", content: <DueTab courseId={courseId} onChanged={refresh} /> },
           { id: "create", label: "Create & send", content: <CreateTab onIssued={() => { refresh(); setTab("register"); }} onChanged={refresh} /> },
+          { id: "offers", label: "Offer letters", content: <OfferLettersTab /> },
           { id: "register", label: "Documents register", content: <RegisterTab onChanged={refresh} /> },
           { id: "queue", label: s ? `Approval queue (${s.outbox.awaiting})` : "Approval queue", content: <QueueTab courseId={courseId} onChanged={refresh} /> },
           { id: "templates", label: "Templates", content: <TemplatesTab /> },
