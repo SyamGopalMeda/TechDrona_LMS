@@ -145,6 +145,32 @@ describe("CourseOverview (STU-005)", () => {
     expect(screen.getByText("Finish all lessons and pass the final quiz.")).toBeInTheDocument();
   });
 
+  it("opens a private course (not in the public catalogue) through the learner's enrolment", async () => {
+    // Courses made in the LMS editor are private: CAT-02 answers 404, yet an enrolled student must open them.
+    const api = mockApi({
+      "GET catalog/courses/dsa": problem(404, "not_found", "Not found"),
+      "GET me/enrolments": { body: { data: [enrolment], page } },
+      "GET me/courses/c1": { body: overview },
+    });
+    restore = api.restore;
+    renderWithProviders(<CourseOverview slug="dsa" />);
+    expect(await screen.findByRole("heading", { name: "DSA Foundations" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Resume" })).toHaveAttribute("href", "/app/learn/dsa/l2");
+    expect(screen.queryByText(/couldn.t find/i)).not.toBeInTheDocument();
+  });
+
+  it("still shows the error for a private course the learner is not enrolled in", async () => {
+    const api = mockApi({
+      "GET catalog/courses/dsa": problem(404, "not_found", "Not found"),
+      "GET me/enrolments": { body: { data: [], page } },
+    });
+    restore = api.restore;
+    renderWithProviders(<CourseOverview slug="dsa" />);
+    await waitFor(() => expect(api.calls.some((c) => c.path === "me/enrolments")).toBe(true));
+    expect((await screen.findAllByText(/not found|couldn.t find/i)).length).toBeGreaterThan(0);
+    expect(api.calls.some((c) => c.path === "me/courses/c1")).toBe(false);
+  });
+
   it("shows the restricted card when learning access is paused", async () => {
     const api = mockApi({ "GET catalog/courses/dsa": { body: catalogCourse }, "GET me/courses/c1": problem(403, "account_restricted", "Account access paused", { case_ref: "SEC-2611-7KQ4MZ", level: 3, until: "2026-11-04T04:45:00.000Z" }) });
     restore = api.restore;
