@@ -53,6 +53,14 @@ async def decay_recompute(session: AsyncSession, now: datetime | None = None) ->
     """Nightly 02:00 IST: derived signals for active adults, then a full SH + TO recompute with
     decay (de-escalation of L1/L2 when scores fall)."""
     now = now or clock.now()
+    from app.core.config import get_settings
+
+    # Owner decision 2026-11-20 (zero idle cost): while account protection is off (TD_SIMPLE_AUTH /
+    # testing phase) and the sharing engine only shadows (``risk.mode`` != enforce), the nightly
+    # recompute can restrict nobody; it cost ~2,100 Firestore reads a night. Enforce mode or
+    # protection back on -> it runs again (the scheduler gate's fingerprint / policy watch).
+    if get_settings().account_protection_off and await engine.risk_mode(session) != "enforce":
+        return {"derived_signals": 0, "evaluations": 0, "skipped": "protection_off_not_enforcing"}
     since = now - timedelta(days=30)
     active = {s.user_id for s in await sessions_public.list_sessions(session, created_after=since)}
     with_signals = set(

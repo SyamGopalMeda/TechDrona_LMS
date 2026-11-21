@@ -13,7 +13,7 @@ when ``w.<collection> >= S - SKIP_MARGIN`` (``SKIP_MARGIN`` > ``HINT_REFRESH_S``
 Proof sketch: a commit at ``c`` either wrote the hint (``w >= c``) or a hint was committed by the
 same process at ``h > c - HINT_REFRESH_S`` (``w >= h``); for any ``S < c``:
 ``w > c - HINT_REFRESH_S > S - SKIP_MARGIN``. Writes that bypass ``ScopedStore`` (none today for
-watched collections) are covered by the hourly full sweep (``scheduler.BACKSTOP_EVERY_MIN``).
+watched collections) are covered by the weekly full sweep (``scheduler.BACKSTOP_EVERY_DAYS``).
 
 **Kicks.** After a commit that *created* ``outbox_events`` / ``audit_outbox`` documents, a Cloud Task
 for ``core.outbox_relay`` / ``core.audit_seal`` is scheduled at the next whole second
@@ -47,7 +47,9 @@ SKIP_MARGIN = timedelta(seconds=90)
 RELAY_JOB = "core.outbox_relay"
 SEAL_JOB = "core.audit_seal"
 DEADLINE_JOB = "assessments.deadline_sweeper"
-KICK_ON_CREATE = {"outbox_events": RELAY_JOB, "audit_outbox": SEAL_JOB}
+CERT_SEND_JOB = "learning.certificate_outbox_send"
+# Certificate emails were picked up by an every-minute sweep; with hourly ticks they are kicked too.
+KICK_ON_CREATE = {"outbox_events": RELAY_JOB, "audit_outbox": SEAL_JOB, "certificate_outbox": CERT_SEND_JOB}
 DEADLINE_COLLECTIONS = {"test_attempts": "in_progress", "attempt_sections": "active"}
 
 _registered = False

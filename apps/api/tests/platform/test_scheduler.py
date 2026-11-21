@@ -67,7 +67,7 @@ def test_due_selection_equals_the_old_cadence_for_every_entry_over_a_week() -> N
     counts = dict.fromkeys(oracles, 0)
     for m in range(7 * 1440):
         at = WEEK_START + timedelta(minutes=m)
-        due = {e.job for e in scheduler.due_entries(at, entries)}
+        due = {e.job for e in scheduler.due_entries(at, entries, window=1)}
         expected = {name for name, f in oracles.items() if f(at)}
         assert due == expected, at
         for name in due:
@@ -108,18 +108,194 @@ def test_gates_are_well_formed() -> None:
     for name in module_names():
         _optional_import(f"app.modules.{name}.store_specs")
 
-    by_job = {e.job: e for e in scheduler.entries()}
+    entries = scheduler.entries()
+    by_job = {e.job: e for e in entries}
+    days = scheduler.BACKSTOP_EVERY_DAYS
+    step = scheduler.TICK_MINUTES
+    ticks = [WEEK_START + timedelta(minutes=m) for m in range(step, days * 1440 + 1, step)]  # one cycle
     for job, gate in scheduler.GATES.items():
         e = by_job[job]
-        step = scheduler._step_minutes(e.cron)
-        assert step is not None, job  # only every-N-minutes entries are gated
-        m = scheduler.backstop_minute(job, e.cron)
-        assert 0 <= m < 60 and m % step == 0, job
-        hour = [WEEK_START + timedelta(minutes=i) for i in range(60)]
-        backstops = [at for at in hour if scheduler.is_backstop(job, e.cron, at)]
-        assert len(backstops) == 1 and scheduler.cron_matches(e.cron, backstops[0])  # full run hourly
+        due = [at for at in ticks if e in scheduler.due_entries(at, entries)]
+        backstops = [at for at in due if scheduler.is_backstop(job, e.cron, at)]
+        per_cycle = days // (gate.backstop_days or days)
+        assert len(backstops) == per_cycle, (job, backstops)  # full runs while idle, on ticks it is due
+        if gate.quiet is not None or gate.idle is scheduler._always_idle:
+            assert gate.watch, job  # woken only by writes: it must watch something
         for c in gate.watch:
             get_spec(c)  # a registered logical collection (the store hook sees exactly these names)
+
+
+def test_ticks_run_every_entry_at_its_cadence_or_once_per_tick() -> None:
+    """Ticks every TICK_MINUTES (2 h): an entry due several times in the window runs once; daily and
+    weekly entries run in the tick right after their time, exactly as often as before."""
+    import app.worker  # noqa: F401
+
+    step = scheduler.TICK_MINUTES
+    assert step == 120 and 1440 % step == 0
+    entries = scheduler.entries()
+    counts = {e.job: 0 for e in entries}
+    first: dict[str, datetime] = {}
+    for m in range(step, 7 * 1440 + 1, step):
+        at = WEEK_START + timedelta(minutes=m)
+        for e in scheduler.due_entries(at, entries):
+            counts[e.job] += 1
+            first.setdefault(e.job, at)
+    per_week = 7 * 1440 // step
+    assert counts["core.outbox_relay"] == counts["commerce.order_expiry"] == per_week
+    assert counts["analytics.daily_aggregator"] == counts["commerce.reconciliation"] == per_week
+    assert counts["security.decay_recompute"] == counts["notifications.renewal_reminders"] == 7
+    assert counts["security.purge_closed_cases"] == 1
+    assert first["security.decay_recompute"] == WEEK_START + timedelta(hours=22)  # 20:30 -> 22:00 tick
+    assert first["notifications.renewal_reminders"] == WEEK_START + timedelta(days=1)  # 00:00 -> that tick
+
+
+def test_the_scheduled_function_fires_at_the_tick_interval() -> None:
+    main = (Path(__file__).resolve().parents[4] / "functions-lms" / "main.py").read_text(encoding="utf-8")
+    hours = scheduler.TICK_MINUTES // 60
+    cron = "0 * * * *" if hours == 1 else f"0 */{hours} * * *"
+    assert f'schedule="{cron}"' in main
+
+
+def test_idle_day_cost_only_the_hint_and_the_ungated_daily_jobs() -> None:
+    """The owner's target (2026-11-19): < 50 billed operations a day while nobody uses the LMS. Every
+    entry that runs more than once a day is gated (an idle tick reads only the hint document)."""
+    import app.worker  # noqa: F401
+
+    ungated = sorted(
+        e.job for e in scheduler.entries() if e.job not in scheduler.GATES and not scheduler._at_most_daily(e.cron)
+    )
+    assert ungated == []
+
+
+def test_backstop_of_a_daily_job_falls_on_its_cycle_day() -> None:
+    e = scheduler.Entry("security.decay_recompute", "t", "30 20 * * *", None, "default")
+    day, _hour = scheduler.backstop_slot(e.job)
+    n = scheduler.BACKSTOP_EVERY_DAYS
+    hits = [d for d in range(n) if scheduler.is_backstop(e.job, e.cron, WEEK_START + timedelta(days=d, hours=21))]
+    assert len(hits) == 1 and (WEEK_START + timedelta(days=hits[0])).toordinal() % n == day
+    weekly = scheduler.Entry("analytics.retention_purge", "t", "30 21 * * *", None, "default")
+    assert scheduler.GATES[weekly.job].backstop_days == 7
+    assert sum(
+        scheduler.is_backstop(weekly.job, weekly.cron, WEEK_START + timedelta(days=d, hours=22)) for d in range(28)
+    ) == 4  # retention sweeps: weekly while idle (21:30 -> the 22:00 tick)
+
+
+def test_quiet_window_keeps_yesterday_jobs_running_after_activity() -> None:
+    """``analytics.security_feed`` processes yesterday: activity today must still be built tomorrow."""
+    from app.core.firestore import jobstate
+
+    gate = scheduler.GATES["analytics.security_feed"]
+    e = scheduler.Entry("analytics.security_feed", "t", "0 23 * * *", None, "default")
+    now = datetime(2026, 11, 20, 23, 0, tzinfo=UTC)
+    merged: list[dict[str, Any]] = []
+
+    async def merge(_client: Any, data: dict[str, Any]) -> None:
+        merged.append(data)
+
+    import pytest as _pt
+
+    mp = _pt.MonkeyPatch()
+    mp.setattr(jobstate, "merge_hints", merge)
+    mp.setattr(scheduler, "_client", lambda: None)
+    try:
+        st = scheduler.HintState(now, {"analytics_batches": now - timedelta(hours=12)}, {})
+        jobs.run_async(scheduler._finish(st, [(e, True, {"built": 0})]))
+        assert merged == []  # activity 12 h ago: no idle verdict, it runs again tomorrow
+        st = scheduler.HintState(now, {"analytics_batches": now - timedelta(days=3)}, {})
+        jobs.run_async(scheduler._finish(st, [(e, True, {"built": 0})]))
+        assert merged and e.job in merged[-1]["idle"]  # quiet for 3 days: idle
+    finally:
+        mp.undo()
+    assert gate.quiet == timedelta(days=2)
+
+
+def _fake_exists(found: set[str]) -> Callable[..., Any]:
+    seen: list[tuple[str, tuple[Any, ...]]] = []
+
+    async def exists(_client: Any, collection: str, filters: tuple[Any, ...]) -> bool:
+        seen.append((collection, filters))
+        return collection in found
+
+    exists.seen = seen  # type: ignore[attr-defined]
+    return exists
+
+
+@pytest.mark.parametrize(
+    ("job", "busy_collection"),
+    [
+        ("security.decay_recompute", "security_signals"),
+        ("security.decay_recompute", "account_restrictions"),
+        ("security.decay_recompute", "verification_tokens"),
+        ("security.sla_breach_alerts", "security_cases"),
+        ("security.sla_breach_alerts", "unblock_requests"),
+        ("security.sla_breach_alerts", "approval_requests"),
+        ("support.auto_close", "support_tickets"),
+        ("media.scan_sweep", "lesson_assets"),
+        ("security.purge_counters", "security_counters"),
+    ],
+)
+def test_new_gates_are_idle_only_when_nothing_can_become_due(
+    monkeypatch: pytest.MonkeyPatch, job: str, busy_collection: str
+) -> None:
+    gate = scheduler.GATES[job]
+    monkeypatch.setattr(scheduler, "_exists", _fake_exists(set()))
+    assert jobs.run_async(gate.idle(None, None)) is True
+    monkeypatch.setattr(scheduler, "_exists", _fake_exists({busy_collection}))
+    assert jobs.run_async(gate.idle(None, None)) is False
+
+
+def test_entitlement_gate_books_the_next_expiry_instead_of_polling(monkeypatch: pytest.MonkeyPatch) -> None:
+    gate = scheduler.GATES["entitlements.expiry"]
+    ends: dict[str, datetime | None] = {"active": None, "grace": None}
+
+    async def earliest(_client: Any, _coll: str, status: str, _field: str) -> datetime | None:
+        return ends[status]
+
+    booked: list[tuple[str, datetime]] = []
+    ok = [True]
+
+    async def kick_at(job: str, when: datetime, **_: Any) -> bool:
+        booked.append((job, when))
+        return ok[0]
+
+    monkeypatch.setattr(scheduler, "_earliest", earliest)
+    monkeypatch.setattr(jobhints, "kick_at", kick_at)
+    assert jobs.run_async(gate.idle(None, None)) is True and booked == []  # nothing can expire
+    soon = datetime.now(UTC) + timedelta(days=3)
+    ends["active"], ends["grace"] = soon + timedelta(days=1), soon
+    assert jobs.run_async(gate.idle(None, None)) is True
+    assert booked[-1] == ("entitlements.expiry", soon + timedelta(seconds=1))  # the earliest one
+    ends["active"], ends["grace"] = datetime.now(UTC) + timedelta(days=200), None
+    assert jobs.run_async(gate.idle(None, None)) is True  # far away: a re-check within 30 days
+    assert booked[-1][1] < datetime.now(UTC) + timedelta(days=26)
+    ok[0] = False
+    assert jobs.run_async(gate.idle(None, None)) is False  # cannot book -> keep the hourly runs
+
+
+def test_result_gates_and_gateway_fingerprint() -> None:
+    g = scheduler.GATES
+    assert jobs.run_async(g["analytics.outbox_consumer"].idle(None, {"applied": 0, "skipped": 0, "seen": 0}))
+    assert not jobs.run_async(g["analytics.outbox_consumer"].idle(None, {"seen": 2}))
+    assert jobs.run_async(g["analytics.daily_aggregator"].idle(None, {"user_days": 0}))
+    rec = g["commerce.reconciliation"]
+    assert jobs.run_async(rec.idle(None, {"skipped": "gateway_not_integrated", "provider": "fake"}))
+    assert not jobs.run_async(rec.idle(None, {"orders": 3}))
+    assert rec.fingerprint is not None and ":" in rec.fingerprint()
+
+
+def test_daily_gated_job_is_skipped_until_a_watched_write_or_its_backstop() -> None:
+    e = scheduler.Entry("security.decay_recompute", "t", "30 20 * * *", None, "default")
+    gate = scheduler.GATES[e.job]
+    at = next(
+        WEEK_START + timedelta(days=d, hours=21)
+        for d in range(28)
+        if not scheduler.is_backstop(e.job, e.cron, WEEK_START + timedelta(days=d, hours=21))
+    )
+    since = at - timedelta(days=1)
+    st = scheduler.HintState(at, {}, {e.job: {"at": since, "fp": gate.fingerprint() if gate.fingerprint else None}})
+    assert scheduler.should_skip(e, gate, st, at)
+    st.written["auth_sessions"] = at - timedelta(hours=3)  # someone signed in since the verdict
+    assert not scheduler.should_skip(e, gate, st, at)
 
 
 # --------------------------------------------------------------------------- tick (no hints)
@@ -172,7 +348,7 @@ def test_tick_runs_due_entries_inline_and_hands_off_maintenance(
             ("d.maint", "schedtest.ok", "30 21 * * *", "maintenance"),
         ),
     )
-    r = scheduler.tick(capp, datetime(2026, 11, 15, 21, 30, 42, tzinfo=UTC))
+    r = scheduler.tick(capp, datetime(2026, 11, 15, 21, 30, 42, tzinfo=UTC), window=1)
     assert r.at == datetime(2026, 11, 15, 21, 30, tzinfo=UTC)
     assert r.ran == ["b.five", "a.every"]  # critical queue first
     assert r.failed == ["c.fail"] and r.handed_off == ["d.maint"] and r.skipped == []
@@ -187,7 +363,7 @@ def test_tick_runs_due_entries_inline_and_hands_off_maintenance(
             "periodic_loop": False,
         }
     ]
-    r = scheduler.tick(capp, datetime(2026, 11, 15, 21, 31, tzinfo=UTC))
+    r = scheduler.tick(capp, datetime(2026, 11, 15, 21, 31, tzinfo=UTC), window=1)
     assert r.ran == ["a.every"] and r.handed_off == []
 
 
@@ -207,7 +383,7 @@ def test_tick_hands_off_what_exceeds_the_inline_budget(
     )
     clock = iter([0.0, 0.0, 0.0, 100.0])  # tick start, then one reading before each entry
     monkeypatch.setattr(scheduler.time, "monotonic", lambda: next(clock))
-    r = scheduler.tick(capp, datetime(2026, 11, 15, 1, 0, tzinfo=UTC), inline_budget_s=45.0)
+    r = scheduler.tick(capp, datetime(2026, 11, 15, 1, 0, tzinfo=UTC), inline_budget_s=45.0, window=1)
     assert r.ran == ["b.next", "a.slow"] and r.handed_off == ["c.next"]  # never skipped
     assert sent == ["lmsTasks"]
 
@@ -227,7 +403,7 @@ def test_hybrid_stack_keeps_the_sub_minute_loops(
         lambda: [scheduler.Entry("x.fast", "schedtest.ok", "* * * * *", 5.0, "critical")],
     )
     assert not scheduler.event_mode()
-    r = scheduler.tick(capp, datetime(2026, 11, 15, 1, 0, tzinfo=UTC))
+    r = scheduler.tick(capp, datetime(2026, 11, 15, 1, 0, tzinfo=UTC), window=1)
     assert (
         r.handed_off == ["x.fast"]
         and sent[0]["periodic_loop"] is True
@@ -335,27 +511,25 @@ def test_gated_job_is_skipped_while_idle_and_woken_by_a_write(
         "entries",
         lambda: [scheduler.Entry("x.gated", "schedtest.ok", "* * * * *", None, "default", ("x",))],
     )
-    backstop = scheduler.backstop_minute("x.gated", "* * * * *")
-    minute = (backstop + 7) % 60
-    t0 = datetime(2026, 11, 15, 3, minute, tzinfo=UTC)
+    t0 = datetime(2026, 11, 15, 3, 7, tzinfo=UTC)  # never a backstop minute (those are hour starts)
 
-    r = scheduler.tick(capp, t0)  # no verdict yet: runs, then records "idle" (nothing pending)
+    r = scheduler.tick(capp, t0, window=1)  # no verdict yet: runs, then records "idle" (nothing pending)
     assert r.ran == ["x.gated"]
     assert "x.gated" in _hint_doc()["idle"]
-    r = scheduler.tick(capp, t0 + timedelta(minutes=1))
+    r = scheduler.tick(capp, t0 + timedelta(minutes=1), window=1)
     assert r.skipped == ["x.gated"] and r.ran == []
 
     _write("d1", {"status": "done"})  # any write to a watched collection wakes the job
     hint = _hint_doc()
     assert TEST_COLL in hint["w"]
-    r = scheduler.tick(capp, t0 + timedelta(minutes=2))
+    r = scheduler.tick(capp, t0 + timedelta(minutes=2), window=1)
     assert r.ran == ["x.gated"]  # ran; still nothing pending -> idle again, but the write is recent
     _write("d2", {"status": "pending"})  # the same process within 30 s: no second hint write
     assert _hint_doc()["w"][TEST_COLL] == hint["w"][TEST_COLL]
-    r = scheduler.tick(capp, t0 + timedelta(minutes=3))
+    r = scheduler.tick(capp, t0 + timedelta(minutes=3), window=1)
     assert r.ran == ["x.gated"]  # the earlier hint is still within the margin -> runs, finds work
     assert "x.gated" not in _hint_doc().get("idle", {})  # busy: no idle verdict
-    r = scheduler.tick(capp, t0 + timedelta(minutes=4))
+    r = scheduler.tick(capp, t0 + timedelta(minutes=4), window=1)
     assert r.ran == ["x.gated"]
 
 
@@ -371,17 +545,21 @@ def test_backstop_runs_an_idle_job_even_without_any_hint(
         "entries",
         lambda: [scheduler.Entry("x.gated", "schedtest.ok", "* * * * *", None, "default", ("x",))],
     )
-    b = scheduler.backstop_minute("x.gated", "* * * * *")
-    start = datetime(2026, 11, 15, 3, (b + 1) % 60, tzinfo=UTC)
-    ran = [m for m in range(61) if scheduler.tick(capp, start + timedelta(minutes=m)).ran]
-    assert ran == [0, 59]  # first verdict, then only the hourly full sweep (a missed hint: <= 60 min)
+    day, hour = scheduler.backstop_slot("x.gated")
+    step = scheduler.TICK_MINUTES
+    start = WEEK_START + timedelta(minutes=step)
+    ticks = [start + timedelta(minutes=m) for m in range(0, (scheduler.BACKSTOP_EVERY_DAYS + 1) * 1440, step)]
+    ran = [at for at in ticks if scheduler.tick(capp, at).ran]
+    assert ran[0] == start and len(ran) == 2  # first verdict, then only the periodic full sweep
+    covered = scheduler.window_minutes(ran[1])  # the tick whose window holds the slot hour's start
+    assert any(m.toordinal() % scheduler.BACKSTOP_EVERY_DAYS == day and (m.hour, m.minute) == (hour, 0) for m in covered)
 
 
 def test_hint_state_fingerprint_invalidates_the_idle_verdict() -> None:
     gate = scheduler.Gate(("c",), scheduler._none_of("c"), fingerprint=lambda: "v2")
     e = scheduler.Entry("x.j", "t", "* * * * *", None, "default")
     since = datetime(2026, 11, 15, 3, 0, tzinfo=UTC)
-    at = datetime(2026, 11, 15, 3, (scheduler.backstop_minute("x.j", e.cron) + 5) % 60, tzinfo=UTC)
+    at = datetime(2026, 11, 15, 3, 5, tzinfo=UTC)
     st = scheduler.HintState(since, {}, {"x.j": {"at": since, "fp": "v2"}})
     assert scheduler.should_skip(e, gate, st, at)
     st.idle["x.j"]["fp"] = "v1"
@@ -616,3 +794,185 @@ def test_failed_kick_is_logged_not_raised(
 
     monkeypatch.setattr(cloudtasks, "enqueue_impl", boom)
     assert jobs.run_async(jobhints.kick(jobhints.SEAL_JOB)) is False  # the hint + minute backstop cover it
+
+
+def test_earliest_expiry_query_on_the_emulator(event_mode: list[dict[str, Any]]) -> None:
+    from app.core.firestore.collections import physical_name
+    from app.core.firestore.store import ScopedStore
+
+    client = ScopedStore.system("schedtest").client
+    t1 = datetime(2027, 1, 5, tzinfo=UTC)
+    t2 = datetime(2027, 3, 1, tzinfo=UTC)
+
+    async def body() -> tuple[Any, Any, Any]:
+        coll = client.collection(physical_name("entitlements"))
+        await coll.document("a").set({"status": "active", "ends_at": t2})
+        await coll.document("b").set({"status": "active", "ends_at": t1})
+        await coll.document("c").set({"status": "active", "ends_at": None})  # lifetime access
+        await coll.document("d").set({"status": "expired", "ends_at": datetime(2026, 1, 1, tzinfo=UTC)})
+        return (
+            await scheduler._earliest(client, "entitlements", "active", "ends_at"),
+            await scheduler._earliest(client, "entitlements", "grace", "grace_ends_at"),
+            await scheduler._exists(client, "security_cases", (("status", "!=", "closed"),)),
+        )
+
+    active, grace, cases = jobs.run_async(body())
+    assert active == t1 and grace is None and cases is False
+
+
+# --------------------------------------------------------------------------- idle cost (emulator)
+
+
+def _count_billed_ops(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
+    """Count billed Firestore operations at the GAPIC level, as Firestore bills them (same rules as
+    functions-lms/tools/firestore_cost_probe.py): a query bills one read per document returned and
+    one read when it returns nothing; every write / delete in a commit bills one."""
+    from google.cloud.firestore_v1.services.firestore.async_client import FirestoreAsyncClient as C
+
+    n = {"reads": 0, "writes": 0, "deletes": 0}
+
+    class Stream:
+        def __init__(self, inner: Any, kind: str) -> None:
+            self.inner, self.kind, self.docs, self.it, self.done = inner, kind, 0, None, False
+
+        def __aiter__(self) -> Any:
+            return self
+
+        async def __anext__(self) -> Any:
+            if self.it is None:
+                self.it = self.inner.__aiter__()
+            try:
+                resp = await self.it.__anext__()
+            except StopAsyncIteration:
+                if not self.done and self.kind == "query" and self.docs == 0:
+                    n["reads"] += 1
+                self.done = True
+                raise
+            pb = getattr(resp, "_pb", resp)
+            if self.kind == "query" and pb.HasField("document"):
+                self.docs += 1
+                n["reads"] += 1
+            elif self.kind == "get" and (pb.HasField("found") or pb.WhichOneof("result") == "missing"):
+                n["reads"] += 1
+            return resp
+
+    rq, agg, bg, gd, cm = C.run_query, C.run_aggregation_query, C.batch_get_documents, C.get_document, C.commit
+
+    async def run_query(self: Any, *a: Any, **kw: Any) -> Any:
+        return Stream(await rq(self, *a, **kw), "query")
+
+    async def run_aggregation_query(self: Any, *a: Any, **kw: Any) -> Any:
+        n["reads"] += 1
+        return await agg(self, *a, **kw)
+
+    async def batch_get_documents(self: Any, *a: Any, **kw: Any) -> Any:
+        return Stream(await bg(self, *a, **kw), "get")
+
+    async def get_document(self: Any, *a: Any, **kw: Any) -> Any:
+        n["reads"] += 1
+        return await gd(self, *a, **kw)
+
+    async def commit(self: Any, *a: Any, **kw: Any) -> Any:
+        req = kw.get("request") if kw.get("request") is not None else (a[0] if a else None)
+        writes = (req.get("writes") if isinstance(req, dict) else getattr(req, "writes", None)) or kw.get("writes") or []
+        for w in writes:
+            if getattr(w, "_pb", None) is not None:
+                op = w._pb.WhichOneof("operation")
+            elif isinstance(w, dict):
+                op = "delete" if w.get("delete") else "update"
+            else:
+                op = "delete" if getattr(w, "delete", "") else "update"
+            n["deletes" if op == "delete" else "writes"] += 1
+        return await cm(self, *a, **kw)
+
+    for name, fn in {
+        "run_query": run_query,
+        "run_aggregation_query": run_aggregation_query,
+        "batch_get_documents": batch_get_documents,
+        "get_document": get_document,
+        "commit": commit,
+    }.items():
+        monkeypatch.setattr(C, name, fn)
+    return n
+
+
+def test_an_idle_week_costs_under_50_billed_operations_a_day(
+    event_mode: list[dict[str, Any]], settings_env: pytest.MonkeyPatch, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Owner target (2026-11-19): while nobody uses the LMS, Firestore bills < 50 operations a day.
+    Every real beat entry, hourly ticks (TICK_MINUTES), an empty project; day 1 also makes the first
+    idle verdicts, so days 2-7 are the steady state (the weekly full sweeps fall on those days).
+    Runs one backstop cycle (BACKSTOP_EVERY_DAYS) so weekly retention sweeps and every gated job's
+    full run are included; days 1-2 make the first verdicts, the rest is the idle average."""
+    import app.worker as worker
+    from app.core.firestore.backend import MODULES
+    from app.core.config import reset_settings_cache
+
+    for m in MODULES:
+        settings_env.setenv(f"TD_STORE_{m.upper()}", "firestore")
+    reset_settings_cache()
+    jobhints.reset_for_tests()
+    # A simulated week runs in seconds of real time, while hints carry real server timestamps: the
+    # clock-slack margin and the 30 s hint rate limit would make every tick look "just written".
+    monkeypatch.setattr(jobhints, "SKIP_MARGIN", timedelta(0))
+    monkeypatch.setattr(jobhints, "HINT_REFRESH_S", 0.0)
+    n = _count_billed_ops(monkeypatch)
+    capp = worker.celery_app
+    per_day: list[dict[str, int]] = []
+    busy: list[str] = []
+    for day in range(scheduler.BACKSTOP_EVERY_DAYS):
+        before = dict(n)
+        for m in range(scheduler.TICK_MINUTES, 1441, scheduler.TICK_MINUTES):
+            at = WEEK_START + timedelta(days=day, minutes=m)
+            b = dict(n)
+            res = scheduler.tick(capp, at)
+            while event_mode:  # what the task queues would run (maintenance hand-offs, kicks)
+                item = event_mode.pop(0)
+                if item.get("periodic"):
+                    cloudtasks.run_periodic(capp, item["periodic"], loop=False)
+                else:
+                    cloudtasks.run_task(capp, item["task"], item.get("args"), item.get("kwargs"))
+            cost = sum(n[k] - b[k] for k in n)
+            if day > 1 and cost > 1:
+                busy.append(f"{at:%a %d %H:%M} {cost} ran={res.ran} handed={res.handed_off}")
+        per_day.append({k: n[k] - before[k] for k in n})
+    print("ticks costing more than the hint read (days 3+):", *busy, sep="\n  ")  # noqa: T201
+    print("billed operations per idle day (days 1-2 = first verdicts):", per_day)  # noqa: T201
+    steady = [sum(d.values()) for d in per_day[2:]]
+    avg = sum(steady) / len(steady)
+    print("idle days: average", round(avg, 1), "max", max(steady), "min", min(steady))  # noqa: T201
+    assert avg < 50, per_day
+
+
+def test_decay_recompute_is_idle_while_protection_is_off_and_not_enforcing(monkeypatch: pytest.MonkeyPatch) -> None:
+    gate = scheduler.GATES["security.decay_recompute"]
+    monkeypatch.setattr(scheduler, "_exists", _fake_exists({"security_signals"}))  # signals exist
+    skipped = {"derived_signals": 0, "evaluations": 0, "skipped": "protection_off_not_enforcing"}
+    assert jobs.run_async(gate.idle(None, skipped)) is True
+    assert jobs.run_async(gate.idle(None, {"derived_signals": 1, "evaluations": 3})) is False
+    assert "policy_settings" in gate.watch and gate.fingerprint is not None
+    assert gate.fingerprint().startswith("protection_off=")
+
+
+def test_decay_recompute_job_skips_without_reading_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from app.modules.security import engine
+    from app.modules.security import tasks as sec_tasks
+
+    mode = ["shadow"]
+
+    async def risk_mode(_session: Any) -> str:
+        return mode[0]
+
+    async def no_sessions(*_a: Any, **_k: Any) -> list[Any]:
+        raise AssertionError("must not read sessions while skipped")
+
+    monkeypatch.setattr(engine, "risk_mode", risk_mode)
+    monkeypatch.setattr(sec_tasks.sessions_public, "list_sessions", no_sessions)
+    monkeypatch.setattr("app.core.config.get_settings", lambda: SimpleNamespace(account_protection_off=True))
+    out = jobs.run_async(sec_tasks.decay_recompute(None))  # type: ignore[arg-type]
+    assert out["skipped"] == "protection_off_not_enforcing"
+    mode[0] = "enforce"
+    with pytest.raises(AssertionError, match="must not read sessions"):
+        jobs.run_async(sec_tasks.decay_recompute(None))  # type: ignore[arg-type]

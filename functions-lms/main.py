@@ -10,11 +10,11 @@ Functions:
   the Celery queues ``default`` / ``critical`` / ``maintenance``. Payload
   ``{"task", "args", "kwargs"}`` sent by ``app.core.cloudtasks`` (every Celery ``send_task`` /
   ``apply_async`` / ``delay`` when ``TD_TASKS_BACKEND=cloudtasks``).
-* ``lmsScheduler`` (scheduled, every minute, UTC): the ONE Cloud Scheduler job. It runs every
-  beat entry of ``schedules.json`` whose cron is due that minute (``app.core.scheduler.tick``; same
+* ``lmsScheduler`` (scheduled, every 2 hours, UTC): the ONE Cloud Scheduler job. It runs every
+  beat entry of ``schedules.json`` whose cron is due since the previous tick (``app.core.scheduler.tick``; same
   cadence as the former one-function-per-entry ``lmsJob*`` functions), hands maintenance entries
-  to ``lmsTasksMaintenance`` (540 s) and skips provably idle entries (work hints, hourly full
-  sweep). Outbox relay, audit seal and the deadline sweeper are kicked by the writes that create
+  to ``lmsTasksMaintenance`` (540 s) and skips provably idle entries (work hints, weekly full
+  sweep). Outbox relay, audit seal, certificate emails and the deadline sweeper are kicked by the writes that create
   their work (``app.core.jobhints``) instead of looping. docs/firebase/agents/cost-scheduler.md.
 
 The API code is ``./app`` (copied from ``apps/api/app`` by ``tools/build.py`` before a deploy);
@@ -235,7 +235,7 @@ lmsTasksMaintenance = _task_function("lmsTasksMaintenance", max_attempts=3, min_
 # tools/gen_schedules.py) at its own cron, dispatched by app.core.scheduler. Concurrency 1: a tick
 # owns its instance; a tick that overruns its inline budget hands the rest to the task queues.
 @scheduler_fn.on_schedule(
-    schedule="* * * * *",
+    schedule="0 */2 * * *",  # every 2 h: app.core.scheduler.TICK_MINUTES (idle cost, owner 2026-11-19)
     timezone=scheduler_fn.Timezone("Etc/UTC"),  # Celery beat runs in UTC
     region=REGION,
     memory=options.MemoryOption.GB_1,  # inline jobs had 1 GiB as separate functions

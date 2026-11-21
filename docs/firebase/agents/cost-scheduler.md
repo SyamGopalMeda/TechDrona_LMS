@@ -4,7 +4,37 @@ Goal: keep the LMS Firebase deployment (project billing-f4fe3, region asia-south
 tiers when idle and at small scale, **without changing any feature or behaviour**. Nothing was
 deployed.
 
-## TL;DR
+## Update 2026-11-19: < 50 billed operations a day while idle (owner request)
+
+Live before this change (Cloud Monitoring, project billing-f4fe3, nobody using the LMS): about
+**456 reads and 131 writes an hour** (≈ 11,000 reads and 3,100 writes a day), plus ≈ 2,085 reads at
+20:30 UTC from `security.decay_recompute`, which scanned every stored login session nightly.
+
+Changes in `app/core/scheduler.py` (Firebase event mode only; the VM's Celery beat is unchanged):
+
+- **Ticks every 2 hours** (`TICK_MINUTES = 120`, `lmsScheduler` `0 */2 * * *`). A tick runs every
+  entry whose cron matched any minute of its window, once. All crons fall on 15-minute boundaries.
+- **Every entry that runs more than once a day is gated.** New gates: `analytics.daily_aggregator`,
+  `analytics.outbox_consumer`, `commerce.reconciliation` (skipped while the gateway is not
+  integrated), `entitlements.expiry` (books a Cloud Task at the next `ends_at` / `grace_ends_at`
+  instead of polling), `media.scan_sweep`, `security.purge_counters`, `security.sla_breach_alerts`,
+  `support.auto_close`. Daily: `security.decay_recompute` (no signals, restrictions or recent
+  device-OTP tokens and no new activity), `analytics.rollups` and `analytics.security_feed` (idle once
+  activity has been quiet for 2 days, `Gate.quiet`), and the retention sweeps
+  `analytics.retention_purge` / `core.maint_retention` (nightly while in use, weekly while idle;
+  windows are ≥ 35 days).
+- **No writes for skipped runs** (the analytics `on_skip` bookkeeping is gone), and **certificate
+  emails are kicked** on create like the outbox relay (`jobhints.KICK_ON_CREATE`).
+- **Backstop:** each gated job runs in full every 28 days (`BACKSTOP_EVERY_DAYS`; retention: 7).
+
+Measured by `tests/platform/test_scheduler.py::test_an_idle_week_costs_under_50_billed_operations_a_day`
+(emulator, every real entry, 28 simulated days, empty project): **≈ 36 billed operations a day on
+average**: 14 on most days (12 hint reads + 2 small nightly jobs), up to ≈ 84 on the weekly
+retention day. Time-based work while idle (unpaid order expiry, SLA alerts, auto-close) waits for
+the next 2-hour tick; access checks never depend on it (grants, approvals and sessions compare
+`expires_at` when used).
+
+## TL;DR (2026-11-13, per-minute dispatcher)
 
 | Idle day (no users, empty demo DB, emulator-measured) | Before (32 scheduled functions) | After (1 dispatcher) |
 |---|---|---|

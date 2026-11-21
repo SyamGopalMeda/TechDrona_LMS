@@ -1,9 +1,9 @@
-"""One dispatcher for every periodic job on Firebase (``lmsScheduler``, every minute, UTC).
+"""One dispatcher for every periodic job on Firebase (``lmsScheduler``, every 2 hours, UTC).
 
 Replaces the per-entry ``lmsJob*`` scheduled functions (Cloud Scheduler bills per job beyond 3 per
 billing account, and every function invocation cost a cold Python import). ``tick(capp, at)`` runs
-every beat entry whose cron (``cloudtasks.cron_for``, the cadence the old functions had) matches the
-minute ``at``:
+every beat entry whose cron (``cloudtasks.cron_for``, the cadence the old functions had) matches any
+minute of the tick's window (the ``TICK_MINUTES`` up to and including ``at``), once per tick:
 
 * ``maintenance``-queue entries are handed to the ``lmsTasksMaintenance`` task-queue function
   (540 s budget, one at a time) with ``periodic=<job>``: a failure is logged, not retried -- the
@@ -17,16 +17,24 @@ minute ``at``:
 
 * The sub-minute entries (``core.outbox_relay`` 5 s, ``core.audit_seal`` 2 s,
   ``assessments.deadline_sweeper`` 5 s) no longer loop ~50 s per minute. They are kicked by the
-  writes that create their work (``app.core.jobhints``) and run here once a minute as a backstop.
+  writes that create their work (``app.core.jobhints``; also ``learning.certificate_outbox_send``)
+  and run here once a tick as a backstop.
 * Entries in ``GATES`` are skipped while provably idle: after a run, the gate decides whether the job
   has nothing to do now *and* can only get work through a new write to one of its ``watch``
   collections (a ``limit(1)`` existence query, or the run's own result). The dispatcher records
   ``idle.<job> = S`` (the tick's read time) on the hint document; later ticks skip the job until a
   hint shows a write to a watched collection (``w.<c> >= S - SKIP_MARGIN``). Each gated job still
-  runs in full once an hour (``BACKSTOP_EVERY_MIN``, at a per-job minute), so a missed hint delays
-  work by at most 60 minutes and never loses it. A gate's ``fingerprint`` (e.g. the relay's
-  ``TD_OUTBOX_MAX_ATTEMPTS``) invalidates the idle verdict when configuration changes.
-* An idle minute costs one billed read (the hint document) plus the ungated jobs' own queries.
+  runs in full every ``BACKSTOP_EVERY_DAYS`` days (a gate's ``backstop_days`` may say more often),
+  at a per-job day/hour, so a missed hint (a write that bypassed ``ScopedStore``: none today) delays
+  work, never loses it. A gate's ``quiet`` keeps a job running until its watched collections have
+  been quiet that long (jobs that process "yesterday"). Handed-off gated jobs (``maintenance``)
+  get their verdict at hand-off, so their gate must not depend on the run's result. A gate's
+  ``fingerprint`` (e.g. the relay's ``TD_OUTBOX_MAX_ATTEMPTS``) invalidates the idle verdict when
+  configuration changes. No bookkeeping is written for a skipped run.
+* An idle tick costs one billed read (the hint document) plus the ungated jobs' own queries
+  (owner target 2026-11-19: < 50 billed operations a day while nobody uses the LMS). Time-based
+  work (order / entitlement expiry, SLA alerts, auto-close) waits for the next tick; access checks
+  never depend on it (grants, approvals and sessions compare ``expires_at`` when used).
 
 Outside event mode (VM: not used at all; hybrid Firebase + Postgres): no gates, no kicks; the
 sub-minute entries are handed to ``lmsTasksCritical`` each minute and loop for 50 s exactly like
@@ -48,7 +56,10 @@ import structlog
 log = structlog.get_logger("app.scheduler")
 
 INLINE_BUDGET_S = 45.0
-BACKSTOP_EVERY_MIN = 60
+# ``lmsScheduler`` fires every TICK_MINUTES (functions-lms/main.py: "0 */2 * * *" for 120); every cron
+# of schedules.json falls on a 15-minute boundary, so nothing is lost by coarser ticks.
+TICK_MINUTES = 120
+BACKSTOP_EVERY_DAYS = 28
 LOOP_BUDGET_S = 50.0
 
 # --------------------------------------------------------------------------- cron
@@ -150,9 +161,20 @@ def entry_for(job: str) -> Entry:
     return e
 
 
-def due_entries(at: datetime, all_entries: list[Entry] | None = None) -> list[Entry]:
+def window_minutes(at: datetime, window: int | None = None) -> list[datetime]:
+    """The minutes a tick at ``at`` covers: ``at`` and the ``window - 1`` minutes before it."""
     at = floor_minute(at)
-    return [e for e in (all_entries if all_entries is not None else entries()) if cron_matches(e.cron, at)]
+    n = TICK_MINUTES if window is None else window
+    return [at - timedelta(minutes=k) for k in range(max(1, n))]
+
+
+def due_entries(
+    at: datetime, all_entries: list[Entry] | None = None, *, window: int | None = None
+) -> list[Entry]:
+    """Entries whose cron matches any minute of the tick's window (each runs once per tick)."""
+    minutes = window_minutes(at, window)
+    pool = all_entries if all_entries is not None else entries()
+    return [e for e in pool if any(cron_matches(e.cron, m) for m in minutes)]
 
 
 def event_mode() -> bool:
@@ -173,6 +195,8 @@ class Gate:
     idle: IdleCheck  # (firestore client, run result) -> True when provably idle
     on_skip: Callable[[], Awaitable[None]] | None = None  # bookkeeping an idle run would do
     fingerprint: Callable[[], str] | None = None
+    quiet: timedelta | None = None  # idle only once every watched collection was quiet this long
+    backstop_days: int | None = None  # full run while idle (default BACKSTOP_EVERY_DAYS)
 
 
 async def _exists(client: Any, collection: str, filters: tuple[tuple[str, str, Any], ...]) -> bool:
@@ -234,13 +258,106 @@ def _judge_fp() -> str:
     return f"judge_enabled={judge_enabled()}"
 
 
-def _analytics_idle_state(job: str, result: dict[str, Any]) -> Callable[[], Awaitable[None]]:
-    async def touch() -> None:
-        from app.modules.analytics.fs_raw import record_idle_run
+async def _always_idle(_client: Any, _result: Any) -> bool:
+    return True
 
-        await record_idle_run(job, result)
 
-    return touch
+# Writes that mean "someone is using the LMS" (a sign-in, page activity).
+ACTIVITY = ("auth_sessions", "analytics_batches")
+
+
+def _all_idle(*checks: IdleCheck) -> IdleCheck:
+    async def check(client: Any, result: Any) -> bool:
+        for c in checks:
+            if not await c(client, result):
+                return False
+        return True
+
+    return check
+
+
+def _any_idle(*checks: IdleCheck) -> IdleCheck:
+    async def check(client: Any, result: Any) -> bool:
+        for c in checks:
+            if await c(client, result):
+                return True
+        return False
+
+    return check
+
+
+def _protection_fp() -> str:
+    from app.core.config import get_settings
+
+    return f"protection_off={get_settings().account_protection_off}"
+
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+ENTITLEMENT_JOB = "entitlements.expiry"
+# Cloud Tasks accepts a schedule time up to 30 days ahead: a later expiry gets a re-check kick.
+MAX_KICK_AHEAD = timedelta(days=25)
+
+
+async def _earliest(client: Any, collection: str, status: str, field_name: str) -> datetime | None:
+    """Earliest ``field_name`` of a ``status`` document (the job's own index: status, field asc)."""
+    from google.cloud.firestore import FieldFilter
+
+    from app.core.firestore.collections import physical_name
+
+    q = (
+        client.collection(physical_name(collection))
+        .where(filter=FieldFilter("status", "==", status))
+        .where(filter=FieldFilter(field_name, ">", _EPOCH))
+        .order_by(field_name)
+        .select([field_name])
+        .limit(1)
+    )
+    async for snap in q.stream():
+        v = (snap.to_dict() or {}).get(field_name)
+        return v if isinstance(v, datetime) else None
+    return None
+
+
+async def _entitlements_idle(client: Any, _result: Any) -> bool:
+    """Idle when no entitlement can expire without a new write, or when the next expiry is booked
+    as a Cloud Task (``jobhints.kick_at``) -- like the test deadlines. An active entitlement without
+    an end date never becomes due. A kick that cannot be booked -> not idle (hourly runs, as before)."""
+    from app.core import jobhints
+    from app.core.time import utcnow
+
+    found = [
+        v
+        for status, f in (("active", "ends_at"), ("grace", "grace_ends_at"))
+        if (v := await _earliest(client, "entitlements", status, f)) is not None
+    ]
+    if not found:
+        return True
+    when = min(min(found) + timedelta(seconds=1), utcnow() + MAX_KICK_AHEAD)
+    return await jobhints.kick_at(ENTITLEMENT_JOB, when)
+
+
+async def _decay_idle(client: Any, _result: Any) -> bool:
+    """``security.decay_recompute`` (nightly) can only change something when a sharing score or
+    restriction exists (decay / de-escalation over time) or new activity was written. No signals in
+    the 30-day window, no open restriction and no recent device-OTP token (one could still turn
+    "abandoned") -> the run is a no-op until one of the watched collections is written."""
+    from app.core.time import utcnow
+
+    now = utcnow()
+    if await _exists(client, "security_signals", (("occurred_at", ">", now - timedelta(days=30)),)):
+        return False
+    if await _exists(client, "account_restrictions", (("ended_at", "==", None),)):
+        return False
+    return not await _exists(client, "verification_tokens", (("created_at", ">", now - timedelta(days=7)),))
+
+
+def _gateway_fp() -> str:
+    from app.modules.commerce.gateway import gateway_status
+
+    st = gateway_status()
+    return f"{st.get('provider')}:{st.get('integrated')}"
 
 
 GATES: dict[str, Gate] = {
@@ -250,16 +367,29 @@ GATES: dict[str, Gate] = {
     "analytics.exports_sweep": Gate(
         ("export_jobs",), _none_of("export_jobs", ("status", "in", ["ready", "awaiting_approval", "running"]))
     ),
-    "analytics.interval_builder": Gate(
-        ("analytics_batches", "engagement_intervals"),
-        _result_is("page_instances", 0),
-        on_skip=_analytics_idle_state("interval_builder", {"page_instances": 0, "intervals": 0}),
+    # Nightly jobs that only process yesterday's activity: skipped once activity has been quiet for
+    # two days (an idle day then has no cohort / feed rows instead of rows of zeros). Consent
+    # withdrawals and user changes (minors, synthetic) still wake the feed (24 h removal rule).
+    "analytics.rollups": Gate(
+        ("analytics_batches", "engagement_intervals", "daily_learning_aggregates"),
+        _always_idle,
+        quiet=timedelta(days=2),
     ),
-    "analytics.video_coverage": Gate(
-        ("analytics_batches",),
-        _result_is("assets", 0),
-        on_skip=_analytics_idle_state("video_coverage", {"assets": 0}),
+    "analytics.security_feed": Gate(
+        ("analytics_batches", "engagement_intervals", "consents", "users"),
+        _always_idle,
+        quiet=timedelta(days=2),
     ),
+    # Retention sweeps (windows >= 35 days): nightly while the LMS is in use, weekly while idle.
+    "analytics.retention_purge": Gate(ACTIVITY, _always_idle, backstop_days=7),
+    "core.maint_retention": Gate(ACTIVITY, _always_idle, backstop_days=7),
+    "analytics.interval_builder": Gate(("analytics_batches", "engagement_intervals"), _result_is("page_instances", 0)),
+    "analytics.video_coverage": Gate(("analytics_batches",), _result_is("assets", 0)),
+    "analytics.daily_aggregator": Gate(
+        ("analytics_batches", "engagement_intervals", "analytics_dirty_days"), _result_is("user_days", 0)
+    ),
+    # Events only arrive by writes to outbox_events; an idle run still wrote its watermark document.
+    "analytics.outbox_consumer": Gate(("outbox_events",), _result_is("seen", 0)),
     "assessments.deadline_sweeper": Gate(
         ("test_attempts", "attempt_sections", "tests"),
         _none_of("test_attempts", ("status", "==", "in_progress")),
@@ -272,15 +402,31 @@ GATES: dict[str, Gate] = {
     "commerce.order_expiry": Gate(
         ("orders",), _none_of("orders", ("status", "in", ["created", "pending_payment"]))
     ),
+    "commerce.reconciliation": Gate((), _result_is("skipped", "gateway_not_integrated"), fingerprint=_gateway_fp),
     "core.audit_seal": Gate(("audit_outbox",), _none_of("audit_outbox")),
+    "entitlements.expiry": Gate(("entitlements",), _entitlements_idle),
     "core.outbox_relay": Gate(("outbox_events",), _relay_idle, fingerprint=_relay_fp),
     "learning.certificate_outbox_send": Gate(
         ("certificate_outbox",), _none_of("certificate_outbox", ("status", "==", "pending"))
     ),
+    "media.scan_sweep": Gate(("lesson_assets",), _none_of("lesson_assets", ("scan_status", "==", "pending"))),
     "placement.media_scan_sweep": Gate(
         ("question_media",), _none_of("question_media", ("scan_status", "==", "pending"))
     ),
+    "security.decay_recompute": Gate(
+        (
+            "auth_sessions",
+            "user_devices",
+            "verification_tokens",
+            "security_signals",
+            "account_restrictions",
+            "policy_settings",  # risk.mode changed (e.g. to enforce) -> run again
+        ),
+        _any_idle(_result_is("skipped", "protection_off_not_enforcing"), _decay_idle),
+        fingerprint=_protection_fp,
+    ),
     "security.heartbeat_batch": Gate(("auth_sessions",), _sessions_seen_recently),
+    "security.purge_counters": Gate(("security_counters",), _none_of("security_counters")),
     "security.restriction_expiry": Gate(
         ("account_restrictions",),
         # ``ended_at == None`` as in the job's own query: a lifted L3 row is no work, and without
@@ -289,6 +435,15 @@ GATES: dict[str, Gate] = {
             "account_restrictions", ("level", "==", 3), ("family", "==", "sharing"), ("ended_at", "==", None)
         ),
     ),
+    "security.sla_breach_alerts": Gate(
+        ("security_cases", "unblock_requests", "approval_requests"),
+        _all_idle(
+            _none_of("security_cases", ("status", "!=", "closed")),
+            _none_of("unblock_requests", ("state", "in", ["info_requested", "rejected", "draft"])),
+            _none_of("approval_requests", ("status", "==", "pending")),
+        ),
+    ),
+    "support.auto_close": Gate(("support_tickets",), _none_of("support_tickets", ("status", "==", "resolved"))),
 }
 
 
@@ -301,28 +456,34 @@ def watched_collections() -> frozenset[str]:
     return _watched()
 
 
-def _step_minutes(cron: str) -> int | None:
-    """``* * * * *`` -> 1, ``*/N * * * *`` -> N; anything else is not gated."""
-    m, *rest = cron.split()
-    if rest != ["*", "*", "*", "*"]:
-        return None
-    if m == "*":
-        return 1
-    if m.startswith("*/") and 60 % int(m[2:]) == 0:
-        return int(m[2:])
-    return None
+def _at_most_daily(cron: str) -> bool:
+    """A fixed hour and minute (``30 20 * * *``, ``0 23 * * 0``): due at most once a day."""
+    m, h, *_ = cron.split()
+    return m.isdigit() and h.isdigit()
 
 
-def backstop_minute(job: str, cron: str) -> int:
-    """Minute of the hour at which a gated job always runs in full (matches its cron)."""
-    step = _step_minutes(cron) or 1
-    slots = BACKSTOP_EVERY_MIN // step
+def _backstop_days(job: str) -> int:
+    gate = GATES.get(job)
+    return (gate.backstop_days if gate is not None and gate.backstop_days else None) or BACKSTOP_EVERY_DAYS
+
+
+def backstop_slot(job: str) -> tuple[int, int]:
+    """(day of the job's backstop cycle, hour UTC) of a gated job's full run while idle: day =
+    ``date.toordinal() % cycle``; the cycle is ``_backstop_days(job)`` (spread by a hash of the name)."""
     h = int(hashlib.sha256(job.encode()).hexdigest()[:8], 16)
-    return (h % slots) * step
+    days = _backstop_days(job)
+    return h % days, (h // days) % 24
 
 
-def is_backstop(job: str, cron: str, at: datetime) -> bool:
-    return floor_minute(at).minute == backstop_minute(job, cron)
+def is_backstop(job: str, cron: str, at: datetime, window: int | None = None) -> bool:
+    """Does the tick at ``at`` do the job's periodic full run? Daily-or-rarer jobs: on the slot's
+    day (whenever they are due that day); the rest: the tick covering the slot's hour start."""
+    day, hour = backstop_slot(job)
+    days = _backstop_days(job)
+    minutes = window_minutes(at, window)
+    if _at_most_daily(cron):  # the day it was due (a window may span midnight)
+        return any(cron_matches(cron, m) and m.toordinal() % days == day for m in minutes)
+    return any(m.toordinal() % days == day and m.hour == hour and m.minute == 0 for m in minutes)
 
 
 # --------------------------------------------------------------------------- hint state
@@ -352,12 +513,12 @@ async def read_state(client: Any) -> HintState:
     )
 
 
-def should_skip(e: Entry, gate: Gate, state: HintState, at: datetime) -> bool:
+def should_skip(e: Entry, gate: Gate, state: HintState, at: datetime, window: int | None = None) -> bool:
     from app.core.jobhints import SKIP_MARGIN
 
     rec = state.idle.get(e.job)
     since = _ts((rec or {}).get("at"))
-    if since is None or is_backstop(e.job, e.cron, at):
+    if since is None or is_backstop(e.job, e.cron, at, window):
         return False
     if gate.fingerprint is not None and rec is not None and rec.get("fp") != gate.fingerprint():
         return False
@@ -386,13 +547,13 @@ def _client() -> Any:
     return ScopedStore.system("core.scheduler").client
 
 
-async def _plan(due: list[Entry], at: datetime) -> tuple[HintState, set[str]]:
+async def _plan(due: list[Entry], at: datetime, window: int | None = None) -> tuple[HintState, set[str]]:
     client = _client()
     state = await read_state(client)
     skip: set[str] = set()
     for e in due:
         gate = GATES.get(e.job)
-        if gate is not None and _step_minutes(e.cron) and should_skip(e, gate, state, at):
+        if gate is not None and should_skip(e, gate, state, at, window):
             skip.add(e.job)
             if gate.on_skip is not None:
                 try:
@@ -416,6 +577,9 @@ async def _finish(state: HintState, outcomes: list[tuple[Entry, bool, Any]]) -> 
                 verdict = await gate.idle(client, result)
             except Exception as ex:
                 log.warning("scheduler_idle_check_failed", job=e.job, error=type(ex).__name__)
+        if verdict and gate.quiet is not None:
+            recent = state.read_time - gate.quiet
+            verdict = not any((w := state.written.get(c)) is not None and w >= recent for c in gate.watch)
         if verdict:
             rec: dict[str, Any] = {"at": state.read_time}
             if gate.fingerprint is not None:
@@ -444,22 +608,29 @@ def _handoff(e: Entry, *, loop: bool = False) -> None:
     cloudtasks.send_task(e.task, e.args, e.kwargs, queue=e.queue, periodic=e.job, periodic_loop=loop)
 
 
-def tick(capp: Any, now: datetime | None = None, *, inline_budget_s: float = INLINE_BUDGET_S) -> TickResult:
-    """Run every entry due at the minute of ``now`` (default: the current UTC minute)."""
+def tick(
+    capp: Any,
+    now: datetime | None = None,
+    *,
+    inline_budget_s: float = INLINE_BUDGET_S,
+    window: int | None = None,
+) -> TickResult:
+    """Run every entry due in the tick's window ending at the minute of ``now`` (default: the
+    current UTC minute and ``TICK_MINUTES``)."""
     from app.core.cloudtasks import run_task
     from app.core.jobs import run_async
     from app.core.time import utcnow
 
     at = floor_minute(now or utcnow())
     res = TickResult(at)
-    due = due_entries(at)
+    due = due_entries(at, window=window)
     gating = event_mode()
     critical_first = sorted(due, key=lambda e: (e.queue != "critical", e.job))
     state: HintState | None = None
     skip: set[str] = set()
     if gating and any(e.job in GATES for e in due):
         try:
-            state, skip = run_async(_plan(due, at))
+            state, skip = run_async(_plan(due, at, window))
         except Exception as ex:  # hints unavailable: run everything (never skip on doubt)
             log.warning("scheduler_hints_unavailable", error=type(ex).__name__)
             state, skip = None, set()
@@ -474,6 +645,7 @@ def tick(capp: Any, now: datetime | None = None, *, inline_budget_s: float = INL
             try:
                 _handoff(e, loop=loop)
                 res.handed_off.append(e.job)
+                outcomes.append((e, True, None))  # gated hand-offs: verdict now (no result)
             except Exception as ex:  # last resort: run it here rather than lose the run
                 log.error("scheduler_handoff_failed", job=e.job, error=type(ex).__name__)
                 _run_inline(capp, e, res, outcomes, run_task)

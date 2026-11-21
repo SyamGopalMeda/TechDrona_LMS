@@ -17,8 +17,8 @@
 * ``--mode jobs``: runs every job of ``schedules.json`` once on an idle (empty) demo project and
   prints the per-run cost; the per-minute / per-day / per-month figures follow from each job's
   cron (and, for the OLD sub-minute loops, ``repeat_seconds``: 50 s budget per minute).
-* ``--mode dispatcher``: runs ``app.core.scheduler.tick`` for every minute of one simulated UTC
-  day (time is simulated, nothing sleeps) and prints the real totals.
+* ``--mode dispatcher``: runs ``app.core.scheduler.tick`` for every tick (``--tick``, default
+  ``TICK_MINUTES``) of one simulated UTC day (time is simulated, nothing sleeps) and prints the real totals.
 
 Cloud Tasks enqueues are counted (``app.core.cloudtasks.enqueue_impl`` is replaced; nothing is
 sent anywhere). CPU = ``time.process_time()`` of this process (all threads, incl. gRPC).
@@ -243,7 +243,7 @@ def old_totals(per_job: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def measure_dispatcher(capp: Any, minutes: int) -> dict[str, Any]:
+def measure_dispatcher(capp: Any, minutes: int, tick: int = 1) -> dict[str, Any]:
     from datetime import UTC, datetime, timedelta
 
     from app.core import scheduler
@@ -255,10 +255,10 @@ def measure_dispatcher(capp: Any, minutes: int) -> dict[str, Any]:
     skipped: Counter[str] = Counter()
     ticks_cpu: list[float] = []
     worst_reads, worst_minute = 0, ""
-    for m in range(minutes):
+    for m in range(tick, minutes + 1, tick):  # each tick covers the ``tick`` minutes up to ``now``
         now = start + timedelta(minutes=m)
         b = _snap()
-        res = scheduler.tick(capp, now=now)
+        res = scheduler.tick(capp, now=now, window=tick)
         r = _diff(b, _snap()).get("reads", 0)
         if r > worst_reads:
             worst_reads, worst_minute = r, now.strftime("%a %H:%M")
@@ -270,6 +270,7 @@ def measure_dispatcher(capp: Any, minutes: int) -> dict[str, Any]:
     cpu, wall = time.process_time() - cpu0, time.perf_counter() - t0
     return {
         "minutes": minutes,
+        "tick_minutes": tick,
         "total": _diff(before, _snap()),
         "cpu_s": round(cpu, 2),
         "wall_s": round(wall, 2),
@@ -278,7 +279,7 @@ def measure_dispatcher(capp: Any, minutes: int) -> dict[str, Any]:
         "handed_off": dict(handed_off),
         "ran": dict(sorted(ran.items())),
         "skipped": dict(sorted(skipped.items())),
-        "invocations": {"scheduler": minutes, "task_queue_handoffs": sum(handed_off.values())},
+        "invocations": {"scheduler": minutes // tick, "task_queue_handoffs": sum(handed_off.values())},
     }
 
 
@@ -287,6 +288,7 @@ def main() -> None:
     p.add_argument("--mode", choices=["jobs", "dispatcher", "both"], default="both")
     p.add_argument("--project", default="demo-costprobe")
     p.add_argument("--minutes", type=int, default=1440)
+    p.add_argument("--tick", type=int, default=0, help="minutes per scheduler tick (0 = TICK_MINUTES)")
     p.add_argument("--json", default="")
     args = p.parse_args()
     _env(args.project)
@@ -310,7 +312,9 @@ def main() -> None:
         report["old_schedule_totals"] = old_totals(per_job)
     if args.mode in ("dispatcher", "both"):
         _wipe(args.project)
-        report["dispatcher"] = measure_dispatcher(capp, args.minutes)
+        from app.core.scheduler import TICK_MINUTES
+
+        report["dispatcher"] = measure_dispatcher(capp, args.minutes, args.tick or TICK_MINUTES)
     text = json.dumps(report, indent=2, default=str)
     if args.json:
         Path(args.json).write_text(text, encoding="utf-8")
