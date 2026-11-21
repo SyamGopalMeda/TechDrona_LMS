@@ -174,6 +174,14 @@ function Completion({
         <p className="text-sm text-fg-secondary" role="status">
           This lesson completes when you submit the practice set.
         </p>
+      ) : lesson.lesson_type === "quiz" ? (
+        <p className="text-sm text-fg-secondary" role="status">
+          This lesson completes when you submit the quiz.
+        </p>
+      ) : lesson.lesson_type === "coding" ? (
+        <p className="text-sm text-fg-secondary" role="status">
+          This lesson completes when you submit your solution (Submit, not Run).
+        </p>
       ) : null}
       {error ? <ErrorState error={error} /> : null}
     </div>

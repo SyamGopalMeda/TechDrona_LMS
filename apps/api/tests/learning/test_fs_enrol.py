@@ -47,6 +47,9 @@ def env(monkeypatch: pytest.MonkeyPatch) -> Any:
             out = [le for le in out if le.course_version_id == kw["version_id"]]
         if kw.get("lesson_key") is not None:
             out = [le for le in out if le.lesson_key == kw["lesson_key"]]
+        for f in ("test_id", "coding_problem_id"):
+            if kw.get(f) is not None:
+                out = [le for le in out if getattr(le, f, None) == kw[f]]
         if kw.get("required_only"):
             out = [le for le in out if le.is_required]
         return out
@@ -319,3 +322,64 @@ async def test_router_queries(fs: Any, env: Any) -> None:  # noqa: F811
     assert [a.id for a in cands] == [a_struct.id]  # named evaluator
     counts = await fs_enrol.completed_lesson_counts(_session(), [e_new.id])
     assert counts == {}
+
+
+def _msg(event_type: str, payload: dict[str, Any]) -> Any:
+    from app.core.outbox import OutboxMessage
+
+    return OutboxMessage(
+        id=uuid.uuid4(),
+        event_type=event_type,
+        aggregate_type="x",
+        aggregate_id=uuid.uuid4(),
+        payload=payload,
+        organization_id=None,
+        occurred_at=datetime.now(UTC),
+        attempt=1,
+    )
+
+
+async def test_quiz_practice_and_coding_lessons_complete_on_submission(fs: Any, env: Any) -> None:  # noqa: F811
+    """Owner bug 2026-11-21: quiz, practice-set and coding lessons never completed (nothing called
+    record_completion), so courses with them could never earn a certificate. The learning outbox
+    handlers now complete them from ``attempt.submitted`` / ``submission.created``."""
+    from app.modules.learning import service as svc
+    from app.modules.learning import tasks
+
+    v = uuid.uuid4()
+    env.versions[v] = SimpleNamespace(id=v, title="Python", certificate_rule={"required_lessons_pct": 100})
+    test_q, test_p, problem = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    quiz, practice, code = _lesson(v, kind="quiz"), _lesson(v, kind="practice_set"), _lesson(v, kind="coding")
+    quiz.test_id, practice.test_id, code.coding_problem_id = test_q, test_p, problem
+    env.lessons += [quiz, practice, code]
+    course = _course(v)
+    user, other = uuid.uuid4(), uuid.uuid4()
+    enr = await svc.create_enrolment(_session(), user_id=user, course=course, source="free")
+
+    async def status(lesson: Any) -> str | None:
+        lp = await svc.get_progress(_session(), enr, lesson.lesson_key, create=False)
+        return lp.status if lp is not None else None
+
+    # someone else's submission completes nothing for this learner
+    await tasks.on_attempt_submitted(_session(), _msg("attempt.submitted", {"test_id": str(test_q), "user_id": str(other)}))
+    assert await status(quiz) is None
+    await tasks.on_attempt_submitted(
+        _session(), _msg("attempt.submitted", {"test_id": str(test_q), "user_id": str(user), "attempt_id": "a1"})
+    )
+    assert await status(quiz) == "completed"
+    await tasks.on_attempt_submitted(_session(), _msg("attempt.submitted", {"test_id": str(test_p), "user_id": str(user)}))
+    assert await status(practice) == "completed"
+    # "Run" is not a submission; "Submit" completes the coding lesson (no verdict needed)
+    run = {"problem_id": str(problem), "user_id": str(user), "mode": "run", "submission_id": "s0"}
+    await tasks.on_code_submitted(_session(), _msg("submission.created", run))
+    assert await status(code) is None
+    await tasks.on_code_submitted(_session(), _msg("submission.created", {**run, "mode": "submit", "submission_id": "s1"}))
+    assert await status(code) == "completed"
+    after = await svc.get_enrolment(_session(), user, course.id)
+    assert after is not None and after.status == "completed" and after.progress_pct == Decimal("100.00")
+    assert "learning.certificate_issued" in [k for k, _ in env.events]
+    lp = await svc.get_progress(_session(), enr, code.lesson_key, create=False)
+    assert lp is not None and lp.evidence == {"kind": "coding_submitted", "submission_id": "s1"}
+    # bad payloads are ignored, not raised (the relay would retry them forever)
+    await tasks.on_attempt_submitted(_session(), _msg("attempt.submitted", {"test_id": "nope", "user_id": str(user)}))
+    await tasks.on_code_submitted(_session(), _msg("submission.created", {"mode": "submit", "problem_id": "x"}))

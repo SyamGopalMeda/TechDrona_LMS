@@ -651,6 +651,8 @@ class CatalogReadRepo(FirestoreRepository):
         version_id: uuid.UUID | None,
         assignment_id: uuid.UUID | None,
         required_only: bool,
+        test_id: uuid.UUID | None = None,
+        coding_problem_id: uuid.UUID | None = None,
     ) -> list[Lesson]:
         f: list[Filter] = []
         if lesson_key is not None:
@@ -659,6 +661,10 @@ class CatalogReadRepo(FirestoreRepository):
             f.append(("course_version_id", "==", str(version_id)))
         if assignment_id is not None:
             f.append(("assignment_id", "==", str(assignment_id)))
+        if test_id is not None:
+            f.append(("test_id", "==", str(test_id)))
+        if coding_problem_id is not None:
+            f.append(("coding_problem_id", "==", str(coding_problem_id)))
         if required_only:
             f.append(("is_required", "==", True))
         return [lesson_of(d.data) for d in self._vis(await self._all(LESSONS, f))]

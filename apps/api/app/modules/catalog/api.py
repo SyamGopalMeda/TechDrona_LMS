@@ -162,17 +162,28 @@ async def find_lessons(
     lesson_key: uuid.UUID | None = None,
     version_id: uuid.UUID | None = None,
     assignment_id: uuid.UUID | None = None,
+    test_id: uuid.UUID | None = None,
+    coding_problem_id: uuid.UUID | None = None,
     required_only: bool = False,
 ) -> list[Lesson]:
     """Lessons matching all given filters, unordered (learning completion, pinned lesson,
-    required keys, assignment lessons; wiring video coverage)."""
-    if lesson_key is None and version_id is None and assignment_id is None and not required_only:
+    required keys, assignment / quiz / practice-set / coding lessons; wiring video coverage)."""
+    if (
+        lesson_key is None
+        and version_id is None
+        and assignment_id is None
+        and test_id is None
+        and coding_problem_id is None
+        and not required_only
+    ):
         raise ValueError("find_lessons needs at least one filter")
     if uses_firestore("catalog"):
         return await (await _reader(session)).find_lessons(
             lesson_key=lesson_key,
             version_id=version_id,
             assignment_id=assignment_id,
+            test_id=test_id,
+            coding_problem_id=coding_problem_id,
             required_only=required_only,
         )
     conds: list[Any] = []
@@ -182,6 +193,10 @@ async def find_lessons(
         conds.append(Lesson.course_version_id == version_id)
     if assignment_id is not None:
         conds.append(Lesson.assignment_id == assignment_id)
+    if test_id is not None:
+        conds.append(Lesson.test_id == test_id)
+    if coding_problem_id is not None:
+        conds.append(Lesson.coding_problem_id == coding_problem_id)
     if required_only:
         conds.append(Lesson.is_required.is_(True))
     if not conds:

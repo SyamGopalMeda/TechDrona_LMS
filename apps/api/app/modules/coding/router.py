@@ -29,6 +29,7 @@ from app.core.firestore.sqlstore import StorePrincipalDbSession as PrincipalDbSe
 from app.core.idempotency import HEADER as IDEM_HEADER
 from app.core.idempotency import IdemResult, idempotent, route_key
 from app.core.models import IdempotencyKey
+from app.core.outbox import emit_event
 from app.core.pagination import DEFAULT_LIMIT, MAX_LIMIT, decode_cursor, page_meta
 from app.core.principal import Principal
 from app.core.routing import authenticated_router
@@ -309,6 +310,22 @@ async def submit_code(
             idempotency_key=request.headers[IDEM_HEADER],
             attempt_id=body.attempt_id,
             practice_session_id=body.practice_session_id,
+        )
+        # Coding lessons complete on submission (learning.tasks.on_code_submitted): the judge
+        # may be off, so this does not wait for a verdict. Written with the request's commit.
+        await emit_event(
+            _nopg(session),
+            "submission.created",
+            {
+                "submission_id": str(sub.id),
+                "user_id": str(principal.user_id),
+                "problem_id": str(problem.id),
+                "mode": "submit",
+                "attempt_id": str(body.attempt_id) if body.attempt_id else None,
+            },
+            aggregate_type="code_submission",
+            aggregate_id=sub.id,
+            organization_id=sub.organization_id,
         )
         pos = await service.queue_position(session, principal, sub)
         return IdemResult(body=service.accepted_body(sub, pos), status=202, resource_id=sub.id)

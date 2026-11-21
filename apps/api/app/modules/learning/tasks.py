@@ -67,6 +67,71 @@ async def on_enrolled(session: Any, msg: OutboxMessage) -> None:
 register_handler("learning.enrolled", on_enrolled)
 
 
+# Quiz, practice-set and coding lessons complete on submission, like assignment lessons
+# (learning/router.py ``submit_assignment``): the owning module only announces the submission and
+# learning marks every lesson that points at that test / problem as completed for the learner in
+# each active enrolment containing it (``service.record_completion``; it then recomputes progress
+# and issues the course certificate when the rule is met). Before 2026-11-21 nothing called
+# ``record_completion`` for these lesson types, so a course with one could never complete.
+_TEST_LESSON_EVIDENCE = {"quiz": "quiz_submitted", "practice_set": "practice_set_submitted"}
+
+
+def _uuid(v: Any) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(v))
+    except ValueError:
+        return None
+
+
+async def on_attempt_submitted(session: Any, msg: OutboxMessage) -> None:
+    """``attempt.submitted`` (assessments, user or auto submit) -> quiz / practice-set lessons."""
+    from app.modules.catalog import public as catalog_api
+    from app.modules.learning import service as svc
+
+    test_id, user_id = _uuid(msg.payload.get("test_id")), _uuid(msg.payload.get("user_id"))
+    if test_id is None or user_id is None:
+        log.warning("attempt_submitted_bad_payload", event_id=str(msg.id))
+        return
+    kinds: dict[uuid.UUID, str] = {}
+    for le in await catalog_api.find_lessons(session, test_id=test_id):
+        if le.lesson_type in _TEST_LESSON_EVIDENCE:
+            kinds.setdefault(le.lesson_key, _TEST_LESSON_EVIDENCE[le.lesson_type])
+    for key, kind in kinds.items():
+        await svc.record_completion(
+            session, user_id, key, {"kind": kind, "attempt_id": str(msg.payload.get("attempt_id") or "")}
+        )
+
+
+async def on_code_submitted(session: Any, msg: OutboxMessage) -> None:
+    """``submission.created`` (coding, mode ``submit``) -> coding lessons. The judge may be
+    switched off (JUDGE_PROVIDER=disabled), so completion does not wait for a verdict."""
+    from app.modules.catalog import public as catalog_api
+    from app.modules.learning import service as svc
+
+    if msg.payload.get("mode") != "submit":
+        return
+    problem_id, user_id = _uuid(msg.payload.get("problem_id")), _uuid(msg.payload.get("user_id"))
+    if problem_id is None or user_id is None:
+        log.warning("code_submitted_bad_payload", event_id=str(msg.id))
+        return
+    keys = {
+        le.lesson_key
+        for le in await catalog_api.find_lessons(session, coding_problem_id=problem_id)
+        if le.lesson_type == "coding"
+    }
+    for key in keys:
+        await svc.record_completion(
+            session,
+            user_id,
+            key,
+            {"kind": "coding_submitted", "submission_id": str(msg.payload.get("submission_id") or "")},
+        )
+
+
+register_handler("attempt.submitted", on_attempt_submitted)
+register_handler("submission.created", on_code_submitted)
+
+
 async def _send() -> dict[str, int]:
     from app.modules.learning import certificates as certs
 
