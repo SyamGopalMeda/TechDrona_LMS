@@ -5,6 +5,7 @@
  * watermark on every page and a "Page x of y" footer. Images are optional (tests run without).
  */
 
+import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from "pdf-lib";
 import type { OfferLetter } from "./offer";
 
@@ -15,6 +16,10 @@ export interface OfferAssets {
   mark?: Uint8Array;
   /** PNG or JPEG of the signature. */
   signature?: { bytes: Uint8Array; type: "png" | "jpg" };
+  /** Inter Regular / Bold TTFs (public/fonts/pdf), embedded so every viewer shows the same sharp
+   * text; without them the letter falls back to the non-embedded standard Helvetica, which some
+   * viewers (phones, previews) replace with a soft-looking substitute. */
+  fonts?: { regular: Uint8Array; bold: Uint8Array };
 }
 
 const MM = 72 / 25.4;
@@ -196,8 +201,16 @@ export async function renderOfferPdf(l: OfferLetter, assets: OfferAssets = {}): 
   doc.setAuthor(l.company);
   doc.setCreator(`${l.company} LMS`);
   doc.setProducer(`${l.company} LMS`);
-  const reg = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  let reg: PDFFont;
+  let bold: PDFFont;
+  if (assets.fonts) {
+    doc.registerFontkit(fontkit);
+    reg = await doc.embedFont(assets.fonts.regular, { subset: true });
+    bold = await doc.embedFont(assets.fonts.bold, { subset: true });
+  } else {
+    reg = await doc.embedFont(StandardFonts.Helvetica);
+    bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  }
   const lockup = assets.lockup ? await doc.embedPng(assets.lockup) : undefined;
   const mark = assets.mark ? await doc.embedPng(assets.mark) : undefined;
   const sig = assets.signature ? await (assets.signature.type === "png" ? doc.embedPng(assets.signature.bytes) : doc.embedJpg(assets.signature.bytes)) : undefined;
@@ -382,11 +395,26 @@ async function rasterize(src: string, widthPx: number): Promise<Uint8Array | und
   return blob ? new Uint8Array(await blob.arrayBuffer()) : undefined;
 }
 
-let brand: Promise<Pick<OfferAssets, "lockup" | "mark">> | undefined;
+let brand: Promise<Pick<OfferAssets, "lockup" | "mark" | "fonts">> | undefined;
+
+async function fetchBytes(url: string): Promise<Uint8Array | undefined> {
+  try {
+    const r = await fetch(url);
+    if (!r.ok || (r.headers.get("content-type") ?? "").startsWith("text/html")) return undefined;
+    return new Uint8Array(await r.arrayBuffer());
+  } catch {
+    return undefined;
+  }
+}
+
+async function loadFonts(): Promise<OfferAssets["fonts"]> {
+  const [regular, bold] = await Promise.all([fetchBytes("/fonts/pdf/Inter-Regular.ttf"), fetchBytes("/fonts/pdf/Inter-Bold.ttf")]);
+  return regular && bold ? { regular, bold } : undefined;
+}
 
 /** Logos from /brand (cached) plus the signature data URL from the settings. */
 export async function loadOfferAssets(signatureDataUrl: string): Promise<OfferAssets> {
-  brand ??= Promise.all([rasterize("/brand/logo-lockup-white.svg", 1400), rasterize("/brand/logo-mark-navy.svg", 1000)]).then(([lockup, mark]) => ({ lockup, mark }));
+  brand ??= Promise.all([rasterize("/brand/logo-lockup-white.svg", 1400), rasterize("/brand/logo-mark-navy.svg", 1000), loadFonts()]).then(([lockup, mark, fonts]) => ({ lockup, mark, fonts }));
   const out: OfferAssets = { ...(await brand) };
   const m = /^data:image\/(png|jpe?g);base64,(.+)$/.exec(signatureDataUrl);
   if (m) {
