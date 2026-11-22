@@ -69,6 +69,16 @@ const shortDate = (iso: string | undefined) => {
   }
 };
 
+/** File bytes (FileReader works everywhere, including older browsers and test DOMs). */
+function fileBytes(file: Blob): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(new Uint8Array(r.result as ArrayBuffer));
+    r.onerror = () => reject(r.error ?? new Error("Couldn't read the file"));
+    r.readAsArrayBuffer(file);
+  });
+}
+
 type Filter = "all" | LetterStatus;
 
 /**
@@ -121,7 +131,7 @@ export function OfferLettersTab() {
     setBusy("upload");
     try {
       const x = await loadXlsx();
-      const entries = readOfferSheet(x, new Uint8Array(await file.arrayBuffer()), settings);
+      const entries = readOfferSheet(x, await fileBytes(file), settings);
       if (!entries.length) {
         toast.show({ tone: "warning", title: "No rows found", description: "Fill in rows under the header of the first sheet." });
         return;
