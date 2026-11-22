@@ -4,7 +4,7 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const env = { ...process.env, TD_DEV_API_PROXY: process.env.TD_DEV_API_PROXY || "https://lms.35-244-50-26.sslip.io" };
+const env = { ...process.env, TD_DEV_API_PROXY: process.env.TD_DEV_API_PROXY || "https://lmsapi-q3b3zuhb4a-el.a.run.app" };
 console.log(`/api -> ${env.TD_DEV_API_PROXY}`);
 const vite = fileURLToPath(new URL("../node_modules/vite/bin/vite.js", import.meta.url));
 const child = spawn(process.execPath, [vite, ...process.argv.slice(2)], { env, stdio: "inherit" });
