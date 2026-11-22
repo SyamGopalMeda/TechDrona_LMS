@@ -1,5 +1,6 @@
 /**
- * Draws the "modern corporate" internship offer letter (A4) with pdf-lib, in the browser.
+ * Draws the "modern corporate" offer letters (A4) with pdf-lib, in the browser: the internship and
+ * the employment template share this layout and differ only in wording (``letterContent``).
  * Mirrors the HTML template used for the first batch (TD-OL-2026-0151..0160): navy band with the
  * white lockup, accent stripe, glance table, terms, HR signature, acceptance form, faint logo
  * watermark on every page and a "Page x of y" footer. Images are optional (tests run without).
@@ -60,6 +61,81 @@ function modeText(mode: string): string {
     : mode === "online"
       ? "online mode, through live online sessions"
       : `${mode} mode`;
+}
+
+export function employmentTerms(l: Pick<OfferLetter, "company" | "probation">): string[] {
+  const C = l.company;
+  return [
+    "This offer is based on the information and documents you provided and is subject to verification of your documents and references. It may be withdrawn if any of it is found to be incorrect.",
+    `Your working days, hours and leave will be as per ${C}'s policies in force, which may be updated from time to time.`,
+    `You will keep confidential all information, code, data and material of ${C} and its clients, during and after your employment.`,
+    `Work you create in the course of your employment, including code, documents and designs, belongs to ${C}.`,
+    "You will follow our code of conduct, IT-use and anti-harassment (POSH) policies. Any concern or grievance can be raised in confidence with the HR team.",
+    l.probation
+      ? `During probation either side may end the employment with fifteen days' written notice; after confirmation, with thirty days' written notice or salary in lieu of notice. ${C} may end it immediately for misconduct or breach of confidentiality.`
+      : `Either side may end the employment with thirty days' written notice or salary in lieu of notice. ${C} may end it immediately for misconduct or breach of confidentiality.`,
+    "When your employment ends you will return all company property and material and delete any company data you hold.",
+    "This offer lapses if it is not accepted within one week (7 days) of the date this letter is emailed to you, or if you do not join on the date of joining unless it is changed in writing.",
+  ];
+}
+
+function workPlace(l: OfferLetter): string {
+  return l.mode === "online" ? `${l.location} (remote)` : l.mode === "hybrid" ? `${l.location} (hybrid: on-site and remote days as scheduled)` : l.location;
+}
+
+/** The wording of one letter: what differs between the internship and the employment template. */
+export interface LetterContent {
+  title: string;
+  subject: string;
+  intro: string;
+  /** Glance table: one full-width cell, then three cells. */
+  top: [string, string];
+  cells: [string, string][];
+  body: string[];
+  terms: string[];
+  acceptance: string;
+}
+
+export function letterContent(l: OfferLetter): LetterContent {
+  if (l.kind === "employment") {
+    return {
+      title: "Employment Offer Letter",
+      subject: `Subject: Offer of employment: ${l.role}`,
+      intro: `Congratulations! We are pleased to offer you employment with ${l.company} as ${l.role}. This letter sets out the main terms of your employment.`,
+      top: ["Position", l.role],
+      cells: [
+        ["Date of joining", l.start],
+        ["Annual CTC", l.ctc],
+        ["Location", l.location],
+      ],
+      body: [
+        `Your date of joining is ${l.start}. Your place of work will be ${workPlace(l)}. Please report to the HR team on your date of joining with the original documents HR asks you for.`,
+        `Your annual cost to company (CTC) will be ${l.ctc}. The detailed salary structure will be shared with you on joining; salary is paid monthly after statutory deductions.`,
+        ...(l.probation
+          ? [`You will be on probation for ${l.probation} from your date of joining. On successful completion of probation your employment will be confirmed in writing.`]
+          : []),
+        "To accept this offer, sign the acceptance form at the end of this letter and return a scanned copy by replying to the offer email within one week (7 days) of receiving it.",
+        "We look forward to welcoming you to the team.",
+      ],
+      terms: employmentTerms(l),
+      acceptance: `I, ${l.name}, have read and understood the terms of this letter (Ref. ${l.ref}) and accept the offer of employment made by ${l.company}. I will join on ${l.start}.`,
+    };
+  }
+  const { intro, body } = offerParagraphs(l);
+  return {
+    title: "Internship Offer Letter",
+    subject: `Subject: Offer of internship: ${l.role}`,
+    intro,
+    top: ["Role", l.role],
+    cells: [
+      ["Period", `${l.start} – ${l.end}`],
+      ["Duration", l.duration],
+      ["Mode", l.mode[0]!.toUpperCase() + l.mode.slice(1)],
+    ],
+    body,
+    terms: offerTerms(l),
+    acceptance: `I, ${l.name}, have read and understood the terms of this letter (Ref. ${l.ref}) and accept the internship offer made by ${l.company}.`,
+  };
 }
 
 export function offerParagraphs(l: OfferLetter): { intro: string; body: string[] } {
@@ -195,9 +271,10 @@ class Writer {
 
 /** One offer letter as PDF bytes. */
 export async function renderOfferPdf(l: OfferLetter, assets: OfferAssets = {}): Promise<Uint8Array> {
+  const c = letterContent(l);
   const doc = await PDFDocument.create();
-  doc.setTitle(`Internship Offer Letter ${l.ref}`);
-  doc.setSubject(`Internship Offer Letter: ${l.name}`);
+  doc.setTitle(`${c.title} ${l.ref}`);
+  doc.setSubject(`${c.title}: ${l.name}`);
   doc.setAuthor(l.company);
   doc.setCreator(`${l.company} LMS`);
   doc.setProducer(`${l.company} LMS`);
@@ -251,7 +328,7 @@ export async function renderOfferPdf(l: OfferLetter, assets: OfferAssets = {}): 
 
   // title + accent rule
   W.y += 8 * MM;
-  W.text("Internship Offer Letter", MX, W.y, 19, { bold: true, color: NAVY, spacing: 0.3 });
+  W.text(c.title, MX, W.y, 19, { bold: true, color: NAVY, spacing: 0.3 });
   W.y += 19 * 1.25 + 1 * MM;
   W.rect(MX, W.y, 18 * MM, 1.2 * MM, { fill: ACCENT });
   W.y += 1.2 * MM + 6 * MM;
@@ -262,23 +339,18 @@ export async function renderOfferPdf(l: OfferLetter, assets: OfferAssets = {}): 
   W.text(l.name, MX, W.y, 11.5, { bold: true, color: NAVY });
   W.y += 11.5 * 1.55 + 5 * MM;
 
-  W.para(`Subject: Offer of internship: ${l.role}`, { bold: true, gap: 4 * MM });
+  W.para(c.subject, { bold: true, gap: 4 * MM });
   W.para(`Dear ${l.firstName},`);
-  const { intro, body } = offerParagraphs(l);
-  W.para(intro);
+  W.para(c.intro);
 
-  // glance table: Role (full width), then Period | Duration | Mode
+  // glance table: Role / Position (full width), then three cells
   W.y += 2 * MM;
   const padX = 4 * MM;
   const vLh = 9.5 * 1.4;
   const colW = TW / 3;
-  const cells: [string, string][] = [
-    ["Period", `${l.start} – ${l.end}`],
-    ["Duration", l.duration],
-    ["Mode", l.mode[0]!.toUpperCase() + l.mode.slice(1)],
-  ];
+  const cells = c.cells;
   const cellLines = cells.map(([, v]) => W.wrap(v, 9.5, colW - 2 * padX, true));
-  const roleLines = W.wrap(l.role, 9.5, TW - 2 * padX, true);
+  const roleLines = W.wrap(c.top[1], 9.5, TW - 2 * padX, true);
   const hOf = (n: number) => 3 * MM * 2 + 7 * 1.4 + 1 + n * vLh;
   const row1 = hOf(roleLines.length);
   const row2 = hOf(Math.max(...cellLines.map((c) => c.length)));
@@ -288,19 +360,19 @@ export async function renderOfferPdf(l: OfferLetter, assets: OfferAssets = {}): 
     W.text(label.toUpperCase(), x + padX, top + 3 * MM, 7, { color: MUTED, spacing: 0.8 });
     lines.forEach((v, i) => W.text(v, x + padX, top + 3 * MM + 7 * 1.4 + 1 + i * vLh, 9.5, { bold: true, color: NAVY }));
   };
-  cell("Role", roleLines, MX, gTop);
+  cell(c.top[0], roleLines, MX, gTop);
   cells.forEach(([label], i) => cell(label, cellLines[i]!, MX + colW * i, gTop + row1));
   W.hline(MX, PW - MX, gTop + row1, LINE);
   for (const i of [1, 2]) W.page.drawLine({ start: { x: MX + colW * i, y: PH - gTop - row1 }, end: { x: MX + colW * i, y: PH - gTop - row1 - row2 }, thickness: 0.75, color: LINE });
   W.rect(MX, gTop, TW, row1 + row2, { border: LINE });
   W.y = gTop + row1 + row2 + 6 * MM;
 
-  for (const p of body) W.para(p);
+  for (const p of c.body) W.para(p);
 
   // terms
   W.h2("Terms and conditions");
   const indent = 5.5 * MM;
-  offerTerms(l).forEach((t, i) => {
+  c.terms.forEach((t, i) => {
     const lines = W.wrap(t, 10.5, TW - indent);
     const lh = 10.5 * 1.55;
     W.ensure(lh * Math.min(2, lines.length));
@@ -331,8 +403,7 @@ export async function renderOfferPdf(l: OfferLetter, assets: OfferAssets = {}): 
 
   // acceptance form (kept together)
   const pad = 7 * MM;
-  const accText = `I, ${l.name}, have read and understood the terms of this letter (Ref. ${l.ref}) and accept the internship offer made by ${l.company}.`;
-  const accLines = W.wrap(accText, 10.5, TW - 2 * pad);
+  const accLines = W.wrap(c.acceptance, 10.5, TW - 2 * pad);
   const fieldsH = 8 * MM + 2 * (8 + 6) + 8 * MM;
   const boxH = 1.4 * MM + 6 * MM + 10.5 * 1.3 + 3 * MM + accLines.length * 10.5 * 1.55 + fieldsH + 6 * MM;
   W.y += 5 * MM;

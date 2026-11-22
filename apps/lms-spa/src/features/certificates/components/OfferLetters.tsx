@@ -1,36 +1,57 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Button, Card, Dialog, FormField, Input, Select, Table, Textarea, useToast } from "@/components/ui";
+import { Badge, Button, Card, ConfirmDialog, Dialog, FormField, Input, Segmented, Select, Table, Textarea, useToast } from "@/components/ui";
 import { loadXlsx, saveBytes, XLSX_MIME } from "../lib/bulk";
 import { makeZip } from "../lib/zip";
 import {
+  LETTER_KINDS,
   MODES,
-  buildOffer,
   emailDraft,
   gmailComposeUrl,
   isIsoDate,
+  kindLabel,
   loadSettings,
   longDate,
-  nextRef,
-  offerErrors,
   offerFileName,
-  parseOfferSheet,
   periodOf,
+  readOfferSheet,
   saveSettings,
   templateWorkbook,
   todayIso,
-  type EmailDraft,
+  addDays,
+  type LetterKind,
   type OfferInput,
   type OfferLetter,
   type OfferSettings,
 } from "../lib/offer";
 import { LOCAL_SIGNATURE_URL, loadOfferAssets, localSignature, renderOfferPdf } from "../lib/offerpdf";
+import {
+  FOLDER_TO_SEND,
+  STATUS_LABEL,
+  addEntries,
+  counts,
+  draftsHtml,
+  folderOf,
+  generate,
+  letterSummary,
+  loadRegister,
+  markSent,
+  newId,
+  registerWorkbook,
+  removeRecords,
+  reopen,
+  rowErrors,
+  saveRegister,
+  undoSent,
+  type LetterStatus,
+  type OfferRecord,
+} from "../lib/register";
 
 const MODE_OPTIONS = MODES.map((m) => ({ value: m, label: m[0]!.toUpperCase() + m.slice(1) }));
 
-async function makePdf(l: OfferLetter): Promise<Uint8Array> {
-  return renderOfferPdf(l, await loadOfferAssets(l.signature));
+async function makePdf(l: OfferLetter, signature: string): Promise<Uint8Array> {
+  return renderOfferPdf({ ...l, signature }, await loadOfferAssets(signature));
 }
 
 function openPdf(bytes: Uint8Array): void {
@@ -39,152 +60,56 @@ function openPdf(bytes: Uint8Array): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
 }
 
-/** The highest ref + 1, when it is beyond the stored next number (keeps numbering moving forward). */
-function bumpRef(current: string, used: string[]): string {
-  const num = (r: string) => Number(/(\d+)$/.exec(r)?.[1] ?? NaN);
-  let next = current;
-  for (const r of used) if (num(r) >= num(next) && r.replace(/\d+$/, "") === next.replace(/\d+$/, "")) next = nextRef(r);
-  return next;
-}
-
-/** Certificates & documents > Offer letters: one letter from a form, or many from an Excel sheet. */
-export function OfferLettersTab() {
-  const [settings, setSettings] = useState<OfferSettings>(() => loadSettings());
-  const update = (s: OfferSettings) => {
-    setSettings(s);
-    saveSettings(s);
-  };
-  return (
-    <div className="space-y-6">
-      <SingleLetter settings={settings} onRefUsed={(r) => update({ ...settings, nextRef: bumpRef(settings.nextRef, [r]) })} />
-      <BulkLetters settings={settings} onRefsUsed={(rs) => update({ ...settings, nextRef: bumpRef(settings.nextRef, rs) })} />
-      <OfferSettingsCard settings={settings} onSave={update} />
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ single */
-
-function SingleLetter({ settings, onRefUsed }: { settings: OfferSettings; onRefUsed: (ref: string) => void }) {
-  const toast = useToast();
-  const blank = (): OfferInput => ({ name: "", email: "", letterDate: todayIso(), ref: settings.nextRef, role: settings.role, mode: settings.mode, months: settings.months });
-  const [f, setF] = useState<OfferInput>(blank);
-  const [override, setOverride] = useState(false);
-  const [busy, setBusy] = useState("");
-  const [draft, setDraft] = useState<{ draft: EmailDraft; letter: OfferLetter } | null>(null);
-  const [tried, setTried] = useState(false);
-  useEffect(() => setF((x) => ({ ...x, ref: settings.nextRef })), [settings.nextRef]);
-
-  const input: OfferInput = override ? f : { ...f, start: undefined, end: undefined };
-  const errors = offerErrors(input);
-  const period = isIsoDate(f.letterDate) && f.months >= 1 ? periodOf(f.letterDate, f.months) : null;
-  const set = <K extends keyof OfferInput>(k: K, v: OfferInput[K]) => setF((x) => ({ ...x, [k]: v }));
-
-  async function run(kind: "preview" | "download" | "draft") {
-    setTried(true);
-    if (errors.length) {
-      toast.show({ tone: "warning", title: "Fill in the letter details", description: errors.join(". ") + "." });
-      return;
-    }
-    const letter = buildOffer(input, settings);
-    if (kind === "draft") {
-      setDraft({ draft: emailDraft(letter), letter });
-      return;
-    }
-    setBusy(kind);
-    try {
-      const bytes = await makePdf(letter);
-      if (kind === "preview") openPdf(bytes);
-      else {
-        saveBytes(bytes, offerFileName(letter), "application/pdf");
-        onRefUsed(letter.ref);
-        toast.show({ tone: "success", title: `Offer letter ${letter.ref} downloaded` });
-      }
-    } catch (err) {
-      toast.show({ tone: "danger", title: "Couldn't make the PDF", description: err instanceof Error ? err.message : undefined });
-    } finally {
-      setBusy("");
-    }
+const shortDate = (iso: string | undefined) => {
+  if (!iso) return "";
+  try {
+    return longDate(iso);
+  } catch {
+    return iso;
   }
+};
 
-  return (
-    <Card title="Single offer letter" description="Fill in the student's details. The internship starts the day after the letter date.">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="Student's full name" required error={tried && !f.name.trim() ? "Enter the name" : undefined}>
-          {(p) => <Input {...p} value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="Perikela Jaya Satya Sai Prakash" />}
-        </FormField>
-        <FormField label="Email" hint="For the email draft">
-          {(p) => <Input {...p} type="email" value={f.email} onChange={(e) => set("email", e.target.value)} placeholder="student@gmail.com" />}
-        </FormField>
-        <FormField label="Letter date" required hint={period ? `Period: ${longDate(period.start)} – ${longDate(period.end)}` : undefined}>
-          {(p) => <Input {...p} type="date" value={f.letterDate} onChange={(e) => set("letterDate", e.target.value)} />}
-        </FormField>
-        <FormField label="Ref. No. / Intern ID" required>
-          {(p) => <Input {...p} value={f.ref} onChange={(e) => set("ref", e.target.value)} />}
-        </FormField>
-        <FormField label="Role (letter title)" required>
-          {(p) => <Input {...p} value={f.role} onChange={(e) => set("role", e.target.value)} />}
-        </FormField>
-        <div className="grid grid-cols-2 gap-4">
-          <FormField label="Mode">{(p) => <Select {...p} options={MODE_OPTIONS} value={f.mode} onChange={(e) => set("mode", e.target.value)} />}</FormField>
-          <FormField label="Duration (months)">
-            {(p) => <Input {...p} type="number" min={1} max={24} value={String(f.months)} onChange={(e) => set("months", Number(e.target.value))} />}
-          </FormField>
-        </div>
-      </div>
-      <label className="mt-4 flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} /> Set the start and end dates myself
-      </label>
-      {override ? (
-        <div className="mt-3 grid gap-4 sm:grid-cols-2">
-          <FormField label="Start date">{(p) => <Input {...p} type="date" value={f.start ?? period?.start ?? ""} onChange={(e) => set("start", e.target.value)} />}</FormField>
-          <FormField label="End date">{(p) => <Input {...p} type="date" value={f.end ?? period?.end ?? ""} onChange={(e) => set("end", e.target.value)} />}</FormField>
-        </div>
-      ) : null}
-      <div className="mt-5 flex flex-wrap gap-2">
-        <Button onClick={() => void run("download")} loading={busy === "download"}>
-          Generate PDF
-        </Button>
-        <Button variant="secondary" onClick={() => void run("preview")} loading={busy === "preview"}>
-          Preview
-        </Button>
-        <Button variant="secondary" onClick={() => void run("draft")}>
-          Generate email draft
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() => {
-            setF(blank());
-            setTried(false);
-            setOverride(false);
-          }}
-        >
-          Clear
-        </Button>
-      </div>
-      <DraftDialog item={draft} onClose={() => setDraft(null)} />
-    </Card>
-  );
-}
+type Filter = "all" | LetterStatus;
 
-/* ------------------------------------------------------------------ bulk */
-
-interface Row {
-  key: string;
-  input: OfferInput;
-  errors: string[];
-  letter: OfferLetter | null;
-}
-
-function BulkLetters({ settings, onRefsUsed }: { settings: OfferSettings; onRefsUsed: (refs: string[]) => void }) {
+/**
+ * Certificates & documents > Offer letters. One page, four steps, no AI:
+ * 1. add candidates (Excel upload or the form) -> they appear in the list;
+ * 2. "Generate … offer letter" -> the letter gets its number and moves to "To send";
+ * 3. "Email draft" -> copy To / Subject / Body, download the PDF and send it from the HR mailbox;
+ * 4. "Mark as sent" -> the row shows "Sent on <date>".
+ * The list is kept in this browser; "Download register (Excel)" is its backup (upload it to restore).
+ */
+export function OfferLettersTab() {
   const toast = useToast();
-  const fileInput = useRef<HTMLInputElement>(null);
-  const [rows, setRows] = useState<Row[] | null>(null);
+  const [settings, setSettings] = useState<OfferSettings>(() => loadSettings());
+  const [records, setRecords] = useState<OfferRecord[]>(() => loadRegister());
+  const [filter, setFilter] = useState<Filter>("all");
+  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState("");
-  const [progress, setProgress] = useState("");
-  const [draft, setDraft] = useState<{ draft: EmailDraft; letter: OfferLetter } | null>(null);
-  const [allDrafts, setAllDrafts] = useState(false);
-  const ready = useMemo(() => (rows ?? []).filter((r) => r.letter), [rows]);
+  const [editing, setEditing] = useState<OfferRecord | "new" | null>(null);
+  const [draftOf, setDraftOf] = useState<OfferRecord | null>(null);
+  const [removing, setRemoving] = useState<OfferRecord | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const saveAll = (r: OfferRecord[], s?: OfferSettings) => {
+    setRecords(r);
+    if (!saveRegister(r)) toast.show({ tone: "warning", title: "Couldn't save the list in this browser", description: "Download the register (Excel) as a backup." });
+    if (s) {
+      setSettings(s);
+      saveSettings(s);
+    }
+  };
+
+  const c = counts(records);
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return records.filter(
+      (r) =>
+        (filter === "all" || r.status === filter) &&
+        (!q || `${r.input.name} ${r.input.email} ${r.letter?.ref ?? r.input.ref}`.toLowerCase().includes(q)),
+    );
+  }, [records, filter, query]);
+  const pending = records.filter((r) => r.status === "new");
 
   async function downloadTemplate() {
     const x = await loadXlsx();
@@ -193,20 +118,22 @@ function BulkLetters({ settings, onRefsUsed }: { settings: OfferSettings; onRefs
 
   async function onFile(file: File | undefined) {
     if (!file) return;
-    setBusy("read");
+    setBusy("upload");
     try {
       const x = await loadXlsx();
-      const inputs = parseOfferSheet(x, new Uint8Array(await file.arrayBuffer()), settings, settings.nextRef);
-      const seen = new Set<string>();
-      setRows(
-        inputs.map((input, i) => {
-          const errors = offerErrors(input);
-          if (seen.has(input.ref)) errors.push(`Ref ${input.ref} is used twice`);
-          seen.add(input.ref);
-          return { key: `${i}-${input.ref}`, input, errors, letter: errors.length ? null : buildOffer(input, settings) };
-        }),
-      );
-      if (!inputs.length) toast.show({ tone: "warning", title: "No rows found", description: "Fill in rows under the header of the first sheet." });
+      const entries = readOfferSheet(x, new Uint8Array(await file.arrayBuffer()), settings);
+      if (!entries.length) {
+        toast.show({ tone: "warning", title: "No rows found", description: "Fill in rows under the header of the first sheet." });
+        return;
+      }
+      const res = addEntries(records, entries, settings, todayIso());
+      saveAll(res.records);
+      setFilter("all");
+      toast.show({
+        tone: "success",
+        title: `${res.added} candidate${res.added === 1 ? "" : "s"} added${res.updated ? `, ${res.updated} updated` : ""}`,
+        description: "Click Generate next to a name, or Generate all.",
+      });
     } catch (err) {
       toast.show({ tone: "danger", title: "Couldn't read the file", description: err instanceof Error ? err.message : "Use the .xlsx template." });
     } finally {
@@ -215,12 +142,24 @@ function BulkLetters({ settings, onRefsUsed }: { settings: OfferSettings; onRefs
     }
   }
 
-  async function one(l: OfferLetter, kind: "download" | "preview") {
-    setBusy(`${kind}:${l.ref}`);
+  function doGenerate(ids: string[]) {
+    const res = generate(records, ids, settings, todayIso());
+    saveAll(res.records, res.settings);
+    if (res.generated.length)
+      toast.show({ tone: "success", title: `${res.generated.length} offer letter${res.generated.length === 1 ? "" : "s"} generated`, description: "They are in To send. Open one, or click Email draft." });
+    if (res.failed.length)
+      toast.show({
+        tone: "warning",
+        title: `${res.failed.length} not generated`,
+        description: res.failed.map((f) => `${f.name}: ${f.errors.join(", ")}`).join(". "),
+      });
+  }
+
+  async function open(r: OfferRecord) {
+    if (!r.letter) return;
+    setBusy(`open:${r.id}`);
     try {
-      const bytes = await makePdf(l);
-      if (kind === "preview") openPdf(bytes);
-      else saveBytes(bytes, offerFileName(l), "application/pdf");
+      openPdf(await makePdf(r.letter, settings.signature));
     } catch (err) {
       toast.show({ tone: "danger", title: "Couldn't make the PDF", description: err instanceof Error ? err.message : undefined });
     } finally {
@@ -228,101 +167,349 @@ function BulkLetters({ settings, onRefsUsed }: { settings: OfferSettings; onRefs
     }
   }
 
-  async function all() {
-    if (!ready.length) return;
+  async function download(r: OfferRecord) {
+    if (!r.letter) return;
+    saveBytes(await makePdf(r.letter, settings.signature), offerFileName(r.letter), "application/pdf");
+  }
+
+  function sent(ids: string[]) {
+    saveAll(markSent(records, ids, todayIso()));
+    toast.show({ tone: "success", title: ids.length === 1 ? "Marked as sent" : `${ids.length} marked as sent` });
+  }
+
+  async function downloadRegister() {
+    const x = await loadXlsx();
+    saveBytes(registerWorkbook(x, records), `offer-letters-register-${todayIso()}.xlsx`, XLSX_MIME);
+  }
+
+  /** Everything in one ZIP, organised like a shared folder: 1 To Send / 2 Sent, drafts page, register. */
+  async function downloadZip() {
+    const issued = records.filter((r) => r.letter);
+    if (!issued.length) {
+      toast.show({ tone: "warning", title: "No letters generated yet" });
+      return;
+    }
     setBusy("zip");
     try {
       const assets = await loadOfferAssets(settings.signature);
       const files = [];
-      for (const [i, r] of ready.entries()) {
-        setProgress(`${i + 1} of ${ready.length}`);
-        files.push({ name: offerFileName(r.letter!), data: await renderOfferPdf(r.letter!, assets) });
+      for (const r of issued) {
+        const l = { ...r.letter!, signature: settings.signature };
+        files.push({ name: `${folderOf(r)}/${offerFileName(l)}`, data: await renderOfferPdf(l, assets) });
       }
+      const toSend = issued.filter((r) => r.status === "generated").map((r) => ({ letter: r.letter!, folder: FOLDER_TO_SEND }));
+      if (toSend.length) files.push({ name: "Email drafts - open this.html", data: new TextEncoder().encode(draftsHtml(toSend)) });
+      files.push({ name: "Offer letters register.xlsx", data: registerWorkbook(await loadXlsx(), records) });
       saveBytes(makeZip(files), `offer-letters-${todayIso()}.zip`, "application/zip");
-      onRefsUsed(ready.map((r) => r.letter!.ref));
-      toast.show({ tone: "success", title: `${files.length} offer letter${files.length === 1 ? "" : "s"} generated`, description: rows!.length - ready.length ? `${rows!.length - ready.length} row(s) skipped; fix them in the sheet and upload again.` : undefined });
     } catch (err) {
-      toast.show({ tone: "danger", title: "Couldn't make the letters", description: err instanceof Error ? err.message : undefined });
+      toast.show({ tone: "danger", title: "Couldn't make the ZIP", description: err instanceof Error ? err.message : undefined });
     } finally {
       setBusy("");
-      setProgress("");
     }
   }
 
+  function downloadDrafts() {
+    const toSend = records.filter((r) => r.status === "generated").map((r) => ({ letter: r.letter!, folder: FOLDER_TO_SEND }));
+    if (!toSend.length) {
+      toast.show({ tone: "warning", title: "No letters waiting to be sent" });
+      return;
+    }
+    saveBytes(new TextEncoder().encode(draftsHtml(toSend)), `offer-letter-email-drafts-${todayIso()}.html`, "text/html");
+  }
+
+  const filterOptions: { value: Filter; label: string }[] = [
+    { value: "all", label: `All (${c.all})` },
+    { value: "new", label: `Not generated (${c.new})` },
+    { value: "generated", label: `To send (${c.generated})` },
+    { value: "sent", label: `Sent (${c.sent})` },
+  ];
+
   return (
-    <Card
-      title="Bulk offer letters from Excel"
-      description="Download the template, fill one row per student, then upload it. Blank Ref No cells are numbered automatically from the next reference number."
-      actions={
-        <Button variant="secondary" size="sm" onClick={() => void downloadTemplate()}>
-          Download Excel template
-        </Button>
-      }
-    >
-      <FormField label="Upload the filled template" hint=".xlsx or .csv. Columns: Name, Email, Letter date, Ref No, Role, Mode, Duration (months), Start date, End date">
-        {(p) => (
-          <input
-            {...p}
-            ref={fileInput}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            disabled={busy !== ""}
-            onChange={(e) => void onFile(e.target.files?.[0])}
-            className="block text-sm text-fg-secondary file:mr-3 file:rounded-md file:border file:border-line file:bg-surface file:px-3 file:py-2 file:text-sm file:font-medium"
-          />
-        )}
-      </FormField>
-      {rows ? (
-        <div className="mt-5 space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={() => void all()} loading={busy === "zip"} disabled={!ready.length || busy !== ""}>
-              {busy === "zip" ? `Generating ${progress}` : `Generate all ${ready.length} (ZIP)`}
-            </Button>
-            <Button variant="secondary" onClick={() => setAllDrafts(true)} disabled={!ready.length}>
-              Email drafts for all
-            </Button>
-            <span className="text-sm text-fg-secondary">
-              {ready.length} ready{rows.length - ready.length ? `, ${rows.length - ready.length} need fixing` : ""}
-            </span>
-          </div>
-          <Table<Row>
-            caption="Offer letters from the uploaded sheet"
-            rows={rows}
-            rowKey={(r) => r.key}
-            columns={[
-              { key: "ref", header: "Ref. No.", cell: (r) => r.input.ref, priority: "secondary" },
-              { key: "name", header: "Name", cell: (r) => <span className="font-medium">{r.input.name}</span>, priority: "primary" },
-              { key: "email", header: "Email", cell: (r) => r.input.email || <span className="text-fg-secondary">–</span> },
-              { key: "period", header: "Letter date / period", cell: (r) => (r.letter ? <span className="text-sm">{r.letter.date}<br />{r.letter.start} – {r.letter.end}</span> : r.input.letterDate) },
-              {
-                key: "status",
-                header: "Status",
-                cell: (r) => (r.errors.length ? <span className="text-sm text-danger">{r.errors.join(". ")}</span> : <Badge tone="success">Ready</Badge>),
-              },
-              {
-                key: "actions",
-                header: <span className="sr-only">Actions</span>,
-                align: "right",
-                cell: (r) =>
-                  r.letter ? (
-                    <div className="flex flex-wrap justify-end gap-1">
-                      <Button size="sm" variant="ghost" loading={busy === `preview:${r.letter.ref}`} onClick={() => void one(r.letter!, "preview")}>Preview</Button>
-                      <Button size="sm" variant="ghost" loading={busy === `download:${r.letter.ref}`} onClick={() => void one(r.letter!, "download")}>PDF</Button>
-                      <Button size="sm" variant="secondary" onClick={() => setDraft({ draft: emailDraft(r.letter!), letter: r.letter! })}>Generate draft</Button>
-                    </div>
-                  ) : null,
-              },
-            ]}
-          />
+    <div className="space-y-6">
+      <Card
+        title="Add candidates"
+        description="Upload the Excel sheet (or add one person). Every name appears in the list below, ready to generate."
+        actions={
+          <Button variant="secondary" size="sm" onClick={() => void downloadTemplate()}>
+            Download Excel template
+          </Button>
+        }
+      >
+        <ol className="mb-4 grid gap-2 text-sm text-fg-secondary sm:grid-cols-4">
+          <li><span className="font-semibold text-fg">1. Add</span> – upload Excel or add one</li>
+          <li><span className="font-semibold text-fg">2. Generate</span> – one click per person, or all</li>
+          <li><span className="font-semibold text-fg">3. Email draft</span> – copy, attach the PDF, send</li>
+          <li><span className="font-semibold text-fg">4. Mark as sent</span> – the list shows the date</li>
+        </ol>
+        <div className="flex flex-wrap items-end gap-3">
+          <FormField label="Upload Excel" hint="The template, or a register you downloaded earlier (restores the statuses)">
+            {(p) => (
+              <input
+                {...p}
+                ref={fileInput}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                disabled={busy !== ""}
+                onChange={(e) => void onFile(e.target.files?.[0])}
+                className="block text-sm text-fg-secondary file:mr-3 file:rounded-md file:border file:border-line file:bg-surface file:px-3 file:py-2 file:text-sm file:font-medium"
+              />
+            )}
+          </FormField>
+          <Button variant="secondary" onClick={() => setEditing("new")}>
+            Add one candidate
+          </Button>
         </div>
-      ) : null}
-      <DraftDialog item={draft} onClose={() => setDraft(null)} />
-      <AllDraftsDialog open={allDrafts} letters={ready.map((r) => r.letter!)} onClose={() => setAllDrafts(false)} />
-    </Card>
+      </Card>
+
+      <Card
+        title="Candidates and offer letters"
+        description="Kept in this browser. Download the register (Excel) now and then as a backup; uploading it restores the list."
+      >
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <Button onClick={() => doGenerate(pending.map((r) => r.id))} disabled={!pending.length}>
+            Generate all not generated ({pending.length})
+          </Button>
+          <Button variant="secondary" onClick={downloadDrafts} disabled={!c.generated}>
+            Email drafts page ({c.generated})
+          </Button>
+          <Button variant="secondary" loading={busy === "zip"} onClick={() => void downloadZip()} disabled={!(c.generated + c.sent)}>
+            Download all (ZIP)
+          </Button>
+          <Button variant="ghost" onClick={() => void downloadRegister()} disabled={!records.length}>
+            Download register (Excel)
+          </Button>
+        </div>
+        <Table<OfferRecord>
+          caption="Candidates and offer letters"
+          rows={shown}
+          rowKey={(r) => r.id}
+          toolbar={
+            <div className="flex flex-wrap items-end gap-3">
+              <Segmented legend="Show" hideLegend name="offer-filter" variant="pills" value={filter} options={filterOptions} onChange={setFilter} />
+              <Input aria-label="Search by name, email or ref" placeholder="Search name, email or ref" value={query} onChange={(e) => setQuery(e.target.value)} className="max-w-xs" />
+            </div>
+          }
+          empty={{
+            title: records.length ? "Nothing here" : "No candidates yet",
+            description: records.length ? "Try another filter." : "Upload the Excel sheet or add one candidate above.",
+          }}
+          columns={[
+            { key: "ref", header: "Ref. No.", cell: (r) => r.letter?.ref ?? (r.input.ref || <span className="text-fg-secondary">on generate</span>), priority: "secondary" },
+            {
+              key: "name",
+              header: "Name",
+              priority: "primary",
+              cell: (r) => (
+                <span>
+                  <span className="font-medium">{r.input.name}</span>
+                  <br />
+                  <span className="text-sm text-fg-secondary">{r.input.email || "no email"}</span>
+                </span>
+              ),
+            },
+            {
+              key: "letter",
+              header: "Letter",
+              cell: (r) => (
+                <span className="text-sm">
+                  {kindLabel(r.input.kind ?? "internship")}
+                  <br />
+                  <span className="text-fg-secondary">{letterSummary(r)}</span>
+                </span>
+              ),
+            },
+            { key: "status", header: "Status", cell: (r) => <StatusCell r={r} /> },
+            {
+              key: "actions",
+              header: <span className="sr-only">Actions</span>,
+              align: "right",
+              cell: (r) => (
+                <div className="flex flex-wrap justify-end gap-1">
+                  {r.status === "new" ? (
+                    <>
+                      <Button size="sm" onClick={() => doGenerate([r.id])}>
+                        Generate {(LETTER_KINDS.find((k) => k.value === (r.input.kind ?? "internship"))?.short ?? "").toLowerCase()} offer letter
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditing(r)}>Edit</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setRemoving(r)}>Remove</Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button size="sm" variant="ghost" loading={busy === `open:${r.id}`} onClick={() => void open(r)}>Open</Button>
+                      <Button size="sm" variant="ghost" onClick={() => void download(r)}>PDF</Button>
+                      <Button size="sm" variant="secondary" onClick={() => setDraftOf(r)}>Email draft</Button>
+                      {r.status === "generated" ? (
+                        <Button size="sm" onClick={() => sent([r.id])}>Mark as sent</Button>
+                      ) : (
+                        <Button size="sm" variant="ghost" onClick={() => saveAll(undoSent(records, [r.id]))}>Undo sent</Button>
+                      )}
+                      {r.status === "generated" ? <Button size="sm" variant="ghost" onClick={() => setEditing(r)}>Edit</Button> : null}
+                    </>
+                  )}
+                </div>
+              ),
+            },
+          ]}
+        />
+      </Card>
+
+      <OfferSettingsCard
+        settings={settings}
+        onSave={(s) => {
+          setSettings(s);
+          saveSettings(s);
+        }}
+      />
+
+      <CandidateDialog
+        open={editing !== null}
+        record={editing === "new" ? null : editing}
+        settings={settings}
+        onClose={() => setEditing(null)}
+        onSave={(input) => {
+          if (editing === "new" || editing === null) {
+            saveAll([...records, { id: newId(), input, status: "new", addedOn: todayIso() }]);
+            toast.show({ tone: "success", title: `${input.name} added`, description: "Click Generate next to the name." });
+          } else {
+            saveAll(reopen(records, editing.id, input));
+            toast.show({ tone: "success", title: "Details saved", description: editing.status === "new" ? undefined : "Generate the letter again to update it." });
+          }
+          setEditing(null);
+        }}
+      />
+      <DraftDialog
+        record={draftOf}
+        signature={settings.signature}
+        onClose={() => setDraftOf(null)}
+        onSent={(r) => {
+          sent([r.id]);
+          setDraftOf(null);
+        }}
+      />
+      <ConfirmDialog
+        open={removing !== null}
+        onClose={() => setRemoving(null)}
+        title={`Remove ${removing?.input.name ?? "this candidate"}?`}
+        description="They are removed from this list. Nothing was generated for them yet."
+        confirmLabel="Remove"
+        danger
+        onConfirm={() => {
+          if (removing) saveAll(removeRecords(records, [removing.id]));
+          setRemoving(null);
+        }}
+      />
+    </div>
   );
 }
 
-/* ------------------------------------------------------------------ email drafts */
+function StatusCell({ r }: { r: OfferRecord }) {
+  if (r.status === "sent") return <Badge tone="success">Sent {shortDate(r.sentOn)}</Badge>;
+  if (r.status === "generated") return <Badge tone="warning">{STATUS_LABEL.generated}</Badge>;
+  const errs = rowErrors(r);
+  return errs.length ? <span className="text-sm text-danger">{errs.join(". ")}</span> : <Badge tone="neutral">{STATUS_LABEL.new}</Badge>;
+}
+
+/* ------------------------------------------------------------------ add / edit one candidate */
+
+function blankInput(s: OfferSettings, kind: LetterKind = "internship"): OfferInput {
+  return kind === "employment"
+    ? { kind, name: "", email: "", letterDate: todayIso(), ref: "", role: s.empRole, mode: "on-site", months: s.months, ctc: s.ctc, probation: s.probation, location: s.location }
+    : { kind, name: "", email: "", letterDate: todayIso(), ref: "", role: s.role, mode: s.mode, months: s.months };
+}
+
+function CandidateDialog({
+  open,
+  record,
+  settings,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  record: OfferRecord | null;
+  settings: OfferSettings;
+  onClose: () => void;
+  onSave: (input: OfferInput) => void;
+}) {
+  const [f, setF] = useState<OfferInput>(() => blankInput(settings));
+  const [tried, setTried] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    setF(record ? { ...record.input, ref: record.letter?.ref ?? record.input.ref } : blankInput(settings));
+    setTried(false);
+  }, [open, record, settings]);
+  const set = <K extends keyof OfferInput>(k: K, v: OfferInput[K]) => setF((x) => ({ ...x, [k]: v }));
+  const kind = f.kind ?? "internship";
+  const emp = kind === "employment";
+  const period = !emp && isIsoDate(f.letterDate) && f.months >= 1 ? periodOf(f.letterDate, f.months) : null;
+  const joining = emp && isIsoDate(f.letterDate) ? f.start || addDays(f.letterDate, 1) : "";
+  const missing = !f.name.trim() ? "Enter the name" : !isIsoDate(f.letterDate) ? "Enter the letter date" : !f.role.trim() ? (emp ? "Enter the position" : "Enter the role") : emp && !(f.ctc ?? "").trim() ? "Enter the annual CTC" : "";
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      size="lg"
+      title={record ? `Edit ${record.input.name}` : "Add one candidate"}
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button
+            onClick={() => {
+              setTried(true);
+              if (!missing) onSave({ ...f, name: f.name.trim(), email: f.email.trim() });
+            }}
+          >
+            {record ? "Save" : "Add to list"}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <Segmented
+          legend="Letter template"
+          name="offer-kind"
+          variant="pills"
+          value={kind}
+          options={LETTER_KINDS.map((k) => ({ value: k.value, label: k.label }))}
+          onChange={(k) => setF((x) => ({ ...blankInput(settings, k), name: x.name, email: x.email, letterDate: x.letterDate, ref: x.ref }))}
+        />
+        {tried && missing ? <p className="text-sm text-danger">{missing}</p> : null}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField label="Full name" required>{(p) => <Input {...p} value={f.name} onChange={(e) => set("name", e.target.value)} />}</FormField>
+          <FormField label="Email" hint="For the email draft">{(p) => <Input {...p} type="email" value={f.email} onChange={(e) => set("email", e.target.value)} />}</FormField>
+          <FormField label="Letter date" required hint={period ? `Period: ${longDate(period.start)} – ${longDate(period.end)}` : joining ? `Joining: ${shortDate(joining)}` : undefined}>
+            {(p) => <Input {...p} type="date" value={f.letterDate} onChange={(e) => set("letterDate", e.target.value)} />}
+          </FormField>
+          <FormField label="Ref. No." hint="Leave blank: the next number is given when you generate">
+            {(p) => <Input {...p} value={f.ref} onChange={(e) => set("ref", e.target.value)} />}
+          </FormField>
+          <FormField label={emp ? "Position" : "Role"} required>{(p) => <Input {...p} value={f.role} onChange={(e) => set("role", e.target.value)} />}</FormField>
+          <FormField label="Mode">{(p) => <Select {...p} options={MODE_OPTIONS} value={f.mode} onChange={(e) => set("mode", e.target.value)} />}</FormField>
+          {emp ? (
+            <>
+              <FormField label="Date of joining" hint="Blank = the day after the letter date">
+                {(p) => <Input {...p} type="date" value={f.start ?? ""} onChange={(e) => set("start", e.target.value || undefined)} />}
+              </FormField>
+              <FormField label="Annual CTC" required hint="e.g. 420000 → ₹4,20,000 per annum">
+                {(p) => <Input {...p} value={f.ctc ?? ""} onChange={(e) => set("ctc", e.target.value)} />}
+              </FormField>
+              <FormField label="Probation (months)" hint="0 = no probation">
+                {(p) => <Input {...p} type="number" min={0} max={12} value={String(f.probation ?? 0)} onChange={(e) => set("probation", Number(e.target.value))} />}
+              </FormField>
+              <FormField label="Location">{(p) => <Input {...p} value={f.location ?? ""} onChange={(e) => set("location", e.target.value)} />}</FormField>
+            </>
+          ) : (
+            <FormField label="Duration (months)">
+              {(p) => <Input {...p} type="number" min={1} max={24} value={String(f.months)} onChange={(e) => set("months", Number(e.target.value))} />}
+            </FormField>
+          )}
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------ email draft */
 
 function useCopy() {
   const toast = useToast();
@@ -336,32 +523,32 @@ function useCopy() {
   };
 }
 
-function DraftDialog({ item, onClose }: { item: { draft: EmailDraft; letter: OfferLetter } | null; onClose: () => void }) {
+function DraftDialog({ record, signature, onClose, onSent }: { record: OfferRecord | null; signature: string; onClose: () => void; onSent: (r: OfferRecord) => void }) {
   const copy = useCopy();
   const [busy, setBusy] = useState(false);
-  const d = item?.draft;
+  const d = record?.letter ? emailDraft(record.letter) : null;
   async function attachment() {
-    if (!item) return;
+    if (!record?.letter) return;
     setBusy(true);
     try {
-      saveBytes(await makePdf(item.letter), item.draft.attachment, "application/pdf");
+      saveBytes(await makePdf(record.letter, signature), offerFileName(record.letter), "application/pdf");
     } finally {
       setBusy(false);
     }
   }
   return (
     <Dialog
-      open={item !== null}
+      open={record !== null}
       onClose={onClose}
       size="lg"
-      title="Email draft"
-      description="Send it from the HR mailbox and attach the offer letter PDF."
+      title={`Email draft – ${record?.input.name ?? ""}`}
+      description="Copy each part into a new email from the HR mailbox, attach the PDF, send it, then click Mark as sent."
       footer={
-        d ? (
+        d && record ? (
           <div className="flex flex-wrap justify-end gap-2">
-            <Button variant="secondary" onClick={() => void copy(`Subject: ${d.subject}\n\n${d.body}`, "Email")}>Copy all</Button>
-            <Button variant="secondary" loading={busy} onClick={() => void attachment()}>Download attachment</Button>
-            <Button onClick={() => window.open(gmailComposeUrl(d), "_blank", "noopener")} disabled={!d.to}>Open in Gmail</Button>
+            <Button variant="secondary" loading={busy} onClick={() => void attachment()}>Download PDF to attach</Button>
+            <Button variant="secondary" onClick={() => window.open(gmailComposeUrl(d), "_blank", "noopener")} disabled={!d.to}>Open in Gmail</Button>
+            {record.status === "generated" ? <Button onClick={() => onSent(record)}>Mark as sent</Button> : <Badge tone="success">Sent {shortDate(record.sentOn)}</Badge>}
           </div>
         ) : null
       }
@@ -376,7 +563,7 @@ function DraftDialog({ item, onClose }: { item: { draft: EmailDraft; letter: Off
               <span className="font-medium">Body</span>
               <Button size="sm" variant="ghost" onClick={() => void copy(d.body, "Body")}>Copy</Button>
             </div>
-            <Textarea readOnly rows={16} value={d.body} aria-label="Email body" className="font-mono text-xs" />
+            <Textarea readOnly rows={14} value={d.body} aria-label="Email body" className="font-mono text-xs" />
           </div>
         </div>
       ) : null}
@@ -395,45 +582,6 @@ function DraftLine({ label, value, onCopy }: { label: string; value: string; onC
         </Button>
       ) : null}
     </div>
-  );
-}
-
-function AllDraftsDialog({ open, letters, onClose }: { open: boolean; letters: OfferLetter[]; onClose: () => void }) {
-  const copy = useCopy();
-  const text = letters
-    .map((l) => {
-      const d = emailDraft(l);
-      return `To: ${d.to || "(no email)"}\nSubject: ${d.subject}\nAttachment: ${d.attachment}\n\n${d.body}`;
-    })
-    .join("\n\n" + "=".repeat(60) + "\n\n");
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      size="xl"
-      title={`Email drafts (${letters.length})`}
-      footer={
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="secondary" onClick={() => saveBytes(new TextEncoder().encode(text), `offer-letter-emails-${todayIso()}.txt`, "text/plain")}>Download .txt</Button>
-          <Button onClick={() => void copy(text, "All drafts")}>Copy all</Button>
-        </div>
-      }
-    >
-      <ul className="space-y-2">
-        {letters.map((l) => {
-          const d = emailDraft(l);
-          return (
-            <li key={l.ref} className="flex flex-wrap items-center gap-2 border-b border-line pb-2 text-sm">
-              <span className="min-w-0 flex-1">
-                <span className="font-medium">{l.name}</span> <span className="text-fg-secondary">{d.to || "no email"}</span>
-              </span>
-              <Button size="sm" variant="ghost" onClick={() => void copy(d.body, "Body")}>Copy body</Button>
-              <Button size="sm" variant="secondary" disabled={!d.to} onClick={() => window.open(gmailComposeUrl(d), "_blank", "noopener")}>Open in Gmail</Button>
-            </li>
-          );
-        })}
-      </ul>
-    </Dialog>
   );
 }
 
@@ -464,7 +612,7 @@ function OfferSettingsCard({ settings, onSave }: { settings: OfferSettings; onSa
     r.readAsDataURL(file);
   }
 
-  const text = (k: "company" | "address" | "website" | "signatory" | "designation" | "role" | "nextRef", label: string, hint?: string) => (
+  const text = (k: "company" | "address" | "website" | "signatory" | "designation" | "role" | "nextRef" | "empRole" | "empNextRef" | "ctc" | "location", label: string, hint?: string) => (
     <FormField label={label} hint={hint}>
       {(p) => <Input {...p} value={s[k]} onChange={(e) => set(k, e.target.value)} />}
     </FormField>
@@ -472,16 +620,11 @@ function OfferSettingsCard({ settings, onSave }: { settings: OfferSettings; onSa
 
   return (
     <Card title="Offer letter settings" description="Kept in this browser. Used for every new letter and as the defaults for blank Excel cells.">
+      <h3 className="mb-2 text-sm font-semibold">Company and signatory</h3>
       <div className="grid gap-4 sm:grid-cols-2">
         {text("company", "Company name")}
         {text("address", "Address (letter header)")}
         {text("website", "Website")}
-        {text("nextRef", "Next reference number", "Goes up by one after each generated letter")}
-        {text("role", "Default role")}
-        <div className="grid grid-cols-2 gap-4">
-          <FormField label="Default mode">{(p) => <Select {...p} options={MODE_OPTIONS} value={s.mode} onChange={(e) => set("mode", e.target.value)} />}</FormField>
-          <FormField label="Default months">{(p) => <Input {...p} type="number" min={1} max={24} value={String(s.months)} onChange={(e) => set("months", Number(e.target.value) || 1)} />}</FormField>
-        </div>
         {text("signatory", "Signatory name")}
         {text("designation", "Signatory designation")}
         <FormField label="Signature image" hint="PNG with a transparent background looks best. Without one, the letter has a blank space to sign.">
@@ -493,6 +636,23 @@ function OfferSettingsCard({ settings, onSave }: { settings: OfferSettings; onSa
             </div>
           )}
         </FormField>
+      </div>
+      <h3 className="mb-2 mt-6 text-sm font-semibold">Internship offer letter</h3>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {text("nextRef", "Next reference number", "Goes up by one after each generated letter")}
+        {text("role", "Default role")}
+        <div className="grid grid-cols-2 gap-4">
+          <FormField label="Default mode">{(p) => <Select {...p} options={MODE_OPTIONS} value={s.mode} onChange={(e) => set("mode", e.target.value)} />}</FormField>
+          <FormField label="Default months">{(p) => <Input {...p} type="number" min={1} max={24} value={String(s.months)} onChange={(e) => set("months", Number(e.target.value) || 1)} />}</FormField>
+        </div>
+      </div>
+      <h3 className="mb-2 mt-6 text-sm font-semibold">Employment offer letter</h3>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {text("empNextRef", "Next reference number", "A separate series, e.g. TD-EO-2026-0001")}
+        {text("empRole", "Default position")}
+        {text("ctc", "Default annual CTC", "Blank = must be given for each person")}
+        {text("location", "Default location")}
+        <FormField label="Default probation (months)">{(p) => <Input {...p} type="number" min={0} max={12} value={String(s.probation)} onChange={(e) => set("probation", Number(e.target.value) || 0)} />}</FormField>
       </div>
       <div className="mt-5">
         <Button
@@ -507,3 +667,4 @@ function OfferSettingsCard({ settings, onSave }: { settings: OfferSettings; onSa
     </Card>
   );
 }
+

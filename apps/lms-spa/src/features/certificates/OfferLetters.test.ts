@@ -85,8 +85,9 @@ describe("Excel bulk", () => {
   it("round-trips the template and fills blank refs and defaults", () => {
     const tpl = templateWorkbook(XLSX, DEFAULT_SETTINGS);
     const rows = parseOfferSheet(XLSX, tpl, DEFAULT_SETTINGS, "TD-OL-2026-0161");
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ ref: "TD-OL-2026-0161", letterDate: "2026-11-02", months: 4, mode: "hybrid" });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ kind: "internship", ref: "TD-OL-2026-0161", letterDate: "2026-11-02", months: 4, mode: "hybrid" });
+    expect(rows[1]).toMatchObject({ kind: "employment", ctc: "420000", start: "2026-12-15", probation: 6 });
   });
   it("reads a sheet with its own columns", () => {
     const ws = XLSX.utils.aoa_to_sheet([
