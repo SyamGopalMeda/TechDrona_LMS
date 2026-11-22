@@ -25,7 +25,7 @@ import {
   type OfferLetter,
   type OfferSettings,
 } from "../lib/offer";
-import { loadOfferAssets, renderOfferPdf } from "../lib/offerpdf";
+import { LOCAL_SIGNATURE_URL, loadOfferAssets, localSignature, renderOfferPdf } from "../lib/offerpdf";
 
 const MODE_OPTIONS = MODES.map((m) => ({ value: m, label: m[0]!.toUpperCase() + m.slice(1) }));
 
@@ -443,6 +443,14 @@ function OfferSettingsCard({ settings, onSave }: { settings: OfferSettings; onSa
   const toast = useToast();
   const [s, setS] = useState(settings);
   useEffect(() => setS(settings), [settings]);
+  const [localSig, setLocalSig] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void localSignature().then((b) => live && setLocalSig(Boolean(b)));
+    return () => {
+      live = false;
+    };
+  }, []);
   const set = <K extends keyof OfferSettings>(k: K, v: OfferSettings[K]) => setS((x) => ({ ...x, [k]: v }));
 
   function onSignature(file: File | undefined) {
@@ -479,7 +487,7 @@ function OfferSettingsCard({ settings, onSave }: { settings: OfferSettings; onSa
         <FormField label="Signature image" hint="PNG with a transparent background looks best. Without one, the letter has a blank space to sign.">
           {(p) => (
             <div className="flex flex-wrap items-center gap-3">
-              {s.signature ? <img src={s.signature} alt="Current signature" className="h-14 w-auto rounded border border-line bg-white p-1" /> : <span className="text-sm text-fg-secondary">No signature</span>}
+              {s.signature ? <img src={s.signature} alt="Current signature" className="h-14 w-auto rounded border border-line bg-white p-1" /> : localSig ? <img src={LOCAL_SIGNATURE_URL} alt="Saved signature on this laptop" className="h-14 w-auto rounded border border-line bg-white p-1" /> : <span className="text-sm text-fg-secondary">No signature</span>}
               <input {...p} type="file" accept="image/png,image/jpeg" onChange={(e) => onSignature(e.target.files?.[0])} className="block text-sm text-fg-secondary file:mr-3 file:rounded-md file:border file:border-line file:bg-surface file:px-3 file:py-2 file:text-sm file:font-medium" />
               {s.signature ? <Button size="sm" variant="ghost" onClick={() => set("signature", "")}>Remove</Button> : null}
             </div>

@@ -6,3 +6,6 @@ coverage/
 
 # Monaco editor assets copied from node_modules by scripts/copy-monaco.mjs
 /public/vendor/monaco/
+
+# This laptop only (repo is public): HR signature for offer letters
+/public/local/

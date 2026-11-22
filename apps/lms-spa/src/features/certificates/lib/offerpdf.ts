@@ -394,6 +394,24 @@ export async function loadOfferAssets(signatureDataUrl: string): Promise<OfferAs
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     out.signature = { bytes, type: m[1] === "png" ? "png" : "jpg" };
+  } else {
+    const local = await localSignature();
+    if (local) out.signature = { bytes: local, type: "png" };
   }
   return out;
+}
+
+/** Git-ignored fallback signature (public/local/offer-signature.png, this laptop only; the repo
+ * is public, so the HR signature is never committed). Used when the settings hold no signature,
+ * e.g. in a new browser whose localStorage is empty. Missing file -> no signature. */
+export const LOCAL_SIGNATURE_URL = "/local/offer-signature.png";
+
+export async function localSignature(): Promise<Uint8Array | undefined> {
+  try {
+    const r = await fetch(LOCAL_SIGNATURE_URL);
+    if (!r.ok || !(r.headers.get("content-type") ?? "").startsWith("image/png")) return undefined;
+    return new Uint8Array(await r.arrayBuffer());
+  } catch {
+    return undefined;
+  }
 }
