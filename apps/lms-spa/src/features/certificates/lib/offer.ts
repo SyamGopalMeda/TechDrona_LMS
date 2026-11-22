@@ -47,6 +47,8 @@ export interface OfferSettings {
   ctc: string;
   probation: number;
   location: string;
+  /** Default total fee (₹) a candidate is expected to pay; 0 = no fee tracking by default. */
+  fee: number;
 }
 
 export const DEFAULT_SETTINGS: OfferSettings = {
@@ -65,6 +67,7 @@ export const DEFAULT_SETTINGS: OfferSettings = {
   ctc: "",
   probation: 6,
   location: "Vijayawada, Andhra Pradesh",
+  fee: 5000,
 };
 
 export const MODES = ["hybrid", "online", "on-site"] as const;
@@ -338,10 +341,13 @@ export const TEMPLATE_HEADERS = [
   "Annual CTC",
   "Probation (months)",
   "Location",
+  "Total fee",
+  "Amount paid",
+  "Paid on",
 ] as const;
 
 /** Register-only columns (the register export adds them; an upload with them restores the status). */
-export const STATUS_HEADERS = ["Status", "Sent on"] as const;
+export const STATUS_HEADERS = ["Status", "Sent on", "Payments", "Balance"] as const;
 
 export type SheetKey =
   | "name"
@@ -360,7 +366,11 @@ export type SheetKey =
   | "status"
   | "sentOn"
   | "department"
-  | "notes";
+  | "notes"
+  | "fee"
+  | "paid"
+  | "paidOn"
+  | "payments";
 
 const HEADER_KEYS: Record<string, SheetKey> = {
   name: "name",
@@ -406,15 +416,26 @@ const HEADER_KEYS: Record<string, SheetKey> = {
   department: "department",
   notes: "notes",
   remarks: "notes",
+  "total fee": "fee",
+  fee: "fee",
+  "course fee": "fee",
+  "amount paid": "paid",
+  paid: "paid",
+  amount: "paid",
+  "amount (₹)": "paid",
+  "amount (rs)": "paid",
+  "paid on": "paidOn",
+  "payment date": "paidOn",
+  payments: "payments",
 };
 
 export function templateWorkbook(x: XLSX, s: OfferSettings): Uint8Array {
   const ws = x.utils.aoa_to_sheet([
     [...TEMPLATE_HEADERS],
-    ["Perikela Jaya Satya Sai Prakash", "student@example.com", "Internship", "2026-11-02", "", s.role, s.mode, s.months, "", "", "", "", ""],
-    ["Example Candidate", "candidate@example.com", "Employment", "2026-12-01", "", s.empRole || "Software Developer", "on-site", "", "2026-12-15", "", "420000", s.probation, s.location],
+    ["Perikela Jaya Satya Sai Prakash", "student@example.com", "Internship", "2026-11-02", "", s.role, s.mode, s.months, "", "", "", "", "", s.fee || "", 2500, "2026-11-02"],
+    ["Example Candidate", "candidate@example.com", "Employment", "2026-12-01", "", s.empRole || "Software Developer", "on-site", "", "2026-12-15", "", "420000", s.probation, s.location, "", "", ""],
   ]);
-  ws["!cols"] = [34, 30, 13, 13, 18, 40, 10, 18, 20, 13, 16, 18, 28].map((wch) => ({ wch }));
+  ws["!cols"] = [34, 30, 13, 13, 18, 40, 10, 18, 20, 13, 16, 18, 28, 11, 12, 12].map((wch) => ({ wch }));
   const help = x.utils.aoa_to_sheet([
     ["Column", "Required", "Notes"],
     ["Name", "Yes", "Full name as it should appear on the letter."],
@@ -430,6 +451,8 @@ export function templateWorkbook(x: XLSX, s: OfferSettings): Uint8Array {
     ["Annual CTC", "Employment", "e.g. 420000 (printed as ₹4,20,000 per annum) or your own text."],
     ["Probation (months)", "No", `Employment only. Blank = ${s.probation}; 0 = no probation.`],
     ["Location", "No", `Employment only. Blank = ${s.location}.`],
+    ["Total fee", "No", `What the candidate has to pay in ₹ (e.g. 5000). Blank = ${s.fee || "no fee"}.`],
+    ["Amount paid / Paid on", "No", "What they have paid so far and when (e.g. 2500, 02-11-2026). The list shows the balance due."],
     ["Status / Sent on", "No", "Only in a register you downloaded: uploading it again restores which letters were sent."],
   ]);
   help["!cols"] = [{ wch: 22 }, { wch: 12 }, { wch: 90 }];
@@ -464,6 +487,57 @@ export interface SheetEntry {
   refGiven: boolean;
   status: string;
   sentOn: string;
+  /** Payment columns: undefined when the sheet has none (existing payments are then kept). */
+  fee?: number;
+  payments?: Payment[];
+}
+
+/** One payment received from a candidate. */
+export interface Payment {
+  /** ISO yyyy-mm-dd ("" when unknown). */
+  date: string;
+  /** Rupees. */
+  amount: number;
+  note?: string;
+}
+
+/** "5,000" / "₹5,000" / "Rs. 5000" / 5000 -> 5000 (NaN when not a number). */
+export function rupees(v: unknown): number {
+  if (typeof v === "number") return v;
+  const t = String(v ?? "").trim().replace(/^(?:rs\.?|inr|₹)\s*/i, "").replace(/,/g, "");
+  return t === "" ? NaN : Number(t);
+}
+
+/** "₹2,500". */
+export function inr(n: number): string {
+  return `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+}
+
+/** Payments -> "2026-11-02: ₹2,500 (UPI 123); 2026-11-20: ₹2,500" (the register's Payments column). */
+export function paymentsText(ps: Payment[]): string {
+  return ps.map((p) => `${p.date || "no date"}: ${inr(p.amount)}${p.note ? ` (${p.note.replace(/[();]/g, " ").trim()})` : ""}`).join("; ");
+}
+
+export function parsePayments(t: string): Payment[] {
+  const out: Payment[] = [];
+  for (const part of t.split(";")) {
+    const m = /^\s*(\d{4}-\d{2}-\d{2}|no date)\s*:\s*(?:₹|rs\.?\s*)?([\d,]+(?:\.\d+)?)\s*(?:\((.*)\))?\s*$/i.exec(part);
+    if (m) out.push({ date: m[1] === "no date" ? "" : m[1]!, amount: Number(m[2]!.replace(/,/g, "")), ...(m[3]?.trim() ? { note: m[3].trim() } : {}) });
+  }
+  return out;
+}
+
+function sheetPayments(row: Partial<Record<SheetKey, unknown>>, s: OfferSettings): { fee?: number; payments?: Payment[] } {
+  const has = (k: SheetKey) => row[k] !== undefined && String(row[k]).trim() !== "";
+  if (!has("fee") && !has("paid") && !has("payments")) return {};
+  const fee = has("fee") ? rupees(row.fee) : s.fee;
+  let payments: Payment[] = [];
+  if (has("payments")) payments = parsePayments(String(row.payments));
+  else if (has("paid")) {
+    const amount = rupees(row.paid);
+    if (Number.isFinite(amount) && amount > 0) payments = [{ date: cellDate(row.paidOn), amount }];
+  }
+  return { fee: Number.isFinite(fee) ? fee : s.fee, payments };
 }
 
 /**
@@ -508,6 +582,7 @@ export function readOfferSheet(x: XLSX, bytes: Uint8Array, s: OfferSettings): Sh
       refGiven: str("ref") !== "",
       status: str("status"),
       sentOn: cellDate(row.sentOn),
+      ...sheetPayments(row, s),
     });
   }
   return out;

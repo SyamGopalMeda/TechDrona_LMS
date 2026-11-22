@@ -68,4 +68,22 @@ describe("Offer letters tab", () => {
     expect(within(dialog).getByLabelText(/Annual CTC/)).toBeInTheDocument();
     expect(within(dialog).getByLabelText(/Date of joining/)).toBeInTheDocument();
   });
+  it("records a part payment and shows the balance due", async () => {
+    window.localStorage.clear();
+    const user = userEvent.setup();
+    renderWithProviders(<OfferLettersTab />);
+    await addCandidate(user, "Masimukku Sandya", "s@example.com", "2026-11-21");
+    expect(await screen.findByText("Not paid · ₹5,000 due")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Payments" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/^Amount/), "2500");
+    await user.type(within(dialog).getByLabelText(/Note/), "UPI 4411");
+    await user.click(within(dialog).getByRole("button", { name: "Add payment" }));
+    expect(within(dialog).getByText("UPI 4411")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Save payments" }));
+    expect(await screen.findByText("₹2,500 due")).toBeInTheDocument();
+    expect(screen.getByText("₹2,500 of ₹5,000 paid")).toBeInTheDocument();
+    await user.click(screen.getByLabelText(/Balance due \(1\)/));
+    expect(screen.getByText("Masimukku Sandya")).toBeInTheDocument();
+  });
 });

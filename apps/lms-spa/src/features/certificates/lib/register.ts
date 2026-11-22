@@ -22,7 +22,9 @@ import {
   nextRef,
   offerErrors,
   offerFileName,
+  paymentsText,
   type LetterKind,
+  type Payment,
   type OfferInput,
   type OfferLetter,
   type OfferSettings,
@@ -40,6 +42,36 @@ export interface OfferRecord {
   addedOn: string;
   generatedOn?: string;
   sentOn?: string;
+  /** Total fee the candidate has to pay (₹); undefined/0 = not tracked. */
+  fee?: number;
+  /** Payments received, oldest first. */
+  payments?: Payment[];
+}
+
+/* ------------------------------------------------------------------ payments */
+
+export function paidTotal(r: Pick<OfferRecord, "payments">): number {
+  return (r.payments ?? []).reduce((a, p) => a + (Number.isFinite(p.amount) ? p.amount : 0), 0);
+}
+
+/** Amount still due (never negative); 0 when no fee is set. */
+export function balance(r: Pick<OfferRecord, "fee" | "payments">): number {
+  return r.fee ? Math.max(0, r.fee - paidTotal(r)) : 0;
+}
+
+export type PayState = "none" | "unpaid" | "part" | "paid";
+
+/** "none": no fee and no payments recorded. */
+export function payState(r: Pick<OfferRecord, "fee" | "payments">): PayState {
+  const paid = paidTotal(r);
+  if (!r.fee) return paid > 0 ? "paid" : "none";
+  if (paid <= 0) return "unpaid";
+  return paid >= r.fee ? "paid" : "part";
+}
+
+export function setPayments(records: OfferRecord[], id: string, fee: number | undefined, payments: Payment[]): OfferRecord[] {
+  const sorted = payments.slice().sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
+  return records.map((r) => (r.id === id ? { ...r, fee, payments: sorted } : r));
 }
 
 export const STATUS_LABEL: Record<LetterStatus, string> = { new: "Not generated", generated: "To send", sent: "Sent" };
@@ -81,8 +113,9 @@ export function addEntries(records: OfferRecord[], entries: SheetEntry[], s: Off
     // same number AND same person; a different person with a taken number is added and fails on Generate
     const byRef = e.refGiven ? out.findIndex((r) => (r.letter?.ref ?? r.input.ref) === e.input.ref && norm(r.input.name) === norm(e.input.name)) : -1;
     const idx = byRef >= 0 ? byRef : out.findIndex((r) => norm(r.input.name) === norm(e.input.name) && norm(r.input.email) === norm(e.input.email));
-    const restored = (base: Partial<OfferRecord>): OfferRecord => {
-      const rec: OfferRecord = { id: newId(), addedOn: today, ...base, input: e.input, status: "new", letter: undefined, generatedOn: undefined, sentOn: undefined };
+    const pay = (cur?: OfferRecord) => (e.payments !== undefined ? { fee: e.fee, payments: e.payments } : { fee: cur ? cur.fee : s.fee || undefined, payments: cur?.payments ?? [] });
+    const restored = (base: Partial<OfferRecord>, cur?: OfferRecord): OfferRecord => {
+      const rec: OfferRecord = { id: newId(), addedOn: today, ...base, input: e.input, status: "new", letter: undefined, generatedOn: undefined, sentOn: undefined, ...pay(cur) };
       if (status !== "new" && e.input.ref && !offerErrors(e.input).length) {
         rec.status = status;
         rec.letter = freeze(buildOffer(e.input, s));
@@ -97,8 +130,15 @@ export function addEntries(records: OfferRecord[], entries: SheetEntry[], s: Off
       continue;
     }
     const cur = out[idx]!;
-    if (cur.status !== "new" && status === "new") continue; // an issued letter is not overwritten by a plain row
-    out[idx] = restored({ id: cur.id, addedOn: cur.addedOn });
+    if (cur.status !== "new" && status === "new") {
+      // an issued letter is not overwritten by a plain row; its payment columns still apply
+      if (e.payments !== undefined) {
+        out[idx] = { ...cur, ...pay(cur) };
+        updated += 1;
+      }
+      continue;
+    }
+    out[idx] = restored({ id: cur.id, addedOn: cur.addedOn }, cur);
     updated += 1;
   }
   return { records: out, added, updated };
@@ -187,9 +227,12 @@ export function rowErrors(r: OfferRecord): string[] {
   return offerErrors({ ...r.input, ref: r.input.ref || "pending" });
 }
 
-export function counts(records: OfferRecord[]): Record<LetterStatus | "all", number> {
-  const c = { all: records.length, new: 0, generated: 0, sent: 0 };
-  for (const r of records) c[r.status] += 1;
+export function counts(records: OfferRecord[]): Record<LetterStatus | "all" | "due", number> {
+  const c = { all: records.length, new: 0, generated: 0, sent: 0, due: 0 };
+  for (const r of records) {
+    c[r.status] += 1;
+    if (balance(r) > 0) c.due += 1;
+  }
   return c;
 }
 
@@ -241,13 +284,18 @@ export function registerWorkbook(x: XLSX, records: OfferRecord[]): Uint8Array {
       emp ? (i.ctc ?? "") : "",
       emp ? (i.probation ?? "") : "",
       emp ? (i.location ?? "") : "",
+      r.fee || "",
+      paidTotal(r) || "",
+      r.payments?.length ? r.payments[r.payments.length - 1]!.date : "",
       STATUS_LABEL[r.status],
       r.sentOn ?? "",
+      paymentsText(r.payments ?? []),
+      r.fee ? balance(r) : "",
     ];
   });
   const ws = x.utils.aoa_to_sheet([[...TEMPLATE_HEADERS, ...STATUS_HEADERS], ...rows]);
-  ws["!cols"] = [34, 30, 12, 12, 18, 40, 10, 10, 14, 12, 16, 10, 24, 14, 12].map((wch) => ({ wch }));
-  ws["!autofilter"] = { ref: `A1:O${rows.length + 1}` };
+  ws["!cols"] = [34, 30, 12, 12, 18, 40, 10, 10, 14, 12, 16, 10, 24, 10, 12, 12, 14, 12, 44, 10].map((wch) => ({ wch }));
+  ws["!autofilter"] = { ref: `A1:T${rows.length + 1}` };
   const wb = x.utils.book_new();
   x.utils.book_append_sheet(wb, ws, "Offer letters register");
   return new Uint8Array(x.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer);

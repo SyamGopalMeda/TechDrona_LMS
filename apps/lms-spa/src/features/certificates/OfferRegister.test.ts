@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import { PDFDocument } from "pdf-lib";
-import { DEFAULT_SETTINGS, buildOffer, emailDraft, formatCtc, offerErrors, readOfferSheet, type OfferInput } from "./lib/offer";
+import { DEFAULT_SETTINGS, buildOffer, emailDraft, formatCtc, inr, offerErrors, parsePayments, paymentsText, readOfferSheet, rupees, type OfferInput } from "./lib/offer";
 import { letterContent, renderOfferPdf } from "./lib/offerpdf";
-import { addEntries, counts, draftsHtml, generate, markSent, registerWorkbook, removeRecords, reopen, rowErrors, undoSent } from "./lib/register";
+import { addEntries, balance, counts, draftsHtml, generate, markSent, paidTotal, payState, registerWorkbook, removeRecords, reopen, rowErrors, setPayments, undoSent } from "./lib/register";
 
 const S = { ...DEFAULT_SETTINGS, nextRef: "TD-OL-2026-0172", empNextRef: "TD-EO-2026-0001", empRole: "Software Developer" };
 
@@ -63,7 +63,7 @@ describe("offer letter register", () => {
     expect(res.records[0]!.letter?.signature).toBe("");
     const sent = markSent(res.records, [res.records[0]!.id], "2026-11-23");
     expect(sent[0]).toMatchObject({ status: "sent", sentOn: "2026-11-23" });
-    expect(counts(sent)).toEqual({ all: 3, new: 1, generated: 1, sent: 1 });
+    expect(counts(sent)).toMatchObject({ all: 3, new: 1, generated: 1, sent: 1 });
     expect(undoSent(sent, [sent[0]!.id])[0]).toMatchObject({ status: "generated", sentOn: undefined });
   });
 
@@ -162,3 +162,56 @@ describe("employment offer letter", () => {
   });
 });
 
+
+describe("candidate payments", () => {
+  it("reads fee and part payments from the sheet and works out the balance", () => {
+    const entries = readOfferSheet(
+      XLSX,
+      sheet([
+        ["Student Name", "Letter date", "Amount (₹)", "Paid on", "Total fee"],
+        ["A One", "2026-11-02", "2,500", "02-11-2026", ""],
+        ["B Two", "2026-11-02", 5000, "2026-11-02", 5000],
+        ["C Three", "2026-11-02", "", "", 3000],
+        ["D Four", "2026-11-02", "", "", ""],
+      ]),
+      S,
+    );
+    const { records } = addEntries([], entries, S, "d");
+    expect(records.map((r) => [payState(r), paidTotal(r), balance(r)])).toEqual([
+      ["part", 2500, 2500],
+      ["paid", 5000, 0],
+      ["unpaid", 0, 3000],
+      ["unpaid", 0, 5000],
+    ]);
+    expect(records[0]!.payments).toEqual([{ date: "2026-11-02", amount: 2500 }]);
+    expect(counts(records).due).toBe(3);
+  });
+
+  it("keeps every payment through the downloaded register, and a payments sheet updates issued letters", () => {
+    const { records } = addEntries([], readOfferSheet(XLSX, sheet([["Name", "Letter date"], ["A One", "2026-11-02"]]), S), S, "d");
+    const g = generate(records, [records[0]!.id], S, "d").records;
+    const withPay = setPayments(g, g[0]!.id, 5000, [
+      { date: "2026-11-20", amount: 2000, note: "UPI 998" },
+      { date: "2026-11-02", amount: 2500 },
+    ]);
+    expect(withPay[0]!.payments!.map((p) => p.date)).toEqual(["2026-11-02", "2026-11-20"]);
+    const text = paymentsText(withPay[0]!.payments!);
+    expect(text).toBe("2026-11-02: ₹2,500; 2026-11-20: ₹2,000 (UPI 998)");
+    expect(parsePayments(text)).toEqual(withPay[0]!.payments);
+    const back = addEntries([], readOfferSheet(XLSX, registerWorkbook(XLSX, withPay), S), S, "x").records;
+    expect(back[0]).toMatchObject({ status: "generated", fee: 5000 });
+    expect(balance(back[0]!)).toBe(500);
+    // a later plain sheet with only a payment column updates the issued letter's payments
+    const upd = addEntries(withPay, readOfferSheet(XLSX, sheet([["Name", "Letter date", "Amount paid", "Paid on"], ["A One", "2026-11-02", 5000, "2026-11-25"]]), S), S, "y");
+    expect(upd.updated).toBe(1);
+    expect(upd.records[0]).toMatchObject({ status: "generated", payments: [{ date: "2026-11-25", amount: 5000 }] });
+  });
+
+  it("formats rupees and parses amounts", () => {
+    expect(inr(2500)).toBe("₹2,500");
+    expect(inr(125000)).toBe("₹1,25,000");
+    expect(rupees("Rs. 2,500")).toBe(2500);
+    expect(rupees("₹3000")).toBe(3000);
+    expect(Number.isNaN(rupees("abc"))).toBe(true);
+  });
+});

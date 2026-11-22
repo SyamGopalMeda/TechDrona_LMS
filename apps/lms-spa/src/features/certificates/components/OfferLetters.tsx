@@ -17,6 +17,9 @@ import {
   periodOf,
   readOfferSheet,
   saveSettings,
+  inr,
+  rupees,
+  type Payment,
   templateWorkbook,
   todayIso,
   addDays,
@@ -42,6 +45,10 @@ import {
   removeRecords,
   reopen,
   rowErrors,
+  balance,
+  paidTotal,
+  payState,
+  setPayments,
   saveRegister,
   undoSent,
   type LetterStatus,
@@ -79,7 +86,7 @@ function fileBytes(file: Blob): Promise<Uint8Array> {
   });
 }
 
-type Filter = "all" | LetterStatus;
+type Filter = "all" | LetterStatus | "due";
 
 /**
  * Certificates & documents > Offer letters. One page, four steps, no AI:
@@ -99,6 +106,7 @@ export function OfferLettersTab() {
   const [editing, setEditing] = useState<OfferRecord | "new" | null>(null);
   const [draftOf, setDraftOf] = useState<OfferRecord | null>(null);
   const [removing, setRemoving] = useState<OfferRecord | null>(null);
+  const [paying, setPaying] = useState<OfferRecord | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const saveAll = (r: OfferRecord[], s?: OfferSettings) => {
@@ -115,7 +123,7 @@ export function OfferLettersTab() {
     const q = query.trim().toLowerCase();
     return records.filter(
       (r) =>
-        (filter === "all" || r.status === filter) &&
+        (filter === "all" || (filter === "due" ? balance(r) > 0 : r.status === filter)) &&
         (!q || `${r.input.name} ${r.input.email} ${r.letter?.ref ?? r.input.ref}`.toLowerCase().includes(q)),
     );
   }, [records, filter, query]);
@@ -232,6 +240,7 @@ export function OfferLettersTab() {
     { value: "new", label: `Not generated (${c.new})` },
     { value: "generated", label: `To send (${c.generated})` },
     { value: "sent", label: `Sent (${c.sent})` },
+    { value: "due", label: `Balance due (${c.due})` },
   ];
 
   return (
@@ -329,12 +338,14 @@ export function OfferLettersTab() {
               ),
             },
             { key: "status", header: "Status", cell: (r) => <StatusCell r={r} /> },
+            { key: "payment", header: "Payment", cell: (r) => <PaymentCell r={r} /> },
             {
               key: "actions",
               header: <span className="sr-only">Actions</span>,
               align: "right",
               cell: (r) => (
                 <div className="flex flex-wrap justify-end gap-1">
+                  <Button size="sm" variant="ghost" onClick={() => setPaying(r)}>Payments</Button>
                   {r.status === "new" ? (
                     <>
                       <Button size="sm" onClick={() => doGenerate([r.id])}>
@@ -378,7 +389,7 @@ export function OfferLettersTab() {
         onClose={() => setEditing(null)}
         onSave={(input) => {
           if (editing === "new" || editing === null) {
-            saveAll([...records, { id: newId(), input, status: "new", addedOn: todayIso() }]);
+            saveAll([...records, { id: newId(), input, status: "new", addedOn: todayIso(), fee: settings.fee || undefined, payments: [] }]);
             toast.show({ tone: "success", title: `${input.name} added`, description: "Click Generate next to the name." });
           } else {
             saveAll(reopen(records, editing.id, input));
@@ -396,6 +407,16 @@ export function OfferLettersTab() {
           setDraftOf(null);
         }}
       />
+      <PaymentsDialog
+        record={paying}
+        defaultFee={settings.fee}
+        onClose={() => setPaying(null)}
+        onSave={(fee, payments) => {
+          if (paying) saveAll(setPayments(records, paying.id, fee, payments));
+          setPaying(null);
+          toast.show({ tone: "success", title: "Payments saved" });
+        }}
+      />
       <ConfirmDialog
         open={removing !== null}
         onClose={() => setRemoving(null)}
@@ -409,6 +430,141 @@ export function OfferLettersTab() {
         }}
       />
     </div>
+  );
+}
+
+function PaymentCell({ r }: { r: OfferRecord }) {
+  const st = payState(r);
+  if (st === "none") return <span className="text-sm text-fg-secondary">–</span>;
+  if (st === "unpaid") return <Badge tone="neutral">Not paid · {inr(r.fee ?? 0)} due</Badge>;
+  if (st === "paid") return <Badge tone="success">Paid {inr(paidTotal(r))}</Badge>;
+  return (
+    <span className="text-sm">
+      <Badge tone="warning">{inr(balance(r))} due</Badge>
+      <br />
+      <span className="text-fg-secondary">
+        {inr(paidTotal(r))} of {inr(r.fee ?? 0)} paid
+      </span>
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ payments */
+
+function PaymentsDialog({
+  record,
+  defaultFee,
+  onClose,
+  onSave,
+}: {
+  record: OfferRecord | null;
+  defaultFee: number;
+  onClose: () => void;
+  onSave: (fee: number | undefined, payments: Payment[]) => void;
+}) {
+  const [fee, setFee] = useState("");
+  const [list, setList] = useState<Payment[]>([]);
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(todayIso());
+  const [note, setNote] = useState("");
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    if (!record) return;
+    setFee(String(record.fee ?? (defaultFee || "")));
+    setList(record.payments ?? []);
+    setAmount("");
+    setDate(todayIso());
+    setNote("");
+    setErr("");
+  }, [record, defaultFee]);
+  const feeN = fee.trim() === "" ? undefined : rupees(fee);
+  const paid = paidTotal({ payments: list });
+  const due = feeN ? Math.max(0, feeN - paid) : 0;
+
+  function add() {
+    const a = rupees(amount);
+    if (!Number.isFinite(a) || a <= 0) {
+      setErr("Enter the amount received, e.g. 2500");
+      return;
+    }
+    if (!isIsoDate(date)) {
+      setErr("Enter the date it was received");
+      return;
+    }
+    setList((l) => [...l, { date, amount: a, ...(note.trim() ? { note: note.trim() } : {}) }]);
+    setAmount("");
+    setNote("");
+    setErr("");
+  }
+
+  return (
+    <Dialog
+      open={record !== null}
+      onClose={onClose}
+      size="lg"
+      title={`Payments – ${record?.input.name ?? ""}`}
+      description="Record what this candidate has to pay and every amount they send. The list shows the balance due."
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button
+            onClick={() => {
+              if (feeN !== undefined && (!Number.isFinite(feeN) || feeN < 0)) {
+                setErr("Total fee must be a number, e.g. 5000");
+                return;
+              }
+              onSave(feeN || undefined, list);
+            }}
+          >
+            Save payments
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4 text-sm">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField label="Total fee (₹)" hint="What they have to pay in all. Blank = not tracked">
+            {(p) => <Input {...p} inputMode="numeric" value={fee} onChange={(e) => setFee(e.target.value)} placeholder="5000" />}
+          </FormField>
+          <div className="self-end rounded-md border border-line p-3">
+            <div>
+              Paid: <span className="font-semibold">{inr(paid)}</span>
+            </div>
+            <div>
+              Balance due: <span className={due > 0 ? "font-semibold text-warning-fg" : "font-semibold text-success-fg"}>{inr(due)}</span>
+            </div>
+          </div>
+        </div>
+        <div>
+          <h3 className="mb-2 font-semibold">Payments received</h3>
+          {list.length ? (
+            <ul className="divide-y divide-line rounded-md border border-line">
+              {list.map((p, i) => (
+                <li key={`${p.date}-${i}`} className="flex flex-wrap items-center gap-3 px-3 py-2">
+                  <span className="w-28">{p.date ? shortDate(p.date) : "No date"}</span>
+                  <span className="w-24 font-medium">{inr(p.amount)}</span>
+                  <span className="min-w-0 flex-1 text-fg-secondary">{p.note ?? ""}</span>
+                  <Button size="sm" variant="ghost" onClick={() => setList((l) => l.filter((_, j) => j !== i))}>
+                    Delete
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-fg-secondary">No payments recorded yet.</p>
+          )}
+        </div>
+        <div className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_1.5fr_auto]">
+          <FormField label="Amount (₹)">{(p) => <Input {...p} inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="2500" />}</FormField>
+          <FormField label="Received on">{(p) => <Input {...p} type="date" value={date} onChange={(e) => setDate(e.target.value)} />}</FormField>
+          <FormField label="Note (optional)">{(p) => <Input {...p} value={note} onChange={(e) => setNote(e.target.value)} placeholder="UPI ref / cash" />}</FormField>
+          <Button variant="secondary" onClick={add}>
+            Add payment
+          </Button>
+        </div>
+        {err ? <p className="text-danger">{err}</p> : null}
+      </div>
+    </Dialog>
   );
 }
 
@@ -663,6 +819,12 @@ function OfferSettingsCard({ settings, onSave }: { settings: OfferSettings; onSa
         {text("ctc", "Default annual CTC", "Blank = must be given for each person")}
         {text("location", "Default location")}
         <FormField label="Default probation (months)">{(p) => <Input {...p} type="number" min={0} max={12} value={String(s.probation)} onChange={(e) => set("probation", Number(e.target.value) || 0)} />}</FormField>
+      </div>
+      <h3 className="mb-2 mt-6 text-sm font-semibold">Payments</h3>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <FormField label="Default total fee (₹)" hint="Used for new candidates; 0 = don't track fees">
+          {(p) => <Input {...p} type="number" min={0} value={String(s.fee)} onChange={(e) => set("fee", Number(e.target.value) || 0)} />}
+        </FormField>
       </div>
       <div className="mt-5">
         <Button
